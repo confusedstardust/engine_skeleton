@@ -1,0 +1,34 @@
+;============================================
+; scene_01.txt — 场景模板
+; 复制此文件来创建你的新场景
+;============================================
+
+;---- 背景设置 ----
+changeBg:bg.webp;
+
+;---- 背景音乐 ----
+; bgm:你的音乐文件名.mp3;
+
+;---- 角色登场 ----
+; changeFigure:figure_角色名.webp;
+; miniAvatar:miniavatar_角色名.webp;
+; 角色名:这是一段有名字的对话。;
+
+;---- 旁白示例 ----
+:这是旁白文本，没有角色名字前缀。
+
+;---- 选项分支示例 ----
+; 注释掉以保持模板简洁，使用时取消注释
+; choose:选项A的描述:label_a | 选项B的描述:label_b;
+; label:label_a;
+; :你选择了选项A。;
+; jumpLabel:after_choice;
+; label:label_b;
+; :你选择了选项B。;
+; label:after_choice;
+
+;---- 动效示例 ----
+; setAnimation:enter-from-left;
+
+;---- 返回主流程 ----
+callScene:start.txt;

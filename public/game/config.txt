@@ -1,0 +1,6 @@
+Game_name:我的游戏;
+Game_key:mygame2025;
+Title_img:WebGAL_New_Enter_Image.webp;
+Title_bgm:s_Title.mp3;
+Game_Logo:WebGalEnter.webp;
+Enable_Appreciation:true;
