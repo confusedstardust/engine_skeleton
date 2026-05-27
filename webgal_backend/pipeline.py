@@ -588,7 +588,10 @@ Do not explain. Call the function only."""
         """Generate a config.txt for the WebGAL engine."""
         game_dir = job_dir / "public" / "game"
         game_dir.mkdir(parents=True, exist_ok=True)
-        title = plan.get("title", "WebGAL Game")
+        title = plan.get("title") or plan.get("theme", {}).get("title") or "WebGAL Game"
+        job_data = self._read_required(job_dir / "job.json")
+        if title == "WebGAL Game":
+            title = job_data.get("source_material", "WebGAL Game")[:30]
         game_key = plan.get("game_key", job_dir.name[:16])
         lines = [
             f"Game_name:{title};",
