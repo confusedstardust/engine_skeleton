@@ -1,0 +1,4 @@
+interface:
+  display_name: "WebGAL Function Pipeline"
+  short_description: "WebGAL generation with strict schemas."
+  default_prompt: "Generate a structured WebGAL visual novel using forced function calls, JSON Schema validation, and phase gates."

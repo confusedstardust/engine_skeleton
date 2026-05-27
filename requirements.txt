@@ -1,0 +1,7 @@
+fastapi>=0.111
+uvicorn>=0.30
+jsonschema>=4.22
+openai>=1.0
+Pillow>=10.0
+rembg>=2.0
+onnxruntime>=1.18

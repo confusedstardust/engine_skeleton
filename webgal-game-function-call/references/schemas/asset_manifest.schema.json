@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "asset_manifest.schema.json",
+  "title": "WebGAL Asset Manifest",
+  "type": "object",
+  "required": ["base_dir", "model", "style_guide", "images"],
+  "additionalProperties": false,
+  "properties": {
+    "base_dir": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "style_guide": { "type": "string", "minLength": 1 },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "filename", "subdir", "size", "prompt", "source_ref"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "kind": { "type": "string", "enum": ["background", "figure", "cg"] },
+          "filename": { "type": "string", "pattern": "^(bg|figure|cg)_[a-z0-9_]+$" },
+          "subdir": { "type": "string", "enum": ["background", "figure"] },
+          "size": { "type": "string", "enum": ["2560x1440", "1440x2560"] },
+          "prompt": { "type": "string", "minLength": 20 },
+          "source_ref": {
+            "type": "object",
+            "required": ["type", "id"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "type": "string", "enum": ["scene", "character", "event"] },
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

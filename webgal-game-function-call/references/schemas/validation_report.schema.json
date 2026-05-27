@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "validation_report.schema.json",
+  "title": "WebGAL Validation Report",
+  "type": "object",
+  "required": ["summary", "checks", "errors", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "type": "object",
+      "required": ["total_scenes", "total_lines", "errors", "warnings", "passed"],
+      "additionalProperties": false,
+      "properties": {
+        "total_scenes": { "type": "integer", "minimum": 0 },
+        "total_lines": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "boolean" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": ["syntax", "references", "variables", "endings", "limits", "naming", "figures"],
+      "additionalProperties": false,
+      "properties": {
+        "syntax": { "$ref": "#/$defs/check_result" },
+        "references": { "$ref": "#/$defs/check_result" },
+        "variables": { "$ref": "#/$defs/check_result" },
+        "endings": { "$ref": "#/$defs/check_result" },
+        "limits": { "$ref": "#/$defs/check_result" },
+        "naming": { "$ref": "#/$defs/check_result" },
+        "figures": { "$ref": "#/$defs/check_result" }
+      }
+    },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/issue" } }
+  },
+  "$defs": {
+    "check_result": {
+      "type": "object",
+      "required": ["passed", "errors", "warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "passed": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/issue" } }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["code", "severity", "file", "line", "message", "repair_hint"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "severity": { "type": "string", "enum": ["error", "warning"] },
+        "file": { "type": ["string", "null"] },
+        "line": { "type": ["integer", "null"], "minimum": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "repair_hint": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
