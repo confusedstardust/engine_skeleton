@@ -1,0 +1,1871 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_narrative_plan",
+        "description": "Return the complete narrative architecture for a WebGAL visual novel.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "narrative_plan"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "narrative_plan": {
+              "title": "WebGAL Narrative Plan",
+              "type": "object",
+              "required": [
+                "metadata",
+                "characters",
+                "variables",
+                "scenes",
+                "connections",
+                "branches",
+                "endings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "metadata": {
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "premise",
+                    "tone",
+                    "source_summary"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "premise": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "tone": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source_summary": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "characters": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 7,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "name",
+                      "role",
+                      "personality",
+                      "motivation",
+                      "internal_conflict",
+                      "speech_style",
+                      "emotional_arc",
+                      "relationships"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "protagonist",
+                          "supporting",
+                          "antagonist",
+                          "catalyst",
+                          "chorus"
+                        ]
+                      },
+                      "personality": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "motivation": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "internal_conflict": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "speech_style": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "emotional_arc": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "relationships": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "with_character_id",
+                            "dynamic"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "with_character_id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$"
+                            },
+                            "dynamic": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "variables": {
+                  "type": "object",
+                  "required": [
+                    "attitude",
+                    "flags"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "attitude": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "description",
+                          "default",
+                          "min",
+                          "max"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_]*$"
+                          },
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "default": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "min": {
+                            "type": "integer",
+                            "const": 0
+                          },
+                          "max": {
+                            "type": "integer",
+                            "const": 100
+                          }
+                        }
+                      }
+                    },
+                    "flags": {
+                      "type": "array",
+                      "maxItems": 15,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "description",
+                          "default",
+                          "values"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_]*$"
+                          },
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "default": {
+                            "type": "integer",
+                            "const": 0
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "enum": [
+                                0,
+                                1
+                              ]
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "scenes": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 25,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "file",
+                      "title",
+                      "act",
+                      "description",
+                      "purpose",
+                      "is_entry",
+                      "is_ending",
+                      "characters_present"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "file": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]+\\.txt$"
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "act": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "purpose": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "is_entry": {
+                        "type": "boolean"
+                      },
+                      "is_ending": {
+                        "type": "boolean"
+                      },
+                      "characters_present": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]*$"
+                        }
+                      }
+                    }
+                  }
+                },
+                "connections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "from_scene_id",
+                      "to_scene_id",
+                      "kind",
+                      "condition"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "from_scene_id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "to_scene_id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "callScene",
+                          "choose_option",
+                          "ending_jump"
+                        ]
+                      },
+                      "condition": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Single WebGAL condition expression or null."
+                      }
+                    }
+                  }
+                },
+                "branches": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "scene_id",
+                      "description",
+                      "depth",
+                      "options"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "scene_id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "depth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "label",
+                            "sets",
+                            "adds",
+                            "next_scene_id",
+                            "unique_beat"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "sets": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "variable_id",
+                                  "value"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "variable_id": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9_]*$"
+                                  },
+                                  "value": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            },
+                            "adds": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "variable_id",
+                                  "value"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "variable_id": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9_]*$"
+                                  },
+                                  "value": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            },
+                            "next_scene_id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$"
+                            },
+                            "unique_beat": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "endings": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "file",
+                      "category",
+                      "priority",
+                      "emotional_tone",
+                      "trigger",
+                      "narrative_meaning"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "file": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]+\\.txt$"
+                      },
+                      "category": {
+                        "type": "string",
+                        "enum": [
+                          "best",
+                          "emotional",
+                          "character",
+                          "failure",
+                          "default"
+                        ]
+                      },
+                      "priority": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      },
+                      "emotional_tone": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "required": [
+                          "type",
+                          "conditions",
+                          "required_count"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "accumulator",
+                              "single_flag",
+                              "threshold",
+                              "fallback"
+                            ]
+                          },
+                          "conditions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "variable_id",
+                                "operator",
+                                "value"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "variable_id": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][a-z0-9_]*$"
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "enum": [
+                                    ">=",
+                                    ">",
+                                    "==",
+                                    "<=",
+                                    "<"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          },
+                          "required_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 1
+                          }
+                        }
+                      },
+                      "narrative_meaning": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_asset_manifest",
+        "description": "Return the complete generated-image manifest derived from the narrative plan.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "asset_manifest"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "asset_manifest": {
+              "title": "WebGAL Asset Manifest",
+              "type": "object",
+              "required": [
+                "base_dir",
+                "model",
+                "style_guide",
+                "images"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "base_dir": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "style_guide": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "images": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "kind",
+                      "filename",
+                      "subdir",
+                      "size",
+                      "prompt",
+                      "source_ref"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "background",
+                          "figure",
+                          "cg"
+                        ]
+                      },
+                      "filename": {
+                        "type": "string",
+                        "pattern": "^(bg|figure|cg)_[a-z0-9_]+$"
+                      },
+                      "subdir": {
+                        "type": "string",
+                        "enum": [
+                          "background",
+                          "figure"
+                        ]
+                      },
+                      "size": {
+                        "type": "string",
+                        "enum": [
+                          "2560x1440",
+                          "1440x2560"
+                        ]
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "minLength": 20
+                      },
+                      "source_ref": {
+                        "type": "object",
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "scene",
+                              "character",
+                              "event"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_]*$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_scene_batch",
+        "description": "Return validated WebGAL scene file contents as data, not direct file writes.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "scene_batch"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "scene_batch": {
+              "title": "WebGAL Scene Batch",
+              "type": "object",
+              "required": [
+                "scenes"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "scenes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scene_id",
+                      "file",
+                      "referenced_assets",
+                      "referenced_variables",
+                      "background_asset",
+                      "speaker_character_id",
+                      "beats"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "scene_id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "file": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]+\\.txt$"
+                      },
+                      "referenced_assets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^(bg|figure|miniavatar|cg)_[a-z0-9_]+\\.(webp|mp3)$"
+                        }
+                      },
+                      "referenced_variables": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]*$"
+                        }
+                      },
+                      "background_asset": {
+                        "type": "string",
+                        "pattern": "^(bg|cg)_[a-z0-9_]+\\.webp$"
+                      },
+                      "speaker_character_id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "beats": {
+                        "type": "array",
+                        "minItems": 8,
+                        "maxItems": 18,
+                        "description": "Short narrative/dialogue beats. Backend renders them into WebGAL syntax.",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "kind",
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "narration",
+                                "dialogue"
+                              ]
+                            },
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 180
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_validation_report",
+        "description": "Return a structured validation report for a generated WebGAL game.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "validation_report"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "validation_report": {
+              "title": "WebGAL Validation Report",
+              "type": "object",
+              "required": [
+                "summary",
+                "checks",
+                "errors",
+                "warnings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "summary": {
+                  "type": "object",
+                  "required": [
+                    "total_scenes",
+                    "total_lines",
+                    "errors",
+                    "warnings",
+                    "passed"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "total_scenes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "total_lines": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "warnings": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "passed": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "checks": {
+                  "type": "object",
+                  "required": [
+                    "syntax",
+                    "references",
+                    "variables",
+                    "endings",
+                    "limits",
+                    "naming",
+                    "figures"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "syntax": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "references": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "variables": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "endings": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "naming": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "figures": {
+                      "type": "object",
+                      "required": [
+                        "passed",
+                        "errors",
+                        "warnings"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "passed": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "severity",
+                              "file",
+                              "line",
+                              "message",
+                              "repair_hint"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*$"
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": [
+                                  "error",
+                                  "warning"
+                                ]
+                              },
+                              "file": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "line": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1
+                              },
+                              "message": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "repair_hint": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "severity",
+                      "file",
+                      "line",
+                      "message",
+                      "repair_hint"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "error",
+                          "warning"
+                        ]
+                      },
+                      "file": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "line": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 1
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "repair_hint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "severity",
+                      "file",
+                      "line",
+                      "message",
+                      "repair_hint"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "error",
+                          "warning"
+                        ]
+                      },
+                      "file": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "line": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 1
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "repair_hint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_repair_plan",
+        "description": "Return targeted scene-file repairs for validation errors.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "repair_plan"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repair_plan": {
+              "title": "WebGAL Repair Plan",
+              "type": "object",
+              "required": [
+                "cycle",
+                "repairs",
+                "unfixable"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "cycle": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "repairs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "issue_code",
+                      "file",
+                      "strategy",
+                      "find",
+                      "replace",
+                      "rationale"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "issue_code": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "file": {
+                        "type": "string",
+                        "pattern": "^public/game/scene/[a-z][a-z0-9_]+\\.txt$"
+                      },
+                      "strategy": {
+                        "type": "string",
+                        "enum": [
+                          "replace_text",
+                          "insert_after",
+                          "insert_before",
+                          "append_block",
+                          "manual_required"
+                        ]
+                      },
+                      "find": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "replace": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                "unfixable": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "issue_code",
+                      "file",
+                      "reason"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "issue_code": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$"
+                      },
+                      "file": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
