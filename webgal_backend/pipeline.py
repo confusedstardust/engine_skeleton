@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from .config import settings
 from .contract_context import build_phase_context
-from .llm import OpenAIFunctionClient
+from .llm import LLMError, OpenAIFunctionClient
 from .prompts import SYSTEM_PROMPT, asset_prompt, narrative_prompt, repair_prompt, scene_prompt
 from .storage import JobStore, read_json, write_json
 from .validators import (
@@ -212,7 +212,20 @@ class WebGALPipeline:
         for attempt in range(settings.max_schema_retries + 1):
             phase_context = build_phase_context(function_name)
             system_prompt = f"{SYSTEM_PROMPT}\n\n{phase_context}"
-            args = llm.call_function(function_name, system_prompt, prompt)
+            try:
+                args = llm.call_function(function_name, system_prompt, prompt)
+            except LLMError as exc:
+                last_error = str(exc)
+                prompt = f"""{user_prompt}
+
+The previous {function_name} call failed on attempt {attempt + 1}.
+Return a corrected call to {function_name}.
+
+Failure reason:
+{last_error}
+
+Keep every text field concise (1-2 short sentences). Do not explain. Call the function only."""
+                continue
             if artifact_key not in args:
                 last_error = f"function arguments missing key: {artifact_key}"
             else:
