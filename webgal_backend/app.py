@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 from typing import Any
 
@@ -22,6 +23,15 @@ engine_dist_dir = settings.workspace_root / "dist"
 
 if frontend_dir.exists():
     app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
+
+
+@app.on_event("startup")
+def log_runtime_paths() -> None:
+    logging.getLogger("uvicorn.error").info(
+        "WebGAL paths: skill_dir=%s asset_scripts_dir=%s",
+        settings.skill_dir,
+        settings.asset_scripts_dir,
+    )
 
 
 class CreateJobRequest(BaseModel):

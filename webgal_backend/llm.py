@@ -103,10 +103,15 @@ class OpenAIFunctionClient:
             "tools": [self._responses_tool(tool)],
             "tool_choice": {"type": "function", "name": function_name},
             "parallel_tool_calls": false_json(),
+            "max_output_tokens": settings.llm_max_tokens,
         }
         data = self._request("/responses", payload)
         for item in data.get("output", []):
             if item.get("type") == "function_call" and item.get("name") == function_name:
+                if item.get("status") == "incomplete":
+                    raise LLMError(
+                        f"{function_name} output was truncated; increase WEBGAL_MAX_TOKENS"
+                    )
                 return self._parse_function_arguments(item.get("arguments"), function_name)
         raise LLMError(f"model did not call required function: {function_name}")
 
@@ -125,9 +130,16 @@ class OpenAIFunctionClient:
             ],
             "tools": [self._chat_tool(tool)],
             "tool_choice": {"type": "function", "function": {"name": function_name}},
+            "max_tokens": settings.llm_max_tokens,
         }
         data = self._request("/chat/completions", payload)
-        message = data["choices"][0]["message"]
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise LLMError(
+                f"{function_name} output was truncated (finish_reason=length); "
+                "keep text fields concise or increase WEBGAL_MAX_TOKENS"
+            )
+        message = choice["message"]
         for call in message.get("tool_calls", []):
             fn = call.get("function", {})
             if fn.get("name") == function_name:

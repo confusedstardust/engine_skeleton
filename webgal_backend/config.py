@@ -18,7 +18,36 @@ def load_dotenv(path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        os.environ[key] = value
+
+
+def _resolve_asset_scripts_dir(workspace_root: Path) -> Path:
+    """Resolve image-generation scripts dir.
+
+    Function-call mode (WEBGAL_SKILL_DIR) is separate from asset scripts.
+    Legacy Cursor skills used ~/.agents/skills/webgal-game/script; this project
+    ships scripts in workspace_root/asset_scripts instead.
+    """
+    default = (workspace_root / "asset_scripts").resolve()
+    configured = os.getenv("WEBGAL_ASSET_SCRIPTS_DIR")
+    if not configured:
+        return default
+
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        candidate = (workspace_root / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    if not candidate.exists():
+        return default if default.exists() else candidate
+
+    # Ignore stale Cursor skill paths when the project ships local scripts.
+    normalized = str(candidate).replace("\\", "/").lower()
+    if default.exists() and ("/.agents/skills/" in normalized or normalized.endswith("/script")):
+        return default
+
+    return candidate
 
 
 @dataclass(frozen=True)
@@ -32,6 +61,7 @@ class Settings:
     llm_api_mode: str
     max_schema_retries: int
     max_repair_cycles: int
+    llm_max_tokens: int
     asset_scripts_dir: Path
 
     @classmethod
@@ -42,10 +72,7 @@ class Settings:
             os.getenv("WEBGAL_SKILL_DIR", workspace_root / "webgal-game-function-call")
         ).resolve()
         jobs_dir = Path(os.getenv("WEBGAL_JOBS_DIR", workspace_root / "jobs")).resolve()
-        default_asset_scripts = workspace_root / "asset_scripts"
-        asset_scripts_dir = Path(
-            os.getenv("WEBGAL_ASSET_SCRIPTS_DIR", str(default_asset_scripts))
-        ).resolve()
+        asset_scripts_dir = _resolve_asset_scripts_dir(workspace_root)
 
         return cls(
             workspace_root=workspace_root,
@@ -65,6 +92,7 @@ class Settings:
             llm_api_mode=(os.getenv("LLM_API_MODE") or os.getenv("OPENAI_API_MODE") or "chat").lower(),
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             max_repair_cycles=int(os.getenv("WEBGAL_MAX_REPAIR_CYCLES", "3")),
+            llm_max_tokens=int(os.getenv("WEBGAL_MAX_TOKENS", "8192")),
             asset_scripts_dir=asset_scripts_dir,
         )
 

@@ -31,7 +31,8 @@ Hard requirements:
 - Each ending must also have a matching scene in scenes[] with is_ending=true.
 - Exactly one entry scene.
 - Branch depth must not exceed 2.
-- Do not generate WebGAL script text in this phase."""
+- Do not generate WebGAL script text in this phase.
+- Keep metadata, character, scene, and ending text fields concise (1-2 short sentences each) so the full JSON fits in one response."""
 
 
 def asset_prompt(narrative_plan: dict[str, Any], base_dir: str, options: dict[str, Any]) -> str:

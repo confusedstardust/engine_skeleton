@@ -106,6 +106,7 @@ def _phase_specific_rules(function_name: str) -> str:
 - Include ending scenes in scenes[] with is_ending=true and file fields.
 - Entry scene should normally be file=start.txt.
 - At least 1 choice point is acceptable; 3 is preferred for richer stories.
+- Keep text fields concise (1-2 short sentences) so the JSON fits in one response.
 - Do not create WebGAL script text here."""
     if function_name == "emit_asset_manifest":
         return """Asset phase additions:
