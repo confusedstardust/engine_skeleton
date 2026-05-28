@@ -28,8 +28,6 @@
             "speaker_character_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
             "beats": {
               "type": "array",
-              "minItems": 8,
-              "maxItems": 18,
               "description": "Short narrative/dialogue beats. Backend renders them into WebGAL syntax.",
               "items": {
                 "type": "object",
@@ -37,7 +35,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": { "type": "string", "enum": ["narration", "dialogue"] },
-                  "text": { "type": "string", "minLength": 1, "maxLength": 180 }
+                  "text": { "type": "string", "minLength": 1 }
                 }
               }
             }

@@ -14,60 +14,86 @@
           "additionalProperties": false,
           "properties": {
             "narrative_plan": {
-              "title": "WebGAL Narrative Plan",
+              "title": "WebGAL Narrative Design",
               "type": "object",
               "required": [
-                "metadata",
+                "title",
+                "theme",
+                "emotion_tone",
+                "conflict_structure",
+                "story_progression",
+                "story_arc",
                 "characters",
-                "variables",
-                "scenes",
-                "connections",
-                "branches",
-                "endings"
+                "touchable_points",
+                "must_avoid",
+                "social_observation"
               ],
               "additionalProperties": false,
               "properties": {
-                "metadata": {
-                  "type": "object",
-                  "required": [
-                    "title",
-                    "premise",
-                    "tone",
-                    "source_summary"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "title": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "premise": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "tone": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "source_summary": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The title derived from the source material."
                 },
-                "characters": {
+                "theme": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The core theme of the source material, stated as a concise dramatic idea."
+                },
+                "emotion_tone": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The dominant emotional tone, such as restrained melancholy, romantic tension, absurd satire, or hopeful recovery."
+                },
+                "conflict_structure": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The central conflict pattern, including external pressure, inner contradiction, and relationship tension."
+                },
+                "story_progression": {
                   "type": "array",
-                  "minItems": 3,
-                  "maxItems": 7,
+                  "description": "A phase-by-phase outline of how the adaptation should unfold. Do not write script text here.",
                   "items": {
                     "type": "object",
                     "required": [
                       "id",
                       "name",
-                      "role",
+                      "content"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "such as phase0, phase1, phase2."
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Short label for this story phase."
+                      },
+                      "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "What should happen in this phase, including emotional movement and player choice opportunities."
+                      }
+                    }
+                  }
+                },
+                "story_arc": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The overall emotional and dramatic arc from opening state to possible resolution."
+                },
+                "characters": {
+                  "type": "array",
+                  "description": "Major characters needed for the adaptation.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "name",
                       "personality",
                       "motivation",
-                      "internal_conflict",
                       "speech_style",
                       "emotional_arc",
                       "relationships"
@@ -76,59 +102,53 @@
                     "properties": {
                       "id": {
                         "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "description": "Lowercase snake_case character id."
                       },
                       "name": {
                         "type": "string",
-                        "minLength": 1
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "protagonist",
-                          "supporting",
-                          "antagonist",
-                          "catalyst",
-                          "chorus"
-                        ]
+                        "minLength": 1,
+                        "description": "Display name used in dialogue."
                       },
                       "personality": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "description": "Personality with contradictions, not a flat archetype."
                       },
                       "motivation": {
                         "type": "string",
-                        "minLength": 1
-                      },
-                      "internal_conflict": {
-                        "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "description": "What the character wants and why it matters emotionally."
                       },
                       "speech_style": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "description": "How the character speaks, with rhythm, vocabulary, and social texture."
                       },
                       "emotional_arc": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "description": "How this character may change or fail to change across the story."
                       },
                       "relationships": {
                         "type": "array",
                         "items": {
                           "type": "object",
                           "required": [
-                            "with_character_id",
+                            "with",
                             "dynamic"
                           ],
                           "additionalProperties": false,
                           "properties": {
-                            "with_character_id": {
+                            "with": {
                               "type": "string",
-                              "pattern": "^[a-z][a-z0-9_]*$"
+                              "pattern": "^[a-z][a-z0-9_]*$",
+                              "description": "The related character id."
                             },
                             "dynamic": {
                               "type": "string",
-                              "minLength": 1
+                              "minLength": 1,
+                              "description": "The dramatic relationship dynamic and how it creates tension."
                             }
                           }
                         }
@@ -136,404 +156,25 @@
                     }
                   }
                 },
-                "variables": {
-                  "type": "object",
-                  "required": [
-                    "attitude",
-                    "flags"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "attitude": {
-                      "type": "array",
-                      "maxItems": 8,
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "id",
-                          "description",
-                          "default",
-                          "min",
-                          "max"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "pattern": "^[a-z][a-z0-9_]*$"
-                          },
-                          "description": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "default": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 100
-                          },
-                          "min": {
-                            "type": "integer",
-                            "const": 0
-                          },
-                          "max": {
-                            "type": "integer",
-                            "const": 100
-                          }
-                        }
-                      }
-                    },
-                    "flags": {
-                      "type": "array",
-                      "maxItems": 15,
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "id",
-                          "description",
-                          "default",
-                          "values"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "pattern": "^[a-z][a-z0-9_]*$"
-                          },
-                          "description": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "default": {
-                            "type": "integer",
-                            "const": 0
-                          },
-                          "values": {
-                            "type": "array",
-                            "items": {
-                              "type": "integer",
-                              "enum": [
-                                0,
-                                1
-                              ]
-                            },
-                            "minItems": 2,
-                            "maxItems": 2
-                          }
-                        }
-                      }
-                    }
+                "touchable_points": {
+                  "type": "array",
+                  "description": "Emotionally touchable moments the player should feel, such as misunderstanding, tenderness, shame, hesitation, or estrangement.",
+                  "items": {
+                    "type": "string"
                   }
                 },
-                "scenes": {
+                "must_avoid": {
                   "type": "array",
-                  "minItems": 5,
-                  "maxItems": 25,
+                  "description": "Adaptation pitfalls to avoid.",
                   "items": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "file",
-                      "title",
-                      "act",
-                      "description",
-                      "purpose",
-                      "is_entry",
-                      "is_ending",
-                      "characters_present"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "file": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]+\\.txt$"
-                      },
-                      "title": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "act": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9
-                      },
-                      "description": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "purpose": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "is_entry": {
-                        "type": "boolean"
-                      },
-                      "is_ending": {
-                        "type": "boolean"
-                      },
-                      "characters_present": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^[a-z][a-z0-9_]*$"
-                        }
-                      }
-                    }
+                    "type": "string"
                   }
                 },
-                "connections": {
+                "social_observation": {
                   "type": "array",
+                  "description": "Social or psychological observations extracted from the material.",
                   "items": {
-                    "type": "object",
-                    "required": [
-                      "from_scene_id",
-                      "to_scene_id",
-                      "kind",
-                      "condition"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "from_scene_id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "to_scene_id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "callScene",
-                          "choose_option",
-                          "ending_jump"
-                        ]
-                      },
-                      "condition": {
-                        "type": [
-                          "string",
-                          "null"
-                        ],
-                        "description": "Single WebGAL condition expression or null."
-                      }
-                    }
-                  }
-                },
-                "branches": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 20,
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "scene_id",
-                      "description",
-                      "depth",
-                      "options"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "scene_id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "description": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "depth": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 2
-                      },
-                      "options": {
-                        "type": "array",
-                        "minItems": 3,
-                        "maxItems": 4,
-                        "items": {
-                          "type": "object",
-                          "required": [
-                            "label",
-                            "sets",
-                            "adds",
-                            "next_scene_id",
-                            "unique_beat"
-                          ],
-                          "additionalProperties": false,
-                          "properties": {
-                            "label": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "sets": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "required": [
-                                  "variable_id",
-                                  "value"
-                                ],
-                                "additionalProperties": false,
-                                "properties": {
-                                  "variable_id": {
-                                    "type": "string",
-                                    "pattern": "^[a-z][a-z0-9_]*$"
-                                  },
-                                  "value": {
-                                    "type": "integer"
-                                  }
-                                }
-                              }
-                            },
-                            "adds": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "required": [
-                                  "variable_id",
-                                  "value"
-                                ],
-                                "additionalProperties": false,
-                                "properties": {
-                                  "variable_id": {
-                                    "type": "string",
-                                    "pattern": "^[a-z][a-z0-9_]*$"
-                                  },
-                                  "value": {
-                                    "type": "integer"
-                                  }
-                                }
-                              }
-                            },
-                            "next_scene_id": {
-                              "type": "string",
-                              "pattern": "^[a-z][a-z0-9_]*$"
-                            },
-                            "unique_beat": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "endings": {
-                  "type": "array",
-                  "minItems": 5,
-                  "maxItems": 5,
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "file",
-                      "category",
-                      "priority",
-                      "emotional_tone",
-                      "trigger",
-                      "narrative_meaning"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]*$"
-                      },
-                      "file": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_]+\\.txt$"
-                      },
-                      "category": {
-                        "type": "string",
-                        "enum": [
-                          "best",
-                          "emotional",
-                          "character",
-                          "failure",
-                          "default"
-                        ]
-                      },
-                      "priority": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 5
-                      },
-                      "emotional_tone": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "trigger": {
-                        "type": "object",
-                        "required": [
-                          "type",
-                          "conditions",
-                          "required_count"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "type": {
-                            "type": "string",
-                            "enum": [
-                              "accumulator",
-                              "single_flag",
-                              "threshold",
-                              "fallback"
-                            ]
-                          },
-                          "conditions": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "required": [
-                                "variable_id",
-                                "operator",
-                                "value"
-                              ],
-                              "additionalProperties": false,
-                              "properties": {
-                                "variable_id": {
-                                  "type": "string",
-                                  "pattern": "^[a-z][a-z0-9_]*$"
-                                },
-                                "operator": {
-                                  "type": "string",
-                                  "enum": [
-                                    ">=",
-                                    ">",
-                                    "==",
-                                    "<=",
-                                    "<"
-                                  ]
-                                },
-                                "value": {
-                                  "type": "integer"
-                                }
-                              }
-                            }
-                          },
-                          "required_count": {
-                            "type": [
-                              "integer",
-                              "null"
-                            ],
-                            "minimum": 1
-                          }
-                        }
-                      },
-                      "narrative_meaning": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
+                    "type": "string"
                   }
                 }
               }
@@ -612,17 +253,11 @@
                       },
                       "subdir": {
                         "type": "string",
-                        "enum": [
-                          "background",
-                          "figure"
-                        ]
+                        "minLength": 1
                       },
                       "size": {
                         "type": "string",
-                        "enum": [
-                          "2560x1440",
-                          "1440x2560"
-                        ]
+                        "minLength": 1
                       },
                       "prompt": {
                         "type": "string",
@@ -728,8 +363,6 @@
                       },
                       "beats": {
                         "type": "array",
-                        "minItems": 8,
-                        "maxItems": 18,
                         "description": "Short narrative/dialogue beats. Backend renders them into WebGAL syntax.",
                         "items": {
                           "type": "object",
@@ -748,8 +381,7 @@
                             },
                             "text": {
                               "type": "string",
-                              "minLength": 1,
-                              "maxLength": 180
+                              "minLength": 1
                             }
                           }
                         }
@@ -1779,8 +1411,7 @@
               "properties": {
                 "cycle": {
                   "type": "integer",
-                  "minimum": 1,
-                  "maximum": 3
+                  "minimum": 1
                 },
                 "repairs": {
                   "type": "array",

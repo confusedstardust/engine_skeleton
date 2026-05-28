@@ -20,8 +20,8 @@
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
           "kind": { "type": "string", "enum": ["background", "figure", "cg"] },
           "filename": { "type": "string", "pattern": "^(bg|figure|cg)_[a-z0-9_]+$" },
-          "subdir": { "type": "string", "enum": ["background", "figure"] },
-          "size": { "type": "string", "enum": ["2560x1440", "1440x2560"] },
+          "subdir": { "type": "string", "minLength": 1 },
+          "size": { "type": "string", "minLength": 1 },
           "prompt": { "type": "string", "minLength": 20 },
           "source_ref": {
             "type": "object",

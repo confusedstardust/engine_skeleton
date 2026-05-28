@@ -50,6 +50,13 @@ def _resolve_asset_scripts_dir(workspace_root: Path) -> Path:
     return candidate
 
 
+def _optional_positive_int(value: str | None) -> int | None:
+    if value is None or not value.strip():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
 @dataclass(frozen=True)
 class Settings:
     workspace_root: Path
@@ -59,9 +66,11 @@ class Settings:
     llm_base_url: str
     llm_model: str
     llm_api_mode: str
+    llm_thinking: str
+    llm_reasoning_effort: str
     max_schema_retries: int
     max_repair_cycles: int
-    llm_max_tokens: int
+    llm_max_tokens: int | None
     asset_scripts_dir: Path
 
     @classmethod
@@ -87,12 +96,14 @@ class Settings:
                 os.getenv("MODEL")
                 or os.getenv("DEEPSEEK_MODEL")
                 or os.getenv("OPENAI_MODEL")
-                or "deepseek-chat"
+                or "deepseek-v4-pro"
             ),
             llm_api_mode=(os.getenv("LLM_API_MODE") or os.getenv("OPENAI_API_MODE") or "chat").lower(),
+            llm_thinking=(os.getenv("DEEPSEEK_THINKING") or "enabled").lower(),
+            llm_reasoning_effort=(os.getenv("DEEPSEEK_REASONING_EFFORT") or "high").lower(),
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             max_repair_cycles=int(os.getenv("WEBGAL_MAX_REPAIR_CYCLES", "3")),
-            llm_max_tokens=int(os.getenv("WEBGAL_MAX_TOKENS", "8192")),
+            llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
         )
 
