@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .config import settings
+from .generation_limits import generation_limits, prompt_limits_text
 
 
 ORIGINAL_WEBGAL_SKILL_DIR = Path(__file__).resolve().parent.parent / "shared"
@@ -53,6 +54,16 @@ def build_phase_context(function_name: str) -> str:
     if not resources:
         return GLOBAL_RULES
 
+    if function_name == "emit_narrative_plan":
+        return "\n\n".join(
+            [
+                "Current phase function: " + function_name,
+                "Current phase JSON Schema:",
+                _compact_schema(resources["schema"]),
+                _phase_specific_rules(function_name),
+            ]
+        )
+
     parts = [GLOBAL_RULES]
     parts.append("Current phase function: " + function_name)
     parts.append("Current phase JSON Schema:")
@@ -99,22 +110,32 @@ def _trim_text(text: str, max_chars: int) -> str:
 
 
 def _phase_specific_rules(function_name: str) -> str:
+    limits = generation_limits()
     if function_name == "emit_narrative_plan":
-        return """Narrative phase additions:
-- Keep total scenes including endings <= 25.
-- Create exactly 5 endings: best, emotional, character, failure, default.
-- Include ending scenes in scenes[] with is_ending=true and file fields.
-- Entry scene should normally be file=start.txt.
-- At least 1 choice point is acceptable; 3 is preferred for richer stories.
-- Keep text fields concise (1-2 short sentences) so the JSON fits in one response.
-- Do not create WebGAL script text here."""
+        return f"""Configured generation limits override any copied contract examples above:
+{prompt_limits_text()}
+
+Narrative phase additions:
+- Return only the high-level narrative design described by the schema.
+- Do not create scene files, variables, branches, endings, asset prompts, or WebGAL script text here.
+- story_progression should be a compact phase outline; backend will expand it into internal scene structure later.
+- Keep text fields concise but specific."""
     if function_name == "emit_asset_manifest":
-        return """Asset phase additions:
+        return f"""Configured generation limits override any copied contract examples above:
+- Figure assets: subdir {limits['assets']['figure_subdir']}, size {limits['assets']['figure_size']}.
+- Background/CG assets: subdir {limits['assets']['background_subdir']}, size {limits['assets']['background_size']}.
+
+Asset phase additions:
 - Every character must have exactly one figure asset.
 - Use bg_ prefix for backgrounds, figure_ prefix for sprites, cg_ prefix for event CGs.
 - Sprite prompts must include: clean plain white background, full body visible, no text, no watermark."""
     if function_name == "emit_scene_batch":
-        return """Scene phase additions:
+        return f"""Configured generation limits override any copied contract examples above:
+- Use {limits['scene_batch']['beats_min']} to {limits['scene_batch']['beats_max']} beats per scene.
+- Keep beat text <= {limits['scene_batch']['beat_text_max_length']} characters.
+- Rendered scene files must be {limits['scenes']['min_lines']} to {limits['scenes']['max_lines']} lines.
+
+Scene phase additions:
 - Return compact blueprints, not complete WebGAL script files.
 - beats[].text must be plain story prose/dialogue only.
 - Do not include commands like changeBg, callScene, miniAvatar, sleep, bgi_fadeIn, or JavaScript-style calls in beats.

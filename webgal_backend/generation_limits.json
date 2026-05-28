@@ -1,0 +1,49 @@
+{
+  "characters": {
+    "min": 2,
+    "max": 5
+  },
+  "variables": {
+    "max_total": 5,
+    "attitude_max": 5,
+    "flag_max": 5,
+    "attitude_min_value": 0,
+    "attitude_max_value": 100
+  },
+  "scenes": {
+    "min": 3,
+    "max": 7,
+    "min_lines": 30,
+    "max_lines": 300
+  },
+  "branches": {
+    "min": 1,
+    "max": 3,
+    "max_depth": 2,
+    "choice_options_min": 3,
+    "choice_options_max": 4,
+    "preferred_choice_points": 3
+  },
+  "endings": {
+    "categories": [
+      "best",
+      "failure",
+      "default"
+    ]
+  },
+  "assets": {
+    "figure_subdir": "figure",
+    "figure_size": "1440x2560",
+    "background_subdir": "background",
+    "background_size": "2560x1440"
+  },
+  "scene_batch": {
+    "beats_min": 5,
+    "beats_max": 15,
+    "beat_text_max_length": 80,
+    "fallback_referenced_variable_limit": 3
+  },
+  "repair": {
+    "max_cycles": 1
+  }
+}

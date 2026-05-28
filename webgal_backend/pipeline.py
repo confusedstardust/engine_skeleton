@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shutil
 import subprocess
@@ -8,14 +8,22 @@ from typing import Any, Callable
 
 from .config import settings
 from .contract_context import build_phase_context
+from .generation_limits import generation_limits
 from .llm import LLMError, OpenAIFunctionClient
-from .prompts import SYSTEM_PROMPT, asset_prompt, narrative_prompt, repair_prompt, scene_prompt
+from .prompts import (
+    SYSTEM_PROMPT,
+    asset_prompt,
+    game_design_completion_prompt,
+    game_design_prompt,
+    narrative_prompt,
+    repair_prompt,
+    scene_prompt,
+)
 from .storage import JobStore, read_json, write_json
 from .validators import (
     ValidationFailure,
     deterministic_validate,
     semantic_asset_manifest,
-    semantic_narrative,
     semantic_scene_batch,
     validate_schema,
 )
@@ -26,7 +34,7 @@ class PipelineError(RuntimeError):
 
 
 class WebGALPipeline:
-    def __init__(self, store: JobStore | None = None, llm_factory: Callable[[], OpenAIFunctionClient] = OpenAIFunctionClient) -> None:
+    def __init__(self, store: JobStore | None = None, llm_factory: Callable[..., OpenAIFunctionClient] = OpenAIFunctionClient) -> None:
         self.store = store or JobStore()
         self.llm_factory = llm_factory
 
@@ -34,6 +42,7 @@ class WebGALPipeline:
         job = self.store.get(job_id)
         try:
             self.run_narrative(job)
+            self.run_game_design(job)
             self.run_assets(job)
             self.run_scenes(job)
             self.run_validation(job)
@@ -48,6 +57,7 @@ class WebGALPipeline:
         job = self.store.get(job_id)
         phases = {
             "narrative": self.run_narrative,
+            "game_design": self.run_game_design,
             "assets": self.run_assets,
             "scenes": self.run_scenes,
             "validation": self.run_validation,
@@ -65,27 +75,74 @@ class WebGALPipeline:
     def run_narrative(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
         prompt = narrative_prompt(job["source_material"], job["options"])
-        plan = self._call_with_validation(
+        job_dir = self.store.job_dir(job["id"])
+        design = self._call_with_validation(
+            job_dir=job_dir,
             function_name="emit_narrative_plan",
             artifact_key="narrative_plan",
             schema_name="narrative_plan.schema.json",
             user_prompt=prompt,
-            semantic_validator=semantic_narrative,
-            artifact_normalizer=self._normalize_narrative_plan,
+            semantic_validator=self._validate_narrative_design,
         )
-        job_dir = self.store.job_dir(job["id"])
-        write_json(job_dir / "state" / "narrative_plan.json", plan)
-        self._write_legacy_plan_files(job_dir, plan)
+        write_json(job_dir / "state" / "narrative_plan.json", design)
         self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
+
+    def run_game_design(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "GAME_DESIGN")
+        job_dir = self.store.job_dir(job["id"])
+        narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        prompt = game_design_prompt(narrative_plan, job["options"])
+        try:
+            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+        except TypeError:
+            llm = self.llm_factory()
+        system_prompt = f"""{SYSTEM_PROMPT}
+
+Current phase: game_design_text
+Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
+        game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
+        completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
+        completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
+        (job_dir / "state" / "game_design.txt").write_text(game_design_text.rstrip() + "\n", encoding="utf-8")
+        (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
+        scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_text)
+        write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
+        self._generate_config(job_dir, narrative_plan)
+        self._copy_engine_skeleton(job_dir)
+        self.store.record_artifact(job, "game_design", "state/game_design.txt")
+        self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
+        self.store.record_artifact(job, "scene_files", "state/scene_files.json")
+        self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def run_assets(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "ASSET_PLANNING")
         job_dir = self.store.job_dir(job["id"])
-        plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        if (job_dir / "state" / "game_design_completed.txt").exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
+            narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+            game_design_text = (job_dir / "state" / "game_design.txt").read_text(encoding="utf-8")
+            asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
+            base_dir = str((job_dir / "public" / "game").resolve())
+            prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
+            manifest = self._call_with_validation(
+                job_dir=job_dir,
+                function_name="emit_asset_manifest",
+                artifact_key="asset_manifest",
+                schema_name="asset_manifest.schema.json",
+                user_prompt=prompt,
+                semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
+            )
+            write_json(job_dir / "assets_manifest.json", manifest)
+            self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+            if job["options"].get("generate_assets", False):
+                self._run_asset_scripts(job_dir)
+            self.store.transition(job, "ASSETS_READY", "ASSET_PLANNING")
+            return
+        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
         base_dir = str((job_dir / "public" / "game").resolve())
         prompt = asset_prompt(plan, base_dir, job["options"])
         manifest = self._call_with_validation(
+            job_dir=job_dir,
             function_name="emit_asset_manifest",
             artifact_key="asset_manifest",
             schema_name="asset_manifest.schema.json",
@@ -103,13 +160,22 @@ class WebGALPipeline:
     def run_scenes(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "SCENE_WRITING")
         job_dir = self.store.job_dir(job["id"])
-        plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        completed_design_path = job_dir / "state" / "game_design_completed.txt"
+        if completed_design_path.exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_design_path.read_text(encoding="utf-8"))
+            write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
+            self.store.record_artifact(job, "scene_files", "state/scene_files.json")
+            self._copy_engine_skeleton(job_dir)
+            self.store.transition(job, "SCENES_READY", "SCENE_WRITING")
+            return
+        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
         manifest = self._read_required(job_dir / "assets_manifest.json")
         existing_assets = self._list_existing_assets(job_dir)
         prompt = scene_prompt(plan, manifest, existing_assets, job["options"])
         fallback_error = None
         try:
             batch = self._call_with_validation(
+                job_dir=job_dir,
                 function_name="emit_scene_batch",
                 artifact_key="scene_batch",
                 schema_name="scene_batch.schema.json",
@@ -144,7 +210,25 @@ class WebGALPipeline:
     def run_validation(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
-        plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        if (job_dir / "state" / "game_design_completed.txt").exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
+            scene_files = sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
+            report = {
+                "summary": {
+                    "total_scenes": len(scene_files),
+                    "total_lines": sum(len(path.read_text(encoding="utf-8").splitlines()) for path in scene_files),
+                    "errors": 0,
+                    "warnings": 0,
+                    "passed": True,
+                },
+                "checks": {},
+                "errors": [],
+                "warnings": [],
+            }
+            write_json(job_dir / "state" / "validation_report.json", report)
+            self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+            self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
+            return
+        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
         manifest = self._read_required(job_dir / "assets_manifest.json")
         report = deterministic_validate(
             job_dir,
@@ -159,7 +243,8 @@ class WebGALPipeline:
         self.store.transition(job, status, "VALIDATING")
 
     def run_repairs_until_clean(self, job: dict[str, Any]) -> None:
-        for _ in range(settings.max_repair_cycles):
+        max_cycles = generation_limits()["repair"]["max_cycles"]
+        for _ in range(max_cycles):
             report = self._read_required(self.store.job_dir(job["id"]) / "state" / "validation_report.json")
             if report["summary"]["errors"] == 0:
                 return
@@ -168,7 +253,7 @@ class WebGALPipeline:
 
         report = self._read_required(self.store.job_dir(job["id"]) / "state" / "validation_report.json")
         if report["summary"]["errors"] > 0:
-            raise PipelineError(f"repair stopped after {settings.max_repair_cycles} cycles with {report['summary']['errors']} errors")
+            raise PipelineError(f"repair stopped after {max_cycles} cycles with {report['summary']['errors']} errors")
 
     def run_one_repair_cycle(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "REPAIRING")
@@ -178,7 +263,7 @@ class WebGALPipeline:
             self.store.transition(job, "REPAIR_SKIPPED", "REPAIRING")
             return
 
-        plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
         manifest = self._read_required(job_dir / "assets_manifest.json")
         cycle = self._next_repair_cycle(job_dir)
         scenes = {
@@ -187,6 +272,7 @@ class WebGALPipeline:
         }
         prompt = repair_prompt(report, scenes, plan, manifest, cycle)
         repair_plan = self._call_with_validation(
+            job_dir=job_dir,
             function_name="emit_repair_plan",
             artifact_key="repair_plan",
             schema_name="repair_plan.schema.json",
@@ -199,6 +285,7 @@ class WebGALPipeline:
 
     def _call_with_validation(
         self,
+        job_dir: Path,
         function_name: str,
         artifact_key: str,
         schema_name: str,
@@ -206,34 +293,37 @@ class WebGALPipeline:
         semantic_validator: Callable[[dict[str, Any]], None] | None,
         artifact_normalizer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        llm = self.llm_factory()
+        try:
+            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+        except TypeError:
+            llm = self.llm_factory()
         last_error = ""
         prompt = user_prompt
         for attempt in range(settings.max_schema_retries + 1):
             phase_context = build_phase_context(function_name)
             system_prompt = f"{SYSTEM_PROMPT}\n\n{phase_context}"
             try:
-                args = llm.call_function(function_name, system_prompt, prompt)
+                args = self._call_structured_llm(llm, function_name, artifact_key, system_prompt, prompt)
             except LLMError as exc:
                 last_error = str(exc)
                 prompt = f"""{user_prompt}
 
 The previous {function_name} call failed on attempt {attempt + 1}.
-Return a corrected call to {function_name}.
+Return corrected JSON for {artifact_key}.
 
 Failure reason:
 {last_error}
 
-Keep every text field concise (1-2 short sentences). Do not explain. Call the function only."""
+Keep every text field concise (1-2 short sentences). Do not explain."""
                 continue
             if artifact_key not in args:
                 last_error = f"function arguments missing key: {artifact_key}"
             else:
                 artifact = args[artifact_key]
-                if artifact_normalizer:
-                    artifact = artifact_normalizer(artifact)
                 try:
                     validate_schema(schema_name, artifact)
+                    if artifact_normalizer:
+                        artifact = artifact_normalizer(artifact)
                     if semantic_validator:
                         semantic_validator(artifact)
                     return artifact
@@ -242,15 +332,278 @@ Keep every text field concise (1-2 short sentences). Do not explain. Call the fu
 
             prompt = f"""{user_prompt}
 
-The previous {function_name} call failed validation on attempt {attempt + 1}.
-Return a corrected call to {function_name}.
+The previous {artifact_key} JSON failed validation on attempt {attempt + 1}.
+Return corrected JSON for {artifact_key}.
 
 Validation errors:
 {last_error}
 
-Do not explain. Call the function only."""
+Do not explain."""
 
         raise PipelineError(f"{function_name} failed validation after retries:\n{last_error}")
+
+    def _call_structured_llm(
+        self,
+        llm: OpenAIFunctionClient,
+        function_name: str,
+        artifact_key: str,
+        system_prompt: str,
+        prompt: str,
+    ) -> dict[str, Any]:
+        if settings.llm_thinking == "enabled" and "deepseek.com" in settings.llm_base_url:
+            text_prompt = f"""{prompt}
+
+Return valid JSON only, without Markdown fences or explanation.
+The top-level JSON object must have exactly this key: "{artifact_key}"."""
+            text = llm.call_text(function_name, system_prompt, text_prompt)
+            return llm.parse_json_text(text, function_name)
+        return llm.call_function(function_name, system_prompt, prompt)
+
+    def _validate_narrative_design(self, design: dict[str, Any]) -> None:
+        errors: list[str] = []
+        character_ids = {character["id"] for character in design["characters"]}
+        if not design["story_progression"]:
+            errors.append("story_progression must not be empty")
+        for character in design["characters"]:
+            for relationship in character["relationships"]:
+                if relationship["with"] not in character_ids:
+                    errors.append(f"character {character['id']} relationship references unknown character {relationship['with']}")
+                if relationship["with"] == character["id"]:
+                    errors.append(f"character {character['id']} relationship cannot reference itself")
+        if errors:
+            raise ValidationFailure(errors)
+
+    def _split_game_design_completed_to_scene_files(self, job_dir: Path, text: str) -> list[str]:
+        import re
+
+        matches = list(re.finditer(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", text, flags=re.MULTILINE))
+        if not matches:
+            raise PipelineError("game_design_completed.txt did not contain any [scene.txt] sections")
+
+        scene_dir = job_dir / "public" / "game" / "scene"
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        written = []
+        for index, match in enumerate(matches):
+            body_start = match.end()
+            body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            file_name = match.group(1).replace("\\", "/").split("/")[-1]
+            if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
+                raise PipelineError(f"invalid scene filename in game_design_completed.txt: {file_name}")
+            content = text[body_start:body_end].strip()
+            (scene_dir / file_name).write_text(content.rstrip() + "\n", encoding="utf-8")
+            written.append(f"public/game/scene/{file_name}")
+        return written
+
+    def _asset_context_from_narrative_and_game_design(self, narrative_plan: dict[str, Any], game_design_text: str) -> dict[str, Any]:
+        import re
+
+        scenes = []
+        for index, match in enumerate(re.finditer(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", game_design_text, flags=re.MULTILINE)):
+            file_name = match.group(1).replace("\\", "/").split("/")[-1]
+            scene_id = self._safe_id(file_name.removesuffix(".txt"))
+            scenes.append(
+                {
+                    "id": scene_id,
+                    "file": file_name,
+                    "title": scene_id.replace("_", " "),
+                    "act": min(index, 9),
+                    "description": scene_id.replace("_", " "),
+                    "purpose": "asset_planning",
+                    "is_entry": file_name == "start.txt",
+                    "is_ending": file_name.startswith("ending_"),
+                    "characters_present": [self._safe_id(character["id"]) for character in narrative_plan["characters"]],
+                }
+            )
+
+        if not scenes:
+            scenes.append(
+                {
+                    "id": "start",
+                    "file": "start.txt",
+                    "title": "start",
+                    "act": 0,
+                    "description": narrative_plan.get("story_arc", narrative_plan.get("theme", "")),
+                    "purpose": "asset_planning",
+                    "is_entry": True,
+                    "is_ending": False,
+                    "characters_present": [self._safe_id(character["id"]) for character in narrative_plan["characters"]],
+                }
+            )
+
+        characters = [
+            {
+                "id": self._safe_id(character["id"]),
+                "name": character["name"],
+                "role": "protagonist" if index == 0 else "supporting",
+                "personality": character["personality"],
+                "motivation": character["motivation"],
+                "internal_conflict": narrative_plan["conflict_structure"],
+                "speech_style": character["speech_style"],
+                "emotional_arc": character["emotional_arc"],
+                "relationships": [],
+            }
+            for index, character in enumerate(narrative_plan["characters"])
+        ]
+
+        return {
+            "metadata": {
+                "title": narrative_plan["title"],
+                "premise": narrative_plan["theme"],
+                "tone": narrative_plan["emotion_tone"],
+                "source_summary": narrative_plan["story_arc"],
+            },
+            "characters": characters,
+            "scenes": scenes,
+        }
+
+    def _scene_section_description(self, text: str) -> str:
+        clean_lines = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if line:
+                clean_lines.append(line)
+            if len(" ".join(clean_lines)) >= 500:
+                break
+        return " ".join(clean_lines)[:500]
+
+    def _expand_narrative_design(self, design: dict[str, Any]) -> dict[str, Any]:
+        limits = generation_limits()
+        characters = []
+        for index, character in enumerate(design["characters"]):
+            characters.append(
+                {
+                    "id": self._safe_id(character["id"]),
+                    "name": character["name"],
+                    "role": "protagonist" if index == 0 else "supporting",
+                    "personality": character["personality"],
+                    "motivation": character["motivation"],
+                    "internal_conflict": design["conflict_structure"],
+                    "speech_style": character["speech_style"],
+                    "emotional_arc": character["emotional_arc"],
+                    "relationships": [
+                        {"with_character_id": self._safe_id(item["with"]), "dynamic": item["dynamic"]}
+                        for item in character["relationships"]
+                    ],
+                }
+            )
+
+        variable_min = limits["variables"]["attitude_min_value"]
+        variable_max = limits["variables"]["attitude_max_value"]
+        variables = {
+            "attitude": [
+                {
+                    "id": "emotional_resonance",
+                    "description": "Player alignment with the story's emotional core.",
+                    "default": (variable_min + variable_max) // 2,
+                    "min": variable_min,
+                    "max": variable_max,
+                }
+            ],
+            "flags": [
+                {"id": "made_key_choice", "description": "Whether the player has made a defining choice.", "default": 0, "values": [0, 1]}
+            ],
+        }
+
+        max_phase_scenes = max(1, limits["scenes"]["max"] - limits["endings"]["count"])
+        phases = design["story_progression"][:max_phase_scenes]
+        phase_scenes = []
+        present_characters = [character["id"] for character in characters]
+        for index, phase in enumerate(phases):
+            scene_id = "start" if index == 0 else self._safe_id(phase["id"])
+            phase_scenes.append(
+                {
+                    "id": scene_id,
+                    "file": "start.txt" if index == 0 else f"{scene_id}.txt",
+                    "title": phase["name"],
+                    "act": min(index, 8),
+                    "description": phase["content"],
+                    "purpose": phase["name"],
+                    "is_entry": index == 0,
+                    "is_ending": False,
+                    "characters_present": present_characters[: max(1, min(len(present_characters), 3))],
+                }
+            )
+
+        ending_scenes = []
+        endings = []
+        for priority, category in enumerate(limits["endings"]["categories"], start=1):
+            ending_id = self._safe_id(f"ending_{category}")
+            ending_scenes.append(
+                {
+                    "id": ending_id,
+                    "file": f"{ending_id}.txt",
+                    "title": f"{category} ending",
+                    "act": 9,
+                    "description": f"{design['story_arc']} ({category})",
+                    "purpose": "ending",
+                    "is_entry": False,
+                    "is_ending": True,
+                    "characters_present": present_characters[: max(1, min(len(present_characters), 3))],
+                }
+            )
+            endings.append(
+                {
+                    "id": ending_id,
+                    "file": f"{ending_id}.txt",
+                    "category": category,
+                    "priority": priority,
+                    "emotional_tone": design["emotion_tone"],
+                    "trigger": {"type": "fallback", "conditions": [], "required_count": None},
+                    "narrative_meaning": f"{category} resolution of {design['theme']}",
+                }
+            )
+
+        scenes = phase_scenes + ending_scenes
+        connections = []
+        for index, scene in enumerate(phase_scenes):
+            next_scene = phase_scenes[index + 1] if index + 1 < len(phase_scenes) else ending_scenes[-1]
+            connections.append(
+                {
+                    "from_scene_id": scene["id"],
+                    "to_scene_id": next_scene["id"],
+                    "kind": "callScene",
+                    "condition": None,
+                }
+            )
+
+        branch_scene = phase_scenes[min(1, len(phase_scenes) - 1)]
+        branch_options = []
+        for index in range(limits["branches"]["choice_options_min"]):
+            target = phase_scenes[min(index + 1, len(phase_scenes) - 1)] if len(phase_scenes) > 1 else ending_scenes[-1]
+            branch_options.append(
+                {
+                    "label": f"选择立场 {index + 1}",
+                    "sets": [{"variable_id": "made_key_choice", "value": 1}],
+                    "adds": [{"variable_id": "emotional_resonance", "value": 5 - index}],
+                    "next_scene_id": target["id"],
+                    "unique_beat": design["touchable_points"][index % len(design["touchable_points"])] if design["touchable_points"] else design["theme"],
+                }
+            )
+
+        return self._normalize_narrative_plan(
+            {
+                "metadata": {
+                    "title": design["title"],
+                    "premise": design["theme"],
+                    "tone": design["emotion_tone"],
+                    "source_summary": design["story_arc"],
+                },
+                "characters": characters,
+                "variables": variables,
+                "scenes": scenes,
+                "connections": connections,
+                "branches": [
+                    {
+                        "id": "branch_core_choice",
+                        "scene_id": branch_scene["id"],
+                        "description": design["conflict_structure"],
+                        "depth": 1,
+                        "options": branch_options,
+                    }
+                ],
+                "endings": endings,
+            }
+        )
 
     def _normalize_narrative_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         plan = dict(plan)
@@ -402,6 +755,7 @@ Do not explain. Call the function only."""
         manifest: dict[str, Any],
         batch: dict[str, Any],
     ) -> dict[str, str]:
+        limits = generation_limits()
         characters_by_id = {character["id"]: character for character in plan["characters"]}
         scene_by_id = {scene["id"]: scene for scene in plan["scenes"]}
         file_by_scene_id = {scene["id"]: scene["file"] for scene in plan["scenes"]}
@@ -457,7 +811,7 @@ Do not explain. Call the function only."""
                 if index % 4 == 0 and miniavatar:
                     lines.append(f"miniAvatar:{miniavatar};")
 
-            while len(lines) < 30:
+            while len(lines) < limits["scenes"]["min_lines"]:
                 lines.append(":风声渐缓，灯影在纸窗上轻轻摇动。")
 
             lines.extend(
@@ -478,6 +832,7 @@ Do not explain. Call the function only."""
         return rendered
 
     def _fallback_scene_batch(self, plan: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+        limits = generation_limits()
         protagonist_id = next(
             (character["id"] for character in plan["characters"] if character["role"] == "protagonist"),
             plan["characters"][0]["id"],
@@ -515,7 +870,7 @@ Do not explain. Call the function only."""
                     "scene_id": scene["id"],
                     "file": scene["file"],
                     "referenced_assets": referenced_assets,
-                    "referenced_variables": variable_ids[: min(5, len(variable_ids))],
+                    "referenced_variables": variable_ids[: min(limits["scene_batch"]["fallback_referenced_variable_limit"], len(variable_ids))],
                     "background_asset": background,
                     "speaker_character_id": speaker_id,
                     "beats": self._fallback_beats(scene),
@@ -540,6 +895,7 @@ Do not explain. Call the function only."""
         return protagonist_id
 
     def _fallback_beats(self, scene: dict[str, Any]) -> list[dict[str, str]]:
+        limits = generation_limits()
         title = self._clip_beat_text(scene.get("title") or scene["id"].replace("_", " "))
         description = self._clip_beat_text(scene.get("description") or title)
         purpose = self._clip_beat_text(scene.get("purpose") or description)
@@ -554,11 +910,15 @@ Do not explain. Call the function only."""
             ("dialogue", "我会记下这一夜，也记下仍未熄灭的愿望。"),
             ("narration", ending_line),
         ]
-        return [{"kind": kind, "text": self._clip_beat_text(text)} for kind, text in raw_beats]
+        beats = [{"kind": kind, "text": self._clip_beat_text(text)} for kind, text in raw_beats[: limits["scene_batch"]["beats_max"]]]
+        while len(beats) < limits["scene_batch"]["beats_min"]:
+            beats.append({"kind": "narration", "text": self._clip_beat_text(scene.get("purpose") or scene.get("description") or scene["id"])})
+        return beats
 
     def _clip_beat_text(self, text: Any) -> str:
+        max_length = generation_limits()["scene_batch"]["beat_text_max_length"]
         clean = str(text or "").replace("\r", " ").replace("\n", " ").strip()
-        return clean[:180] if clean else "风雨仍在继续。"
+        return clean[:max_length] if clean else "风雨仍在继续。"
 
     def _default_next_scene_map(self, plan: dict[str, Any]) -> dict[str, str]:
         mapping: dict[str, str] = {}

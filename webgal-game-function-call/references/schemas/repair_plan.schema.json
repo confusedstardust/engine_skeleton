@@ -6,7 +6,7 @@
   "required": ["cycle", "repairs", "unfixable"],
   "additionalProperties": false,
   "properties": {
-    "cycle": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "cycle": { "type": "integer", "minimum": 1 },
     "repairs": {
       "type": "array",
       "items": {

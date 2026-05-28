@@ -37,18 +37,26 @@ def inline_refs(value: Any, base_dir: Path, root: dict[str, Any] | None = None) 
     if not isinstance(value, dict):
         return value
 
-    if set(value) == {"$ref"} and isinstance(value["$ref"], str):
+    if "$ref" in value and isinstance(value["$ref"], str):
         ref = value["$ref"]
         if ref.startswith("#/"):
             if root is None:
                 return value
-            return inline_refs(resolve_pointer(root, ref), base_dir, root)
+            resolved = inline_refs(resolve_pointer(root, ref), base_dir, root)
+            siblings = {key: item for key, item in value.items() if key != "$ref"}
+            if siblings and isinstance(resolved, dict):
+                resolved.update(inline_refs(siblings, base_dir, root))
+            return resolved
         if ref.startswith("schemas/") and ref.endswith(".json"):
             schema = load_json(base_dir / ref)
             schema = copy.deepcopy(schema)
             schema.pop("$schema", None)
             schema.pop("$id", None)
-            return inline_refs(schema, base_dir, schema)
+            resolved = inline_refs(schema, base_dir, schema)
+            siblings = {key: item for key, item in value.items() if key != "$ref"}
+            if siblings and isinstance(resolved, dict):
+                resolved.update(inline_refs(siblings, base_dir, root))
+            return resolved
 
     result = {}
     for key, item in value.items():

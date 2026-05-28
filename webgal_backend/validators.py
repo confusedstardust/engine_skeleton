@@ -7,6 +7,7 @@ from typing import Any
 import jsonschema
 
 from .config import settings
+from .generation_limits import generation_limits
 from .storage import read_json
 
 
@@ -43,6 +44,7 @@ def require_unique(items: list[dict[str, Any]], key: str, label: str) -> list[st
 
 
 def semantic_narrative(plan: dict[str, Any]) -> None:
+    limits = generation_limits()
     errors: list[str] = []
     characters = plan["characters"]
     scenes = plan["scenes"]
@@ -58,17 +60,45 @@ def semantic_narrative(plan: dict[str, Any]) -> None:
     if len(protagonists) != 1:
         errors.append(f"expected exactly one protagonist, got {len(protagonists)}")
 
+    if not limits["characters"]["min"] <= len(characters) <= limits["characters"]["max"]:
+        errors.append(
+            f"characters must be {limits['characters']['min']}-{limits['characters']['max']}, got {len(characters)}"
+        )
+
     entry_scenes = [s for s in scenes if s["is_entry"]]
     if len(entry_scenes) != 1:
         errors.append(f"expected exactly one entry scene, got {len(entry_scenes)}")
 
+    if not limits["scenes"]["min"] <= len(scenes) <= limits["scenes"]["max"]:
+        errors.append(f"scenes must be {limits['scenes']['min']}-{limits['scenes']['max']}, got {len(scenes)}")
+
     categories = {ending["category"] for ending in endings}
-    expected_categories = {"best", "emotional", "character", "failure", "default"}
+    expected_categories = set(limits["endings"]["categories"])
     if categories != expected_categories:
         errors.append(f"ending categories must be {sorted(expected_categories)}, got {sorted(categories)}")
+    if len(endings) != limits["endings"]["count"]:
+        errors.append(f"endings must be exactly {limits['endings']['count']}, got {len(endings)}")
 
-    if len(variables) > 15:
-        errors.append(f"total variables must be <= 15, got {len(variables)}")
+    if len(variables) > limits["variables"]["max_total"]:
+        errors.append(f"total variables must be <= {limits['variables']['max_total']}, got {len(variables)}")
+    if len(plan["variables"]["attitude"]) > limits["variables"]["attitude_max"]:
+        errors.append(
+            f"attitude variables must be <= {limits['variables']['attitude_max']}, got {len(plan['variables']['attitude'])}"
+        )
+    if len(plan["variables"]["flags"]) > limits["variables"]["flag_max"]:
+        errors.append(f"flag variables must be <= {limits['variables']['flag_max']}, got {len(plan['variables']['flags'])}")
+
+    for variable in plan["variables"]["attitude"]:
+        if variable["min"] != limits["variables"]["attitude_min_value"] or variable["max"] != limits["variables"]["attitude_max_value"]:
+            errors.append(
+                f"attitude variable {variable['id']} range must be "
+                f"{limits['variables']['attitude_min_value']}-{limits['variables']['attitude_max_value']}"
+            )
+        if not limits["variables"]["attitude_min_value"] <= variable["default"] <= limits["variables"]["attitude_max_value"]:
+            errors.append(f"attitude variable {variable['id']} default is outside configured range")
+
+    if not limits["branches"]["min"] <= len(plan["branches"]) <= limits["branches"]["max"]:
+        errors.append(f"branches must be {limits['branches']['min']}-{limits['branches']['max']}, got {len(plan['branches'])}")
 
     scene_ids = {scene["id"] for scene in scenes}
     variable_ids = {variable["id"] for variable in variables}
@@ -88,6 +118,13 @@ def semantic_narrative(plan: dict[str, Any]) -> None:
     for branch in plan["branches"]:
         if branch["scene_id"] not in scene_ids:
             errors.append(f"branch {branch['id']} references unknown scene {branch['scene_id']}")
+        if branch["depth"] > limits["branches"]["max_depth"]:
+            errors.append(f"branch {branch['id']} depth must be <= {limits['branches']['max_depth']}")
+        if not limits["branches"]["choice_options_min"] <= len(branch["options"]) <= limits["branches"]["choice_options_max"]:
+            errors.append(
+                f"branch {branch['id']} options must be "
+                f"{limits['branches']['choice_options_min']}-{limits['branches']['choice_options_max']}, got {len(branch['options'])}"
+            )
         for option in branch["options"]:
             if option["next_scene_id"] not in scene_ids:
                 errors.append(f"branch {branch['id']} option references unknown scene {option['next_scene_id']}")
@@ -105,6 +142,7 @@ def semantic_narrative(plan: dict[str, Any]) -> None:
 
 
 def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expected_base_dir: str) -> None:
+    limits = generation_limits()
     errors: list[str] = []
     if Path(manifest["base_dir"]).resolve() != Path(expected_base_dir).resolve():
         errors.append(f"base_dir must be {expected_base_dir}, got {manifest['base_dir']}")
@@ -117,14 +155,14 @@ def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expe
         kind = image["kind"]
         filename = image["filename"]
         if kind == "figure":
-            if image["subdir"] != "figure" or image["size"] != "1440x2560":
-                errors.append(f"{filename} figure must use figure/1440x2560")
+            if image["subdir"] != limits["assets"]["figure_subdir"] or image["size"] != limits["assets"]["figure_size"]:
+                errors.append(f"{filename} figure must use {limits['assets']['figure_subdir']}/{limits['assets']['figure_size']}")
             if image["source_ref"]["type"] != "character" or image["source_ref"]["id"] not in character_ids:
                 errors.append(f"{filename} references unknown character source")
             figure_refs.add(image["source_ref"]["id"])
         if kind in {"background", "cg"}:
-            if image["subdir"] != "background" or image["size"] != "2560x1440":
-                errors.append(f"{filename} {kind} must use background/2560x1440")
+            if image["subdir"] != limits["assets"]["background_subdir"] or image["size"] != limits["assets"]["background_size"]:
+                errors.append(f"{filename} {kind} must use {limits['assets']['background_subdir']}/{limits['assets']['background_size']}")
             if image["source_ref"]["type"] == "scene" and image["source_ref"]["id"] not in scene_ids:
                 errors.append(f"{filename} references unknown scene source")
 
@@ -137,6 +175,7 @@ def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expe
 
 
 def semantic_scene_batch(batch: dict[str, Any], plan: dict[str, Any], manifest: dict[str, Any]) -> None:
+    limits = generation_limits()
     errors: list[str] = []
     expected = {scene["id"]: scene["file"] for scene in plan["scenes"]}
     produced = {scene["scene_id"]: scene["file"] for scene in batch["scenes"]}
@@ -151,6 +190,17 @@ def semantic_scene_batch(batch: dict[str, Any], plan: dict[str, Any], manifest: 
             asset_names.add(f"miniavatar_{image['filename'].removeprefix('figure_')}.webp")
 
     for scene in batch["scenes"]:
+        beats = scene["beats"]
+        if not limits["scene_batch"]["beats_min"] <= len(beats) <= limits["scene_batch"]["beats_max"]:
+            errors.append(
+                f"{scene['file']} beats must be "
+                f"{limits['scene_batch']['beats_min']}-{limits['scene_batch']['beats_max']}, got {len(beats)}"
+            )
+        for beat in beats:
+            if len(beat["text"]) > limits["scene_batch"]["beat_text_max_length"]:
+                errors.append(
+                    f"{scene['file']} beat text must be <= {limits['scene_batch']['beat_text_max_length']} characters"
+                )
         if scene["speaker_character_id"] not in {character["id"] for character in plan["characters"]}:
             errors.append(f"{scene['file']} references unknown speaker_character_id {scene['speaker_character_id']}")
         for variable_id in scene["referenced_variables"]:
@@ -167,6 +217,7 @@ def semantic_scene_batch(batch: dict[str, Any], plan: dict[str, Any], manifest: 
 
 
 def deterministic_validate(job_dir: Path, plan: dict[str, Any], manifest: dict[str, Any], allow_missing_assets: bool) -> dict[str, Any]:
+    limits = generation_limits()
     scene_dir = job_dir / "public" / "game" / "scene"
     background_dir = job_dir / "public" / "game" / "background"
     figure_dir = job_dir / "public" / "game" / "figure"
@@ -211,8 +262,13 @@ def deterministic_validate(job_dir: Path, plan: dict[str, Any], manifest: dict[s
         total_lines += len(lines)
         if not re.match(r"^[a-z][a-z0-9_]+\.txt$", path.name):
             add_issue("bad_scene_filename", rel, None, f"scene filename must be lowercase snake_case: {path.name}")
-        if len(lines) < 30 or len(lines) > 300:
-            add_issue("bad_scene_line_count", rel, None, f"scene must be 30-300 lines, got {len(lines)}")
+        if len(lines) < limits["scenes"]["min_lines"] or len(lines) > limits["scenes"]["max_lines"]:
+            add_issue(
+                "bad_scene_line_count",
+                rel,
+                None,
+                f"scene must be {limits['scenes']['min_lines']}-{limits['scenes']['max_lines']} lines, got {len(lines)}",
+            )
 
         labels = {
             line.removeprefix("label:").removesuffix(";").strip()

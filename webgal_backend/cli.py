@@ -23,7 +23,7 @@ def main() -> int:
 
     phase = subparsers.add_parser("phase", help="Run one phase for an existing job.")
     phase.add_argument("job_id")
-    phase.add_argument("phase", choices=["narrative", "assets", "scenes", "validation", "repair"])
+    phase.add_argument("phase", choices=["narrative", "game_design", "assets", "scenes", "validation", "repair"])
 
     status = subparsers.add_parser("status", help="Print job status JSON.")
     status.add_argument("job_id")

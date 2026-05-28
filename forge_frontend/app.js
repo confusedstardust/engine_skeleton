@@ -27,6 +27,7 @@ const zh = {
 
 const phaseList = [
   ["NARRATIVE_PLANNING", "Narrative", "\u7ed3\u6784\u5316\u5267\u60c5\u8ba1\u5212"],
+  ["GAME_DESIGN", "Game Design", "\u4e92\u52a8\u573a\u666f\u8bbe\u8ba1"],
   ["ASSET_PLANNING", "Assets", "\u7d20\u6750 manifest"],
   ["SCENE_WRITING", "Scenes", "WebGAL \u573a\u666f\u811a\u672c"],
   ["VALIDATING", "Validation", "\u786e\u5b9a\u6027\u6821\u9a8c"],
