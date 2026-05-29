@@ -72,6 +72,7 @@ class Settings:
     max_repair_cycles: int
     llm_max_tokens: int | None
     asset_scripts_dir: Path
+    image_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -105,6 +106,7 @@ class Settings:
             max_repair_cycles=int(os.getenv("WEBGAL_MAX_REPAIR_CYCLES", "3")),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
+            image_model=os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128"),
         )
 
 

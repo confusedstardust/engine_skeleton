@@ -3,8 +3,10 @@
 import shutil
 import subprocess
 import os
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .config import settings
 from .contract_context import build_phase_context
@@ -18,8 +20,9 @@ from .prompts import (
     narrative_prompt,
     repair_prompt,
     scene_prompt,
+    webgal_script_rewrite_prompt,
 )
-from .storage import JobStore, read_json, write_json
+from .storage import JobStore, read_json, utc_now, write_json
 from .validators import (
     ValidationFailure,
     deterministic_validate,
@@ -37,6 +40,78 @@ class WebGALPipeline:
     def __init__(self, store: JobStore | None = None, llm_factory: Callable[..., OpenAIFunctionClient] = OpenAIFunctionClient) -> None:
         self.store = store or JobStore()
         self.llm_factory = llm_factory
+
+    @contextmanager
+    def _trace_stage(
+        self,
+        job: dict[str, Any],
+        stage_id: int,
+        stage_name: str,
+        artifact_key: str,
+        artifact_path: str,
+    ) -> Iterator[None]:
+        started_at = utc_now()
+        started = time.perf_counter()
+        status = "completed"
+        error = None
+        try:
+            yield
+        except Exception as exc:
+            status = "failed"
+            error = str(exc)
+            raise
+        finally:
+            ended_at = utc_now()
+            duration_ms = round((time.perf_counter() - started) * 1000)
+            self._append_stage_timing(
+                job,
+                {
+                    "stage_id": stage_id,
+                    "stage_name": stage_name,
+                    "artifact_key": artifact_key,
+                    "artifact_path": artifact_path,
+                    "status": status,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_ms": duration_ms,
+                    "error": error,
+                },
+            )
+
+    def _write_stage_event(
+        self,
+        job: dict[str, Any],
+        stage_id: int,
+        stage_name: str,
+        artifact_key: str,
+        status: str,
+        message: str,
+    ) -> None:
+        self._append_stage_timing(
+            job,
+            {
+                "stage_id": stage_id,
+                "stage_name": stage_name,
+                "artifact_key": artifact_key,
+                "artifact_path": "",
+                "status": status,
+                "started_at": utc_now(),
+                "ended_at": utc_now(),
+                "duration_ms": 0,
+                "message": message,
+            },
+        )
+
+    def _append_stage_timing(self, job: dict[str, Any], event: dict[str, Any]) -> None:
+        trace_dir = self.store.job_dir(job["id"]) / "state" / "llm_traces"
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        path = trace_dir / "stage_timings.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            import json
+
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        if job.get("artifacts", {}).get("stage_timings") != "state/llm_traces/stage_timings.jsonl":
+            self.store.record_artifact(job, "stage_timings", "state/llm_traces/stage_timings.jsonl")
 
     def run_all(self, job_id: str) -> dict[str, Any]:
         job = self.store.get(job_id)
@@ -74,25 +149,25 @@ class WebGALPipeline:
 
     def run_narrative(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
-        prompt = narrative_prompt(job["source_material"], job["options"])
         job_dir = self.store.job_dir(job["id"])
-        design = self._call_with_validation(
-            job_dir=job_dir,
-            function_name="emit_narrative_plan",
-            artifact_key="narrative_plan",
-            schema_name="narrative_plan.schema.json",
-            user_prompt=prompt,
-            semantic_validator=self._validate_narrative_design,
-        )
-        write_json(job_dir / "state" / "narrative_plan.json", design)
-        self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
+        with self._trace_stage(job, 1, "主题分析", "narrative_plan", "state/narrative_plan.json"):
+            prompt = narrative_prompt(job["source_material"], job["options"])
+            design = self._call_with_validation(
+                job_dir=job_dir,
+                function_name="emit_narrative_plan",
+                artifact_key="narrative_plan",
+                schema_name="narrative_plan.schema.json",
+                user_prompt=prompt,
+                semantic_validator=self._validate_narrative_design,
+            )
+            write_json(job_dir / "state" / "narrative_plan.json", design)
+            self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
 
     def run_game_design(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN")
         job_dir = self.store.job_dir(job["id"])
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-        prompt = game_design_prompt(narrative_plan, job["options"])
         try:
             llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
         except TypeError:
@@ -101,18 +176,21 @@ class WebGALPipeline:
 
 Current phase: game_design_text
 Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
-        game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
-        completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
-        completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
-        (job_dir / "state" / "game_design.txt").write_text(game_design_text.rstrip() + "\n", encoding="utf-8")
-        (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
-        scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_text)
-        write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
+        with self._trace_stage(job, 2, "游戏结构设计", "game_design", "state/game_design.txt"):
+            prompt = game_design_prompt(narrative_plan, job["options"])
+            game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
+            (job_dir / "state" / "game_design.txt").write_text(game_design_text.rstrip() + "\n", encoding="utf-8")
+            self.store.record_artifact(job, "game_design", "state/game_design.txt")
+        with self._trace_stage(job, 3, "剧情设计", "design_completion", "state/game_design_completed.txt"):
+            completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
+            completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
+            (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_text)
+            write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
+            self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
+            self.store.record_artifact(job, "scene_files", "state/scene_files.json")
         self._generate_config(job_dir, narrative_plan)
         self._copy_engine_skeleton(job_dir)
-        self.store.record_artifact(job, "game_design", "state/game_design.txt")
-        self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
-        self.store.record_artifact(job, "scene_files", "state/scene_files.json")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def run_assets(self, job: dict[str, Any]) -> None:
@@ -123,44 +201,55 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             game_design_text = (job_dir / "state" / "game_design.txt").read_text(encoding="utf-8")
             asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
             base_dir = str((job_dir / "public" / "game").resolve())
-            prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
+            with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
+                prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
+                manifest = self._call_with_validation(
+                    job_dir=job_dir,
+                    function_name="emit_asset_manifest",
+                    artifact_key="asset_manifest",
+                    schema_name="asset_manifest.schema.json",
+                    user_prompt=prompt,
+                    semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
+                )
+                write_json(job_dir / "assets_manifest.json", manifest)
+                self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+            if job["options"].get("generate_assets", False):
+                with self._trace_stage(job, 5, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
+                    self._run_asset_scripts(job_dir)
+            else:
+                self._write_stage_event(job, 5, "素材生成", "generated_assets", "skipped", "generate_assets option is false")
+            self._rewrite_game_design_with_assets(job, manifest)
+            self.store.transition(job, "ASSETS_READY", "ASSET_PLANNING")
+            return
+        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
+        base_dir = str((job_dir / "public" / "game").resolve())
+        with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
+            prompt = asset_prompt(plan, base_dir, job["options"])
             manifest = self._call_with_validation(
                 job_dir=job_dir,
                 function_name="emit_asset_manifest",
                 artifact_key="asset_manifest",
                 schema_name="asset_manifest.schema.json",
                 user_prompt=prompt,
-                semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
+                semantic_validator=lambda artifact: semantic_asset_manifest(artifact, plan, base_dir),
             )
             write_json(job_dir / "assets_manifest.json", manifest)
             self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
-            if job["options"].get("generate_assets", False):
-                self._run_asset_scripts(job_dir)
-            self.store.transition(job, "ASSETS_READY", "ASSET_PLANNING")
-            return
-        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
-        base_dir = str((job_dir / "public" / "game").resolve())
-        prompt = asset_prompt(plan, base_dir, job["options"])
-        manifest = self._call_with_validation(
-            job_dir=job_dir,
-            function_name="emit_asset_manifest",
-            artifact_key="asset_manifest",
-            schema_name="asset_manifest.schema.json",
-            user_prompt=prompt,
-            semantic_validator=lambda artifact: semantic_asset_manifest(artifact, plan, base_dir),
-        )
-        write_json(job_dir / "assets_manifest.json", manifest)
-        self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
 
         if job["options"].get("generate_assets", False):
-            self._run_asset_scripts(job_dir)
+            with self._trace_stage(job, 5, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
+                self._run_asset_scripts(job_dir)
+        else:
+            self._write_stage_event(job, 5, "素材生成", "generated_assets", "skipped", "generate_assets option is false")
 
         self.store.transition(job, "ASSETS_READY", "ASSET_PLANNING")
 
     def run_scenes(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "SCENE_WRITING")
         job_dir = self.store.job_dir(job["id"])
-        completed_design_path = job_dir / "state" / "game_design_completed.txt"
+        completed_design_path = job_dir / "state" / "game_design_webgal.txt"
+        if not completed_design_path.exists():
+            completed_design_path = job_dir / "state" / "game_design_completed.txt"
         if completed_design_path.exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
             scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_design_path.read_text(encoding="utf-8"))
             write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
@@ -210,36 +299,37 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
     def run_validation(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
-        if (job_dir / "state" / "game_design_completed.txt").exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
-            scene_files = sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
-            report = {
-                "summary": {
-                    "total_scenes": len(scene_files),
-                    "total_lines": sum(len(path.read_text(encoding="utf-8").splitlines()) for path in scene_files),
-                    "errors": 0,
-                    "warnings": 0,
-                    "passed": True,
-                },
-                "checks": {},
-                "errors": [],
-                "warnings": [],
-            }
+        with self._trace_stage(job, 7, "校验阶段", "validation_report", "state/validation_report.json"):
+            if (job_dir / "state" / "game_design_completed.txt").exists() and not (job_dir / "state" / "internal_narrative_plan.json").exists():
+                scene_files = sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
+                report = {
+                    "summary": {
+                        "total_scenes": len(scene_files),
+                        "total_lines": sum(len(path.read_text(encoding="utf-8").splitlines()) for path in scene_files),
+                        "errors": 0,
+                        "warnings": 0,
+                        "passed": True,
+                    },
+                    "checks": {},
+                    "errors": [],
+                    "warnings": [],
+                }
+                write_json(job_dir / "state" / "validation_report.json", report)
+                self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+                self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
+                return
+            plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
+            manifest = self._read_required(job_dir / "assets_manifest.json")
+            report = deterministic_validate(
+                job_dir,
+                plan,
+                manifest,
+                allow_missing_assets=bool(job["options"].get("allow_missing_assets", True)),
+            )
+            validate_schema("validation_report.schema.json", report)
             write_json(job_dir / "state" / "validation_report.json", report)
             self.store.record_artifact(job, "validation_report", "state/validation_report.json")
-            self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
-            return
-        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
-        manifest = self._read_required(job_dir / "assets_manifest.json")
-        report = deterministic_validate(
-            job_dir,
-            plan,
-            manifest,
-            allow_missing_assets=bool(job["options"].get("allow_missing_assets", True)),
-        )
-        validate_schema("validation_report.schema.json", report)
-        write_json(job_dir / "state" / "validation_report.json", report)
-        self.store.record_artifact(job, "validation_report", "state/validation_report.json")
-        status = "VALIDATION_PASSED" if report["summary"]["passed"] else "VALIDATION_FAILED"
+            status = "VALIDATION_PASSED" if report["summary"]["passed"] else "VALIDATION_FAILED"
         self.store.transition(job, status, "VALIDATING")
 
     def run_repairs_until_clean(self, job: dict[str, Any]) -> None:
@@ -260,27 +350,29 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         job_dir = self.store.job_dir(job["id"])
         report = self._read_required(job_dir / "state" / "validation_report.json")
         if report["summary"]["errors"] == 0:
+            self._write_stage_event(job, 8, "修复阶段", "repair_plan", "skipped", "validation has no errors")
             self.store.transition(job, "REPAIR_SKIPPED", "REPAIRING")
             return
 
-        plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
-        manifest = self._read_required(job_dir / "assets_manifest.json")
-        cycle = self._next_repair_cycle(job_dir)
-        scenes = {
-            f"public/game/scene/{path.name}": path.read_text(encoding="utf-8")
-            for path in sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
-        }
-        prompt = repair_prompt(report, scenes, plan, manifest, cycle)
-        repair_plan = self._call_with_validation(
-            job_dir=job_dir,
-            function_name="emit_repair_plan",
-            artifact_key="repair_plan",
-            schema_name="repair_plan.schema.json",
-            user_prompt=prompt,
-            semantic_validator=None,
-        )
-        self._apply_repair_plan(job_dir, repair_plan)
-        self._append_repair_log(job_dir, repair_plan)
+        with self._trace_stage(job, 8, "修复阶段", "repair_plan", "state/repair_log.jsonl"):
+            plan = self._read_required(job_dir / "state" / "internal_narrative_plan.json")
+            manifest = self._read_required(job_dir / "assets_manifest.json")
+            cycle = self._next_repair_cycle(job_dir)
+            scenes = {
+                f"public/game/scene/{path.name}": path.read_text(encoding="utf-8")
+                for path in sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
+            }
+            prompt = repair_prompt(report, scenes, plan, manifest, cycle)
+            repair_plan = self._call_with_validation(
+                job_dir=job_dir,
+                function_name="emit_repair_plan",
+                artifact_key="repair_plan",
+                schema_name="repair_plan.schema.json",
+                user_prompt=prompt,
+                semantic_validator=None,
+            )
+            self._apply_repair_plan(job_dir, repair_plan)
+            self._append_repair_log(job_dir, repair_plan)
         self.store.transition(job, "REPAIR_APPLIED", "REPAIRING")
 
     def _call_with_validation(
@@ -350,14 +442,25 @@ Do not explain."""
         system_prompt: str,
         prompt: str,
     ) -> dict[str, Any]:
-        if settings.llm_thinking == "enabled" and "deepseek.com" in settings.llm_base_url:
+        thinking = self._thinking_for_function(function_name)
+        if self._use_json_text_for_function(function_name) and "deepseek.com" in settings.llm_base_url:
             text_prompt = f"""{prompt}
 
 Return valid JSON only, without Markdown fences or explanation.
 The top-level JSON object must have exactly this key: "{artifact_key}"."""
-            text = llm.call_text(function_name, system_prompt, text_prompt)
+            text = llm.call_text(function_name, system_prompt, text_prompt, thinking=thinking)
             return llm.parse_json_text(text, function_name)
-        return llm.call_function(function_name, system_prompt, prompt)
+        return llm.call_function(function_name, system_prompt, prompt, thinking=thinking)
+
+    def _thinking_for_function(self, function_name: str) -> str:
+        if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
+            return "disabled"
+        return settings.llm_thinking
+
+    def _use_json_text_for_function(self, function_name: str) -> bool:
+        if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
+            return True
+        return settings.llm_thinking == "enabled"
 
     def _validate_narrative_design(self, design: dict[str, Any]) -> None:
         errors: list[str] = []
@@ -376,7 +479,7 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
     def _split_game_design_completed_to_scene_files(self, job_dir: Path, text: str) -> list[str]:
         import re
 
-        matches = list(re.finditer(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", text, flags=re.MULTILINE))
+        matches = list(re.finditer(r"^\s*(?:\[([A-Za-z0-9_-]+\.txt)\]|([A-Za-z0-9_-]+\.txt))\s*$", text, flags=re.MULTILINE))
         if not matches:
             raise PipelineError("game_design_completed.txt did not contain any [scene.txt] sections")
 
@@ -386,13 +489,67 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         for index, match in enumerate(matches):
             body_start = match.end()
             body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-            file_name = match.group(1).replace("\\", "/").split("/")[-1]
+            file_name = (match.group(1) or match.group(2)).replace("\\", "/").split("/")[-1]
             if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
                 raise PipelineError(f"invalid scene filename in game_design_completed.txt: {file_name}")
             content = text[body_start:body_end].strip()
             (scene_dir / file_name).write_text(content.rstrip() + "\n", encoding="utf-8")
             written.append(f"public/game/scene/{file_name}")
         return written
+
+    def _rewrite_game_design_with_assets(self, job: dict[str, Any], manifest: dict[str, Any]) -> None:
+        job_dir = self.store.job_dir(job["id"])
+        completed_path = job_dir / "state" / "game_design_completed.txt"
+        if not completed_path.exists():
+            raise PipelineError("game_design_completed.txt is required before rewriting with assets")
+
+        syntax_path = Path(__file__).resolve().parents[1] / "shared" / "constraints" / "syntax.md"
+        if not syntax_path.exists():
+            raise PipelineError("shared/constraints/syntax.md is required for WebGAL script rewriting")
+
+        assets = self._script_asset_lists(manifest)
+        write_json(job_dir / "state" / "script_assets.json", assets)
+
+        with self._trace_stage(job, 6, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
+            try:
+                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+            except TypeError:
+                llm = self.llm_factory()
+
+            system_prompt = f"""{SYSTEM_PROMPT}
+
+Current phase: webgal_script_rewrite
+Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
+            prompt = webgal_script_rewrite_prompt(
+                syntax_md=syntax_path.read_text(encoding="utf-8"),
+                game_design_completed_text=completed_path.read_text(encoding="utf-8"),
+                background_assets=assets["background_assets"],
+                figure_assets=assets["figure_assets"],
+            )
+            rewritten_text = llm.call_text("webgal_script_rewrite", system_prompt, prompt)
+            (job_dir / "state" / "game_design_webgal.txt").write_text(rewritten_text.rstrip() + "\n", encoding="utf-8")
+            self.store.record_artifact(job, "script_assets", "state/script_assets.json")
+            self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
+
+    def _script_asset_lists(self, manifest: dict[str, Any]) -> dict[str, list[str]]:
+        background_subdir = generation_limits()["assets"]["background_subdir"]
+        figure_subdir = generation_limits()["assets"]["figure_subdir"]
+        background_assets: list[str] = []
+        figure_assets: list[str] = []
+        for image in manifest.get("images", []):
+            filename = str(image.get("filename", "")).strip()
+            if not filename:
+                continue
+            asset_filename = filename if filename.lower().endswith(".webp") else f"{filename}.webp"
+            subdir = image.get("subdir")
+            if subdir == background_subdir:
+                background_assets.append(asset_filename)
+            elif subdir == figure_subdir:
+                figure_assets.append(asset_filename)
+        return {
+            "background_assets": sorted(set(background_assets)),
+            "figure_assets": sorted(set(figure_assets)),
+        }
 
     def _asset_context_from_narrative_and_game_design(self, narrative_plan: dict[str, Any], game_design_text: str) -> dict[str, Any]:
         import re
