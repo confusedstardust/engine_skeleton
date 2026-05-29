@@ -6,7 +6,6 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -46,21 +45,23 @@ class OpenAIFunctionClient:
         function_name: str,
         system_prompt: str,
         user_prompt: str,
+        thinking: str | None = None,
     ) -> dict[str, Any]:
         tool = self._find_tool(function_name)
         if settings.llm_api_mode == "chat":
-            return self._call_chat(function_name, tool, system_prompt, user_prompt)
-        return self._call_responses(function_name, tool, system_prompt, user_prompt)
+            return self._call_chat(function_name, tool, system_prompt, user_prompt, thinking=thinking)
+        return self._call_responses(function_name, tool, system_prompt, user_prompt, thinking=thinking)
 
     def call_text(
         self,
         trace_name: str,
         system_prompt: str,
         user_prompt: str,
+        thinking: str | None = None,
     ) -> str:
         if settings.llm_api_mode == "chat":
-            return self._call_chat_text(trace_name, system_prompt, user_prompt)
-        return self._call_responses_text(trace_name, system_prompt, user_prompt)
+            return self._call_chat_text(trace_name, system_prompt, user_prompt, thinking=thinking)
+        return self._call_responses_text(trace_name, system_prompt, user_prompt, thinking=thinking)
 
     def parse_json_text(self, text: str, trace_name: str) -> dict[str, Any]:
         parsed = self._parse_function_arguments(self._strip_markdown_json_fence(text), trace_name)
@@ -81,13 +82,7 @@ class OpenAIFunctionClient:
             base_url = f"{base_url}/beta"
         url = f"{base_url}{path}"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        trace: dict[str, Any] = {
-            "at": datetime.now(timezone.utc).isoformat(),
-            "function_name": function_name,
-            "api_mode": settings.llm_api_mode,
-            "url": url,
-            "request": payload,
-        }
+        trace_path = self._create_trace(function_name, payload)
         request = urllib.request.Request(
             url,
             data=data,
@@ -100,27 +95,41 @@ class OpenAIFunctionClient:
         try:
             with urllib.request.urlopen(request, timeout=180) as response:
                 result = json.loads(response.read().decode("utf-8"))
-                trace["response"] = result
-                self._write_trace(function_name, trace)
                 return result
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            trace["error"] = {"type": "HTTPError", "status": exc.code, "body": body}
-            self._write_trace(function_name, trace)
+            self._write_parsed_trace(function_name, {"error": f"LLM API error {exc.code}: {body}"}, trace_path)
             raise LLMError(f"LLM API error {exc.code}: {body}") from exc
         except urllib.error.URLError as exc:
-            trace["error"] = {"type": "URLError", "reason": str(exc)}
-            self._write_trace(function_name, trace)
+            self._write_parsed_trace(function_name, {"error": f"LLM API network error: {exc}"}, trace_path)
             raise LLMError(f"LLM API network error: {exc}") from exc
 
-    def _write_trace(self, function_name: str, trace: dict[str, Any]) -> None:
+    def _create_trace(self, function_name: str, payload: dict[str, Any]) -> Path | None:
         if not self.trace_dir:
-            return
+            return None
         self.trace_dir.mkdir(parents=True, exist_ok=True)
         index = len(list(self.trace_dir.glob("*.json"))) + 1
         safe_name = re.sub(r"[^a-zA-Z0-9_]+", "_", function_name).strip("_") or "llm"
         path = self.trace_dir / f"{index:04d}_{safe_name}.json"
+        trace = {
+            "messages": self._trace_messages(payload),
+            "parsed_arguments": None,
+        }
         path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def _trace_messages(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        raw_messages = payload.get("messages") or payload.get("input") or []
+        messages = []
+        for item in raw_messages:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", ""))
+            content = item.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(str(part.get("text", part)) if isinstance(part, dict) else str(part) for part in content)
+            messages.append({"role": role, "content": str(content)})
+        return messages
 
     def _responses_tool(self, chat_tool: dict[str, Any]) -> dict[str, Any]:
         fn = chat_tool["function"]
@@ -138,6 +147,7 @@ class OpenAIFunctionClient:
         tool: dict[str, Any],
         system_prompt: str,
         user_prompt: str,
+        thinking: str | None = None,
     ) -> dict[str, Any]:
         payload = {
             "model": settings.llm_model,
@@ -150,7 +160,7 @@ class OpenAIFunctionClient:
             "parallel_tool_calls": false_json(),
         }
         self._apply_max_tokens(payload, "max_output_tokens")
-        self._apply_deepseek_thinking(payload)
+        self._apply_deepseek_thinking(payload, thinking)
         data = self._request("/responses", payload, function_name)
         for item in data.get("output", []):
             if item.get("type") == "function_call" and item.get("name") == function_name:
@@ -169,6 +179,7 @@ class OpenAIFunctionClient:
         tool: dict[str, Any],
         system_prompt: str,
         user_prompt: str,
+        thinking: str | None = None,
     ) -> dict[str, Any]:
         payload = {
             "model": settings.llm_model,
@@ -180,7 +191,7 @@ class OpenAIFunctionClient:
             "tool_choice": {"type": "function", "function": {"name": function_name}},
         }
         self._apply_max_tokens(payload, "max_tokens")
-        self._apply_deepseek_thinking(payload)
+        self._apply_deepseek_thinking(payload, thinking)
         data = self._request("/chat/completions", payload, function_name)
         choice = data["choices"][0]
         if choice.get("finish_reason") == "length":
@@ -197,7 +208,7 @@ class OpenAIFunctionClient:
                 return parsed
         raise LLMError(f"model did not call required function: {function_name}")
 
-    def _call_chat_text(self, trace_name: str, system_prompt: str, user_prompt: str) -> str:
+    def _call_chat_text(self, trace_name: str, system_prompt: str, user_prompt: str, thinking: str | None = None) -> str:
         payload = {
             "model": settings.llm_model,
             "messages": [
@@ -206,7 +217,7 @@ class OpenAIFunctionClient:
             ],
         }
         self._apply_max_tokens(payload, "max_tokens")
-        self._apply_deepseek_thinking(payload)
+        self._apply_deepseek_thinking(payload, thinking)
         data = self._request("/chat/completions", payload, trace_name)
         choice = data["choices"][0]
         if choice.get("finish_reason") == "length":
@@ -219,7 +230,7 @@ class OpenAIFunctionClient:
         self._write_text_trace(trace_name, content)
         return content
 
-    def _call_responses_text(self, trace_name: str, system_prompt: str, user_prompt: str) -> str:
+    def _call_responses_text(self, trace_name: str, system_prompt: str, user_prompt: str, thinking: str | None = None) -> str:
         payload = {
             "model": settings.llm_model,
             "input": [
@@ -228,7 +239,7 @@ class OpenAIFunctionClient:
             ],
         }
         self._apply_max_tokens(payload, "max_output_tokens")
-        self._apply_deepseek_thinking(payload)
+        self._apply_deepseek_thinking(payload, thinking)
         data = self._request("/responses", payload, trace_name)
         chunks: list[str] = []
         for item in data.get("output", []):
@@ -243,14 +254,15 @@ class OpenAIFunctionClient:
         self._write_text_trace(trace_name, text)
         return text
 
-    def _write_parsed_trace(self, function_name: str, parsed_arguments: dict[str, Any]) -> None:
+    def _write_parsed_trace(self, function_name: str, parsed_arguments: Any, path: Path | None = None) -> None:
         if not self.trace_dir:
             return
         self.trace_dir.mkdir(parents=True, exist_ok=True)
-        traces = sorted(self.trace_dir.glob("*.json"))
-        if not traces:
-            return
-        path = traces[-1]
+        if path is None:
+            traces = sorted(self.trace_dir.glob("*.json"))
+            if not traces:
+                return
+            path = traces[-1]
         trace = json.loads(path.read_text(encoding="utf-8"))
         trace["parsed_arguments"] = parsed_arguments
         path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -264,9 +276,7 @@ class OpenAIFunctionClient:
             return
         path = traces[-1]
         trace = json.loads(path.read_text(encoding="utf-8"))
-        if trace.get("function_name") != trace_name:
-            return
-        trace["text_output"] = text
+        trace["parsed_arguments"] = {"content": text}
         path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     def _strip_markdown_json_fence(self, text: str) -> str:
@@ -419,13 +429,14 @@ class OpenAIFunctionClient:
             return schema
         return _deepseek_compatible_schema(schema)
 
-    def _apply_deepseek_thinking(self, payload: dict[str, Any]) -> None:
+    def _apply_deepseek_thinking(self, payload: dict[str, Any], thinking: str | None = None) -> None:
         if "deepseek.com" not in settings.llm_base_url:
             return
-        if settings.llm_thinking not in {"enabled", "disabled"}:
+        thinking_mode = thinking or settings.llm_thinking
+        if thinking_mode not in {"enabled", "disabled"}:
             return
-        payload["thinking"] = {"type": settings.llm_thinking}
-        if settings.llm_thinking == "enabled" and settings.llm_reasoning_effort in {"high", "max", "low", "medium", "xhigh"}:
+        payload["thinking"] = {"type": thinking_mode}
+        if thinking_mode == "enabled" and settings.llm_reasoning_effort in {"high", "max", "low", "medium", "xhigh"}:
             payload["reasoning_effort"] = settings.llm_reasoning_effort
 
     def _apply_max_tokens(self, payload: dict[str, Any], field_name: str) -> None:

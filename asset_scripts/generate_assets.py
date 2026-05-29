@@ -34,7 +34,7 @@ from openai import OpenAI
 from PIL import Image
 
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-DEFAULT_MODEL = "doubao-seedream-4-5-251128"
+DEFAULT_MODEL = os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128")
 ARK_API_KEY = "ark-3e941fe9-5b17-4260-ad1f-84037db96e88-997a4"
 MAX_WORKERS = 3
 

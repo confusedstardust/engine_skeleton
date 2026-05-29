@@ -14,7 +14,8 @@
     "min": 3,
     "max": 7,
     "min_lines": 30,
-    "max_lines": 300
+    "max_lines": 300,
+    "max_line_length": 50
   },
   "branches": {
     "min": 1,
