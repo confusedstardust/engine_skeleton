@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from .config import settings
 from .generation_limits import character_limits_text, generation_limits
@@ -231,67 +230,3 @@ def webgal_script_rewrite_prompt(
     -----
     {game_design_completed_text}
     -----"""
-
-
-def scene_prompt(
-    narrative_plan: dict[str, Any],
-    asset_manifest: dict[str, Any],
-    existing_assets: list[str],
-    options: dict[str, Any],
-) -> str:
-    limits = generation_limits()
-    return f"""Create compact scene blueprints as structured data.
-
-    Options:
-    {json.dumps(options, ensure_ascii=False, indent=2)}
-
-    Narrative plan:
-    {json.dumps(narrative_plan, ensure_ascii=False, indent=2)}
-
-    Asset manifest:
-    {json.dumps(asset_manifest, ensure_ascii=False, indent=2)}
-
-    Assets currently on disk:
-    {json.dumps(existing_assets, ensure_ascii=False, indent=2)}
-
-    Hard requirements:
-    - Produce one scene object for every scene in the narrative plan.
-    - scene.file must exactly match the narrative plan file.
-    - Do NOT write WebGAL syntax.
-    - Do NOT return full .txt file contents.
-    - Put story material in beats only: {limits['scene_batch']['beats_min']} to {limits['scene_batch']['beats_max']} short beats per scene.
-    - Each beat text must be at most {limits['scene_batch']['beat_text_max_length']} characters.
-    - Each beat text must be plain Chinese prose or dialogue, no escaped script commands.
-    - Only reference asset filenames from the manifest or derived miniavatar filenames.
-    - Only reference variables from the narrative plan."""
-
-
-def repair_prompt(
-    validation_report: dict[str, Any],
-    scenes: dict[str, str],
-    narrative_plan: dict[str, Any],
-    asset_manifest: dict[str, Any],
-    cycle: int,
-) -> str:
-    return f"""Create a targeted repair plan for validation errors.
-
-    Repair cycle: {cycle}
-
-    Validation report:
-    {json.dumps(validation_report, ensure_ascii=False, indent=2)}
-
-    Narrative plan:
-    {json.dumps(narrative_plan, ensure_ascii=False, indent=2)}
-
-    Asset manifest:
-    {json.dumps(asset_manifest, ensure_ascii=False, indent=2)}
-
-    Current scene files:
-    {json.dumps(scenes, ensure_ascii=False, indent=2)}
-
-    Hard requirements:
-    - Repair only errors from the validation report.
-    - Touch only public/game/scene/*.txt files.
-    - Prefer exact find/replace repairs.
-    - Mark genuinely unfixable issues in unfixable.
-    - Do not rewrite unflagged scenes."""

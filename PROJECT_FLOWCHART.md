@@ -2,65 +2,43 @@
 
 ```mermaid
 flowchart TD
-  U["User opens frontend<br/>http://127.0.0.1:8010"] --> UI["Frontend<br/>frontend/index.html + app.js"]
-  UI --> C["POST /jobs<br/>Create job"]
-  C --> J["jobs/{job_id}/job.json<br/>status=CREATED"]
-  UI --> R["POST /jobs/{job_id}/run<br/>background=true"]
-
+  U["User opens frontend"] --> C["POST /jobs"]
+  C --> J["jobs/{job_id}/job.json"]
+  J --> R["POST /jobs/{job_id}/run"]
   R --> P["WebGALPipeline.run_all"]
 
-  P --> N1["Phase 1: Narrative<br/>emit_narrative_plan"]
-  N1 --> NC["Inject phase context<br/>schema + contract + constraints"]
-  NC --> DS1["DeepSeek Chat Completions<br/>function call"]
-  DS1 --> NV["Parse function arguments<br/>normalize narrative plan"]
-  NV --> NS{"Schema + semantic<br/>validation passed?"}
-  NS -- "No" --> NR["Retry with validation errors"]
-  NR --> DS1
-  NS -- "Yes" --> NW["Write state/narrative_plan.json<br/>legacy planning JSONs"]
+  P --> N["1. Theme analysis<br/>emit_narrative_plan"]
+  N --> NP["state/narrative_plan.json"]
 
-  NW --> A1["Phase 2: Assets<br/>emit_asset_manifest"]
-  A1 --> AC["Inject asset schema<br/>asset contract + naming/limits"]
-  AC --> DS2["DeepSeek function call"]
-  DS2 --> AV{"Asset manifest<br/>valid?"}
-  AV -- "No" --> AR["Retry with errors"]
-  AR --> DS2
-  AV -- "Yes" --> AW["Write assets_manifest.json"]
-  AW --> AG{"options.generate_assets?"}
-  AG -- "Yes" --> AS["Run original WebGAL asset scripts<br/>generate_assets.py<br/>remove_bg.py<br/>make_avatar.py"]
-  AG -- "No" --> ASKIP["Skip image generation"]
-  AS --> SR
-  ASKIP --> SR
+  NP --> GD["2. Game structure design<br/>plain text LLM"]
+  GD --> GDT["state/game_design.txt"]
 
-  SR["Phase 3: Scenes<br/>emit_scene_batch"] --> SC["Inject scene schema<br/>scene contract + syntax/naming/limits"]
-  SC --> DS3["DeepSeek function call<br/>compact scene blueprints"]
-  DS3 --> SV{"Scene batch JSON<br/>valid and complete?"}
-  SV -- "Yes" --> SW["Render WebGAL .txt files<br/>public/game/scene/*.txt"]
-  SV -- "No / JSON truncated" --> SF["Fallback scene generator<br/>derive scene_batch from<br/>narrative_plan + assets_manifest"]
-  SF --> SFL["Write state/scene_generation_fallback.json"]
-  SFL --> SW
-  SW --> SB["Write state/scene_batch.json"]
+  GDT --> DC["3. Story design<br/>plain text LLM"]
+  DC --> GDC["state/game_design_completed.txt"]
 
-  SB --> V1["Phase 4: Validation<br/>deterministic validator"]
-  V1 --> VC["Check syntax, references,<br/>variables, endings, limits, naming"]
-  VC --> VW["Write state/validation_report.json"]
-  VW --> VP{"errors == 0?"}
+  GDC --> AM["4. Asset preparation<br/>emit_asset_manifest"]
+  AM --> MF["assets_manifest.json"]
 
-  VP -- "Yes" --> DONE["status=DONE<br/>Artifacts ready"]
-  VP -- "No" --> RP["Phase 5: Repair<br/>emit_repair_plan"]
-  RP --> RC["Inject repair schema<br/>repair contract + syntax rules"]
-  RC --> DS4["DeepSeek function call"]
-  DS4 --> RV{"Repair plan valid?"}
-  RV -- "No" --> RR["Retry repair plan"]
-  RR --> DS4
-  RV -- "Yes" --> RA["Apply targeted scene repairs<br/>public/game/scene/*.txt"]
-  RA --> RL["Append state/repair_log.json"]
-  RL --> V1
+  MF --> AG{"5. Asset generation<br/>options.generate_assets?"}
+  AG -- "Yes" --> IMG["public/game/background/*.webp<br/>public/game/figure/*.webp"]
+  AG -- "No" --> SKIP["stage marked skipped"]
 
-  VP -- "Errors remain after 3 cycles" --> FAIL["status=FAILED<br/>error written to job.json"]
+  IMG --> RW["6. Insert assets<br/>plain text LLM"]
+  SKIP --> RW
+  RW --> WGT["state/game_design_webgal.txt"]
+  RW --> SAL["state/script_assets.json"]
 
-  DONE --> FE["Frontend polls GET /jobs/{job_id}<br/>and GET /artifacts"]
-  FAIL --> FE
-  FE --> PREV["User previews artifacts<br/>narrative_plan, assets_manifest,<br/>scene files, validation report"]
+  WGT --> SC["Scene writing<br/>split [scene.txt] sections"]
+  SC --> TXT["public/game/scene/*.txt"]
+  SC --> CFG["public/game/config.txt"]
+  SC --> SF["state/scene_files.json"]
+
+  TXT --> V["7. Validation + deterministic repair"]
+  V --> VR["state/validation_report.json"]
+  VR --> OK{"errors == 0?"}
+
+  OK -- "Yes" --> DONE["status=DONE"]
+  OK -- "No" --> FAIL["status=FAILED"]
 ```
 
 ## Artifact Layout
@@ -71,22 +49,22 @@ jobs/{job_id}/
   assets_manifest.json
   state/
     narrative_plan.json
-    characters.json
-    variables.json
-    scene_graph.json
-    branch_map.json
-    ending_matrix.json
-    scene_batch.json
-    scene_generation_fallback.json
+    game_design.txt
+    game_design_completed.txt
+    game_design_webgal.txt
+    script_assets.json
+    scene_files.json
     validation_report.json
-    repair_log.json
+    llm_traces/
+      *.json
+      stage_timings.jsonl
   public/game/
-    background/
-    figure/
-    bgm/
+    config.txt
+    background/*.webp
+    figure/*.webp
     scene/*.txt
 ```
 
 ## Key Design Rule
 
-The LLM proposes structured artifacts through forced function calls. The backend decides whether an artifact is accepted, writes files, runs deterministic validation, and falls back when model output is too long or malformed.
+Structured artifacts use backend contracts and schema validation. Long-form script writing stays as text generation. `run_scenes` writes final WebGAL scene files, and validation applies deterministic repairs before reporting remaining errors.

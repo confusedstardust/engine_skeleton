@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import copy
 import re
-import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 from .config import settings
-from .storage import read_json
 
 
 class LLMError(RuntimeError):
@@ -22,23 +20,20 @@ class OpenAIFunctionClient:
         if not settings.llm_api_key:
             raise LLMError("DEEPSEEK_API_KEY is not set")
         self.trace_dir = trace_dir
-        self.tools_path = settings.skill_dir / "references" / "openai-tools.built.json"
-        self.source_tools_path = settings.skill_dir / "references" / "openai-tools.json"
-        self.builder_path = settings.skill_dir / "scripts" / "build_openai_tools.py"
-        self._ensure_built_tools()
-        self.tools = read_json(self.tools_path)["tools"]
+        self.source_tools_path = settings.contracts_dir / "openai-tools.json"
+        self.tools = self._load_tools()
 
-    def _ensure_built_tools(self) -> None:
+    def _load_tools(self) -> list[dict[str, Any]]:
         if not self.source_tools_path.exists():
             raise LLMError(f"missing tool source: {self.source_tools_path}")
-        import sys
-        subprocess.run(
-            [sys.executable, str(self.builder_path), str(self.source_tools_path), str(self.tools_path)],
-            check=True,
-            cwd=str(settings.skill_dir.parent),
-            capture_output=True,
-            text=True,
-        )
+        try:
+            document = _read_json(self.source_tools_path)
+            tools = _inline_schema_refs(document, self.source_tools_path.parent).get("tools", [])
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise LLMError(f"failed to load function tools: {exc}") from exc
+        if not isinstance(tools, list):
+            raise LLMError("function tools must be a list")
+        return tools
 
     def call_function(
         self,
@@ -446,6 +441,57 @@ class OpenAIFunctionClient:
 
 def false_json() -> bool:
     return False
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _resolve_json_pointer(document: dict[str, Any], pointer: str) -> Any:
+    if not pointer.startswith("#/"):
+        raise ValueError(f"only local JSON pointers are supported: {pointer}")
+    current: Any = document
+    for raw_part in pointer[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        current = current[part]
+    return copy.deepcopy(current)
+
+
+def _inline_schema_refs(value: Any, base_dir: Path, root: dict[str, Any] | None = None) -> Any:
+    if root is None and isinstance(value, dict):
+        root = value
+    if isinstance(value, list):
+        return [_inline_schema_refs(item, base_dir, root) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    ref = value.get("$ref")
+    if isinstance(ref, str):
+        siblings = {key: item for key, item in value.items() if key != "$ref"}
+        if ref.startswith("#/"):
+            if root is None:
+                raise ValueError(f"local ref has no root document: {ref}")
+            resolved = _inline_schema_refs(_resolve_json_pointer(root, ref), base_dir, root)
+            if siblings and isinstance(resolved, dict):
+                resolved.update(_inline_schema_refs(siblings, base_dir, root))
+            return resolved
+        if ref.startswith("schemas/") and ref.endswith(".json"):
+            schema = _read_json(base_dir / ref)
+            if not isinstance(schema, dict):
+                raise ValueError(f"schema ref must resolve to an object: {ref}")
+            schema = copy.deepcopy(schema)
+            schema.pop("$schema", None)
+            schema.pop("$id", None)
+            resolved = _inline_schema_refs(schema, base_dir, schema)
+            if siblings and isinstance(resolved, dict):
+                resolved.update(_inline_schema_refs(siblings, base_dir, root))
+            return resolved
+
+    return {
+        key: _inline_schema_refs(item, base_dir, root)
+        for key, item in value.items()
+        if key != "$defs"
+    }
 
 
 def _deepseek_compatible_schema(value: Any) -> Any:

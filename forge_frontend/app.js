@@ -3,7 +3,7 @@ const zh = {
   taskHistory: "\u4efb\u52a1\u5386\u53f2",
   title: "WebGAL \u751f\u6210\u5de5\u4f5c\u53f0",
   intro:
-    "\u5199\u5165\u6545\u4e8b\u3001\u4e16\u754c\u89c2\u3001\u89d2\u8272\u5173\u7cfb\u3001\u5206\u652f\u7ed3\u5c40\u548c\u753b\u98ce\u8981\u6c42\u3002\u6211\u4f1a\u9a71\u52a8\u540e\u7aef\u6309 narrative\u3001assets\u3001scenes\u3001validation\u3001repair \u7684\u987a\u5e8f\u751f\u6210 WebGAL \u5de5\u7a0b\u3002",
+    "Write source material, characters, routes, endings, and visual style. Backend stages: narrative, game_design, asset_manifest, asset_generation, script_rewrite, scenes, validation.",
   allowMissingAssets: "\u5141\u8bb8\u5148\u7f3a\u56fe",
   generateAssets: "\u751f\u6210\u56fe\u7247",
   run: "\u5f00\u59cb\u751f\u6210",

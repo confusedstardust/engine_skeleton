@@ -28,8 +28,8 @@ if frontend_dir.exists():
 @app.on_event("startup")
 def log_runtime_paths() -> None:
     logging.getLogger("uvicorn.error").info(
-        "WebGAL paths: skill_dir=%s asset_scripts_dir=%s",
-        settings.skill_dir,
+        "WebGAL paths: contracts_dir=%s asset_scripts_dir=%s",
+        settings.contracts_dir,
         settings.asset_scripts_dir,
     )
 

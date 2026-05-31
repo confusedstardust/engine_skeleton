@@ -1,0 +1,40 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_narrative_plan",
+        "description": "Return the complete narrative architecture for a WebGAL visual novel.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": ["narrative_plan"],
+          "additionalProperties": false,
+          "properties": {
+            "narrative_plan": {
+              "$ref": "schemas/narrative_plan.schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_asset_manifest",
+        "description": "Return the complete generated-image manifest derived from the narrative plan.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": ["asset_manifest"],
+          "additionalProperties": false,
+          "properties": {
+            "asset_manifest": {
+              "$ref": "schemas/asset_manifest.schema.json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
