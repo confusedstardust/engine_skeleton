@@ -77,7 +77,6 @@ class Settings:
     llm_thinking: str
     llm_reasoning_effort: str
     max_schema_retries: int
-    max_repair_cycles: int
     llm_max_tokens: int | None
     asset_scripts_dir: Path
     image_model: str
@@ -113,7 +112,6 @@ class Settings:
             llm_thinking=(os.getenv("DEEPSEEK_THINKING") or "enabled").lower(),
             llm_reasoning_effort=(os.getenv("DEEPSEEK_REASONING_EFFORT") or "high").lower(),
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
-            max_repair_cycles=int(os.getenv("WEBGAL_MAX_REPAIR_CYCLES", "3")),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
             image_model=os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128"),

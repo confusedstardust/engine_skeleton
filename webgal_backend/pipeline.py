@@ -18,10 +18,10 @@ from .prompts import (
     game_design_completion_prompt,
     game_design_prompt,
     narrative_prompt,
-    repair_prompt,
     webgal_script_rewrite_prompt,
 )
 from .storage import JobStore, read_json, utc_now, write_json
+from .scene_validation import validate_and_repair_scenes, validation_report
 from .validators import (
     ValidationFailure,
     semantic_asset_manifest,
@@ -115,10 +115,11 @@ class WebGALPipeline:
         try:
             self.run_narrative(job)
             self.run_game_design(job)
-            self.run_assets(job)
+            self.run_asset_manifest(job)
+            self.run_asset_generation(job)
+            self.run_script_rewrite(job)
             self.run_scenes(job)
             self.run_validation(job)
-            self.run_repairs_until_clean(job)
             self.store.transition(job, "DONE", None)
             return self.store.get(job_id)
         except Exception as exc:
@@ -130,10 +131,12 @@ class WebGALPipeline:
         phases = {
             "narrative": self.run_narrative,
             "game_design": self.run_game_design,
+            "asset_manifest": self.run_asset_manifest,
+            "asset_generation": self.run_asset_generation,
+            "script_rewrite": self.run_script_rewrite,
             "assets": self.run_assets,
             "scenes": self.run_scenes,
             "validation": self.run_validation,
-            "repair": self.run_one_repair_cycle,
         }
         if phase not in phases:
             raise PipelineError(f"unknown phase: {phase}")
@@ -182,15 +185,15 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
             completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
             (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
-            scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_text)
-            write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
-            self.store.record_artifact(job, "scene_files", "state/scene_files.json")
-        self._generate_config(job_dir, narrative_plan)
-        self._copy_engine_skeleton(job_dir)
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def run_assets(self, job: dict[str, Any]) -> None:
+        self.run_asset_manifest(job)
+        self.run_asset_generation(job)
+        self.run_script_rewrite(job)
+
+    def run_asset_manifest(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "ASSET_PLANNING")
         job_dir = self.store.job_dir(job["id"])
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
@@ -212,27 +215,68 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             )
             write_json(job_dir / "assets_manifest.json", manifest)
             self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+        self.store.transition(job, "ASSET_MANIFEST_READY", "ASSET_PLANNING")
 
+    def run_asset_generation(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "ASSET_GENERATION")
+        job_dir = self.store.job_dir(job["id"])
+        if not (job_dir / "assets_manifest.json").exists():
+            raise PipelineError("assets_manifest.json is required before asset generation")
         if job["options"].get("generate_assets", False):
             with self._trace_stage(job, 5, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
                 self._run_asset_scripts(job_dir)
         else:
             self._write_stage_event(job, 5, "素材生成", "generated_assets", "skipped", "generate_assets option is false")
+        self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
 
-        self._rewrite_game_design_with_assets(job, manifest)
-        self.store.transition(job, "ASSETS_READY", "ASSET_PLANNING")
+    def run_script_rewrite(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "SCRIPT_REWRITE")
+        job_dir = self.store.job_dir(job["id"])
+        manifest = self._read_required(job_dir / "assets_manifest.json")
+        completed_path = job_dir / "state" / "game_design_completed.txt"
+        if not completed_path.exists():
+            raise PipelineError("game_design_completed.txt is required before rewriting with assets")
+
+        syntax_path = settings.contracts_dir / "syntax.md"
+        if not syntax_path.exists():
+            raise PipelineError("webgal_backend/contracts/syntax.md is required for WebGAL script rewriting")
+
+        assets = self._script_asset_lists(manifest)
+        write_json(job_dir / "state" / "script_assets.json", assets)
+
+        with self._trace_stage(job, 6, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
+            try:
+                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+            except TypeError:
+                llm = self.llm_factory()
+
+            system_prompt = f"""{SYSTEM_PROMPT}
+
+Current phase: webgal_script_rewrite
+Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
+            prompt = webgal_script_rewrite_prompt(
+                syntax_md=syntax_path.read_text(encoding="utf-8"),
+                game_design_completed_text=completed_path.read_text(encoding="utf-8"),
+                background_assets=assets["background_assets"],
+                figure_assets=assets["figure_assets"],
+            )
+            rewritten_text = llm.call_text("webgal_script_rewrite", system_prompt, prompt)
+            (job_dir / "state" / "game_design_webgal.txt").write_text(rewritten_text.rstrip() + "\n", encoding="utf-8")
+            self.store.record_artifact(job, "script_assets", "state/script_assets.json")
+            self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
+        self.store.transition(job, "SCRIPT_REWRITE_READY", "SCRIPT_REWRITE")
 
     def run_scenes(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "SCENE_WRITING")
         job_dir = self.store.job_dir(job["id"])
         completed_design_path = job_dir / "state" / "game_design_webgal.txt"
         if not completed_design_path.exists():
-            completed_design_path = job_dir / "state" / "game_design_completed.txt"
-        if not completed_design_path.exists():
-            raise PipelineError("game_design_webgal.txt or game_design_completed.txt is required before scene writing")
+            raise PipelineError("game_design_webgal.txt is required before scene writing")
         scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_design_path.read_text(encoding="utf-8"))
         write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
         self.store.record_artifact(job, "scene_files", "state/scene_files.json")
+        narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        self._generate_config(job_dir, narrative_plan)
         self._copy_engine_skeleton(job_dir)
         self.store.transition(job, "SCENES_READY", "SCENE_WRITING")
 
@@ -240,65 +284,14 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 7, "校验阶段", "validation_report", "state/validation_report.json"):
-            scene_files = sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
-            report = {
-                "summary": {
-                    "total_scenes": len(scene_files),
-                    "total_lines": sum(len(path.read_text(encoding="utf-8").splitlines()) for path in scene_files),
-                    "errors": 0,
-                    "warnings": 0,
-                    "passed": True,
-                },
-                "checks": {},
-                "errors": [],
-                "warnings": [],
-            }
+            result = validate_and_repair_scenes(job_dir)
+            report = validation_report(result)
             write_json(job_dir / "state" / "validation_report.json", report)
             self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+            if report["summary"]["errors"] > 0:
+                self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
+                raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
         self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
-
-    def run_repairs_until_clean(self, job: dict[str, Any]) -> None:
-        max_cycles = generation_limits()["repair"]["max_cycles"]
-        for _ in range(max_cycles):
-            report = self._read_required(self.store.job_dir(job["id"]) / "state" / "validation_report.json")
-            if report["summary"]["errors"] == 0:
-                return
-            self.run_one_repair_cycle(job)
-            self.run_validation(job)
-
-        report = self._read_required(self.store.job_dir(job["id"]) / "state" / "validation_report.json")
-        if report["summary"]["errors"] > 0:
-            raise PipelineError(f"repair stopped after {max_cycles} cycles with {report['summary']['errors']} errors")
-
-    def run_one_repair_cycle(self, job: dict[str, Any]) -> None:
-        self.store.transition(job, "RUNNING", "REPAIRING")
-        job_dir = self.store.job_dir(job["id"])
-        report = self._read_required(job_dir / "state" / "validation_report.json")
-        if report["summary"]["errors"] == 0:
-            self._write_stage_event(job, 8, "修复阶段", "repair_plan", "skipped", "validation has no errors")
-            self.store.transition(job, "REPAIR_SKIPPED", "REPAIRING")
-            return
-
-        with self._trace_stage(job, 8, "修复阶段", "repair_plan", "state/repair_log.jsonl"):
-            plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-            manifest = self._read_required(job_dir / "assets_manifest.json")
-            cycle = self._next_repair_cycle(job_dir)
-            scenes = {
-                f"public/game/scene/{path.name}": path.read_text(encoding="utf-8")
-                for path in sorted((job_dir / "public" / "game" / "scene").glob("*.txt"))
-            }
-            prompt = repair_prompt(report, scenes, plan, manifest, cycle)
-            repair_plan = self._call_with_validation(
-                job_dir=job_dir,
-                function_name="emit_repair_plan",
-                artifact_key="repair_plan",
-                schema_name="repair_plan.schema.json",
-                user_prompt=prompt,
-                semantic_validator=None,
-            )
-            self._apply_repair_plan(job_dir, repair_plan)
-            self._append_repair_log(job_dir, repair_plan)
-        self.store.transition(job, "REPAIR_APPLIED", "REPAIRING")
 
     def _call_with_validation(
         self,
@@ -406,7 +399,7 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
 
         matches = list(re.finditer(r"^\s*(?:\[([A-Za-z0-9_-]+\.txt)\]|([A-Za-z0-9_-]+\.txt))\s*$", text, flags=re.MULTILINE))
         if not matches:
-            raise PipelineError("game_design_completed.txt did not contain any [scene.txt] sections")
+            raise PipelineError("script text did not contain any [scene.txt] sections")
 
         scene_dir = job_dir / "public" / "game" / "scene"
         scene_dir.mkdir(parents=True, exist_ok=True)
@@ -416,45 +409,11 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             file_name = (match.group(1) or match.group(2)).replace("\\", "/").split("/")[-1]
             if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
-                raise PipelineError(f"invalid scene filename in game_design_completed.txt: {file_name}")
+                raise PipelineError(f"invalid scene filename in script text: {file_name}")
             content = text[body_start:body_end].strip()
             (scene_dir / file_name).write_text(content.rstrip() + "\n", encoding="utf-8")
             written.append(f"public/game/scene/{file_name}")
         return written
-
-    def _rewrite_game_design_with_assets(self, job: dict[str, Any], manifest: dict[str, Any]) -> None:
-        job_dir = self.store.job_dir(job["id"])
-        completed_path = job_dir / "state" / "game_design_completed.txt"
-        if not completed_path.exists():
-            raise PipelineError("game_design_completed.txt is required before rewriting with assets")
-
-        syntax_path = Path(__file__).resolve().parents[1] / "shared" / "constraints" / "syntax.md"
-        if not syntax_path.exists():
-            raise PipelineError("shared/constraints/syntax.md is required for WebGAL script rewriting")
-
-        assets = self._script_asset_lists(manifest)
-        write_json(job_dir / "state" / "script_assets.json", assets)
-
-        with self._trace_stage(job, 6, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
-            try:
-                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-            except TypeError:
-                llm = self.llm_factory()
-
-            system_prompt = f"""{SYSTEM_PROMPT}
-
-Current phase: webgal_script_rewrite
-Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
-            prompt = webgal_script_rewrite_prompt(
-                syntax_md=syntax_path.read_text(encoding="utf-8"),
-                game_design_completed_text=completed_path.read_text(encoding="utf-8"),
-                background_assets=assets["background_assets"],
-                figure_assets=assets["figure_assets"],
-            )
-            rewritten_text = llm.call_text("webgal_script_rewrite", system_prompt, prompt)
-            (job_dir / "state" / "game_design_webgal.txt").write_text(rewritten_text.rstrip() + "\n", encoding="utf-8")
-            self.store.record_artifact(job, "script_assets", "state/script_assets.json")
-            self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
 
     def _script_asset_lists(self, manifest: dict[str, Any]) -> dict[str, list[str]]:
         background_subdir = generation_limits()["assets"]["background_subdir"]
@@ -587,6 +546,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         if not scripts.exists():
             raise PipelineError(f"asset scripts directory does not exist: {scripts}")
 
+        (job_dir / "public" / "game").mkdir(parents=True, exist_ok=True)
         ark_api_key = os.getenv("ARK_API_KEY")
         if ark_api_key:
             game_env = job_dir / "public" / "game" / ".env"
@@ -605,62 +565,8 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         if result.returncode != 0:
             raise PipelineError(f"script failed: {' '.join(command)}\n{result.stderr or result.stdout}")
 
-    def _list_existing_assets(self, job_dir: Path) -> list[str]:
-        game_dir = job_dir / "public" / "game"
-        return [
-            str(path.relative_to(game_dir)).replace("\\", "/")
-            for subdir in ["background", "figure", "bgm"]
-            for path in (game_dir / subdir).glob("*")
-            if path.is_file()
-        ]
-
     def _read_required(self, path: Path) -> dict[str, Any]:
         if not path.exists():
             raise PipelineError(f"required artifact missing: {path}")
         return read_json(path)
 
-    def _next_repair_cycle(self, job_dir: Path) -> int:
-        log_path = job_dir / "state" / "repair_log.json"
-        if not log_path.exists():
-            return 1
-        return len(read_json(log_path)) + 1
-
-    def _append_repair_log(self, job_dir: Path, repair_plan: dict[str, Any]) -> None:
-        log_path = job_dir / "state" / "repair_log.json"
-        log = read_json(log_path) if log_path.exists() else []
-        log.append(repair_plan)
-        write_json(log_path, log)
-
-    def _apply_repair_plan(self, job_dir: Path, repair_plan: dict[str, Any]) -> None:
-        for repair in repair_plan["repairs"]:
-            if repair["strategy"] == "manual_required":
-                continue
-            path = (job_dir / repair["file"]).resolve()
-            root = (job_dir / "public" / "game" / "scene").resolve()
-            if root != path.parent:
-                raise PipelineError(f"repair path outside scene directory: {repair['file']}")
-            if not path.exists():
-                raise PipelineError(f"repair target does not exist: {repair['file']}")
-            text = path.read_text(encoding="utf-8")
-            find = repair["find"]
-            replace = repair["replace"] or ""
-            strategy = repair["strategy"]
-
-            if strategy == "replace_text":
-                if not find or find not in text:
-                    raise PipelineError(f"repair find text not found in {repair['file']}")
-                text = text.replace(find, replace, 1)
-            elif strategy == "insert_after":
-                if not find or find not in text:
-                    raise PipelineError(f"repair insertion anchor not found in {repair['file']}")
-                text = text.replace(find, find + replace, 1)
-            elif strategy == "insert_before":
-                if not find or find not in text:
-                    raise PipelineError(f"repair insertion anchor not found in {repair['file']}")
-                text = text.replace(find, replace + find, 1)
-            elif strategy == "append_block":
-                text = text.rstrip() + "\n" + replace.rstrip() + "\n"
-            else:
-                raise PipelineError(f"unknown repair strategy: {strategy}")
-
-            path.write_text(text, encoding="utf-8")

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from .config import settings
 from .generation_limits import character_limits_text, generation_limits
@@ -231,34 +230,3 @@ def webgal_script_rewrite_prompt(
     -----
     {game_design_completed_text}
     -----"""
-
-
-def repair_prompt(
-    validation_report: dict[str, Any],
-    scenes: dict[str, str],
-    narrative_plan: dict[str, Any],
-    asset_manifest: dict[str, Any],
-    cycle: int,
-) -> str:
-    return f"""Create a targeted repair plan for validation errors.
-
-    Repair cycle: {cycle}
-
-    Validation report:
-    {json.dumps(validation_report, ensure_ascii=False, indent=2)}
-
-    Narrative plan:
-    {json.dumps(narrative_plan, ensure_ascii=False, indent=2)}
-
-    Asset manifest:
-    {json.dumps(asset_manifest, ensure_ascii=False, indent=2)}
-
-    Current scene files:
-    {json.dumps(scenes, ensure_ascii=False, indent=2)}
-
-    Hard requirements:
-    - Repair only errors from the validation report.
-    - Touch only public/game/scene/*.txt files.
-    - Prefer exact find/replace repairs.
-    - Mark genuinely unfixable issues in unfixable.
-    - Do not rewrite unflagged scenes."""

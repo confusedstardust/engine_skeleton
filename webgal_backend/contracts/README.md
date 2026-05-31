@@ -11,4 +11,3 @@ Current structured tools:
 
 - `emit_narrative_plan`
 - `emit_asset_manifest`
-- `emit_repair_plan`

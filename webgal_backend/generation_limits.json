@@ -37,8 +37,5 @@
     "figure_size": "1440x2560",
     "background_subdir": "background",
     "background_size": "2560x1440"
-  },
-  "repair": {
-    "max_cycles": 1
   }
 }

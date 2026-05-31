@@ -32,7 +32,6 @@ REQUIRED_PATHS = [
     ("assets", "figure_size"),
     ("assets", "background_subdir"),
     ("assets", "background_size"),
-    ("repair", "max_cycles"),
 ]
 
 def limits_path() -> Path:

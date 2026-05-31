@@ -35,24 +35,6 @@
           }
         }
       }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "emit_repair_plan",
-        "description": "Return targeted scene-file repairs for validation errors.",
-        "strict": true,
-        "parameters": {
-          "type": "object",
-          "required": ["repair_plan"],
-          "additionalProperties": false,
-          "properties": {
-            "repair_plan": {
-              "$ref": "schemas/repair_plan.schema.json"
-            }
-          }
-        }
-      }
     }
   ]
 }
