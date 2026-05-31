@@ -32,10 +32,6 @@ REQUIRED_PATHS = [
     ("assets", "figure_size"),
     ("assets", "background_subdir"),
     ("assets", "background_size"),
-    ("scene_batch", "beats_min"),
-    ("scene_batch", "beats_max"),
-    ("scene_batch", "beat_text_max_length"),
-    ("scene_batch", "fallback_referenced_variable_limit"),
     ("repair", "max_cycles"),
 ]
 

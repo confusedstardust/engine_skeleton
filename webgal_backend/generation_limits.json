@@ -38,12 +38,6 @@
     "background_subdir": "background",
     "background_size": "2560x1440"
   },
-  "scene_batch": {
-    "beats_min": 5,
-    "beats_max": 15,
-    "beat_text_max_length": 80,
-    "fallback_referenced_variable_limit": 3
-  },
   "repair": {
     "max_cycles": 1
   }

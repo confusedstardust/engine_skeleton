@@ -7,7 +7,7 @@ from .config import settings
 from .generation_limits import generation_limits, prompt_limits_text
 
 
-ORIGINAL_WEBGAL_SKILL_DIR = Path(__file__).resolve().parent.parent / "shared"
+SHARED_CONTEXT_DIR = Path(__file__).resolve().parent.parent / "shared"
 
 PHASE_RESOURCES = {
     "emit_narrative_plan": {
@@ -19,16 +19,6 @@ PHASE_RESOURCES = {
         "schema": "asset_manifest.schema.json",
         "contract": "asset-planner.md",
         "constraints": ["limits.md", "naming.md"],
-    },
-    "emit_scene_batch": {
-        "schema": "scene_batch.schema.json",
-        "contract": "scene-writer.md",
-        "constraints": ["limits.md", "naming.md", "syntax.md"],
-    },
-    "emit_validation_report": {
-        "schema": "validation_report.schema.json",
-        "contract": "validator.md",
-        "constraints": ["limits.md", "naming.md", "syntax.md"],
     },
     "emit_repair_plan": {
         "schema": "repair_plan.schema.json",
@@ -88,7 +78,7 @@ def build_phase_context(function_name: str) -> str:
 
 
 def _compact_schema(schema_name: str) -> str:
-    path = settings.skill_dir / "references" / "schemas" / schema_name
+    path = settings.contracts_dir / "schemas" / schema_name
     if not path.exists():
         return f"(schema missing: {schema_name})"
     schema = json.loads(path.read_text(encoding="utf-8"))
@@ -96,7 +86,7 @@ def _compact_schema(schema_name: str) -> str:
 
 
 def _read_original(folder: str, file_name: str) -> str:
-    path = ORIGINAL_WEBGAL_SKILL_DIR / folder / file_name
+    path = SHARED_CONTEXT_DIR / folder / file_name
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
@@ -129,17 +119,6 @@ Asset phase additions:
 - Every character must have exactly one figure asset.
 - Use bg_ prefix for backgrounds, figure_ prefix for sprites, cg_ prefix for event CGs.
 - Sprite prompts must include: clean plain white background, full body visible, no text, no watermark."""
-    if function_name == "emit_scene_batch":
-        return f"""Configured generation limits override any copied contract examples above:
-- Use {limits['scene_batch']['beats_min']} to {limits['scene_batch']['beats_max']} beats per scene.
-- Keep beat text <= {limits['scene_batch']['beat_text_max_length']} characters.
-- Rendered scene files must be {limits['scenes']['min_lines']} to {limits['scenes']['max_lines']} lines.
-
-Scene phase additions:
-- Return compact blueprints, not complete WebGAL script files.
-- beats[].text must be plain story prose/dialogue only.
-- Do not include commands like changeBg, callScene, miniAvatar, sleep, bgi_fadeIn, or JavaScript-style calls in beats.
-- Backend will render WebGAL syntax deterministically."""
     if function_name == "emit_repair_plan":
         return """Repair phase additions:
 - Only repair errors listed in validation_report.

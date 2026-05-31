@@ -39,42 +39,6 @@
     {
       "type": "function",
       "function": {
-        "name": "emit_scene_batch",
-        "description": "Return validated WebGAL scene file contents as data, not direct file writes.",
-        "strict": true,
-        "parameters": {
-          "type": "object",
-          "required": ["scene_batch"],
-          "additionalProperties": false,
-          "properties": {
-            "scene_batch": {
-              "$ref": "schemas/scene_batch.schema.json"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "emit_validation_report",
-        "description": "Return a structured validation report for a generated WebGAL game.",
-        "strict": true,
-        "parameters": {
-          "type": "object",
-          "required": ["validation_report"],
-          "additionalProperties": false,
-          "properties": {
-            "validation_report": {
-              "$ref": "schemas/validation_report.schema.json"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
         "name": "emit_repair_plan",
         "description": "Return targeted scene-file repairs for validation errors.",
         "strict": true,
