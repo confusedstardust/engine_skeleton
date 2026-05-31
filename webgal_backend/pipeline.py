@@ -272,7 +272,23 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         completed_design_path = job_dir / "state" / "game_design_webgal.txt"
         if not completed_design_path.exists():
             raise PipelineError("game_design_webgal.txt is required before scene writing")
-        scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_design_path.read_text(encoding="utf-8"))
+        script_text = completed_design_path.read_text(encoding="utf-8")
+        try:
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, script_text)
+        except PipelineError as exc:
+            if "did not contain any [scene.txt] sections" not in str(exc):
+                raise
+            reference_path = job_dir / "state" / "game_design_completed.txt"
+            if not reference_path.exists():
+                raise
+            repaired_text = self._restore_missing_scene_headers(
+                script_text,
+                reference_path.read_text(encoding="utf-8"),
+            )
+            if repaired_text == script_text:
+                raise
+            completed_design_path.write_text(repaired_text.rstrip() + "\n", encoding="utf-8")
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, repaired_text)
         write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
         self.store.record_artifact(job, "scene_files", "state/scene_files.json")
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
@@ -414,6 +430,29 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             (scene_dir / file_name).write_text(content.rstrip() + "\n", encoding="utf-8")
             written.append(f"public/game/scene/{file_name}")
         return written
+
+    def _restore_missing_scene_headers(self, script_text: str, reference_text: str) -> str:
+        import re
+
+        existing_headers = re.findall(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", script_text, flags=re.MULTILINE)
+        if existing_headers:
+            return script_text
+
+        reference_headers = re.findall(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", reference_text, flags=re.MULTILINE)
+        if not reference_headers:
+            return script_text
+
+        chunks = [chunk.strip() for chunk in re.split(r"\r?\n\s*\r?\n", script_text.strip()) if chunk.strip()]
+        if len(chunks) != len(reference_headers):
+            raise PipelineError(
+                "game_design_webgal.txt appears to have lost scene headers, "
+                f"but cannot restore them safely: {len(reference_headers)} reference headers vs {len(chunks)} script blocks"
+            )
+
+        restored = []
+        for header, chunk in zip(reference_headers, chunks, strict=True):
+            restored.append(f"[{header}]\n{chunk}")
+        return "\n\n".join(restored)
 
     def _script_asset_lists(self, manifest: dict[str, Any]) -> dict[str, list[str]]:
         background_subdir = generation_limits()["assets"]["background_subdir"]

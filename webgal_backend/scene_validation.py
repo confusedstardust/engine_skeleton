@@ -225,7 +225,7 @@ def _repair_scene_lines(
 
 def _repair_inner_monologue_line(line: str) -> str:
     match = re.match(
-        r"^\s*\((?P<speaker>[^()\uFF1A:]+?)\s*\u5185\u5FC3(?:os|OS)?\)\s*(?:[\uFF1A:]\s*)?(?P<text>.*?)\s*;?\s*$",
+        r"^\s*[\uFF1A:]?\s*[\(\uFF08](?P<speaker>[^()\uFF08\uFF09\uFF1A:]+?)\s*\u5185\u5FC3(?:os|OS)?[\)\uFF09]\s*(?:[\uFF1A:]\s*)?(?P<text>.*?)\s*;?\s*$",
         line,
     )
     if not match:
@@ -484,16 +484,6 @@ def _validate_scene_structure(job_dir: Path, scene_files: list[Path]) -> list[Va
                 file="public/game/scene",
                 line=None,
                 message="start.txt is required.",
-            )
-        )
-    if not any(name.startswith("ending_") for name in names):
-        issues.append(
-            ValidationIssue(
-                code="missing_ending_scene",
-                severity="error",
-                file="public/game/scene",
-                line=None,
-                message="At least one ending_*.txt scene is required.",
             )
         )
     if len(scene_files) < limits["scenes"]["min"] or len(scene_files) > limits["scenes"]["max"]:

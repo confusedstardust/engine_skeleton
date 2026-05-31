@@ -39,8 +39,7 @@ def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
     叙事应适合改编为互动叙事游戏
     保持文学性与角色复杂度
     避免现代口语化表达破坏原作气质
-    角色id必须基于角色姓名的英文snake_case，严禁泛化 id。
-    仅调用 emit_narrative_plan。"""
+    角色id必须基于角色姓名的英文snake_case，严禁泛化 id。"""
 
 
 def asset_prompt(
