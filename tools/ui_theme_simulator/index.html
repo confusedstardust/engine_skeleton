@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGAL UI Theme Simulator</title>
+    <link rel="stylesheet" href="./simulator.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="preview-panel">
+        <div class="preview-toolbar">
+          <div>
+            <h1>UI Theme Simulator</h1>
+            <p>Draft a WebGAL textbox theme without touching engine code.</p>
+          </div>
+          <div class="toolbar-actions">
+            <button id="loadBaseButton" type="button">Base</button>
+            <button id="loadNoirButton" type="button">Noir Draft</button>
+            <button id="resetButton" type="button">Reset</button>
+          </div>
+        </div>
+
+        <div id="stage" class="stage">
+          <div class="stage-noise"></div>
+          <div class="stage-control-bar">
+            <span>Hide</span>
+            <span>Backlog</span>
+            <span>Replay</span>
+            <span>Auto</span>
+            <span>Skip</span>
+            <span>Save</span>
+            <span>Load</span>
+            <span>Options</span>
+          </div>
+          <div id="textbox" class="textbox">
+            <div id="nameBox" class="name-box">林觉民</div>
+            <div id="dialogText" class="dialog-text">
+              他镇定了些，重新提笔，笔迹变得沉静而坚定。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="control-panel">
+        <div class="panel-header">
+          <h2>Theme Parameters</h2>
+          <button id="downloadButton" type="button">Download JSON</button>
+        </div>
+
+        <div class="control-grid" id="controls"></div>
+
+        <section class="export-section">
+          <div class="export-header">
+            <h2>theme.json</h2>
+            <button id="copyJsonButton" type="button">Copy</button>
+          </div>
+          <textarea id="jsonOutput" spellcheck="false"></textarea>
+        </section>
+
+        <section class="export-section">
+          <div class="export-header">
+            <h2>textbox.scss</h2>
+            <button id="copyScssButton" type="button">Copy</button>
+          </div>
+          <textarea id="scssOutput" spellcheck="false"></textarea>
+        </section>
+      </aside>
+    </main>
+
+    <script src="./simulator.js"></script>
+  </body>
+</html>

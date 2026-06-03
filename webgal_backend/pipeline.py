@@ -20,6 +20,7 @@ from .prompts import (
     narrative_prompt,
     webgal_script_rewrite_prompt,
 )
+from .raw_correction import correct_generated_raw_file
 from .storage import JobStore, read_json, utc_now, write_json
 from .scene_validation import validate_and_repair_scenes, validation_report
 from .validators import (
@@ -184,6 +185,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         with self._trace_stage(job, 3, "剧情设计", "design_completion", "state/game_design_completed.txt"):
             completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
             completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
+            completed_text = correct_generated_raw_file(completed_text, narrative_plan)
             (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
@@ -563,10 +565,10 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         ]
         bg_files = list((game_dir / "background").glob("*.webp")) if (game_dir / "background").exists() else []
         if bg_files:
-            lines[2] = f"Title_img:{bg_files[0].name};"
+            lines[3] = f"Title_img:{bg_files[0].name};"
         bgm_files = list((game_dir / "bgm").glob("*.mp3")) if (game_dir / "bgm").exists() else []
         if bgm_files:
-            lines[3] = f"Title_bgm:{bgm_files[0].name};"
+            lines[4] = f"Title_bgm:{bgm_files[0].name};"
         (game_dir / "config.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _copy_engine_skeleton(self, job_dir: Path) -> None:

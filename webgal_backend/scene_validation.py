@@ -109,7 +109,6 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
             "passed": not errors,
         },
         "checks": {
-            "inner_monologue": _check_status(result, "inner_monologue_format"),
             "mini_avatar": _check_status(result, "missing_mini_avatar"),
             "figure_positions": _check_status(result, "duplicate_figure_position"),
             "scene_structure": "failed" if any(issue.code.startswith("missing_") for issue in errors) else "passed",
@@ -134,16 +133,7 @@ def _repair_scene_lines(
 
     for line_index, original_line in enumerate(lines):
         original_index = line_index + 1
-        line = _repair_inner_monologue_line(original_line)
-        if line != original_line:
-            fixes.append(
-                AppliedFix(
-                    code="inner_monologue_format",
-                    file=relative_file,
-                    line=original_index,
-                    message="Converted inner monologue to intro syntax.",
-                )
-            )
+        line = original_line
         normalized_line = _normalize_center_clear_line(line)
         if normalized_line != line:
             line = normalized_line
@@ -221,25 +211,6 @@ def _repair_scene_lines(
     repaired, ending_fixes = _ensure_scene_ending_clears(repaired, relative_file)
     fixes.extend(ending_fixes)
     return repaired, issues, fixes
-
-
-def _repair_inner_monologue_line(line: str) -> str:
-    match = re.match(
-        r"^\s*[\uFF1A:]?\s*[\(\uFF08](?P<speaker>[^()\uFF08\uFF09\uFF1A:]+?)\s*\u5185\u5FC3(?:os|OS)?[\)\uFF09]\s*(?:[\uFF1A:]\s*)?(?P<text>.*?)\s*;?\s*$",
-        line,
-    )
-    if not match:
-        return line
-    text = _strip_wrapping_quotes(match.group("text").strip())
-    return f"intro:{text};"
-
-
-def _strip_wrapping_quotes(text: str) -> str:
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'", "\u201C", "\u201D"}:
-        return text[1:-1]
-    if len(text) >= 2 and text[0] == "\u201C" and text[-1] == "\u201D":
-        return text[1:-1]
-    return text
 
 
 def _dialogue_speaker(line: str) -> str | None:
