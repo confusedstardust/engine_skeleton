@@ -75,6 +75,7 @@
         "required": [
           "id",
           "name",
+          "gender",
           "personality",
           "motivation",
           "speech_style",
@@ -91,6 +92,11 @@
             "type": "string",
             "minLength": 1,
             "description": "Display name used in dialogue."
+          },
+          "gender": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Character's gender identity."
           },
           "personality": {
             "type": "string",

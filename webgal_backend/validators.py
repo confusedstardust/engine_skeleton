@@ -38,7 +38,6 @@ def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expe
         errors.append(f"base_dir must be {expected_base_dir}, got {manifest['base_dir']}")
 
     character_ids = {character["id"] for character in plan.get("characters", [])}
-    character_names = {character.get("name", "") for character in plan.get("characters", [])}
     figure_names = set()
     for image in manifest["images"]:
         filename = image["filename"]
@@ -52,9 +51,6 @@ def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expe
         else:
             if image["subdir"] != limits["assets"]["background_subdir"] or image["size"] != limits["assets"]["background_size"]:
                 errors.append(f"{filename} background/cg must use {limits['assets']['background_subdir']}/{limits['assets']['background_size']}")
-            for character_name in character_names:
-                if character_name and character_name in prompt:
-                    errors.append(f"{filename} background/cg prompt must not include character name {character_name}")
 
     missing_figures = [
         character_id

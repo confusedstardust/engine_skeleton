@@ -110,16 +110,17 @@ def game_design_prompt(narrative_plan: dict[str, Any], options: dict[str, Any]) 
     请创作出 {limits['scenes']['min']} 到 {limits['scenes']['max']} 个场景，包含结局场景。
 
     场景设计注意事项：
-    - 每个场景的对话行数在 {limits['scenes']['min_lines']} 到 {limits['scenes']['max_lines']} 之间。
+    - 每个场景的对话行数在 {limits['scenes']['min_lines']} 到 {limits['scenes']['max_lines']} 之间
     - 从 start.txt 开始写。
-    - 对话包括角色对话、内心独白、旁白，每一句不能超过{limits['scenes']['max_line_length']}字。
-    - 出现的角色来自于narrative_plan.json中。
-    - 场景之间要有明显过渡，确保故事连贯性。
+    - 对话包括角色对话、内心独白、旁白，每一句不能超过{limits['scenes']['max_line_length']}字
+    - 内心独白不得超过3句，并且只能出现在主角
+    - 出现的角色来自于narrative_plan.json中
+    - 场景之间要有明显过渡，确保故事连贯性
     - 命名规则示例：start.txt, act1_office.txt, ending_epilogue.txt。
 
     结局设计注意事项：
     - 为故事创建 {limits['endings']['count']} 个符合逻辑与情节的结局。
-    - 原著结局或最贴近原著精神的结局优先级最高。
+    - 原著结局或最贴近原著精神的结局优先级最高
 
     返回的结构下列内容：
 
