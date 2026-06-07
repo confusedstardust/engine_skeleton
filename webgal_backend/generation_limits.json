@@ -37,5 +37,36 @@
     "figure_size": "1440x2560",
     "background_subdir": "background",
     "background_size": "2560x1440"
+  },
+  "tts": {
+    "enabled": true,
+    "max_workers": 1,
+    "voices": {
+      "male": {
+        "Ethan":"北方口音,阳光、活力、朝气",
+        "Moon":"温柔，轻柔",
+        "Kai":"中年，成熟",
+        "Eldric Sage":"老者",
+        "Mochi":"小孩",
+        "Vincent":"沙哑",
+        "Arthur":"中年"
+
+      },
+      "female": {
+        "Cherry":"阳光积极、亲切自然",
+        "Serena":"温柔",
+        "Chelsie":"温柔,甜美",
+        "Momo":"奶声奶气，夹子音",
+        "Vivian":"御姐",
+        "Maia":"磁性阳光略沙哑",
+        "Bella":"小孩"
+
+      },
+      "default": "Cherry"
+    },
+    "speed": 50,
+    "pitch": 50,
+    "volume": 50,
+    "skip_existing": true
   }
 }

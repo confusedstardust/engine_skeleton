@@ -72,6 +72,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
         return SceneValidationResult(issues=issues, fixes=fixes, total_scenes=0, total_lines=0)
 
     character_avatars = _character_avatar_map(job_dir)
+    vocal_map = _tts_vocal_map(job_dir)
     for scene_path in scene_files:
         relative_file = _relative_scene_file(job_dir, scene_path)
         original_lines = scene_path.read_text(encoding="utf-8").splitlines()
@@ -79,6 +80,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
             original_lines,
             relative_file,
             character_avatars,
+            vocal_map,
         )
         issues.extend(file_issues)
         fixes.extend(file_fixes)
@@ -109,8 +111,8 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
             "passed": not errors,
         },
         "checks": {
-            "inner_monologue": _check_status(result, "inner_monologue_format"),
             "mini_avatar": _check_status(result, "missing_mini_avatar"),
+            "vocal_args": _check_status(result, "missing_vocal_arg"),
             "figure_positions": _check_status(result, "duplicate_figure_position"),
             "scene_structure": "failed" if any(issue.code.startswith("missing_") for issue in errors) else "passed",
         },
@@ -124,6 +126,7 @@ def _repair_scene_lines(
     lines: list[str],
     relative_file: str,
     character_avatars: dict[str, str],
+    vocal_map: dict[tuple[str, int], str],
 ) -> tuple[list[str], list[ValidationIssue], list[AppliedFix]]:
     issues: list[ValidationIssue] = []
     fixes: list[AppliedFix] = []
@@ -134,16 +137,7 @@ def _repair_scene_lines(
 
     for line_index, original_line in enumerate(lines):
         original_index = line_index + 1
-        line = _repair_inner_monologue_line(original_line)
-        if line != original_line:
-            fixes.append(
-                AppliedFix(
-                    code="inner_monologue_format",
-                    file=relative_file,
-                    line=original_index,
-                    message="Converted inner monologue to intro syntax.",
-                )
-            )
+        line = original_line
         normalized_line = _normalize_center_clear_line(line)
         if normalized_line != line:
             line = normalized_line
@@ -181,6 +175,18 @@ def _repair_scene_lines(
                     stage_positions[old_position] = None
                 stage_positions[position] = figure
                 transition_line = _transition_line_for_change_figure(line, position, lines[line_index + 1 :])
+
+        vocal_filename = vocal_map.get((relative_file.replace("public/game/scene/", ""), original_index))
+        if vocal_filename and _dialogue_speaker(line) and not _has_vocal_arg(line):
+            line = _add_vocal_arg(line, vocal_filename)
+            fixes.append(
+                AppliedFix(
+                    code="missing_vocal_arg",
+                    file=relative_file,
+                    line=original_index,
+                    message=f"Inserted vocal argument {vocal_filename}.",
+                )
+            )
 
         speaker = _dialogue_speaker(line)
         if speaker and speaker in character_avatars:
@@ -223,25 +229,6 @@ def _repair_scene_lines(
     return repaired, issues, fixes
 
 
-def _repair_inner_monologue_line(line: str) -> str:
-    match = re.match(
-        r"^\s*\((?P<speaker>[^()\uFF1A:]+?)\s*\u5185\u5FC3(?:os|OS)?\)\s*(?:[\uFF1A:]\s*)?(?P<text>.*?)\s*;?\s*$",
-        line,
-    )
-    if not match:
-        return line
-    text = _strip_wrapping_quotes(match.group("text").strip())
-    return f"intro:{text};"
-
-
-def _strip_wrapping_quotes(text: str) -> str:
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'", "\u201C", "\u201D"}:
-        return text[1:-1]
-    if len(text) >= 2 and text[0] == "\u201C" and text[-1] == "\u201D":
-        return text[1:-1]
-    return text
-
-
 def _dialogue_speaker(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith(";") or stripped.startswith("//"):
@@ -255,6 +242,20 @@ def _dialogue_speaker(line: str) -> str | None:
     if speaker in {"if", "label", "jumpLabel", "callScene"}:
         return None
     return speaker or None
+
+
+def _add_vocal_arg(line: str, filename: str) -> str:
+    stripped = line.rstrip()
+    suffix = f" -{filename}"
+    if stripped.endswith(";"):
+        return f"{stripped[:-1]}{suffix};"
+    return f"{stripped}{suffix};"
+
+
+def _has_vocal_arg(line: str) -> bool:
+    if "-vocal=" in line:
+        return True
+    return bool(re.search(r"\s-[^\s;]+\.(mp3|wav|ogg|m4a)(\s|;|$)", line, flags=re.IGNORECASE))
 
 
 def _parse_change_figure(line: str) -> tuple[str, str] | None:
@@ -446,6 +447,29 @@ def _character_avatar_map(job_dir: Path) -> dict[str, str]:
     return mapping
 
 
+def _tts_vocal_map(job_dir: Path) -> dict[tuple[str, int], str]:
+    manifest_path = job_dir / "state" / "tts_manifest.json"
+    vocal_dir = job_dir / "public" / "game" / "vocal"
+    if not manifest_path.exists() or not vocal_dir.exists():
+        return {}
+
+    manifest = read_json(manifest_path)
+    mapping: dict[tuple[str, int], str] = {}
+    for item in manifest.get("items", []):
+        status = item.get("status")
+        filename = str(item.get("filename", "")).strip()
+        scene = str(item.get("scene", "")).strip()
+        line_no = item.get("line_no")
+        if status not in {"completed", "skipped_existing"} or not filename or not scene:
+            continue
+        if not isinstance(line_no, int):
+            continue
+        if not (vocal_dir / filename).exists():
+            continue
+        mapping[(scene, line_no)] = filename
+    return mapping
+
+
 def _manifest_avatar_map(manifest: dict[str, Any]) -> dict[str, str]:
     figure_subdir = generation_limits()["assets"]["figure_subdir"]
     mapping: dict[str, str] = {}
@@ -484,16 +508,6 @@ def _validate_scene_structure(job_dir: Path, scene_files: list[Path]) -> list[Va
                 file="public/game/scene",
                 line=None,
                 message="start.txt is required.",
-            )
-        )
-    if not any(name.startswith("ending_") for name in names):
-        issues.append(
-            ValidationIssue(
-                code="missing_ending_scene",
-                severity="error",
-                file="public/game/scene",
-                line=None,
-                message="At least one ending_*.txt scene is required.",
             )
         )
     if len(scene_files) < limits["scenes"]["min"] or len(scene_files) > limits["scenes"]["max"]:

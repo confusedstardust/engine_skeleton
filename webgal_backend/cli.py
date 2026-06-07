@@ -20,6 +20,7 @@ def main() -> int:
     run.add_argument("--source", required=True, help="Path to a source story text file.")
     run.add_argument("--options", help="Path to an options JSON file.")
     run.add_argument("--generate-assets", action="store_true", help="Run image generation scripts.")
+    run.add_argument("--generate-tts", action="store_true", help="Run TTS generation as part of asset generation.")
 
     phase = subparsers.add_parser("phase", help="Run one phase for an existing job.")
     phase.add_argument("job_id")
@@ -31,6 +32,8 @@ def main() -> int:
             "asset_manifest",
             "asset_generation",
             "script_rewrite",
+            "tts_generation",
+            "tts",
             "assets",
             "scenes",
             "validation",
@@ -49,6 +52,8 @@ def main() -> int:
         options = load_options(args.options)
         if args.command == "run" and args.generate_assets:
             options["generate_assets"] = True
+        if args.command == "run" and args.generate_tts:
+            options["generate_tts"] = True
         job = store.create(source, options)
         if args.command == "run":
             job = pipeline.run_all(job["id"])

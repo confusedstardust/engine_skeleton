@@ -39,8 +39,7 @@ def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
     叙事应适合改编为互动叙事游戏
     保持文学性与角色复杂度
     避免现代口语化表达破坏原作气质
-    角色id必须基于角色姓名的英文snake_case，严禁泛化 id。
-    仅调用 emit_narrative_plan。"""
+    角色id必须基于角色姓名的英文snake_case，严禁泛化 id。"""
 
 
 def asset_prompt(
@@ -111,23 +110,24 @@ def game_design_prompt(narrative_plan: dict[str, Any], options: dict[str, Any]) 
     请创作出 {limits['scenes']['min']} 到 {limits['scenes']['max']} 个场景，包含结局场景。
 
     场景设计注意事项：
-    - 每个场景的对话行数在 {limits['scenes']['min_lines']} 到 {limits['scenes']['max_lines']} 之间。
+    - 每个场景的对话行数在 {limits['scenes']['min_lines']} 到 {limits['scenes']['max_lines']} 之间
     - 从 start.txt 开始写。
-    - 对话包括角色对话、内心独白、旁白，每一句不能超过{limits['scenes']['max_line_length']}字。
-    - 出现的角色来自于narrative_plan.json中。
-    - 场景之间要有明显过渡，确保故事连贯性。
+    - 对话包括角色对话、内心独白、旁白，每一句不能超过{limits['scenes']['max_line_length']}字
+    - 内心独白不得超过3句，并且只能出现在主角
+    - 出现的角色来自于narrative_plan.json中
+    - 场景之间要有明显过渡，确保故事连贯性
     - 命名规则示例：start.txt, act1_office.txt, ending_epilogue.txt。
 
     结局设计注意事项：
     - 为故事创建 {limits['endings']['count']} 个符合逻辑与情节的结局。
-    - 原著结局或最贴近原著精神的结局优先级最高。
+    - 原著结局或最贴近原著精神的结局优先级最高
 
     返回的结构下列内容：
 
     规则：
         - 场景格式为:[场景名.txt]
         - 旁白格式为:>旁白
-        - 角色内心活动为:(角色名 内心os)
+        - 角色内心活动为:(角色名 内心os) 注意只有主角可以有，且总内心os活动不宜超过5条
         - 结尾场景格式为[ending_xxx.txt]
 
     返回内容与下列示例格式严格一致
@@ -211,20 +211,21 @@ def webgal_script_rewrite_prompt(
     {json.dumps(figure_assets, ensure_ascii=False, indent=2)}
 
     改写要求:
-    - 只能使用上方列出的资源文件名，不要编造其他图片文件名。
-    - 背景资源只能通过 changeBg 引用。
-    - 立绘资源只能通过 changeFigure 引用。
-    - 根据每个场景的时间、地点、情绪，把 background_assets 分配到合适场景中；如果资源数量允许，尽量让每个背景资源至少出现一次。
-    - 根据角色出场和对话上下文，把 figure_assets 分配到合适位置；如果资源数量允许，尽量让每个立绘资源至少出现一次。
-    - 场景开始处优先设置合适背景；角色进入、离开、情绪变化或对话焦点变化时，可以切换立绘。
-    - 切换背景和立绘时优先使用 -next，避免打断剧情节奏。
-    - 必须保留原有 [scene.txt] 段落名，不要新增、删除、改名场景段落。
-    - 必须保留原有剧情含义、角色关系、变量、choose 目标文件名和结局走向。
-    - 可以把非 WebGAL 格式的旁白、内心独白、变量变化整理成 syntax.md 中的合法 WebGAL 写法。
-    - 每条 WebGAL 语句单独一行，并以英文分号 ; 结尾。
-    - 输出完整改写后的脚本。
-    - 不要输出解释。
-    - 不要使用 Markdown 代码块。
+    - 只能使用上方列出的资源文件名，不要编造其他图片文件名
+    - 背景资源只能通过 changeBg 引用
+    - 立绘资源只能通过 changeFigure 引用
+    - 根据每个场景的时间、地点、情绪，把 background_assets 分配到合适场景中；如果资源数量允许，尽量让每个背景资源至少出现一次
+    - 根据角色出场和对话上下文，把 figure_assets 分配到合适位置；如果资源数量允许，尽量让每个立绘资源至少出现一次
+    - 场景开始处优先设置合适背景；角色进入、离开、情绪变化或对话焦点变化时，可以切换立绘
+    - 切换背景和立绘时优先使用 -next，避免打断剧情节奏
+    - 必须保留原有 [scene.txt] 段落名，不要新增、删除、改名场景段落
+    - 必须保留原有剧情含义、角色关系、变量、choose 目标文件名和结局走向
+    - 可以把非 WebGAL 变量变化整理成 syntax.md 中的合法形式
+    - 每条 WebGAL 语句单独一行，并以英文分号 ; 结尾
+    - 输出完整改写后的脚本
+    - 不要输出解释
+    - 不要更改括号中的内容
+    - 不要使用 Markdown 代码块
 
     游戏脚本:
     -----

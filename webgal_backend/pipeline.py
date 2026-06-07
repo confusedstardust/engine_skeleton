@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import os
 import time
+import json
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -20,8 +22,10 @@ from .prompts import (
     narrative_prompt,
     webgal_script_rewrite_prompt,
 )
+from .raw_correction import correct_generated_raw_file
 from .storage import JobStore, read_json, utc_now, write_json
 from .scene_validation import validate_and_repair_scenes, validation_report
+from .tts_pipeline import build_tts_manifest, generate_tts_audio, write_tts_manifest
 from .validators import (
     ValidationFailure,
     semantic_asset_manifest,
@@ -116,8 +120,8 @@ class WebGALPipeline:
             self.run_narrative(job)
             self.run_game_design(job)
             self.run_asset_manifest(job)
-            self.run_asset_generation(job)
             self.run_script_rewrite(job)
+            self.run_asset_generation(job)
             self.run_scenes(job)
             self.run_validation(job)
             self.store.transition(job, "DONE", None)
@@ -134,6 +138,8 @@ class WebGALPipeline:
             "asset_manifest": self.run_asset_manifest,
             "asset_generation": self.run_asset_generation,
             "script_rewrite": self.run_script_rewrite,
+            "tts_generation": self.run_tts_generation,
+            "tts": self.run_tts_generation,
             "assets": self.run_assets,
             "scenes": self.run_scenes,
             "validation": self.run_validation,
@@ -184,14 +190,15 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         with self._trace_stage(job, 3, "剧情设计", "design_completion", "state/game_design_completed.txt"):
             completion_prompt = game_design_completion_prompt(narrative_plan, game_design_text, job["options"])
             completed_text = llm.call_text("game_design_completion_text", system_prompt, completion_prompt)
+            completed_text = correct_generated_raw_file(completed_text, narrative_plan)
             (job_dir / "state" / "game_design_completed.txt").write_text(completed_text.rstrip() + "\n", encoding="utf-8")
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.txt")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def run_assets(self, job: dict[str, Any]) -> None:
         self.run_asset_manifest(job)
-        self.run_asset_generation(job)
         self.run_script_rewrite(job)
+        self.run_asset_generation(job)
 
     def run_asset_manifest(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "ASSET_PLANNING")
@@ -222,11 +229,39 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         job_dir = self.store.job_dir(job["id"])
         if not (job_dir / "assets_manifest.json").exists():
             raise PipelineError("assets_manifest.json is required before asset generation")
-        if job["options"].get("generate_assets", False):
-            with self._trace_stage(job, 5, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
-                self._run_asset_scripts(job_dir)
-        else:
-            self._write_stage_event(job, 5, "素材生成", "generated_assets", "skipped", "generate_assets option is false")
+        image_enabled = bool(job["options"].get("generate_assets", False))
+        tts_limits = generation_limits().get("tts", {})
+        tts_enabled = bool(job["options"].get("generate_tts", tts_limits.get("enabled", False)))
+        artifact_path = "public/game/background/*.webp, public/game/figure/*.webp, public/game/vocal/*.wav"
+
+        if not image_enabled and not tts_enabled:
+            self._write_stage_event(
+                job,
+                5,
+                "素材生成",
+                "generated_assets",
+                "skipped",
+                "generate_assets option is false and tts.enabled/generate_tts is false",
+            )
+            self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
+            return
+
+        with self._trace_stage(job, 5, "素材生成", "generated_assets", artifact_path):
+            tasks = []
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                if image_enabled:
+                    tasks.append(("image_assets", executor.submit(self._run_asset_scripts, job_dir)))
+                if tts_enabled:
+                    tasks.append(("voice_assets", executor.submit(self._generate_tts_artifacts, job, job_dir)))
+                errors: list[str] = []
+                for label, future in tasks:
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        errors.append(f"{label}: {exc}")
+                if errors:
+                    raise PipelineError("asset generation failed:\n" + "\n".join(errors))
+
         self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
 
     def run_script_rewrite(self, job: dict[str, Any]) -> None:
@@ -266,13 +301,109 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
         self.store.transition(job, "SCRIPT_REWRITE_READY", "SCRIPT_REWRITE")
 
+    def run_tts_generation(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "TTS_GENERATION")
+        job_dir = self.store.job_dir(job["id"])
+        with self._trace_stage(job, 5, "素材生成", "generated_vocals", "state/tts_manifest.json, public/game/vocal/*.wav"):
+            self._generate_tts_artifacts(job, job_dir)
+        self.store.transition(job, "TTS_READY", "TTS_GENERATION")
+
+    def _generate_tts_artifacts(self, job: dict[str, Any], job_dir: Path) -> None:
+        script_path = job_dir / "state" / "game_design_webgal.txt"
+        if not script_path.exists():
+            raise PipelineError("game_design_webgal.txt is required before TTS generation")
+        if not (job_dir / "state" / "narrative_plan.json").exists():
+            raise PipelineError("narrative_plan.json is required before TTS generation")
+
+        limits = generation_limits().get("tts", {})
+        enabled = bool(job["options"].get("generate_tts", limits.get("enabled", False)))
+        narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        character_voices = self._assign_tts_voices(job_dir, narrative_plan, limits)
+        manifest = build_tts_manifest(job_dir, character_voices=character_voices)
+        manifest = generate_tts_audio(job_dir, manifest, enabled=enabled)
+        write_tts_manifest(job_dir, manifest)
+        self.store.record_artifact(job, "tts_manifest", "state/tts_manifest.json")
+        self.store.record_artifact(job, "generated_vocals", "public/game/vocal/*.wav")
+        failed = [item for item in manifest.get("items", []) if item.get("status") == "failed"]
+        if enabled and failed:
+            sample = "; ".join(f"{item.get('filename')}: {item.get('error')}" for item in failed[:3])
+            raise PipelineError(f"TTS generation failed for {len(failed)} lines: {sample}")
+
+    def _assign_tts_voices(
+        self,
+        job_dir: Path,
+        narrative_plan: dict[str, Any],
+        limits: dict[str, Any],
+    ) -> dict[str, str]:
+        try:
+            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+        except TypeError:
+            llm = self.llm_factory()
+
+        characters = [
+            {
+                "name": character.get("name", ""),
+                "gender": character.get("gender", ""),
+                "personality": character.get("personality", ""),
+            }
+            for character in narrative_plan.get("characters", [])
+        ]
+        prompt = f"""请根据角色信息和可选音色，为每个角色选择最合适的 TTS voice。
+
+角色信息:
+{json.dumps(characters, ensure_ascii=False, indent=2)}
+
+可选音色:
+{json.dumps(limits.get("voices", {}), ensure_ascii=False, indent=2)}
+
+要求:
+- 必须只从可选音色的 male/female 对象 key 中选择 voice。
+- 优先匹配角色 gender，其次参考 personality 的年龄感、气质、社会身份和说话质感。
+- 返回 JSON，不要解释。
+
+返回格式:
+{{
+  "character_voices": {{
+    "角色名": "VoiceName"
+  }}
+}}"""
+        system_prompt = f"""{SYSTEM_PROMPT}
+
+Current phase: tts_voice_assignment
+Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fences."""
+        try:
+            text = llm.call_text("tts_voice_assignment", system_prompt, prompt, thinking="disabled")
+            parsed = llm.parse_json_text(text, "tts_voice_assignment")
+            character_voices = parsed.get("character_voices", {})
+            if isinstance(character_voices, dict):
+                return {str(key): str(value) for key, value in character_voices.items()}
+        except LLMError:
+            pass
+        return {}
+
     def run_scenes(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "SCENE_WRITING")
         job_dir = self.store.job_dir(job["id"])
         completed_design_path = job_dir / "state" / "game_design_webgal.txt"
         if not completed_design_path.exists():
             raise PipelineError("game_design_webgal.txt is required before scene writing")
-        scene_files = self._split_game_design_completed_to_scene_files(job_dir, completed_design_path.read_text(encoding="utf-8"))
+        script_text = completed_design_path.read_text(encoding="utf-8")
+        try:
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, script_text)
+        except PipelineError as exc:
+            if "did not contain any [scene.txt] sections" not in str(exc):
+                raise
+            reference_path = job_dir / "state" / "game_design_completed.txt"
+            if not reference_path.exists():
+                raise
+            repaired_text = self._restore_missing_scene_headers(
+                script_text,
+                reference_path.read_text(encoding="utf-8"),
+            )
+            if repaired_text == script_text:
+                raise
+            completed_design_path.write_text(repaired_text.rstrip() + "\n", encoding="utf-8")
+            scene_files = self._split_game_design_completed_to_scene_files(job_dir, repaired_text)
         write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
         self.store.record_artifact(job, "scene_files", "state/scene_files.json")
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
@@ -415,6 +546,29 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             written.append(f"public/game/scene/{file_name}")
         return written
 
+    def _restore_missing_scene_headers(self, script_text: str, reference_text: str) -> str:
+        import re
+
+        existing_headers = re.findall(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", script_text, flags=re.MULTILINE)
+        if existing_headers:
+            return script_text
+
+        reference_headers = re.findall(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", reference_text, flags=re.MULTILINE)
+        if not reference_headers:
+            return script_text
+
+        chunks = [chunk.strip() for chunk in re.split(r"\r?\n\s*\r?\n", script_text.strip()) if chunk.strip()]
+        if len(chunks) != len(reference_headers):
+            raise PipelineError(
+                "game_design_webgal.txt appears to have lost scene headers, "
+                f"but cannot restore them safely: {len(reference_headers)} reference headers vs {len(chunks)} script blocks"
+            )
+
+        restored = []
+        for header, chunk in zip(reference_headers, chunks, strict=True):
+            restored.append(f"[{header}]\n{chunk}")
+        return "\n\n".join(restored)
+
     def _script_asset_lists(self, manifest: dict[str, Any]) -> dict[str, list[str]]:
         background_subdir = generation_limits()["assets"]["background_subdir"]
         figure_subdir = generation_limits()["assets"]["figure_subdir"]
@@ -524,10 +678,10 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         ]
         bg_files = list((game_dir / "background").glob("*.webp")) if (game_dir / "background").exists() else []
         if bg_files:
-            lines[2] = f"Title_img:{bg_files[0].name};"
+            lines[3] = f"Title_img:{bg_files[0].name};"
         bgm_files = list((game_dir / "bgm").glob("*.mp3")) if (game_dir / "bgm").exists() else []
         if bgm_files:
-            lines[3] = f"Title_bgm:{bgm_files[0].name};"
+            lines[4] = f"Title_bgm:{bgm_files[0].name};"
         (game_dir / "config.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _copy_engine_skeleton(self, job_dir: Path) -> None:
@@ -569,4 +723,3 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         if not path.exists():
             raise PipelineError(f"required artifact missing: {path}")
         return read_json(path)
-
