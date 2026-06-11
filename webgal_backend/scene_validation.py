@@ -233,7 +233,7 @@ def _dialogue_speaker(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith(";") or stripped.startswith("//"):
         return None
-    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "end")):
+    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "playEffect:", "end")):
         return None
     match = re.match(r"^(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]*?)\s*[\uFF1A:]", stripped)
     if not match:
@@ -404,6 +404,7 @@ def _starts_story_content(line: str) -> bool:
         "changeFigure:",
         "miniAvatar:",
         "bgm:",
+        "playEffect:",
         "unlock",
         "pixi",
     )

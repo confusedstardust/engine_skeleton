@@ -1,0 +1,148 @@
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  pointer-events: none;
+}
+
+.layerActive {
+  pointer-events: auto;
+}
+
+.hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 18px;
+  min-height: 18px;
+  max-width: 42px;
+  max-height: 42px;
+  border: 1px solid rgba(255, 247, 201, 0.96);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 252, 219, 0.98) 0%, rgba(255, 218, 93, 0.76) 44%, rgba(255, 193, 64, 0.18) 100%);
+  box-shadow:
+    0 0 0 1px rgba(83, 56, 14, 0.18),
+    0 0 12px rgba(255, 225, 112, 0.9);
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 0;
+  transition:
+    opacity 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.hotspot:hover {
+  background: radial-gradient(circle, rgba(255, 255, 237, 1) 0%, rgba(255, 228, 123, 0.9) 48%, rgba(255, 198, 68, 0.24) 100%);
+  box-shadow:
+    0 0 0 2px rgba(83, 56, 14, 0.2),
+    0 0 18px rgba(255, 238, 150, 1);
+}
+
+.hotspotVisited {
+  opacity: 0.42;
+  background: radial-gradient(circle, rgba(230, 225, 204, 0.8) 0%, rgba(174, 164, 130, 0.42) 58%, rgba(118, 108, 89, 0.18) 100%);
+  box-shadow:
+    0 0 0 1px rgba(60, 57, 49, 0.28),
+    0 0 8px rgba(175, 164, 138, 0.38);
+}
+
+.hotspotBurst::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 245, 185, 0.86);
+  box-shadow: 0 0 22px rgba(255, 228, 137, 0.82);
+  animation: hotspotBurst 620ms ease-out forwards;
+}
+
+.hotspotPulse {
+  position: absolute;
+  inset: 31%;
+  border-radius: inherit;
+  background: rgba(255, 255, 240, 0.82);
+  animation: hotspotPulse 1.6s ease-in-out infinite;
+}
+
+.hotspotVisited .hotspotPulse {
+  animation: none;
+  background: rgba(226, 221, 207, 0.4);
+}
+
+.card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(720px, calc(100% - 56px));
+  max-height: min(62%, 560px);
+  transform: translate(-50%, -50%);
+  overflow: auto;
+  border: 1px solid rgba(245, 229, 181, 0.68);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(43, 35, 25, 0.96), rgba(20, 18, 16, 0.96)),
+    rgba(24, 22, 18, 0.96);
+  box-shadow:
+    0 22px 70px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #fff8df;
+  padding: 30px 36px;
+  line-height: 1.7;
+  pointer-events: auto;
+  animation: cardPop 220ms cubic-bezier(0.2, 0.88, 0.28, 1.14) forwards;
+}
+
+.cardTitle {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.cardText {
+  font-size: 20px;
+}
+
+.cardText p {
+  margin: 0 0 8px;
+}
+
+.cardText p:last-child {
+  margin-bottom: 0;
+}
+
+@keyframes hotspotPulse {
+  0% {
+    opacity: 0.48;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 0.94;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0.48;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes hotspotBurst {
+  0% {
+    opacity: 0.94;
+    transform: scale(0.58);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.75);
+  }
+}
+
+@keyframes cardPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}

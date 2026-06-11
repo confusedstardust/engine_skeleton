@@ -22,7 +22,7 @@ else:
     _IMPORT_ERROR = None
 
 
-DEFAULT_QWEN_TTS_MODEL = "qwen3-tts-flash-realtime"
+DEFAULT_QWEN_TTS_MODEL = "qwen3-tts-instruct-flash-realtime"
 DEFAULT_QWEN_TTS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 DEFAULT_QWEN_TTS_VOICE = "Cherry"
 DEFAULT_SAMPLE_RATE = 24000
@@ -47,8 +47,10 @@ class TTSOptions:
     channels: int = DEFAULT_CHANNELS
     sample_width: int = DEFAULT_SAMPLE_WIDTH
     volume: int = 50
-    speed: int = 50
-    pitch: int = 50
+    speech_rate: float = 1.0
+    pitch_rate: float = 1.0
+    instructions: str = ""
+    optimize_instructions: bool = True
 
 
 class _QwenSingleCallCallback(QwenTtsRealtimeCallback):
@@ -115,11 +117,18 @@ def synthesize_text_to_file(
     tts = QwenTtsRealtime(model=options.model, callback=callback, url=options.url)
     try:
         tts.connect()
-        tts.update_session(
-            voice=options.voice,
-            response_format=AudioFormat.PCM_24000HZ_MONO_16BIT,
-            mode="commit",
-        )
+        session_options = {
+            "voice": options.voice,
+            "response_format": AudioFormat.PCM_24000HZ_MONO_16BIT,
+            "speech_rate": options.speech_rate,
+            "volume": options.volume,
+            "pitch_rate": options.pitch_rate,
+            "mode": "commit",
+        }
+        if options.instructions.strip():
+            session_options["instructions"] = options.instructions.strip()
+            session_options["optimize_instructions"] = options.optimize_instructions
+        tts.update_session(**session_options)
         tts.append_text(text)
         tts.commit()
         pcm = callback.wait_for_done(timeout=timeout)
@@ -154,12 +163,20 @@ def main() -> int:
     parser.add_argument("--voice", default=DEFAULT_QWEN_TTS_VOICE)
     parser.add_argument("--model", default=DEFAULT_QWEN_TTS_MODEL)
     parser.add_argument("--url", default=DEFAULT_QWEN_TTS_URL)
+    parser.add_argument("--instructions", default="")
+    parser.add_argument("--no-optimize-instructions", action="store_true")
     args = parser.parse_args()
 
     synthesize_text_to_file(
         args.text,
         Path(args.output),
-        options=TTSOptions(voice=args.voice, model=args.model, url=args.url),
+        options=TTSOptions(
+            voice=args.voice,
+            model=args.model,
+            url=args.url,
+            instructions=args.instructions,
+            optimize_instructions=not args.no_optimize_instructions,
+        ),
     )
     return 0
 

@@ -21,12 +21,13 @@ COMMAND_PREFIXES = (
     "unlock",
     "pixi",
     "bgm:",
+    "playEffect:",
     "setTransition:",
     "end",
 )
 
 
-def build_tts_manifest(job_dir: Path, character_voices: dict[str, str] | None = None) -> dict[str, Any]:
+def build_tts_manifest(job_dir: Path, character_voices: dict[str, list[str]] | None = None) -> dict[str, Any]:
     narrative_plan = read_json(job_dir / "state" / "narrative_plan.json")
     script_path = job_dir / "state" / "game_design_webgal.txt"
     script_text = script_path.read_text(encoding="utf-8")
@@ -48,7 +49,7 @@ def build_tts_manifest(job_dir: Path, character_voices: dict[str, str] | None = 
             if not character:
                 continue
             speaker_id = _safe_filename(str(character.get("id") or speaker))
-            voice = character_voices.get(speaker, _default_voice())
+            voice, tone = character_voices.get(speaker, [_default_voice(), ""])
             filename = f"{scene_stem}_{line_no:03d}_{speaker_id}.wav"
             items.append(
                 {
@@ -58,6 +59,7 @@ def build_tts_manifest(job_dir: Path, character_voices: dict[str, str] | None = 
                     "speaker_id": speaker_id,
                     "gender": character.get("gender", ""),
                     "voice": voice,
+                    "tone": tone,
                     "text": text,
                     "filename": filename,
                     "status": "pending",
@@ -86,10 +88,11 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
     skip_existing = bool(limits.get("skip_existing", True))
     max_workers = max(1, int(limits.get("max_workers", 4)))
     volume = int(limits.get("volume", 50))
-    speed = int(limits.get("speed", 50))
-    pitch = int(limits.get("pitch", 50))
-    model = str(limits.get("model", "qwen3-tts-flash-realtime"))
+    speech_rate = _rate_value(limits.get("speech_rate", limits.get("speed", 1.0)))
+    pitch_rate = _rate_value(limits.get("pitch_rate", limits.get("pitch", 1.0)))
+    model = str(limits.get("model", "qwen3-tts-instruct-flash-realtime"))
     url = str(limits.get("url", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"))
+    optimize_instructions = bool(limits.get("optimize_instructions", True))
 
     def synthesize(item: dict[str, Any]) -> dict[str, Any]:
         output = vocal_dir / item["filename"]
@@ -101,8 +104,10 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
             model=model,
             url=url,
             volume=volume,
-            speed=speed,
-            pitch=pitch,
+            speech_rate=speech_rate,
+            pitch_rate=pitch_rate,
+            instructions=_tts_instructions(item),
+            optimize_instructions=optimize_instructions,
         )
         for attempt in range(4):
             try:
@@ -136,6 +141,20 @@ def _is_rate_limit_error(error: str) -> bool:
     return "rate limit" in lowered or "1007" in lowered
 
 
+def _rate_value(value: Any) -> float:
+    parsed = float(value)
+    if parsed > 2.0:
+        return max(0.5, min(2.0, parsed / 50.0))
+    return max(0.5, min(2.0, parsed))
+
+
+def _tts_instructions(item: dict[str, Any]) -> str:
+    tone = str(item.get("tone") or "").strip()
+    if not tone:
+        return ""
+    return f"请使用如下声线与听感进行朗读：{tone}。保持吐字清晰，情绪自然，不要夸张表演。"
+
+
 def _scene_sections(script_text: str) -> list[tuple[str, str]]:
     matches = list(re.finditer(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", script_text, flags=re.MULTILINE))
     sections: list[tuple[str, str]] = []
@@ -155,13 +174,13 @@ def _character_lookup(narrative_plan: dict[str, Any]) -> dict[str, dict[str, Any
     return lookup
 
 
-def _character_voice_map(narrative_plan: dict[str, Any]) -> dict[str, str]:
+def _character_voice_map(narrative_plan: dict[str, Any]) -> dict[str, list[str]]:
     voices = generation_limits().get("tts", {}).get("voices", {})
     male_voices = _voice_pool(voices.get("male"), [_default_voice()])
     female_voices = _voice_pool(voices.get("female"), [_default_voice()])
     fallback = str(voices.get("default") or _default_voice())
     gender_counts = {"male": 0, "female": 0}
-    mapping: dict[str, str] = {}
+    mapping: dict[str, list[str]] = {}
 
     for character in narrative_plan.get("characters", []):
         name = str(character.get("name", "")).strip()
@@ -176,21 +195,25 @@ def _character_voice_map(narrative_plan: dict[str, Any]) -> dict[str, str]:
             gender_counts["female"] += 1
         else:
             voice = fallback
-        mapping[name] = voice
+        mapping[name] = [voice, ""]
     return mapping
 
 
-def _sanitize_character_voices(narrative_plan: dict[str, Any], character_voices: dict[str, str]) -> dict[str, str]:
+def _sanitize_character_voices(narrative_plan: dict[str, Any], character_voices: dict[str, list[str]]) -> dict[str, list[str]]:
     valid_voices = _valid_voice_names()
-    sanitized: dict[str, str] = {}
+    sanitized: dict[str, list[str]] = {}
     for character in narrative_plan.get("characters", []):
         name = str(character.get("name", "")).strip()
         if not name:
             continue
-        voice = str(character_voices.get(name, "")).strip()
+        assignment = character_voices.get(name, ["", ""])
+        if not isinstance(assignment, list) or len(assignment) != 2:
+            assignment = ["", ""]
+        voice = str(assignment[0]).strip()
+        tone = str(assignment[1]).strip()
         if voice not in valid_voices:
             voice = _fallback_voice_for_gender(character.get("gender"))
-        sanitized[name] = voice
+        sanitized[name] = [voice, tone]
     return sanitized
 
 

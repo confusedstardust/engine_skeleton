@@ -79,6 +79,7 @@ class Settings:
     max_schema_retries: int
     llm_max_tokens: int | None
     asset_scripts_dir: Path
+    sound_effects_dir: Path
     image_model: str
 
     @classmethod
@@ -92,6 +93,11 @@ class Settings:
         )
         jobs_dir = _resolve_config_path(os.getenv("WEBGAL_JOBS_DIR"), workspace_root, workspace_root / "jobs")
         asset_scripts_dir = _resolve_asset_scripts_dir(workspace_root)
+        sound_effects_dir = _resolve_config_path(
+            os.getenv("WEBGAL_SOUND_EFFECTS_DIR"),
+            workspace_root,
+            Path.home() / ".claude" / "skills" / "webgal-game" / "shared" / "bgm_repo" / "Sound effects",
+        )
 
         return cls(
             workspace_root=workspace_root,
@@ -114,6 +120,7 @@ class Settings:
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
+            sound_effects_dir=sound_effects_dir,
             image_model=os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128"),
         )
 

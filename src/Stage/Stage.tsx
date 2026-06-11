@@ -16,6 +16,7 @@ import { WebGAL } from '@/Core/WebGAL';
 import { IGuiState } from '@/store/guiInterface';
 import { IStageState } from '@/Core/Modules/stage/stageInterface';
 import { useStageState } from '@/hooks/useStageState';
+import { HotspotLayer } from '@/Stage/HotspotLayer/HotspotLayer';
 // import OldStage from '@/Components/Stage/OldStage/OldStage';
 
 let timeoutEventHandle: ReturnType<typeof setTimeout> | null = null;
@@ -107,6 +108,7 @@ export const Stage: FC = () => {
         style={{ width: '100%', height: '100%', position: 'absolute', zIndex: '12', top: '0' }}
         onMouseMove={(e) => !GUIState.showControls && updateControlsVisibility(e, stageState, GUIState, dispatch)}
       />
+      <HotspotLayer />
       <IntroContainer />
     </div>
   );

@@ -27,8 +27,12 @@ const zh = {
 
 const phaseList = [
   ["NARRATIVE_PLANNING", "Narrative", "\u7ed3\u6784\u5316\u5267\u60c5\u8ba1\u5212"],
+  ["STORY_DESIGN", "Story", "\u6545\u4e8b\u8bbe\u8ba1"],
   ["GAME_DESIGN", "Game Design", "\u4e92\u52a8\u573a\u666f\u8bbe\u8ba1"],
   ["ASSET_PLANNING", "Assets", "\u7d20\u6750 manifest"],
+  ["SCRIPT_REWRITE", "Rewrite", "\u63d2\u5165\u89c6\u89c9\u7d20\u6750"],
+  ["SOUND_EFFECT_PLANNING", "Sound", "\u97f3\u6548\u7f16\u6392"],
+  ["ASSET_GENERATION", "Generate", "\u7d20\u6750\u751f\u6210"],
   ["SCENE_WRITING", "Scenes", "WebGAL \u573a\u666f\u811a\u672c"],
   ["VALIDATING", "Validation", "\u786e\u5b9a\u6027\u6821\u9a8c"],
   ["REPAIRING", "Repair", "\u81ea\u52a8\u4fee\u590d\u5faa\u73af"],
