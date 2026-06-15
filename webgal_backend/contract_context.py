@@ -51,14 +51,9 @@ def _compact_schema(schema_name: str) -> str:
 def _phase_specific_rules(function_name: str) -> str:
     limits = generation_limits()
     if function_name == "emit_narrative_plan":
-        return f"""Configured generation limits override any copied contract examples above:
+        return f"""
 {prompt_limits_text()}
-
-Narrative phase additions:
-- Return only the high-level narrative design described by the schema.
-- Do not create scene files, variables, branches, endings, asset prompts, or WebGAL script text here.
-- story_progression should be a compact phase outline; backend will expand it into internal scene structure later.
-- Keep text fields concise but specific."""
+"""
     if function_name == "emit_asset_manifest":
         return f"""Configured generation limits override any copied contract examples above:
 - Figure assets: subdir {limits['assets']['figure_subdir']}, size {limits['assets']['figure_size']}.

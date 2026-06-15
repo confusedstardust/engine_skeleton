@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .config import settings
+from .job_options import validate_generation_options
 from .contract_context import build_phase_context
 from .generation_limits import generation_limits
 from .llm import LLMError, OpenAIFunctionClient
@@ -119,6 +120,7 @@ class WebGALPipeline:
     def run_all(self, job_id: str) -> dict[str, Any]:
         job = self.store.get(job_id)
         try:
+            validate_generation_options(job.get("options", {}))
             self.run_narrative(job)
             self.run_story_design(job)
             self.run_game_design(job)
@@ -155,6 +157,8 @@ class WebGALPipeline:
         if phase not in phases:
             raise PipelineError(f"unknown phase: {phase}")
         try:
+            if phase in {"narrative", "story_design", "story", "game_design", "asset_manifest", "asset_generation", "script_rewrite", "sound_effects", "sound", "tts_generation", "tts", "assets", "scenes", "validation"}:
+                validate_generation_options(job.get("options", {}))
             phases[phase](job)
             return self.store.get(job_id)
         except Exception as exc:
@@ -271,8 +275,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         if not (job_dir / "assets_manifest.json").exists():
             raise PipelineError("assets_manifest.json is required before asset generation")
         image_enabled = bool(job["options"].get("generate_assets", False))
-        tts_limits = generation_limits().get("tts", {})
-        tts_enabled = bool(job["options"].get("generate_tts", tts_limits.get("enabled", False)))
+        tts_enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         artifact_path = "public/game/background/*.webp, public/game/figure/*.webp, public/game/vocal/*.wav"
 
         if not image_enabled and not tts_enabled:
@@ -282,7 +285,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
                 "素材生成",
                 "generated_assets",
                 "skipped",
-                "generate_assets option is false and tts.enabled/generate_tts is false",
+                "generate_assets option is false and generate_tts/voice_enabled is false",
             )
             self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
             return
@@ -403,7 +406,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             raise PipelineError("narrative_plan.json is required before TTS generation")
 
         limits = generation_limits().get("tts", {})
-        enabled = bool(job["options"].get("generate_tts", limits.get("enabled", False)))
+        enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         character_voices = self._assign_tts_voices(job_dir, narrative_plan, limits)
         manifest = build_tts_manifest(job_dir, character_voices=character_voices)

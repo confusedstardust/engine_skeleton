@@ -13,7 +13,9 @@
     "characters",
     "touchable_points",
     "must_avoid",
-    "social_observation"
+    "endings",
+    "beat_structure",
+    "narrative_structure"
   ],
   "additionalProperties": false,
   "properties": {
@@ -42,7 +44,7 @@
       "description": "A phase-by-phase outline of how the adaptation should unfold. Do not write script text here.",
       "items": {
         "type": "object",
-        "required": ["id", "name", "content"],
+        "required": ["id", "name", "content", "narrative_target","strtype"],
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -58,6 +60,15 @@
             "type": "string",
             "minLength": 1,
             "description": "What should happen in this phase, including emotional movement and player choice opportunities."
+          },
+          "narrative_target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "explain why this phase is necessary for the overall narrative, such as introducing a character, establishing a relationship, creating tension, or foreshadowing."
+          },
+          "strtype": {
+            "type": "string",
+            "description": "branch or main"
           }
         }
       }
@@ -127,7 +138,7 @@
               "properties": {
                 "with": {
                   "$ref": "#/$defs/id",
-                  "description": "The related character id."
+                  "description": "The related character id.Characters not entered into characters must not appear in relationships.with"
                 },
                 "dynamic": {
                   "type": "string",
@@ -150,10 +161,30 @@
       "description": "Adaptation pitfalls to avoid.",
       "items": { "type": "string"}
     },
-    "social_observation": {
+    "endings": {
       "type": "array",
-      "description": "Social or psychological observations extracted from the material.",
+      "description": "Possible endings for the story.",
+      "items": { "type": "object"},
+      "properties": {
+        "ending_type": {
+          "type": "string",
+          "description": "The type of ending, such as 'true ending', 'normal ending', 'branching ending', or 'hidden ending'."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description of the ending."
+        }
+      }
+
+    },
+    "beat_structure": {
+      "type": "array",
+      "description": "The rhythm curve of the story, such as slow burn, immediate climax, wave pattern, or stepwise rise.",
       "items": { "type": "string"}
+    },
+    "narrative_structure": {
+      "type": "string",
+      "description": "The overall narrative structure.only Mermaid syntax is allowed"
     }
   },
   "$defs": {

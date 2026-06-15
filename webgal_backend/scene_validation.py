@@ -115,6 +115,10 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
             "vocal_args": _check_status(result, "missing_vocal_arg"),
             "figure_positions": _check_status(result, "duplicate_figure_position"),
             "scene_structure": "failed" if any(issue.code.startswith("missing_") for issue in errors) else "passed",
+            "choice_callbacks": _check_status(result, "shared_choice_target"),
+            "ending_closure": _check_status(result, "choice_direct_to_ending"),
+            "branch_density": _check_status(result, "thin_branch_scene"),
+            "template_phrases": _check_status(result, "template_phrase"),
         },
         "errors": [issue.to_json() for issue in errors],
         "warnings": [issue.to_json() for issue in warnings],
@@ -546,6 +550,7 @@ def _validate_scene_structure(job_dir: Path, scene_files: list[Path]) -> list[Va
                 )
             )
         issues.extend(_validate_scene_references(relative_file, lines, names, relative_files))
+        issues.extend(_validate_story_quality(relative_file, lines))
     return issues
 
 
@@ -570,6 +575,174 @@ def _validate_scene_references(
                     )
                 )
     return issues
+
+
+def _validate_story_quality(relative_file: str, lines: list[str]) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    story_lines = _story_content_lines(lines)
+    scene_name = relative_file.replace("\\", "/").split("/")[-1]
+
+    if scene_name.startswith("branch_") and len(story_lines) < 3:
+        issues.append(
+            ValidationIssue(
+                code="thin_branch_scene",
+                severity="warning",
+                file=relative_file,
+                line=None,
+                message="Branch scene has fewer than 3 story lines; branches should show a visible consequence, not only change variables.",
+            )
+        )
+
+    if scene_name.startswith("ending_") and len(story_lines) < 5:
+        issues.append(
+            ValidationIssue(
+                code="thin_ending_scene",
+                severity="warning",
+                file=relative_file,
+                line=None,
+                message="Ending scene is very short; endings should usually have closure before the final verdict.",
+            )
+        )
+
+    for line_no, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", ";")):
+            continue
+
+        choose_options = _parse_choose_options(stripped)
+        if choose_options:
+            targets: dict[str, list[str]] = {}
+            for text, target in choose_options:
+                targets.setdefault(target, []).append(text)
+                for pattern, label in _TEMPLATE_PHRASES:
+                    if re.search(pattern, text, flags=re.IGNORECASE):
+                        issues.append(
+                            ValidationIssue(
+                                code="template_phrase",
+                                severity="warning",
+                                file=relative_file,
+                                line=line_no,
+                                message=f'Choice "{text}" contains template/meta wording ({label}); rewrite it as in-world dialogue or action.',
+                            )
+                        )
+                if target.replace("\\", "/").split("/")[-1].startswith("ending_"):
+                    issues.append(
+                        ValidationIssue(
+                            code="choice_direct_to_ending",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'Choice "{text}" jumps directly to ending "{target}". Add a closure scene before non-rash endings.',
+                        )
+                    )
+                if _looks_like_instruction_choice(text):
+                    issues.append(
+                        ValidationIssue(
+                            code="instructional_choice_text",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'Choice "{text}" reads like an instruction/summary. Prefer direct dialogue or an immediate action.',
+                        )
+                    )
+
+            for target, texts in targets.items():
+                if len(texts) > 1:
+                    issues.append(
+                        ValidationIssue(
+                            code="shared_choice_target",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'{len(texts)} choices share target "{target}". Use separate callback scenes before merging.',
+                        )
+                    )
+            continue
+
+        for pattern, label in _TEMPLATE_PHRASES:
+            if re.search(pattern, stripped, flags=re.IGNORECASE):
+                issues.append(
+                    ValidationIssue(
+                        code="template_phrase",
+                        severity="warning",
+                        file=relative_file,
+                        line=line_no,
+                        message=f"Line contains template/meta wording ({label}); rewrite it as in-world narration or dialogue.",
+                    )
+                )
+    return issues
+
+
+_TEMPLATE_PHRASES: tuple[tuple[str, str], ...] = (
+    (r"\bplayer\b|玩家", "player"),
+    (r"\bnode\b|节点", "node"),
+    (r"\bbranch\b|分支", "branch"),
+    (r"option\s*[ABCD]|选项\s*[A-DＡ-Ｄ]", "option label"),
+    (r"push (?:things|it) to the extreme|把事情推到极端", "push to extreme"),
+    (r"swallow (?:the )?words|把话咽回去", "swallow words"),
+    (r"continue along|顺着.*继续|带着.*继续", "continue along"),
+)
+
+
+def _story_content_lines(lines: list[str]) -> list[str]:
+    return [
+        line
+        for line in lines
+        if line.strip()
+        and not line.strip().startswith((
+            "//",
+            ";",
+            "setVar:",
+            "changeBg:",
+            "changeFigure:",
+            "setTransition:",
+            "miniAvatar:",
+            "bgm:",
+            "playEffect:",
+            "unlock",
+            "pixi",
+            "choose:",
+            "changeScene:",
+            "callScene:",
+            "end",
+        ))
+    ]
+
+
+def _parse_choose_options(line: str) -> list[tuple[str, str]]:
+    choose_match = re.match(r"^choose\s*:\s*(?P<body>.*?);?\s*$", line)
+    if not choose_match:
+        return []
+    options: list[tuple[str, str]] = []
+    for option in choose_match.group("body").split("|"):
+        parts = option.split(":")
+        if len(parts) < 2:
+            continue
+        text = ":".join(parts[:-1]).strip()
+        target = parts[-1].strip()
+        if text and target:
+            options.append((text, target))
+    return options
+
+
+def _looks_like_instruction_choice(text: str) -> bool:
+    instruction_prefixes = (
+        "说",
+        "问",
+        "让",
+        "声明",
+        "告诉",
+        "询问",
+        "继续问",
+        "选择",
+        "say ",
+        "ask ",
+        "tell ",
+        "declare ",
+        "choose ",
+    )
+    stripped = text.strip().lower()
+    return any(stripped.startswith(prefix) for prefix in instruction_prefixes)
 
 
 def _scene_targets(line: str) -> list[str]:

@@ -4,12 +4,13 @@ import logging
 import mimetypes
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .job_options import validate_generation_options
 from .pipeline import PipelineError, WebGALPipeline
 from .storage import JobStore
 
@@ -58,6 +59,10 @@ def index() -> FileResponse:
 
 @app.post("/jobs")
 def create_job(request: CreateJobRequest) -> dict[str, Any]:
+    try:
+        validate_generation_options(request.options)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return store.create(request.source_material, request.options)
 
 
@@ -177,6 +182,7 @@ def play_engine_static(job_id: str, file_path: str) -> FileResponse:
 
 @app.get("/play/{job_id}/index.html")
 @app.get("/play/{job_id}/")
+@app.get("/play/{job_id}")
 def play_game_with_slash(job_id: str) -> HTMLResponse:
     """Serve the WebGAL engine HTML rewritten to load game data from this job."""
     job_dir = store.job_dir(job_id)
@@ -195,14 +201,6 @@ def play_game_with_slash(job_id: str) -> HTMLResponse:
     html = html.replace('./icons/', f'/play/{job_id}/static-engine/icons/')
     html = html.replace('./manifest.json', f'/play/{job_id}/static-engine/manifest.json')
     return HTMLResponse(content=html)
-
-
-@app.get("/play/{job_id}")
-def play_game_redirect(job_id: str, request: Request) -> HTMLResponse:
-    """Redirect to trailing-slash version for correct relative path resolution."""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=f"/play/{job_id}/", status_code=301)
-
 
 def run_pipeline_background(job_id: str) -> None:
     try:

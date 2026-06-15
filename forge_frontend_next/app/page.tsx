@@ -1,0 +1,464 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Choice = {
+  name: string;
+  desc: string;
+  icon: string;
+};
+
+type Job = {
+  id: string;
+  status: string;
+  phase?: string | null;
+  updated_at?: string;
+  error?: string;
+};
+
+const durations: Choice[] = [
+  { icon: "⚡", name: "5分钟", desc: "课前导入" },
+  { icon: "疾", name: "10分钟", desc: "知识速通" },
+  { icon: "卷", name: "20分钟", desc: "沉浸游戏" },
+  { icon: "幕", name: "40分钟", desc: "完整课堂" },
+  { icon: "定", name: "自定义", desc: "自行设定" }
+];
+
+const modes: Choice[] = [
+  { icon: "演", name: "角色扮演", desc: "人物分析·文学历史" },
+  { icon: "谜", name: "闯关解谜", desc: "知识复习·文本细读" },
+  { icon: "枝", name: "分支选择", desc: "价值冲突·道德判断" },
+  { icon: "证", name: "探案推理", desc: "文本证据·情节分析" },
+  { icon: "时", name: "时间旅行", desc: "历史文化·古诗文" },
+  { icon: "辩", name: "课堂辩论", desc: "观点分析·文学评价" }
+];
+
+const packages = ["学生端游戏", "教师操作说明", "课堂流程", "课堂提问链", "课后巩固题"];
+const voicePresets = ["古风男声", "古风女声", "少年声", "旁白声", "沉稳教师声", "多角色配音"];
+
+const phases = [
+  ["NARRATIVE_PLANNING", "主题分析"],
+  ["STORY_DESIGN", "故事设计"],
+  ["GAME_DESIGN", "互动设计"],
+  ["ASSET_PLANNING", "素材规划"],
+  ["SCRIPT_REWRITE", "脚本改写"],
+  ["SOUND_EFFECT_PLANNING", "音效编排"],
+  ["SCENE_WRITING", "场景写入"],
+  ["VALIDATING", "校验修复"]
+];
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    ...init
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<T>;
+}
+
+function compactId(id: string) {
+  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+export default function ClassroomGeneratorPage() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [sourceTab, setSourceTab] = useState<"paste" | "upload" | "library">("paste");
+  const [topic, setTopic] = useState("");
+  const [sourceText, setSourceText] = useState("");
+  const [grade, setGrade] = useState("");
+  const [difficulty, setDifficulty] = useState("");
+  const [teacherGoal, setTeacherGoal] = useState("");
+  const [studentGoal, setStudentGoal] = useState("");
+  const [duration, setDuration] = useState("20分钟");
+  const [mode, setMode] = useState("角色扮演");
+  const [characterCount, setCharacterCount] = useState(3);
+  const [taskCount, setTaskCount] = useState(6);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [voice, setVoice] = useState("");
+  const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
+  const [allowMissingAssets, setAllowMissingAssets] = useState(true);
+  const [generateAssets, setGenerateAssets] = useState(false);
+  const [job, setJob] = useState<Job | null>(null);
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const selectedDuration = durations.find((item) => item.name === duration) || durations[2];
+  const selectedMode = modes.find((item) => item.name === mode) || modes[0];
+  const durationNumber = Number.parseInt(duration, 10);
+
+  const sourceMaterial = useMemo(() => {
+    const parts = [
+      `课堂主题：${topic || "未填写"}`,
+      `教学文本/知识材料：${sourceText || "未填写"}`,
+      `适用年级/课程体系：${grade || "未填写"}`,
+      `学习难度：${difficulty || "未填写"}`,
+      `教学目标：${teacherGoal || "未填写"}`,
+      `学生学习目标：${studentGoal || "未填写"}`,
+      `叙事模式：${mode}`
+    ];
+    return parts.join("\n");
+  }, [topic, sourceText, grade, difficulty, teacherGoal, studentGoal, mode]);
+
+  async function runGeneration() {
+    if (!topic.trim() || !sourceText.trim() || !grade || !difficulty || !teacherGoal.trim() || !studentGoal.trim()) {
+      setMessage("请先补全课堂主题、文本材料、适用年级、学习难度、教学目标和学生学习目标。");
+      return;
+    }
+
+    setRunning(true);
+    setMessage("正在创建生成任务...");
+    try {
+      const created = await api<Job>("/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          source_material: sourceMaterial,
+          options: {
+            allow_missing_assets: allowMissingAssets,
+            generate_assets: generateAssets,
+            classroom_topic: topic,
+            grade,
+            difficulty,
+            teacher_goal: teacherGoal,
+            student_goal: studentGoal,
+            duration,
+            narrative_mode: mode,
+            character_count: characterCount,
+            interactive_task_count: taskCount,
+            voice_enabled: voiceOn,
+            generate_tts: voiceOn,
+            voice_preset: voice,
+            output_packages: Array.from(checkedPackages)
+          }
+        })
+      });
+      setJob(created);
+      setMessage(`任务已创建：${compactId(created.id)}，正在交给后端流水线。`);
+      await api<Job>(`/jobs/${created.id}/run`, {
+        method: "POST",
+        body: JSON.stringify({ background: true })
+      });
+
+      const timer = window.setInterval(async () => {
+        try {
+          const next = await api<Job>(`/jobs/${created.id}`);
+          setJob(next);
+          if (next.status === "DONE" || next.status === "FAILED") {
+            window.clearInterval(timer);
+            setRunning(false);
+            setMessage(next.status === "DONE" ? "生成完成，可以打开 WebGAL 游戏。" : `生成失败：${next.error || "请查看日志"}`);
+          }
+        } catch (error) {
+          window.clearInterval(timer);
+          setRunning(false);
+          setMessage(error instanceof Error ? error.message : "轮询任务状态失败。");
+        }
+      }, 1800);
+    } catch (error) {
+      setRunning(false);
+      setMessage(error instanceof Error ? error.message : "请求失败。");
+    }
+  }
+
+  function togglePackage(name: string) {
+    setCheckedPackages((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  return (
+    <>
+      <CloudDecorations />
+
+      <header className="top-nav">
+        <div className="brand">
+          <div className="brand-seal">文</div>
+          <div className="brand-copy">
+            <span className="brand-name">文境 · AI叙事课堂生成平台</span>
+            <span className="brand-subtitle">WENJING · NARRATIVE CLASSROOM AI</span>
+          </div>
+        </div>
+        <nav className="nav-links" aria-label="主导航">
+          <a href="#library">我的游戏库</a>
+          <a href="#templates">资源模板</a>
+          <a href="#history">生成记录</a>
+          <a className="nav-login" href="#login">账号登录</a>
+        </nav>
+        <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单">
+          <span />
+          <span />
+          <span />
+        </button>
+      </header>
+
+      {mobileOpen && (
+        <nav className="mobile-menu" aria-label="移动端导航">
+          <a href="#library">我的游戏库</a>
+          <a href="#templates">资源模板</a>
+          <a href="#history">生成记录</a>
+          <a className="mobile-login" href="#login">账号登录</a>
+        </nav>
+      )}
+
+      <main className="main-wrapper">
+        <section className="page-header" aria-labelledby="page-title">
+          <h1 id="page-title">创建一场新的课堂叙事游戏</h1>
+          <p>填写教学信息，AI 将为你生成专属的沉浸式课堂体验</p>
+          <div className="header-line">
+            <span>课堂叙事工坊</span>
+          </div>
+        </section>
+
+        <div className="content-grid">
+          <section className="form-panel" aria-label="课堂生成表单">
+            <FormSection title="核心教学信息">
+              <Field label="课堂主题" required>
+                <input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="例如：杜甫《垂老别》中的家国悲歌 / 《关雎》中的爱情与礼教" />
+              </Field>
+
+              <Field label="教学文本 / 知识材料" required>
+                <div className="tab-group">
+                  <button className={sourceTab === "paste" ? "active" : ""} type="button" onClick={() => setSourceTab("paste")}>直接粘贴文本</button>
+                  <button className={sourceTab === "upload" ? "active" : ""} type="button" onClick={() => setSourceTab("upload")}>上传文档</button>
+                  <button className={sourceTab === "library" ? "active" : ""} type="button" onClick={() => setSourceTab("library")}>从资源库选择</button>
+                </div>
+                {sourceTab === "paste" && (
+                  <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder={"请粘贴原文、节选、知识点、课堂材料或考试文本。\n\n平台将基于文本生成剧情、角色、任务与问题链。"} />
+                )}
+                {sourceTab === "upload" && <div className="upload-area"><span>文</span>文档上传将在下一步接入，当前可先粘贴文本。</div>}
+                {sourceTab === "library" && <div className="resource-area"><span>书</span>资源库即将上线，敬请期待。</div>}
+              </Field>
+
+              <div className="field-row">
+                <Field label="适用年级 / 课程体系" required compact>
+                  <select value={grade} onChange={(event) => setGrade(event.target.value)}>
+                    <option value="">请选择年级...</option>
+                    <option>小学高年级语文</option>
+                    <option>初中语文</option>
+                    <option>初中历史</option>
+                    <option>高中语文</option>
+                    <option>高中历史</option>
+                    <option>DSE 中国文学</option>
+                    <option>IB 中文</option>
+                    <option>成人/企业培训</option>
+                  </select>
+                </Field>
+                <Field label="学习难度" required compact>
+                  <select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}>
+                    <option value="">请选择难度...</option>
+                    <option>基础理解</option>
+                    <option>进阶分析</option>
+                    <option>高阶探究</option>
+                    <option>考试冲刺</option>
+                    <option>公开课展示</option>
+                  </select>
+                </Field>
+              </div>
+            </FormSection>
+
+            <FormSection title="教学目标设定">
+              <Field label="教学目标" hint="教师想教什么，课程设计视角">
+                <textarea rows={3} value={teacherGoal} onChange={(event) => setTeacherGoal(event.target.value)} placeholder="例如：理解诗歌中的战争创伤，分析人物形象，体会叙事视角的情感张力。" />
+              </Field>
+              <Field label="学生学习目标" hint="学生完成游戏后能做到什么，学习者视角">
+                <textarea rows={3} value={studentGoal} onChange={(event) => setStudentGoal(event.target.value)} placeholder="例如：学生能够说出人物的核心处境，找出文本证据，并解释作品如何表现时代悲剧。" />
+              </Field>
+            </FormSection>
+
+            <FormSection title="游戏设计配置">
+              <ChoiceGrid label="游戏时长与课堂场景" items={durations} value={duration} onChange={setDuration} columns="five" />
+              <ChoiceGrid label="叙事模式" items={modes} value={mode} onChange={setMode} columns="three" />
+
+              <div className="number-grid">
+                <NumberControl label="AI角色数" value={characterCount} min={1} max={8} onChange={setCharacterCount} />
+                <NumberControl label="互动任务数" value={taskCount} min={1} max={12} onChange={setTaskCount} />
+              </div>
+
+              <Field label="角色配音">
+                <div className="toggle-row">
+                  <div>
+                    <strong>开启配音</strong>
+                    <span>为游戏角色添加 AI 语音，增强沉浸感</span>
+                  </div>
+                  <label className="toggle-switch">
+                    <input type="checkbox" checked={voiceOn} onChange={(event) => setVoiceOn(event.target.checked)} />
+                    <span />
+                  </label>
+                </div>
+                {voiceOn && (
+                  <div className="voice-options">
+                    {voicePresets.map((item) => (
+                      <button className={voice === item ? "selected" : ""} key={item} type="button" onClick={() => setVoice(item)}>{item}</button>
+                    ))}
+                  </div>
+                )}
+              </Field>
+
+              <div className="backend-options">
+                <label><input type="checkbox" checked={allowMissingAssets} onChange={(event) => setAllowMissingAssets(event.target.checked)} /> 允许先缺图生成</label>
+                <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
+              </div>
+            </FormSection>
+
+            <FormSection title="生成内容包" hint="选择需要生成的内容，系统将一并输出">
+              <div className="checkbox-group">
+                {packages.map((item) => (
+                  <button className={`check-item ${checkedPackages.has(item) ? "checked" : ""}`} key={item} type="button" onClick={() => togglePackage(item)}>
+                    <span className="check-box" />
+                    <span>{item}</span>
+                  </button>
+                ))}
+              </div>
+            </FormSection>
+
+            <div className="form-actions">
+              <button className="btn ghost" type="button">保存草稿</button>
+              <button className="btn outline" type="button">预览生成方案</button>
+              <span />
+              <button className="btn primary" disabled={running} type="button" onClick={runGeneration}>
+                {running ? "生成中..." : "入境生成"}
+              </button>
+            </div>
+          </section>
+
+          <aside className="preview-panel" aria-label="生成预览">
+            <div className="preview-card">
+              <div className="preview-header">
+                <span>即将生成 · PREVIEW</span>
+                <h2>{selectedDuration.name}沉浸式文学游戏</h2>
+                <p>{selectedDuration.desc} · AI叙事生成</p>
+              </div>
+              <div className="preview-body">
+                <PreviewRow k="主题" v={topic || "—"} />
+                <PreviewRow k="适用" v={grade || "—"} />
+                <PreviewRow k="叙事模式" v={<span className="preview-tag">{selectedMode.name}</span>} />
+                <div className="preview-divider" />
+                <PreviewRow k="内容预估" v={<span className="muted">{characterCount}个角色 · 4个剧情节点<br />{taskCount}道互动任务<br />1份学生任务单<br />1份教师流程说明</span>} />
+                <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? `已开启${voice ? ` · ${voice}` : ""}` : "未开启"}</span>} />
+                <PreviewRow k="难度" v={difficulty || "—"} />
+              </div>
+              <div className="preview-stats">
+                <Stat value={Number.isNaN(durationNumber) ? "定" : durationNumber} label="时长（分钟）" />
+                <Stat value={characterCount} label="AI角色数" />
+                <Stat value={taskCount} label="互动任务" />
+              </div>
+              <div className="scroll-deco">文境 · 叙事课堂</div>
+            </div>
+
+            <div className="preview-note">
+              <strong>提示：</strong>右侧预览随左侧表单实时更新。点击「入境生成」后，任务会进入 WebGAL Forge 后端流水线。
+            </div>
+
+            <div className="runtime-card">
+              <div className="runtime-head">
+                <strong>生成状态</strong>
+                {job?.status && <span className={`status-pill ${job.status.toLowerCase()}`}>{job.status}</span>}
+              </div>
+              <p>{message || "尚未创建任务。"}</p>
+              {job && (
+                <>
+                  <div className="phase-list">
+                    {phases.map(([key, label]) => (
+                      <span className={job.phase === key ? "active" : ""} key={key}>{label}</span>
+                    ))}
+                  </div>
+                  {job.status === "DONE" && <a className="play-link" href={`/play/${job.id}/`} target="_blank">打开生成的 WebGAL 游戏</a>}
+                </>
+              )}
+            </div>
+          </aside>
+        </div>
+      </main>
+    </>
+  );
+}
+
+function FormSection({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="form-section">
+      <h2>{title}</h2>
+      {hint && <p className="section-hint">{hint}</p>}
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, hint, required, compact, children }: { label: string; hint?: string; required?: boolean; compact?: boolean; children: React.ReactNode }) {
+  return (
+    <label className={`field-group ${compact ? "compact" : ""}`}>
+      <span className="field-label">{label}{required && <em>*</em>}</span>
+      {hint && <span className="field-hint">{hint}</span>}
+      {children}
+    </label>
+  );
+}
+
+function ChoiceGrid({ label, items, value, onChange, columns }: { label: string; items: Choice[]; value: string; onChange: (value: string) => void; columns: "three" | "five" }) {
+  return (
+    <div className="field-group">
+      <span className="field-label">{label}</span>
+      <div className={`card-grid ${columns}`}>
+        {items.map((item) => (
+          <button className={`select-card ${value === item.name ? "selected" : ""}`} key={item.name} type="button" onClick={() => onChange(item.name)}>
+            <span className="card-icon">{item.icon}</span>
+            <strong>{item.name}</strong>
+            <small>{item.desc}</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NumberControl({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  function setSafe(next: number) {
+    onChange(Math.max(min, Math.min(max, next)));
+  }
+
+  return (
+    <div className="number-control">
+      <span>{label}</span>
+      <div>
+        <button type="button" onClick={() => setSafe(value - 1)} aria-label={`${label}减少`}>-</button>
+        <strong>{value}</strong>
+        <button type="button" onClick={() => setSafe(value + 1)} aria-label={`${label}增加`}>+</button>
+      </div>
+    </div>
+  );
+}
+
+function PreviewRow({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="preview-row">
+      <span>{k}</span>
+      <strong>{v}</strong>
+    </div>
+  );
+}
+
+function Stat({ value, label }: { value: string | number; label: string }) {
+  return (
+    <div>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function CloudDecorations() {
+  return (
+    <>
+      <svg className="cloud-deco cloud-one" viewBox="0 0 200 80" fill="none" aria-hidden="true">
+        <path d="M20 60Q10 60 10 50Q10 38 22 38Q22 20 38 20Q46 20 50 28Q56 22 66 22Q82 22 84 36Q92 36 96 44Q96 60 80 60Z" />
+        <path d="M100 50Q92 50 92 42Q92 34 102 34Q106 24 118 26Q124 20 134 22Q144 24 144 34Q150 36 152 42Q152 50 140 50Z" />
+      </svg>
+      <svg className="cloud-deco cloud-two" viewBox="0 0 160 60" fill="none" aria-hidden="true">
+        <path d="M16 48Q8 48 8 40Q8 30 18 30Q18 16 32 16Q38 16 42 22Q46 18 54 18Q66 18 68 28Q74 28 78 36Q78 48 64 48Z" />
+      </svg>
+    </>
+  );
+}
