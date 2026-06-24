@@ -10,6 +10,10 @@ type Job = {
   status: string;
   phase?: string | null;
   error?: string | null;
+  options?: {
+    generation_mode?: string;
+    [key: string]: unknown;
+  };
 };
 
 type NodeArtifact = {
@@ -648,6 +652,7 @@ export default function JobWorkspacePage() {
   const scenePlanContent = scenePlanNode?.content || null;
   const scenePlan = useMemo(() => parseScenePlan(scenePlanContent), [scenePlanContent]);
   const isGenerating = data?.job.status === "RUNNING" || data?.job.status === "QUEUED";
+  const autoMode = data?.job.options?.generation_mode === "auto";
   const assetPhases = new Set([
     "ASSET_REVIEW",
     "ASSET_PLANNING",
@@ -660,8 +665,8 @@ export default function JobWorkspacePage() {
     "VALIDATING"
   ]);
   const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(data?.job.phase || "") || data?.job.status === "DONE";
-  const outlineLocked = outlineSubmitted || Boolean(designNode?.exists) || data?.job.phase === "GAME_DESIGN" || inAssetOrBuildStage;
-  const scenesLocked = inAssetOrBuildStage;
+  const outlineLocked = autoMode || outlineSubmitted || Boolean(designNode?.exists) || data?.job.phase === "GAME_DESIGN" || inAssetOrBuildStage;
+  const scenesLocked = autoMode || inAssetOrBuildStage;
   const canOpenScenes = outlineLocked || Boolean(rawDesignNode?.exists) || Boolean(designNode?.exists);
   const canOpenAssets = inAssetOrBuildStage;
   const activeAsset = assetReview?.assets.find((asset) => asset.filename === activeAssetFilename) || null;
@@ -717,6 +722,12 @@ export default function JobWorkspacePage() {
     else if (canOpenScenes) setStage("scenes");
     setStageHydrated(true);
   }, [canOpenAssets, canOpenScenes, data, stageHydrated]);
+
+  useEffect(() => {
+    if (!autoMode) return;
+    if (canOpenAssets && stage !== "assets") setStage("assets");
+    else if (!canOpenAssets && canOpenScenes && stage === "outline") setStage("scenes");
+  }, [autoMode, canOpenAssets, canOpenScenes, stage]);
 
   function updatePlan(next: NarrativePlan) {
     setPlan(next);
@@ -1044,6 +1055,7 @@ export default function JobWorkspacePage() {
             planDirty={planDirty}
             flowSyncing={flowSyncing}
             locked={outlineLocked}
+            autoMode={autoMode}
             phaseBrief={phaseBrief}
             endingBrief={endingBrief}
             characterBrief={characterBrief}
@@ -1076,6 +1088,7 @@ export default function JobWorkspacePage() {
             regenerateAsset={regenerateAsset}
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
+            readonly={autoMode}
             playUrl={`/play/${data.job.id}/`}
           />
         ) : designNode?.exists ? (
@@ -1100,6 +1113,7 @@ export default function JobWorkspacePage() {
             exists={Boolean(rawDesignNode?.exists)}
             busy={busy || isGenerating}
             dirty={designDraftDirty}
+            readonly={autoMode}
             onChange={updateDesignDraftScenes}
             saveDesignDraft={saveDesignDraft}
             completeDesignDraft={completeDesignDraft}
@@ -1121,12 +1135,25 @@ function AssetReviewPanel(props: {
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   buildGame: () => Promise<void>;
   gameReady: boolean;
+  readonly: boolean;
   playUrl: string;
 }) {
   const assets = props.review?.assets || [];
   const figures = assets.filter((asset) => asset.kind === "角色立绘");
   const backgrounds = assets.filter((asset) => asset.kind !== "角色立绘");
   const hasGeneratedImages = assets.some((asset) => asset.exists);
+
+  if (props.gameReady) {
+    return (
+      <section className="node-detail">
+        <div className="node-placeholder done-placeholder">
+          <strong>游戏生成完成。</strong>
+          <span>素材和脚本已经写入游戏目录，现在可以直接打开试玩。</span>
+          <a className="btn primary" href={props.playUrl} target="_blank">打开游戏</a>
+        </div>
+      </section>
+    );
+  }
 
   if (!props.review || assets.length === 0) {
     return (
@@ -1157,8 +1184,11 @@ function AssetReviewPanel(props: {
             <span>{hasGeneratedImages ? "已有图片" : "等待图片"}</span>
           </div>
           <div className="node-actions">
-            {props.gameReady ? (
-              <a className="btn primary" href={props.playUrl} target="_blank">打开游戏</a>
+            {props.readonly ? (
+              <span className="readonly-status">
+                <span className="inline-spinner" aria-hidden="true" />
+                游戏自动生成中
+              </span>
             ) : (
               <button className="btn primary" type="button" disabled={props.busy || assets.length === 0} onClick={() => void props.buildGame()}>
                 确认素材并生成游戏
@@ -1214,18 +1244,21 @@ function AssetReviewPanel(props: {
                   onChange={(event) => props.setAssetPrompt(event.target.value)}
                   rows={9}
                   spellCheck={false}
+                  readOnly={props.readonly}
                 />
               </label>
               <div className="asset-modal-actions">
                 <button className="btn outline" type="button" onClick={props.closeAsset}>关闭</button>
-                <button
-                  className="btn primary"
-                  type="button"
-                  disabled={props.busy}
-                  onClick={() => void props.regenerateAsset(props.activeAsset as AssetReviewItem, props.assetPrompt)}
-                >
-                  重新生成此素材
-                </button>
+                {!props.readonly && (
+                  <button
+                    className="btn primary"
+                    type="button"
+                    disabled={props.busy}
+                    onClick={() => void props.regenerateAsset(props.activeAsset as AssetReviewItem, props.assetPrompt)}
+                  >
+                    重新生成此素材
+                  </button>
+                )}
               </div>
             </div>
           </article>
@@ -1283,6 +1316,7 @@ function OutlineEditor(props: {
   planDirty: boolean;
   flowSyncing: boolean;
   locked: boolean;
+  autoMode: boolean;
   phaseBrief: string;
   endingBrief: string;
   characterBrief: string;
@@ -1321,9 +1355,11 @@ function OutlineEditor(props: {
 
   return (
     <section className={`outline-workbench ${props.locked ? "readonly" : ""}`}>
-      <div className="outline-main">
+      <fieldset className="outline-main outline-fieldset" disabled={props.locked || props.busy}>
         {props.locked && (
-          <div className="readonly-banner">大纲已确认，当前为只读状态。需要调整时请重新创建任务或回到确认前的任务。</div>
+          <div className="readonly-banner">
+            {props.autoMode ? "Auto 模式正在自动生成完整游戏，大纲为只读状态。" : "大纲已确认，当前为只读状态。需要调整时请重新创建任务或回到确认前的任务。"}
+          </div>
         )}
         <section className="review-section">
           <div className="review-section-head">
@@ -1484,7 +1520,7 @@ function OutlineEditor(props: {
             ))}
           </div>
         </section>
-      </div>
+      </fieldset>
 
       <aside className="outline-side">
         <div>
@@ -1659,6 +1695,7 @@ function DesignDraftEditor(props: {
   exists: boolean;
   busy: boolean;
   dirty: boolean;
+  readonly: boolean;
   onChange: (scenes: GameDesignDraftScene[]) => void;
   saveDesignDraft: () => void;
   completeDesignDraft: () => void;
@@ -1677,6 +1714,7 @@ function DesignDraftEditor(props: {
   }, [activeDraftScene, props.scenes.length]);
 
   function updateLine(sceneIndex: number, lineIndex: number, nextLine: SceneLine) {
+    if (props.readonly) return;
     const nextScenes = props.scenes.map((scene, currentSceneIndex) => {
       if (currentSceneIndex !== sceneIndex) return scene;
       return {
@@ -1688,6 +1726,7 @@ function DesignDraftEditor(props: {
   }
 
   function switchSpeaker(sceneIndex: number, lineIndex: number, speaker: string) {
+    if (props.readonly) return;
     const line = props.scenes[sceneIndex].lines[lineIndex];
     updateLine(sceneIndex, lineIndex, {
       ...line,
@@ -1721,17 +1760,19 @@ function DesignDraftEditor(props: {
   }
 
   return (
-    <section className="node-detail">
+    <section className={`node-detail ${props.readonly ? "readonly" : ""}`}>
       {speakerMenu && <button className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />}
       <div className="node-detail-head">
         <div>
           <h2>场景设计稿</h2>
           <p>先按阶段和结局审阅场景结构、旁白、对白与互动安排，确认后再生成详细旁白与对话。</p>
         </div>
-        <div className="node-actions">
-          <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>保存设计稿</button>
-          <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>确认并生成详细场景</button>
-        </div>
+        {!props.readonly && (
+          <div className="node-actions">
+            <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>保存设计稿</button>
+            <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>确认并生成详细场景</button>
+          </div>
+        )}
       </div>
 
       <div className="draft-scene-tabs" aria-label="场景与结局列表">
@@ -1764,7 +1805,12 @@ function DesignDraftEditor(props: {
                 return (
                   <div className={`draft-line ${line.kind} ${speakerMenu === menuKey ? "menu-open" : ""}`} key={line.id}>
                     <div className="draft-speaker-wrap">
-                      <button className={`draft-speaker ${line.kind === "command" ? "static" : ""}`} type="button" onClick={() => setSpeakerMenu(speakerMenu === menuKey ? null : menuKey)}>
+                      <button
+                        className={`draft-speaker ${line.kind === "command" || props.readonly ? "static" : ""}`}
+                        type="button"
+                        disabled={props.readonly}
+                        onClick={() => setSpeakerMenu(speakerMenu === menuKey ? null : menuKey)}
+                      >
                         {line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}
                       </button>
                       {speakerMenu === menuKey && (
@@ -1782,6 +1828,7 @@ function DesignDraftEditor(props: {
                       rows={draftLineRows(line.text)}
                       onChange={(event) => updateLine(activeSceneIndex, lineIndex, { ...line, text: event.target.value })}
                       spellCheck={false}
+                      readOnly={props.readonly}
                       aria-label={`${activeScene.title} ${line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}`}
                     />
                   </div>

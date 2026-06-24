@@ -13,6 +13,8 @@ type Job = {
   status: string;
 };
 
+type GenerationMode = "auto" | "advanced";
+
 const durations: Choice[] = [
   { name: "5分钟", desc: "课前导入" },
   { name: "10分钟", desc: "知识速通" },
@@ -64,6 +66,7 @@ export default function ClassroomGeneratorPage() {
   const [studentGoal, setStudentGoal] = useState("");
   const [duration, setDuration] = useState("20分钟");
   const [mode, setMode] = useState("角色扮演");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("advanced");
   const [characterCount, setCharacterCount] = useState(3);
   const [taskCount, setTaskCount] = useState(6);
   const [voiceOn, setVoiceOn] = useState(false);
@@ -107,6 +110,7 @@ export default function ClassroomGeneratorPage() {
           options: {
             allow_missing_assets: allowMissingAssets,
             generate_assets: generateAssets,
+            generation_mode: generationMode,
             classroom_topic: fallbackText(topic, source.slice(0, 30) || "未命名课堂"),
             grade: fallbackText(grade, "高中语文"),
             difficulty: fallbackText(difficulty, "基础理解"),
@@ -126,11 +130,19 @@ export default function ClassroomGeneratorPage() {
           }
         })
       });
-      setMessage("任务已创建，正在生成故事大纲...");
-      await api<Job>(`/jobs/${created.id}/phases/narrative`, {
-        method: "POST",
-        body: JSON.stringify({ background: true })
-      });
+      if (generationMode === "auto") {
+        setMessage("任务已创建，Auto 模式会自动完成全部生成流程...");
+        await api<Job>(`/jobs/${created.id}/run`, {
+          method: "POST",
+          body: JSON.stringify({ background: true })
+        });
+      } else {
+        setMessage("任务已创建，正在生成故事大纲...");
+        await api<Job>(`/jobs/${created.id}/phases/narrative`, {
+          method: "POST",
+          body: JSON.stringify({ background: true })
+        });
+      }
       router.push(`/jobs/${created.id}`);
     } catch (error) {
       setRunning(false);
@@ -247,6 +259,7 @@ export default function ClassroomGeneratorPage() {
             </FormSection>
 
             <FormSection title="游戏设计配置">
+              <GenerationModeRadio value={generationMode} onChange={setGenerationMode} />
               <ChoiceGrid label="游戏时长与课堂场景" items={durations} value={duration} onChange={setDuration} columns="five" />
               <ChoiceGrid label="叙事模式" items={modes} value={mode} onChange={setMode} columns="three" />
 
@@ -320,7 +333,8 @@ export default function ClassroomGeneratorPage() {
                 <PreviewRow k="适用" v={grade || "默认：高中语文"} />
                 <PreviewRow k="叙事模式" v={<span className="preview-tag">{selectedMode.name}</span>} />
                 <div className="preview-divider" />
-                <PreviewRow k="内容预计" v={<span className="muted">{characterCount}个角色<br />{taskCount}道互动任务<br />生成后进入节点工作台</span>} />
+                <PreviewRow k="生成模式" v={<span className="preview-tag">{generationMode === "auto" ? "Auto 一键生成" : "Advance 节点审阅"}</span>} />
+                <PreviewRow k="内容预计" v={<span className="muted">{characterCount}个角色<br />{taskCount}道互动任务<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
                 <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? `已开启 · ${voice || voicePresets[0]}` : "未开启"}</span>} />
                 <PreviewRow k="难度" v={difficulty || "默认：基础理解"} />
               </div>
@@ -352,6 +366,44 @@ function FormSection({ title, hint, children }: { title: string; hint?: string; 
       {hint && <p className="section-hint">{hint}</p>}
       {children}
     </section>
+  );
+}
+
+function GenerationModeRadio({ value, onChange }: { value: GenerationMode; onChange: (value: GenerationMode) => void }) {
+  const items: Array<{ value: GenerationMode; title: string; desc: string; meta: string }> = [
+    {
+      value: "auto",
+      title: "Auto 模式",
+      desc: "一键跑完整生成流程，中途不进入人工审阅，适合快速拿到可玩的初版。",
+      meta: "全自动"
+    },
+    {
+      value: "advanced",
+      title: "Advance 模式",
+      desc: "按大纲、场景、素材逐步确认，允许修改节点内容并单独重生成。",
+      meta: "可编辑"
+    }
+  ];
+  return (
+    <div className="mode-radio" role="radiogroup" aria-label="生成工作台模式">
+      {items.map((item) => (
+        <button
+          className={value === item.value ? "selected" : ""}
+          key={item.value}
+          type="button"
+          role="radio"
+          aria-checked={value === item.value}
+          onClick={() => onChange(item.value)}
+        >
+          <span className="mode-radio-dot" aria-hidden="true" />
+          <span>
+            <strong>{item.title}</strong>
+            <small>{item.desc}</small>
+          </span>
+          <em>{item.meta}</em>
+        </button>
+      ))}
+    </div>
   );
 }
 

@@ -575,6 +575,122 @@ a {
   margin: 18px 0;
 }
 
+.mode-radio {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.mode-radio button {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-height: 94px;
+  padding: 14px;
+  color: var(--ink-muted);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.mode-radio button:hover,
+.mode-radio button.selected {
+  color: var(--ink);
+  background: rgba(255, 248, 239, 0.86);
+  border-color: rgba(155, 35, 53, 0.32);
+  box-shadow: 0 10px 24px rgba(63, 50, 36, 0.08);
+}
+
+.mode-radio-dot {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+}
+
+.mode-radio button.selected .mode-radio-dot {
+  border-color: var(--cinnabar);
+}
+
+.mode-radio button.selected .mode-radio-dot::after {
+  width: 8px;
+  height: 8px;
+  content: "";
+  background: var(--cinnabar);
+  border-radius: 999px;
+}
+
+.mode-radio strong,
+.mode-radio small {
+  display: block;
+}
+
+.mode-radio strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.mode-radio small {
+  margin-top: 5px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mode-radio em {
+  padding: 3px 8px;
+  color: var(--cinnabar);
+  background: var(--cinnabar-glow);
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.outline-fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.readonly-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--ink-muted);
+  background: var(--rice-dark);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.inline-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--cinnabar);
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+
 .number-control {
   display: flex;
   align-items: center;
@@ -1651,6 +1767,20 @@ a {
   font-size: 18px;
 }
 
+.done-placeholder {
+  gap: 12px;
+}
+
+.done-placeholder .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  margin-top: 4px;
+  text-decoration: none;
+  line-height: 1;
+}
+
 .artifact-editor {
   min-height: 520px;
   margin-top: 18px;
@@ -2711,6 +2841,7 @@ a {
   .field-row,
   .checkbox-group,
   .number-grid,
+  .mode-radio,
   .card-grid.five,
   .card-grid.three,
   .phase-editor-list,
