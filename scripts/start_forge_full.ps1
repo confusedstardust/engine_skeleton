@@ -50,11 +50,12 @@ $BackendJob = Start-Job -Name "webgal-forge-backend" -ScriptBlock {
 } -ArgumentList $PythonCmd.Source, $Root.Path, $BackendPort
 
 $FrontendJob = Start-Job -Name "webgal-forge-frontend" -ScriptBlock {
-  param($NpmExe, $WorkDir, $Port)
+  param($NpmExe, $WorkDir, $Port, $BackendPort)
   Set-Location $WorkDir
+  $env:FORGE_BACKEND_URL = "http://127.0.0.1:$BackendPort"
   & $NpmExe run dev -- --hostname 127.0.0.1 --port $Port 2>&1 |
     ForEach-Object { "[frontend] $_" }
-} -ArgumentList $NpmCmd.Source, $FrontendDir, $FrontendPort
+} -ArgumentList $NpmCmd.Source, $FrontendDir, $FrontendPort, $BackendPort
 
 try {
   while ($true) {

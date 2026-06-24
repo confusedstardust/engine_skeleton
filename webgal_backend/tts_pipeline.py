@@ -27,7 +27,11 @@ COMMAND_PREFIXES = (
 )
 
 
-def build_tts_manifest(job_dir: Path, character_voices: dict[str, list[str]] | None = None) -> dict[str, Any]:
+def build_tts_manifest(
+    job_dir: Path,
+    character_voices: dict[str, list[str]] | None = None,
+    selection_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     narrative_plan = read_json(job_dir / "state" / "narrative_plan.json")
     script_path = job_dir / "state" / "game_design_webgal.txt"
     script_text = script_path.read_text(encoding="utf-8")
@@ -67,10 +71,14 @@ def build_tts_manifest(job_dir: Path, character_voices: dict[str, list[str]] | N
                 }
             )
 
+    selection = _tts_selection(selection_options or {})
+    selected_items = _mark_tts_key_lines(items, selection)
+
     return {
         "vocal_dir": "public/game/vocal",
         "character_voices": character_voices,
-        "items": items,
+        "selection": selection,
+        "items": selected_items,
     }
 
 
@@ -124,12 +132,101 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
                 item["error"] = error
         return item
 
+    synth_items = [item for item in items if item.get("status") == "pending"]
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(synthesize, item) for item in items]
+        futures = [executor.submit(synthesize, item) for item in synth_items]
         for future in as_completed(futures):
             future.result()
 
     return manifest
+
+
+def _tts_selection(options: dict[str, Any]) -> dict[str, Any]:
+    limits = generation_limits().get("tts", {})
+    scope = str(options.get("tts_scope") or options.get("voice_scope") or limits.get("scope") or "key_lines").strip()
+    if scope not in {"key_lines", "all"}:
+        scope = "key_lines"
+    return {
+        "scope": scope,
+        "max_lines_per_scene": _positive_int(
+            options.get("tts_max_lines_per_scene") or limits.get("max_lines_per_scene"),
+            3,
+        ),
+        "max_total_lines": _positive_int(
+            options.get("tts_max_total_lines") or limits.get("max_total_lines"),
+            60,
+        ),
+    }
+
+
+def _mark_tts_key_lines(items: list[dict[str, Any]], selection: dict[str, Any]) -> list[dict[str, Any]]:
+    if selection["scope"] == "all":
+        for item in items:
+            item["is_key_line"] = True
+            item["key_line_reason"] = "all_dialogue"
+        return items
+
+    selected_ids: set[int] = set()
+    per_scene = max(1, int(selection["max_lines_per_scene"]))
+    max_total = max(1, int(selection["max_total_lines"]))
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        grouped.setdefault(str(item.get("scene") or ""), []).append(item)
+
+    for scene_items in grouped.values():
+        if not scene_items:
+            continue
+        chosen: list[dict[str, Any]] = [scene_items[0]]
+        if len(scene_items) > 1:
+            chosen.append(scene_items[-1])
+        middle = [item for item in scene_items[1:-1] if id(item) not in {id(chosen_item) for chosen_item in chosen}]
+        middle.sort(key=_key_line_score, reverse=True)
+        chosen.extend(middle[: max(0, per_scene - len(chosen))])
+        for item in chosen[:per_scene]:
+            selected_ids.add(id(item))
+
+    if len(selected_ids) > max_total:
+        selected = [item for item in items if id(item) in selected_ids]
+        selected.sort(key=_key_line_score, reverse=True)
+        selected_ids = {id(item) for item in selected[:max_total]}
+
+    for item in items:
+        if id(item) in selected_ids:
+            item["is_key_line"] = True
+            item["key_line_reason"] = _key_line_reason(item)
+        else:
+            item["is_key_line"] = False
+            item["key_line_reason"] = "not_selected"
+            item["status"] = "skipped_non_key"
+    return items
+
+
+def _key_line_score(item: dict[str, Any]) -> int:
+    text = str(item.get("text") or "")
+    score = min(len(text), 60)
+    if any(marker in text for marker in ("？", "?", "！", "!", "为何", "为什么", "难道", "可是", "但", "若", "愿", "必须", "终于")):
+        score += 25
+    if any(marker in text for marker in ("我", "你", "心", "归", "去", "留", "选择", "决定", "明白", "不愿", "不能")):
+        score += 15
+    return score
+
+
+def _key_line_reason(item: dict[str, Any]) -> str:
+    text = str(item.get("text") or "")
+    if any(marker in text for marker in ("？", "?", "！", "!")):
+        return "question_or_exclamation"
+    if any(marker in text for marker in ("可是", "但", "若", "愿", "决定", "选择")):
+        return "turning_point"
+    return "scene_anchor"
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def write_tts_manifest(job_dir: Path, manifest: dict[str, Any]) -> None:
@@ -156,7 +253,23 @@ def _tts_instructions(item: dict[str, Any]) -> str:
 
 
 def _scene_sections(script_text: str) -> list[tuple[str, str]]:
-    matches = list(re.finditer(r"^\s*\[([A-Za-z0-9_-]+\.txt)\]\s*$", script_text, flags=re.MULTILINE))
+    matches = list(
+        re.finditer(
+            r"""^\s*
+            (?:
+                (?:Scene|Ending)\s*[:：]\s*
+                |
+                (?:[\[【「『]\s*)?
+                (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
+            )
+            ([A-Za-z0-9_-]+\.txt)
+            (?:\s*[\]】」』])?
+            \s*[:：]?\s*$
+            """,
+            script_text,
+            flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
+        )
+    )
     sections: list[tuple[str, str]] = []
     for index, match in enumerate(matches):
         body_start = match.end()

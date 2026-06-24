@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8000/play/4778297cf41a40928f249c7ff0c8f594/webgal-serviceworker.js\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8000/play/4778297cf41a40928f249c7ff0c8f594/webgal-engine.json\")",
+      "Bash(curl -sL --max-redirs 5 \"http://127.0.0.1:3001/play/4778297cf41a40928f249c7ff0c8f594\")"
+    ]
+  }
+}

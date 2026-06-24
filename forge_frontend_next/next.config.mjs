@@ -6,9 +6,10 @@ const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
     return [
-      { source: "/health", destination: `${backend}/health` },
-      { source: "/jobs", destination: `${backend}/jobs` },
-      { source: "/jobs/:path*", destination: `${backend}/jobs/:path*` },
+      { source: "/api/forge/health", destination: `${backend}/health` },
+      { source: "/api/forge/jobs", destination: `${backend}/jobs` },
+      { source: "/api/forge/jobs/:path*", destination: `${backend}/jobs/:path*` },
+      { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },
       { source: "/play/:path*", destination: `${backend}/play/:path*` }
     ];
   }

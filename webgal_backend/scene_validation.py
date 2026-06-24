@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .generation_limits import generation_limits
+from .raw_correction import correct_inline_dialogue_direction
 from .storage import read_json
 
 
@@ -154,6 +155,18 @@ def _repair_scene_lines(
                 )
             )
 
+        normalized_dialogue = correct_inline_dialogue_direction(line)
+        if normalized_dialogue != line:
+            line = normalized_dialogue
+            fixes.append(
+                AppliedFix(
+                    code="remove_inline_dialogue_direction",
+                    file=relative_file,
+                    line=original_index,
+                    message="Removed inline parenthetical action from dialogue text.",
+                )
+            )
+
         figure_change = _parse_change_figure(line)
         transition_line: str | None = None
         if figure_change:
@@ -228,8 +241,12 @@ def _repair_scene_lines(
                 )
             )
 
+    repaired, terminal_cleanup_fixes = _move_post_terminal_cleanup_before_terminal(repaired, relative_file)
+    fixes.extend(terminal_cleanup_fixes)
     repaired, ending_fixes = _ensure_scene_ending_clears(repaired, relative_file)
     fixes.extend(ending_fixes)
+    repaired, ending_terminal_fixes = _ensure_ending_scene_has_end(repaired, relative_file)
+    fixes.extend(ending_terminal_fixes)
     return repaired, issues, fixes
 
 
@@ -377,6 +394,57 @@ def _ensure_scene_ending_clears(lines: list[str], relative_file: str) -> tuple[l
     ]
 
 
+def _ensure_ending_scene_has_end(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    if not _is_ending_scene_file(relative_file):
+        return lines, []
+    if any(_is_end_line(line) for line in lines):
+        return lines, []
+
+    repaired = [*lines, "end;"]
+    return repaired, [
+        AppliedFix(
+            code="missing_ending_end",
+            file=relative_file,
+            line=len(repaired),
+            message="Inserted missing end; terminal command for ending scene.",
+        )
+    ]
+
+
+def _move_post_terminal_cleanup_before_terminal(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    terminal_index = _scene_terminal_index(lines)
+    if terminal_index is None:
+        return lines, []
+
+    post_terminal_cleanup = [
+        line
+        for line in lines[terminal_index + 1 :]
+        if line.strip() and _is_ending_cleanup_line(line.strip())
+    ]
+    if not post_terminal_cleanup:
+        return lines, []
+
+    before_terminal = lines[:terminal_index]
+    terminal_line = lines[terminal_index]
+    after_terminal = [
+        line
+        for line in lines[terminal_index + 1 :]
+        if line.strip() and not _is_ending_cleanup_line(line.strip())
+    ]
+    insertion_index = _ending_clear_insertion_index(lines[: terminal_index + 1])
+    existing_before_terminal = {line.strip() for line in before_terminal}
+    cleanup_to_move = [line for line in post_terminal_cleanup if line.strip() not in existing_before_terminal]
+    repaired = [*before_terminal[:insertion_index], *cleanup_to_move, *before_terminal[insertion_index:], terminal_line, *after_terminal]
+    return repaired, [
+        AppliedFix(
+            code="move_post_terminal_cleanup",
+            file=relative_file,
+            line=terminal_index + 2,
+            message="Moved cleanup commands from after the scene terminal line to before it.",
+        )
+    ]
+
+
 def _remove_expanded_scene_prelude_clears(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
     for index, line in enumerate(lines):
         stripped = line.strip()
@@ -421,14 +489,36 @@ def _is_center_clear_line(line: str) -> bool:
 
 
 def _ending_clear_insertion_index(lines: list[str]) -> int:
+    terminal_index = _scene_terminal_index(lines)
+    if terminal_index is not None:
+        return terminal_index
+
     for index in range(len(lines) - 1, -1, -1):
         stripped = lines[index].strip()
         if not stripped:
             continue
-        if stripped.startswith(("end", "choose:", "changeScene:")):
-            return index
         return index + 1
     return len(lines)
+
+
+def _scene_terminal_index(lines: list[str]) -> int | None:
+    for index in range(len(lines) - 1, -1, -1):
+        stripped = lines[index].strip()
+        if stripped and stripped.startswith(("end", "choose:", "changeScene:")):
+            return index
+    return None
+
+
+def _is_ending_scene_file(relative_file: str) -> bool:
+    return relative_file.replace("\\", "/").split("/")[-1].startswith("ending_")
+
+
+def _is_end_line(line: str) -> bool:
+    return line.strip().lower() == "end;"
+
+
+def _is_ending_cleanup_line(line: str) -> bool:
+    return line in {"changeFigure:none;", "changeFigure:none -left;", "changeFigure:none -right;"} or line.startswith("playEffect:none")
 
 
 def _character_avatar_map(job_dir: Path) -> dict[str, str]:
@@ -714,8 +804,8 @@ def _parse_choose_options(line: str) -> list[tuple[str, str]]:
     if not choose_match:
         return []
     options: list[tuple[str, str]] = []
-    for option in choose_match.group("body").split("|"):
-        parts = option.split(":")
+    for option in _split_unescaped(choose_match.group("body"), "|"):
+        parts = _split_unescaped(option, ":")
         if len(parts) < 2:
             continue
         text = ":".join(parts[:-1]).strip()
@@ -723,6 +813,29 @@ def _parse_choose_options(line: str) -> list[tuple[str, str]]:
         if text and target:
             options.append((text, target))
     return options
+
+
+def _split_unescaped(value: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in value:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == separator:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    parts.append("".join(current))
+    return parts
 
 
 def _looks_like_instruction_choice(text: str) -> bool:
@@ -750,8 +863,8 @@ def _scene_targets(line: str) -> list[str]:
     targets: list[str] = []
     choose_match = re.match(r"^choose\s*:\s*(?P<body>.*?);?\s*$", stripped)
     if choose_match:
-        for option in choose_match.group("body").split("|"):
-            parts = option.split(":")
+        for option in _split_unescaped(choose_match.group("body"), "|"):
+            parts = _split_unescaped(option, ":")
             if len(parts) >= 2 and parts[-1].strip().endswith(".txt"):
                 targets.append(parts[-1].strip())
     for command in ("changeScene", "callScene"):

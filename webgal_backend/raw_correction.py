@@ -26,9 +26,40 @@ def _correct_raw_line(line: str, protagonist_name: str | None) -> str:
     if _should_keep_raw_line(stripped):
         return line
 
+    dialogue = correct_inline_dialogue_direction(line)
+    if dialogue != line:
+        return dialogue
+
     if ":" not in stripped and "\uFF1A" not in stripped:
         return f":{_ensure_no_trailing_semicolon(stripped)};"
     return line
+
+
+def correct_inline_dialogue_direction(line: str) -> str:
+    stripped = line.strip()
+    if not stripped or _should_keep_raw_line(stripped):
+        return line
+    if stripped.startswith(("Scene:", "Ending:", ";", "//")):
+        return line
+    match = re.match(
+        r"^(?P<indent>\s*)(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]{0,40}?)\s*(?P<sep>[:\uFF1A])\s*(?P<body>.+?)\s*$",
+        line,
+    )
+    if not match:
+        return line
+    speaker = match.group("speaker").strip()
+    if speaker in {"if", "label", "jumpLabel", "callScene", "choose", "setVar", "intro"}:
+        return line
+    body = match.group("body").strip()
+    original_body = body
+    while True:
+        direction = re.match(r"^[\(\uFF08][^()\uFF08\uFF09]{1,80}[\)\uFF09]\s*(?P<rest>.*)$", body)
+        if not direction:
+            break
+        body = direction.group("rest").strip()
+    if body == original_body:
+        return line
+    return f"{match.group('indent')}{speaker}{match.group('sep')}{body}"
 
 
 def _correct_inner_monologue_line(line: str, protagonist_name: str | None) -> str | None:

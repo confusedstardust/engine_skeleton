@@ -164,18 +164,25 @@
     "endings": {
       "type": "array",
       "description": "Possible endings for the story.",
-      "items": { "type": "object"},
-      "properties": {
-        "ending_type": {
-          "type": "string",
-          "description": "The type of ending, such as 'true ending', 'normal ending', 'branching ending', or 'hidden ending'."
-        },
-        "description": {
-          "type": "string",
-          "description": "A brief description of the ending."
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["ending_type", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "ending_type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The type of ending, such as 'true ending', 'normal ending', 'branching ending', or 'hidden ending'."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A brief description of the ending."
+          }
         }
       }
-
     },
     "beat_structure": {
       "type": "array",
