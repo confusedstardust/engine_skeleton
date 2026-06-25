@@ -144,7 +144,7 @@ export default function ClassroomGeneratorPage() {
           body: JSON.stringify({ background: true })
         });
       }
-      router.push(withBasePath(`/jobs/${created.id}`));
+      router.push(`/jobs/${created.id}`);
     } catch (error) {
       setRunning(false);
       setMessage(error instanceof Error ? error.message : "请求失败，请检查后端服务。");

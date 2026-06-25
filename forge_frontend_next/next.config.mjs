@@ -5,6 +5,7 @@ const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || "").trim().replace(/\/+$/
 const nextConfig = {
   reactStrictMode: true,
   basePath: basePath || undefined,
+  trailingSlash: true,
   async rewrites() {
     return [
       { source: "/api/forge/health", destination: `${backend}/health` },
