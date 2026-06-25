@@ -1,0 +1,5 @@
+INFO:     Started server process [23768]
+INFO:     Waiting for application startup.
+INFO:     WebGAL paths: contracts_dir=C:\SelfCreated\MyProject\workwithflynt\engine_skeleton\webgal_backend\contracts asset_scripts_dir=C:\SelfCreated\MyProject\workwithflynt\engine_skeleton\asset_scripts
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8010 (Press CTRL+C to quit)

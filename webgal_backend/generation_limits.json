@@ -40,6 +40,7 @@
   },
   "tts": {
     "enabled": true,
+    "model": "qwen3-tts-instruct-flash-realtime",
     "max_workers": 1,
     "voices": {
       "male": {
@@ -64,8 +65,9 @@
       },
       "default": "Cherry"
     },
-    "speed": 50,
-    "pitch": 50,
+    "speech_rate": 1.0,
+    "pitch_rate": 1.0,
+    "optimize_instructions": true,
     "volume": 50,
     "skip_existing": true
   }

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .config import settings
+
+
+JOB_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
 def utc_now() -> str:
@@ -52,6 +56,8 @@ class JobStore:
         return job
 
     def job_dir(self, job_id: str) -> Path:
+        if not JOB_ID_RE.fullmatch(job_id):
+            raise FileNotFoundError(f"job not found: {job_id}")
         return self.jobs_dir / job_id
 
     def job_file(self, job_id: str) -> Path:

@@ -20,7 +20,7 @@ export function setDebugTextReadMode(isRead: boolean | null) {
 export class ReadHistoryManager {
   private history: Map<string, Uint8Array> = new Map();
 
-  private load: boolean = false;
+  private load = false;
 
   private readonly sceneManager: SceneManager;
 

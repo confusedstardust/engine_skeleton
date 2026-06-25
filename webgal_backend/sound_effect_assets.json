@@ -1,0 +1,544 @@
+[
+  {
+    "filename": "adinkra_audio-bambo-flute-melody.mp3",
+    "tags": [
+      "flute",
+      "melody",
+      "ethnic",
+      "mysterious",
+      "quiet"
+    ],
+    "scene_tags": [
+      "笛声",
+      "民俗",
+      "回忆",
+      "神秘",
+      "静夜",
+      "远处音乐"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "cartoon-music-game-sfx-cartoon-game-upgrade.mp3",
+    "tags": [
+      "upgrade",
+      "success",
+      "cartoon",
+      "reward",
+      "positive"
+    ],
+    "scene_tags": [
+      "升级",
+      "获得线索",
+      "发现",
+      "奖励",
+      "轻松转折"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "derrickmckinnon-ambient-mall-noise.mp3",
+    "tags": [
+      "mall",
+      "crowd",
+      "indoor",
+      "public",
+      "busy"
+    ],
+    "scene_tags": [
+      "商场",
+      "人群",
+      "室内公共空间",
+      "现代城市",
+      "嘈杂"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "dffdv-leopard-attack.mp3",
+    "tags": [
+      "animal",
+      "attack",
+      "danger",
+      "impact",
+      "sudden"
+    ],
+    "scene_tags": [
+      "袭击",
+      "猛兽",
+      "危险",
+      "突发事件",
+      "惊吓"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "diahdwiarti-morning-walk.mp3",
+    "tags": [
+      "morning",
+      "walk",
+      "outdoor",
+      "calm",
+      "daily"
+    ],
+    "scene_tags": [
+      "清晨",
+      "散步",
+      "街道",
+      "日常",
+      "平静"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "dragon-studio-droplets-in-a-cave.mp3",
+    "tags": [
+      "cave",
+      "droplets",
+      "water",
+      "underground",
+      "dark"
+    ],
+    "scene_tags": [
+      "洞穴",
+      "地下",
+      "水滴",
+      "潮湿",
+      "幽暗"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "dragon-studio-underwater-ambience.mp3",
+    "tags": [
+      "underwater",
+      "submerged",
+      "muffled",
+      "deep",
+      "water"
+    ],
+    "scene_tags": [
+      "水下",
+      "溺水",
+      "深海",
+      "梦境",
+      "压抑"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "freesounds123-walking-on-grass.mp3",
+    "tags": [
+      "footsteps",
+      "grass",
+      "walking",
+      "outdoor",
+      "soft"
+    ],
+    "scene_tags": [
+      "草地脚步",
+      "田野",
+      "潜行",
+      "靠近",
+      "户外行走"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "freesoundsxx-walking-on-snow.mp3",
+    "tags": [
+      "footsteps",
+      "snow",
+      "winter",
+      "crunch",
+      "cold"
+    ],
+    "scene_tags": [
+      "雪地脚步",
+      "冬天",
+      "寒冷",
+      "雪夜",
+      "跋涉"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "freesound_community-footsteps_grass_1.mp3",
+    "tags": [
+      "footsteps",
+      "grass",
+      "walking",
+      "loop",
+      "field"
+    ],
+    "scene_tags": [
+      "草地脚步",
+      "田埂",
+      "荒野",
+      "追踪",
+      "走近"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "freesound_community-restaurant-ambient.mp3",
+    "tags": [
+      "restaurant",
+      "crowd",
+      "indoor",
+      "dining",
+      "chatter"
+    ],
+    "scene_tags": [
+      "餐厅",
+      "饭馆",
+      "人声",
+      "聚餐",
+      "热闹"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "freesound_community-walking-through-grass.mp3",
+    "tags": [
+      "footsteps",
+      "grass",
+      "walking",
+      "brush",
+      "outdoor"
+    ],
+    "scene_tags": [
+      "穿过草丛",
+      "草地",
+      "田野",
+      "靠近",
+      "离开"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "gregorquendel-designed-fire-winds-swoosh-04.mp3",
+    "tags": [
+      "swoosh",
+      "fire",
+      "wind",
+      "whoosh",
+      "dramatic"
+    ],
+    "scene_tags": [
+      "转场",
+      "闪回",
+      "火焰",
+      "风声",
+      "戏剧性瞬间"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "hoshisato-birdsong-and-chirping-in-a-quiet-natural-setting.mp3",
+    "tags": [
+      "birds",
+      "nature",
+      "quiet",
+      "morning",
+      "forest"
+    ],
+    "scene_tags": [
+      "鸟鸣",
+      "清晨",
+      "树林",
+      "乡野",
+      "安静自然"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "kaazoom-muffled-filter-bloom-15-sec-stinger.mp3",
+    "tags": [
+      "muffled",
+      "stinger",
+      "bloom",
+      "memory",
+      "shock"
+    ],
+    "scene_tags": [
+      "记忆浮现",
+      "眩晕",
+      "情绪转折",
+      "真相揭露",
+      "压迫"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "krnbeatz-bubble-in-water.mp3",
+    "tags": [
+      "bubble",
+      "water",
+      "small",
+      "pop",
+      "liquid"
+    ],
+    "scene_tags": [
+      "气泡",
+      "水面",
+      "溺水",
+      "液体",
+      "细小水声"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "kuzu420-animal-walking-right-to-left.mp3",
+    "tags": [
+      "animal",
+      "walking",
+      "movement",
+      "passing",
+      "outdoor"
+    ],
+    "scene_tags": [
+      "动物经过",
+      "草丛异动",
+      "野外",
+      "逼近",
+      "离开"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "loswin23-dog-barking-in-the-distance.mp3",
+    "tags": [
+      "dog",
+      "barking",
+      "distance",
+      "village",
+      "night"
+    ],
+    "scene_tags": [
+      "远处犬吠",
+      "村庄",
+      "夜晚",
+      "不安",
+      "荒村"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "mori_sound-fx-sea.mp3",
+    "tags": [
+      "sea",
+      "waves",
+      "coast",
+      "shore",
+      "water"
+    ],
+    "scene_tags": [
+      "海边",
+      "海浪",
+      "码头",
+      "岸边",
+      "潮声"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "scottishperson-sound-effect-busy-restaurant-background-noise.mp3",
+    "tags": [
+      "restaurant",
+      "busy",
+      "crowd",
+      "chatter",
+      "background"
+    ],
+    "scene_tags": [
+      "繁忙餐厅",
+      "酒楼",
+      "饭馆",
+      "人群",
+      "喧闹"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "soul_serenity_sounds-cafe_paris_ambience_chatter-2.mp3",
+    "tags": [
+      "cafe",
+      "chatter",
+      "indoor",
+      "city",
+      "relaxed"
+    ],
+    "scene_tags": [
+      "咖啡馆",
+      "茶馆",
+      "低声交谈",
+      "城市室内",
+      "闲谈"
+    ],
+    "playback": [
+      "loop",
+      "fadeout"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "soundshelfstudio-mission-complete-chime.mp3",
+    "tags": [
+      "complete",
+      "chime",
+      "success",
+      "clear",
+      "notification"
+    ],
+    "scene_tags": [
+      "任务完成",
+      "线索确认",
+      "选择达成",
+      "提示",
+      "完成"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "spinopel-gravel-road-footsteps.mp3",
+    "tags": [
+      "footsteps",
+      "gravel",
+      "road",
+      "walking",
+      "rough"
+    ],
+    "scene_tags": [
+      "碎石路脚步",
+      "道路",
+      "山路",
+      "接近",
+      "离开"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  },
+  {
+    "filename": "sumaga123-metallic-thud.mp3",
+    "tags": [
+      "metal",
+      "thud",
+      "impact",
+      "hit",
+      "heavy"
+    ],
+    "scene_tags": [
+      "金属撞击",
+      "落锁",
+      "重击",
+      "门响",
+      "器物坠落"
+    ],
+    "playback": [
+      "once"
+    ],
+    "loopable": false
+  },
+  {
+    "filename": "universfield-ringtone-030.mp3",
+    "tags": [
+      "ringtone",
+      "phone",
+      "alarm",
+      "notification",
+      "modern"
+    ],
+    "scene_tags": [
+      "电话",
+      "铃声",
+      "提醒",
+      "现代",
+      "消息"
+    ],
+    "playback": [
+      "once",
+      "loop"
+    ],
+    "loopable": true
+  }
+]

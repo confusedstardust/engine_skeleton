@@ -2,5 +2,11 @@ node_modules/
 dist/
 .env
 jobs/
+!forge_frontend_next/app/jobs/
+!forge_frontend_next/app/jobs/**
 __pycache__/
 *.pyc
+logs/
+uvicorn.*.log
+forge_frontend_next/.next/
+forge_frontend_next/out/

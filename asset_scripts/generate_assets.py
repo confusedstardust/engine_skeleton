@@ -35,7 +35,6 @@ from PIL import Image
 
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DEFAULT_MODEL = os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128")
-ARK_API_KEY = "ark-3e941fe9-5b17-4260-ad1f-84037db96e88-997a4"
 MAX_WORKERS = 3
 
 
@@ -95,24 +94,11 @@ def main():
     model = manifest.get("model", DEFAULT_MODEL)
     images = manifest["images"]
 
-    api_key = ARK_API_KEY
-    if not api_key:
-        env_file = os.path.join(base_dir, ".env")
-        if os.path.exists(env_file):
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("ARK_API_KEY="):
-                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        if val and val != "your-ark-api-key-here":
-                            api_key = val
-                            print(f"  Using ARK_API_KEY from {env_file}")
-                            break
+    api_key = os.getenv("ARK_API_KEY", "").strip()
     if not api_key:
         print("ERROR: ARK_API_KEY not set.")
         print("  Option 1: export ARK_API_KEY='your-key' (bash) / $env:ARK_API_KEY='your-key' (PowerShell)")
         print("  Option 2: Create .env file in project root with ARK_API_KEY=your-key")
-        print("            cp .env.example .env and edit with your real key")
         sys.exit(1)
 
     client = OpenAI(base_url=ARK_BASE_URL, api_key=api_key)

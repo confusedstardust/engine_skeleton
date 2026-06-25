@@ -7,19 +7,14 @@ import viteCompression from 'vite-plugin-compression';
 
 // https://vitejs.dev/config/
 
-// @ts-ignore
-const env = process.env.NODE_ENV;
-console.log(env);
-
 export default defineConfig({
   plugins: [
     react(),
     loadVersion(),
     Info(),
     viteCompression({
-      filter: /^(.*assets).*\.(js|css|ttf)$/,
+      filter: /assets[\\/].*\.(js|css|ttf)$/i,
     }),
-    // @ts-ignore
     // visualizer(),
   ],
   resolve: {

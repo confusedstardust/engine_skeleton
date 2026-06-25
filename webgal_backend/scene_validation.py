@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .generation_limits import generation_limits
+from .raw_correction import correct_inline_dialogue_direction
 from .storage import read_json
 
 
@@ -115,6 +116,10 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
             "vocal_args": _check_status(result, "missing_vocal_arg"),
             "figure_positions": _check_status(result, "duplicate_figure_position"),
             "scene_structure": "failed" if any(issue.code.startswith("missing_") for issue in errors) else "passed",
+            "choice_callbacks": _check_status(result, "shared_choice_target"),
+            "ending_closure": _check_status(result, "choice_direct_to_ending"),
+            "branch_density": _check_status(result, "thin_branch_scene"),
+            "template_phrases": _check_status(result, "template_phrase"),
         },
         "errors": [issue.to_json() for issue in errors],
         "warnings": [issue.to_json() for issue in warnings],
@@ -147,6 +152,18 @@ def _repair_scene_lines(
                     file=relative_file,
                     line=original_index,
                     message="Normalized center figure clear to changeFigure:none;.",
+                )
+            )
+
+        normalized_dialogue = correct_inline_dialogue_direction(line)
+        if normalized_dialogue != line:
+            line = normalized_dialogue
+            fixes.append(
+                AppliedFix(
+                    code="remove_inline_dialogue_direction",
+                    file=relative_file,
+                    line=original_index,
+                    message="Removed inline parenthetical action from dialogue text.",
                 )
             )
 
@@ -224,8 +241,12 @@ def _repair_scene_lines(
                 )
             )
 
+    repaired, terminal_cleanup_fixes = _move_post_terminal_cleanup_before_terminal(repaired, relative_file)
+    fixes.extend(terminal_cleanup_fixes)
     repaired, ending_fixes = _ensure_scene_ending_clears(repaired, relative_file)
     fixes.extend(ending_fixes)
+    repaired, ending_terminal_fixes = _ensure_ending_scene_has_end(repaired, relative_file)
+    fixes.extend(ending_terminal_fixes)
     return repaired, issues, fixes
 
 
@@ -233,7 +254,7 @@ def _dialogue_speaker(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith(";") or stripped.startswith("//"):
         return None
-    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "end")):
+    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "playEffect:", "end")):
         return None
     match = re.match(r"^(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]*?)\s*[\uFF1A:]", stripped)
     if not match:
@@ -373,6 +394,57 @@ def _ensure_scene_ending_clears(lines: list[str], relative_file: str) -> tuple[l
     ]
 
 
+def _ensure_ending_scene_has_end(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    if not _is_ending_scene_file(relative_file):
+        return lines, []
+    if any(_is_end_line(line) for line in lines):
+        return lines, []
+
+    repaired = [*lines, "end;"]
+    return repaired, [
+        AppliedFix(
+            code="missing_ending_end",
+            file=relative_file,
+            line=len(repaired),
+            message="Inserted missing end; terminal command for ending scene.",
+        )
+    ]
+
+
+def _move_post_terminal_cleanup_before_terminal(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    terminal_index = _scene_terminal_index(lines)
+    if terminal_index is None:
+        return lines, []
+
+    post_terminal_cleanup = [
+        line
+        for line in lines[terminal_index + 1 :]
+        if line.strip() and _is_ending_cleanup_line(line.strip())
+    ]
+    if not post_terminal_cleanup:
+        return lines, []
+
+    before_terminal = lines[:terminal_index]
+    terminal_line = lines[terminal_index]
+    after_terminal = [
+        line
+        for line in lines[terminal_index + 1 :]
+        if line.strip() and not _is_ending_cleanup_line(line.strip())
+    ]
+    insertion_index = _ending_clear_insertion_index(lines[: terminal_index + 1])
+    existing_before_terminal = {line.strip() for line in before_terminal}
+    cleanup_to_move = [line for line in post_terminal_cleanup if line.strip() not in existing_before_terminal]
+    repaired = [*before_terminal[:insertion_index], *cleanup_to_move, *before_terminal[insertion_index:], terminal_line, *after_terminal]
+    return repaired, [
+        AppliedFix(
+            code="move_post_terminal_cleanup",
+            file=relative_file,
+            line=terminal_index + 2,
+            message="Moved cleanup commands from after the scene terminal line to before it.",
+        )
+    ]
+
+
 def _remove_expanded_scene_prelude_clears(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
     for index, line in enumerate(lines):
         stripped = line.strip()
@@ -404,6 +476,7 @@ def _starts_story_content(line: str) -> bool:
         "changeFigure:",
         "miniAvatar:",
         "bgm:",
+        "playEffect:",
         "unlock",
         "pixi",
     )
@@ -416,14 +489,36 @@ def _is_center_clear_line(line: str) -> bool:
 
 
 def _ending_clear_insertion_index(lines: list[str]) -> int:
+    terminal_index = _scene_terminal_index(lines)
+    if terminal_index is not None:
+        return terminal_index
+
     for index in range(len(lines) - 1, -1, -1):
         stripped = lines[index].strip()
         if not stripped:
             continue
-        if stripped.startswith(("end", "choose:", "changeScene:")):
-            return index
         return index + 1
     return len(lines)
+
+
+def _scene_terminal_index(lines: list[str]) -> int | None:
+    for index in range(len(lines) - 1, -1, -1):
+        stripped = lines[index].strip()
+        if stripped and stripped.startswith(("end", "choose:", "changeScene:")):
+            return index
+    return None
+
+
+def _is_ending_scene_file(relative_file: str) -> bool:
+    return relative_file.replace("\\", "/").split("/")[-1].startswith("ending_")
+
+
+def _is_end_line(line: str) -> bool:
+    return line.strip().lower() == "end;"
+
+
+def _is_ending_cleanup_line(line: str) -> bool:
+    return line in {"changeFigure:none;", "changeFigure:none -left;", "changeFigure:none -right;"} or line.startswith("playEffect:none")
 
 
 def _character_avatar_map(job_dir: Path) -> dict[str, str]:
@@ -545,6 +640,7 @@ def _validate_scene_structure(job_dir: Path, scene_files: list[Path]) -> list[Va
                 )
             )
         issues.extend(_validate_scene_references(relative_file, lines, names, relative_files))
+        issues.extend(_validate_story_quality(relative_file, lines))
     return issues
 
 
@@ -571,13 +667,204 @@ def _validate_scene_references(
     return issues
 
 
+def _validate_story_quality(relative_file: str, lines: list[str]) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    story_lines = _story_content_lines(lines)
+    scene_name = relative_file.replace("\\", "/").split("/")[-1]
+
+    if scene_name.startswith("branch_") and len(story_lines) < 3:
+        issues.append(
+            ValidationIssue(
+                code="thin_branch_scene",
+                severity="warning",
+                file=relative_file,
+                line=None,
+                message="Branch scene has fewer than 3 story lines; branches should show a visible consequence, not only change variables.",
+            )
+        )
+
+    if scene_name.startswith("ending_") and len(story_lines) < 5:
+        issues.append(
+            ValidationIssue(
+                code="thin_ending_scene",
+                severity="warning",
+                file=relative_file,
+                line=None,
+                message="Ending scene is very short; endings should usually have closure before the final verdict.",
+            )
+        )
+
+    for line_no, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", ";")):
+            continue
+
+        choose_options = _parse_choose_options(stripped)
+        if choose_options:
+            targets: dict[str, list[str]] = {}
+            for text, target in choose_options:
+                targets.setdefault(target, []).append(text)
+                for pattern, label in _TEMPLATE_PHRASES:
+                    if re.search(pattern, text, flags=re.IGNORECASE):
+                        issues.append(
+                            ValidationIssue(
+                                code="template_phrase",
+                                severity="warning",
+                                file=relative_file,
+                                line=line_no,
+                                message=f'Choice "{text}" contains template/meta wording ({label}); rewrite it as in-world dialogue or action.',
+                            )
+                        )
+                if target.replace("\\", "/").split("/")[-1].startswith("ending_"):
+                    issues.append(
+                        ValidationIssue(
+                            code="choice_direct_to_ending",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'Choice "{text}" jumps directly to ending "{target}". Add a closure scene before non-rash endings.',
+                        )
+                    )
+                if _looks_like_instruction_choice(text):
+                    issues.append(
+                        ValidationIssue(
+                            code="instructional_choice_text",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'Choice "{text}" reads like an instruction/summary. Prefer direct dialogue or an immediate action.',
+                        )
+                    )
+
+            for target, texts in targets.items():
+                if len(texts) > 1:
+                    issues.append(
+                        ValidationIssue(
+                            code="shared_choice_target",
+                            severity="warning",
+                            file=relative_file,
+                            line=line_no,
+                            message=f'{len(texts)} choices share target "{target}". Use separate callback scenes before merging.',
+                        )
+                    )
+            continue
+
+        for pattern, label in _TEMPLATE_PHRASES:
+            if re.search(pattern, stripped, flags=re.IGNORECASE):
+                issues.append(
+                    ValidationIssue(
+                        code="template_phrase",
+                        severity="warning",
+                        file=relative_file,
+                        line=line_no,
+                        message=f"Line contains template/meta wording ({label}); rewrite it as in-world narration or dialogue.",
+                    )
+                )
+    return issues
+
+
+_TEMPLATE_PHRASES: tuple[tuple[str, str], ...] = (
+    (r"\bplayer\b|玩家", "player"),
+    (r"\bnode\b|节点", "node"),
+    (r"\bbranch\b|分支", "branch"),
+    (r"option\s*[ABCD]|选项\s*[A-DＡ-Ｄ]", "option label"),
+    (r"push (?:things|it) to the extreme|把事情推到极端", "push to extreme"),
+    (r"swallow (?:the )?words|把话咽回去", "swallow words"),
+    (r"continue along|顺着.*继续|带着.*继续", "continue along"),
+)
+
+
+def _story_content_lines(lines: list[str]) -> list[str]:
+    return [
+        line
+        for line in lines
+        if line.strip()
+        and not line.strip().startswith((
+            "//",
+            ";",
+            "setVar:",
+            "changeBg:",
+            "changeFigure:",
+            "setTransition:",
+            "miniAvatar:",
+            "bgm:",
+            "playEffect:",
+            "unlock",
+            "pixi",
+            "choose:",
+            "changeScene:",
+            "callScene:",
+            "end",
+        ))
+    ]
+
+
+def _parse_choose_options(line: str) -> list[tuple[str, str]]:
+    choose_match = re.match(r"^choose\s*:\s*(?P<body>.*?);?\s*$", line)
+    if not choose_match:
+        return []
+    options: list[tuple[str, str]] = []
+    for option in _split_unescaped(choose_match.group("body"), "|"):
+        parts = _split_unescaped(option, ":")
+        if len(parts) < 2:
+            continue
+        text = ":".join(parts[:-1]).strip()
+        target = parts[-1].strip()
+        if text and target:
+            options.append((text, target))
+    return options
+
+
+def _split_unescaped(value: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in value:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == separator:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    parts.append("".join(current))
+    return parts
+
+
+def _looks_like_instruction_choice(text: str) -> bool:
+    instruction_prefixes = (
+        "说",
+        "问",
+        "让",
+        "声明",
+        "告诉",
+        "询问",
+        "继续问",
+        "选择",
+        "say ",
+        "ask ",
+        "tell ",
+        "declare ",
+        "choose ",
+    )
+    stripped = text.strip().lower()
+    return any(stripped.startswith(prefix) for prefix in instruction_prefixes)
+
+
 def _scene_targets(line: str) -> list[str]:
     stripped = line.strip()
     targets: list[str] = []
     choose_match = re.match(r"^choose\s*:\s*(?P<body>.*?);?\s*$", stripped)
     if choose_match:
-        for option in choose_match.group("body").split("|"):
-            parts = option.split(":")
+        for option in _split_unescaped(choose_match.group("body"), "|"):
+            parts = _split_unescaped(option, ":")
             if len(parts) >= 2 and parts[-1].strip().endswith(".txt"):
                 targets.append(parts[-1].strip())
     for command in ("changeScene", "callScene"):

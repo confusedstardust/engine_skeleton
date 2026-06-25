@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .job_options import normalize_generation_options
 from .pipeline import WebGALPipeline
 from .storage import JobStore
 
@@ -32,6 +33,8 @@ def main() -> int:
             "asset_manifest",
             "asset_generation",
             "script_rewrite",
+            "sound_effects",
+            "sound",
             "tts_generation",
             "tts",
             "assets",
@@ -54,6 +57,7 @@ def main() -> int:
             options["generate_assets"] = True
         if args.command == "run" and args.generate_tts:
             options["generate_tts"] = True
+        options = normalize_generation_options(options)
         job = store.create(source, options)
         if args.command == "run":
             job = pipeline.run_all(job["id"])

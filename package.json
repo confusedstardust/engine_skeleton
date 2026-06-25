@@ -5,7 +5,8 @@
     "dev": "vite --host --port 3000",
     "build": "node scripts/update-engine-version.js && cross-env NODE_ENV=production tsc && vite build --base=./",
     "preview": "vite preview",
-    "lint": "eslint src/** --fix",
+    "lint": "cross-env ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "cross-env ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.{ts,tsx}\" --fix",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
