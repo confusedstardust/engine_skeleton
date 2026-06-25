@@ -236,10 +236,24 @@ Current phase: game_design_text
 Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
         with self._trace_stage(job, 2, "游戏结构设计", "game_design", "state/game_design.json"):
             prompt = game_design_prompt(narrative_plan, job["options"], scene_plan=scene_plan)
-            game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
-            game_design_text = correct_generated_raw_file(game_design_text, narrative_plan)
-            self._validate_game_design_coverage(game_design_text, scene_plan, "game_design.json")
-            game_design_json = game_design.text_to_json(game_design_text, narrative_plan, scene_plan)
+            last_error = ""
+            game_design_text = ""
+            for attempt in range(settings.max_text_retries + 1):
+                try:
+                    game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
+                    game_design_text = correct_generated_raw_file(game_design_text, narrative_plan)
+                    game_design_text = self._normalize_game_design_coverage_text(game_design_text, scene_plan, "game_design.json")
+                    game_design_json = game_design.text_to_json(game_design_text, narrative_plan, scene_plan)
+                    break
+                except (LLMError, PipelineError, ValueError) as exc:
+                    last_error = str(exc)
+                    if attempt >= settings.max_text_retries:
+                        raise PipelineError(f"game_design_text failed after retries:\n{last_error}") from exc
+                    prompt = self._plain_text_retry_prompt(
+                        artifact_name="game_design.json",
+                        previous_text=game_design_text,
+                        error_message=last_error,
+                    )
             write_json(job_dir / "state" / "game_design.json", game_design_json)
             self.store.record_artifact(job, "game_design", "state/game_design.json")
         self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
@@ -271,7 +285,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             write_json(job_dir / "state" / "game_design_completed.json", completed_json)
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.json")
             completed_text = game_design.render_json(completed_json)
-            self._validate_game_design_coverage(completed_text, scene_plan, "game_design_completed.json")
+            completed_text = self._normalize_game_design_coverage_text(completed_text, scene_plan, "game_design_completed.json")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def _game_design_context(self, job: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str, Any]]:
@@ -934,30 +948,27 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             llm = self.llm_factory()
         last_error = ""
         prompt = user_prompt
+        previous_output = ""
         for attempt in range(settings.max_schema_retries + 1):
             phase_context = build_phase_context(function_name)
             system_prompt = f"{SYSTEM_PROMPT}\n\n{phase_context}"
             try:
-                args = self._call_structured_llm(llm, function_name, artifact_key, system_prompt, prompt)
+                args, previous_output = self._call_structured_llm(llm, function_name, artifact_key, system_prompt, prompt)
             except LLMError as exc:
                 last_error = str(exc)
-                prompt = f"""{user_prompt}
-
-The previous {function_name} call failed on attempt {attempt + 1}.
-Return corrected JSON for {artifact_key}.
-
-Failure reason:
-{last_error}
-
-Keep every text field concise (1-2 short sentences). Do not explain."""
+                previous_output = str(getattr(exc, "generated_content", "") or "").strip()
+                prompt = self._structured_retry_prompt(artifact_key, previous_output, last_error)
                 continue
             if artifact_key not in args:
                 last_error = f"function arguments missing key: {artifact_key}"
+                previous_output = json.dumps(args, ensure_ascii=False, indent=2)
             else:
                 artifact = args[artifact_key]
+                previous_output = json.dumps(artifact, ensure_ascii=False, indent=2)
                 try:
                     if artifact_normalizer:
                         artifact = artifact_normalizer(artifact)
+                        previous_output = json.dumps(artifact, ensure_ascii=False, indent=2)
                     validate_schema(schema_name, artifact)
                     if semantic_validator:
                         semantic_validator(artifact)
@@ -965,17 +976,34 @@ Keep every text field concise (1-2 short sentences). Do not explain."""
                 except ValidationFailure as exc:
                     last_error = "\n".join(exc.errors)
 
-            prompt = f"""{user_prompt}
-
-The previous {artifact_key} JSON failed validation on attempt {attempt + 1}.
-Return corrected JSON for {artifact_key}.
-
-Validation errors:
-{last_error}
-
-Do not explain."""
+            prompt = self._structured_retry_prompt(artifact_key, previous_output, last_error)
 
         raise PipelineError(f"{function_name} failed validation after retries:\n{last_error}")
+
+    def _plain_text_retry_prompt(self, artifact_name: str, previous_text: str, error_message: str) -> str:
+        previous_block = previous_text.strip() or "(empty output)"
+        return f"""The previous generated content for {artifact_name} failed validation.
+Return a fully corrected complete version of the same artifact as plain text only.
+Preserve valid content where possible and fix only what is needed to satisfy the error.
+
+Validation error:
+{error_message}
+
+Previous generated content:
+{previous_block}"""
+
+    def _structured_retry_prompt(self, artifact_name: str, previous_json: str, error_message: str) -> str:
+        previous_block = previous_json.strip() or "(empty output)"
+        return f"""The previous generated content for {artifact_name} failed validation.
+Return a fully corrected complete version of the same artifact as valid JSON only.
+Preserve valid fields where possible and fix only what is needed to satisfy the error.
+Do not return Markdown or explanation.
+
+Validation error:
+{error_message}
+
+Previous generated content:
+{previous_block}"""
 
     def _call_structured_llm(
         self,
@@ -984,7 +1012,7 @@ Do not explain."""
         artifact_key: str,
         system_prompt: str,
         prompt: str,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
         if self._use_json_text_for_function(function_name) and "deepseek.com" in settings.llm_base_url:
             text_prompt = f"""{prompt}
@@ -992,8 +1020,13 @@ Do not explain."""
 Return valid JSON only, without Markdown fences or explanation.
 The top-level JSON object must have exactly this key: "{artifact_key}"."""
             text = llm.call_text(function_name, system_prompt, text_prompt, thinking=thinking)
-            return llm.parse_json_text(text, function_name)
-        return llm.call_function(function_name, system_prompt, prompt, thinking=thinking)
+            try:
+                return llm.parse_json_text(text, function_name), text
+            except LLMError as exc:
+                setattr(exc, "generated_content", text)
+                raise
+        args = llm.call_function(function_name, system_prompt, prompt, thinking=thinking)
+        return args, json.dumps(args, ensure_ascii=False, indent=2)
 
     def _thinking_for_function(self, function_name: str) -> str:
         if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
@@ -1077,6 +1110,28 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
                 f"{artifact_name} coverage check failed: "
                 f"missing_scene_files={missing_files}, duplicate_scene_files={duplicate_files}"
             )
+
+    def _normalize_game_design_coverage_text(
+        self,
+        text: str,
+        scene_plan: dict[str, Any],
+        artifact_name: str,
+    ) -> str:
+        expected_files = expected_scene_files(scene_plan)
+        found_files = self._scene_headers(text)
+        if found_files == expected_files:
+            return text
+
+        normalized = self._normalize_scene_sections_to_reference(text, expected_files)
+        if normalized is not None:
+            normalized_files = self._scene_headers(normalized)
+            missing_files = [file_name for file_name in expected_files if file_name not in normalized_files]
+            duplicate_files = sorted({file_name for file_name in normalized_files if normalized_files.count(file_name) > 1})
+            if not missing_files and not duplicate_files:
+                return normalized
+
+        self._validate_game_design_coverage(text, scene_plan, artifact_name)
+        return text
 
     def _split_game_design_completed_to_scene_files(self, job_dir: Path, text: str) -> list[str]:
         import re
