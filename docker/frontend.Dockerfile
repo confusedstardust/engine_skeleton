@@ -37,4 +37,4 @@ COPY --from=builder /app/app ./app
 
 EXPOSE 3001
 
-CMD ["npm", "run", "start"]
+CMD ["npx", "next", "start", "--hostname", "0.0.0.0", "--port", "3001"]
