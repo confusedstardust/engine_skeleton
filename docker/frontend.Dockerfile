@@ -11,7 +11,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 ARG FORGE_BACKEND_URL=http://backend:8010
+ARG NEXT_PUBLIC_BASE_PATH=
 ENV FORGE_BACKEND_URL=${FORGE_BACKEND_URL}
+ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY forge_frontend_next ./
@@ -25,7 +27,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3001 \
-    FORGE_BACKEND_URL=http://backend:8010
+    FORGE_BACKEND_URL=http://backend:8010 \
+    NEXT_PUBLIC_BASE_PATH=/narrativeos
 
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { withBasePath } from "../../base-path";
 import {
   choiceTargetValue,
   compactId,
@@ -41,7 +42,7 @@ import type {
 } from "./workspace-data";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/forge${path}`, {
+  const response = await fetch(withBasePath(`/api/forge${path}`), {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init
   });
@@ -453,7 +454,7 @@ export default function JobWorkspacePage() {
         </Link>
         <nav className="nav-links" aria-label="任务导航">
           <Link href="/">新建任务</Link>
-          {data.job.status === "DONE" && <a className="nav-login" href={`/play/${data.job.id}/`} target="_blank">打开游戏</a>}
+          {data.job.status === "DONE" && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
         </nav>
       </header>
 
@@ -523,7 +524,7 @@ export default function JobWorkspacePage() {
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
             readonly={autoMode}
-            playUrl={`/play/${data.job.id}/`}
+            playUrl={withBasePath(`/play/${data.job.id}/`)}
           />
         ) : designNode?.exists ? (
           <SceneEditor
