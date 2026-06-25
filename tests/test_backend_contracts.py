@@ -8,7 +8,7 @@ from pathlib import Path
 from webgal_backend import game_design
 from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
 from webgal_backend.job_options import GenerationOptions, normalize_generation_options, validate_generation_options
-from webgal_backend.app import _contains_hidden_path
+from webgal_backend.app import _contains_hidden_path, _public_app_path
 from webgal_backend.narrative_structure import narrative_structure_issues, repair_narrative_structure_if_needed
 from webgal_backend.pipeline import PipelineError, WebGALPipeline
 from webgal_backend.prompts import game_design_completion_prompt
@@ -80,6 +80,18 @@ class BackendContractTests(unittest.TestCase):
         self.assertTrue(is_editable_artifact("state/game_design_completed.json"))
         self.assertTrue(is_editable_artifact("public/game/scene/start.txt"))
         self.assertFalse(is_editable_artifact("public/game/background/bg.png"))
+
+    def test_public_app_path_keeps_optional_frontend_subpath(self) -> None:
+        import webgal_backend.app as backend_app
+
+        original = backend_app.frontend_url
+        try:
+            backend_app.frontend_url = "http://127.0.0.1:3001/narrativeos"
+            self.assertEqual(_public_app_path("/play/job-1/assets/file.css"), "/narrativeos/play/job-1/assets/file.css")
+            backend_app.frontend_url = "http://127.0.0.1:3001"
+            self.assertEqual(_public_app_path("/play/job-1/assets/file.css"), "/play/job-1/assets/file.css")
+        finally:
+            backend_app.frontend_url = original
 
     def test_pipeline_phase_registry_keeps_aliases_available(self) -> None:
         pipeline = WebGALPipeline()
