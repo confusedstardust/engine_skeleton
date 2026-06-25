@@ -5,6 +5,8 @@ import unittest
 import json
 from pathlib import Path
 
+from webgal_backend import game_design
+from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
 from webgal_backend.job_options import GenerationOptions, normalize_generation_options, validate_generation_options
 from webgal_backend.app import _contains_hidden_path
 from webgal_backend.narrative_structure import narrative_structure_issues, repair_narrative_structure_if_needed
@@ -71,6 +73,22 @@ def minimal_narrative_plan() -> dict:
 
 
 class BackendContractTests(unittest.TestCase):
+    def test_artifact_catalog_exposes_stable_labels_and_keys(self) -> None:
+        self.assertEqual(NODE_ARTIFACTS[0].title, "\u6545\u4e8b\u5927\u7eb2")
+        self.assertEqual(artifact_key_for_path("state/narrative_plan.json"), "narrative_plan")
+        self.assertEqual(artifact_key_for_path("public/game/scene/start.txt"), "public_game_scene_start_txt")
+        self.assertTrue(is_editable_artifact("state/game_design_completed.json"))
+        self.assertTrue(is_editable_artifact("public/game/scene/start.txt"))
+        self.assertFalse(is_editable_artifact("public/game/background/bg.png"))
+
+    def test_pipeline_phase_registry_keeps_aliases_available(self) -> None:
+        pipeline = WebGALPipeline()
+        phases = pipeline.phase_names()
+        self.assertIn("sound_effects", phases)
+        self.assertIn("sound", phases)
+        self.assertIn("tts_generation", phases)
+        self.assertIn("tts", phases)
+
     def test_generation_options_require_frontend_contract(self) -> None:
         validate_generation_options(dict(VALID_OPTIONS))
         with self.assertRaises(ValueError) as missing:
@@ -135,22 +153,21 @@ class BackendContractTests(unittest.TestCase):
                 "结局。",
             ]
         )
-        pipeline._validate_game_design_coverage(text, scene_plan, "game_design.txt")
+        pipeline._validate_game_design_coverage(text, scene_plan, "game_design.json")
         with self.assertRaises(PipelineError):
             pipeline._validate_game_design_coverage(
                 "Scene:start.txt\n一句话。",
                 scene_plan,
-                "game_design.txt",
+                "game_design.json",
             )
         with self.assertRaises(PipelineError):
             pipeline._validate_game_design_coverage(
                 "Scene:renamed.txt\n一句话。\nEnding:ending_1.txt\n结局。",
                 scene_plan,
-                "game_design.txt",
+                "game_design.json",
             )
 
     def test_game_design_choices_are_inserted_without_internal_metadata(self) -> None:
-        pipeline = WebGALPipeline()
         text = "\n".join(
             [
                 "Scene:start.txt",
@@ -162,7 +179,7 @@ class BackendContractTests(unittest.TestCase):
                 "intro:结局。",
             ]
         )
-        completed = pipeline._apply_game_design_choices(
+        completed = game_design.apply_choices_to_text(
             text,
             {
                 "choices_group": [
@@ -222,7 +239,7 @@ class BackendContractTests(unittest.TestCase):
         )
         plan["narrative_structure"] = "flowchart TD\n  phase0 -->|accept| phase1\n  phase1 --> true_ending"
         scene_plan = build_scene_plan(plan)
-        outline = pipeline._extract_game_design_outline(
+        outline = game_design.extract_outline(
             {
                 "scenes": [
                     {"scene_file": "start.txt", "lines": [{"kind": "narration", "text": "opening"}]},
@@ -302,10 +319,21 @@ class BackendContractTests(unittest.TestCase):
             scene_plan,
             outline,
         )
-        lines = pipeline._choice_group_to_scene_lines(normalized["choices_group"][0])
+        lines = game_design.choice_group_to_scene_lines(normalized["choices_group"][0])
         choice_line = next(line for line in lines if line["kind"] == "choice")
         self.assertEqual(choice_line["choices"][0]["target"], "phase1.txt")
         self.assertFalse(any(line.get("kind") == "branch" for line in lines))
+
+    def test_game_design_json_reader_no_longer_accepts_legacy_text_artifact(self) -> None:
+        pipeline = WebGALPipeline()
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            state_dir = job_dir / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "game_design.txt").write_text("Scene:start.txt\nintro:test;\n", encoding="utf-8")
+            with self.assertRaises(PipelineError) as error:
+                pipeline._read_game_design_json(job_dir)
+        self.assertIn("game_design.json is required", str(error.exception))
 
     def test_game_design_completion_prompt_allows_literal_choice_object_example(self) -> None:
         plan = minimal_narrative_plan()
