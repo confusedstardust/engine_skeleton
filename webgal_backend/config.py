@@ -77,6 +77,7 @@ class Settings:
     llm_thinking: str
     llm_reasoning_effort: str
     max_schema_retries: int
+    max_text_retries: int
     llm_max_tokens: int | None
     asset_scripts_dir: Path
     sound_effects_dir: Path
@@ -118,6 +119,7 @@ class Settings:
             llm_thinking=(os.getenv("DEEPSEEK_THINKING") or "enabled").lower(),
             llm_reasoning_effort=(os.getenv("DEEPSEEK_REASONING_EFFORT") or "high").lower(),
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
+            max_text_retries=int(os.getenv("WEBGAL_MAX_TEXT_RETRIES", "1")),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
             sound_effects_dir=sound_effects_dir,
