@@ -1,0 +1,32 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WEBGAL_BACKEND_ROOT: /app
+      WEBGAL_JOBS_DIR: /data/jobs
+      WEBGAL_FRONTEND_URL: ${WEBGAL_FRONTEND_URL:?set WEBGAL_FRONTEND_URL}
+      WEBGAL_SOUND_EFFECTS_DIR: ${WEBGAL_SOUND_EFFECTS_DIR:-/opt/forge/sound-effects}
+    volumes:
+      - forge_jobs:/data/jobs
+      - ${WEBGAL_SOUND_EFFECTS_DIR_HOST:-./deploy/sound-effects}:/opt/forge/sound-effects:ro
+    ports:
+      - "${BACKEND_PORT:-8010}:8010"
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?set FRONTEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      FORGE_BACKEND_URL: http://backend:8010
+      HOSTNAME: 0.0.0.0
+      PORT: 3001
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+
+volumes:
+  forge_jobs:
+
