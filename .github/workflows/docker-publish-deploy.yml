@@ -103,6 +103,7 @@ jobs:
           push: true
           build-args: |
             FORGE_BACKEND_URL=http://backend:8010
+            NEXT_PUBLIC_BASE_PATH=/narrativeos
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
