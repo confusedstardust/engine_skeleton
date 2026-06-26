@@ -1,9 +1,12 @@
-﻿"use client";
+"use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { LaperAssetWorkbench } from "../../../components/laper-asset-workbench";
+import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
+import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
+import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 
 type Job = {
   id: string;
@@ -471,10 +474,6 @@ function sceneMarkerLabel(scene: Pick<SceneDraft, "marker">) {
   return scene.marker === "Ending" ? "结局" : "场景";
 }
 
-function choiceTargetValue(choice: SceneChoice) {
-  return choice.target_scene_file || choice.targetSceneFile || choice.target || "";
-}
-
 function sceneTargetOptions(scenePlan: ScenePlan | null, plan: NarrativePlan | null, scenes: SceneDraft[], currentHeader?: string) {
   const byHeader = scenePlanMetaByHeader(scenePlan, plan);
   scenes.forEach((scene) => {
@@ -609,10 +608,6 @@ function parseSceneLine(line: string, id: string): SceneLine {
   }
 
   return { id, kind: "command", speaker: "指令", text: cleanEditableLineText(trimmed), rawPrefix: "" };
-}
-
-function draftLineRows(text: string) {
-  return Math.max(2, text.split(/\r?\n/).reduce((total, line) => total + Math.ceil(Math.max(line.length, 1) / 36), 0));
 }
 
 export default function JobWorkspacePage() {
@@ -1139,9 +1134,6 @@ function AssetReviewPanel(props: {
   playUrl: string;
 }) {
   const assets = props.review?.assets || [];
-  const figures = assets.filter((asset) => asset.kind === "角色立绘");
-  const backgrounds = assets.filter((asset) => asset.kind !== "角色立绘");
-  const hasGeneratedImages = assets.some((asset) => asset.exists);
 
   if (props.gameReady) {
     return (
@@ -1167,133 +1159,21 @@ function AssetReviewPanel(props: {
   }
 
   return (
-    <section className="node-detail">
-      <div className="node-detail-head">
-        <div>
-          <h2>素材审阅</h2>
-          <p>
-            {props.review.image_enabled
-              ? "图片生成开启时，生成完成的素材会显示预览；点击卡片可以查看大图、立绘和 prompt。"
-              : "当前任务未开启图片生成，因此这里展示素材规划和 prompt，后续仍可单独生成指定素材。"}
-          </p>
-        </div>
-        <div className="asset-review-controls">
-          <div className="asset-summary">
-            <span>{figures.length} 个角色</span>
-            <span>{backgrounds.length} 个场景</span>
-            <span>{hasGeneratedImages ? "已有图片" : "等待图片"}</span>
-          </div>
-          <div className="node-actions">
-            {props.readonly ? (
-              <span className="readonly-status">
-                <span className="inline-spinner" aria-hidden="true" />
-                游戏自动生成中
-              </span>
-            ) : (
-              <button className="btn primary" type="button" disabled={props.busy || assets.length === 0} onClick={() => void props.buildGame()}>
-                确认素材并生成游戏
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="asset-review-grid">
-        <AssetGroup title="角色卡" assets={figures} openAsset={props.openAsset} />
-        <AssetGroup title="场景卡" assets={backgrounds} openAsset={props.openAsset} />
-      </div>
-
-      {props.activeAsset && (
-        <div className="asset-modal-layer">
-          <button className="asset-modal-dismiss" type="button" aria-label="关闭素材预览" onClick={props.closeAsset} />
-          <article className="asset-modal">
-            <div className="asset-modal-media">
-              {props.activeAsset.exists ? (
-                <Image src={props.activeAsset.url} alt={props.activeAsset.filename} width={960} height={540} unoptimized />
-              ) : (
-                <div className="asset-image-placeholder">图片尚未生成</div>
-              )}
-              {props.activeAsset.avatar_exists && props.activeAsset.avatar_url && (
-                <div className="asset-avatar-preview">
-                  <span>头像</span>
-                  <Image src={props.activeAsset.avatar_url} alt={`${props.activeAsset.filename} 头像`} width={88} height={88} unoptimized />
-                </div>
-              )}
-            </div>
-            <div className="asset-modal-body">
-              <span>{props.activeAsset.kind}</span>
-              <h3>{assetDisplayName(props.activeAsset)}</h3>
-              <dl>
-                <div>
-                  <dt>文件</dt>
-                  <dd>{props.activeAsset.subdir}/{props.activeAsset.filename}.webp</dd>
-                </div>
-                <div>
-                  <dt>尺寸</dt>
-                  <dd>{props.activeAsset.size || "未设置"}</dd>
-                </div>
-                <div>
-                  <dt>对应场景</dt>
-                  <dd>{assetSceneDisplayName(props.activeAsset)}</dd>
-                </div>
-              </dl>
-              <label className="asset-prompt-editor">
-                <span>Prompt</span>
-                <textarea
-                  value={props.assetPrompt}
-                  onChange={(event) => props.setAssetPrompt(event.target.value)}
-                  rows={9}
-                  spellCheck={false}
-                  readOnly={props.readonly}
-                />
-              </label>
-              <div className="asset-modal-actions">
-                <button className="btn outline" type="button" onClick={props.closeAsset}>关闭</button>
-                {!props.readonly && (
-                  <button
-                    className="btn primary"
-                    type="button"
-                    disabled={props.busy}
-                    onClick={() => void props.regenerateAsset(props.activeAsset as AssetReviewItem, props.assetPrompt)}
-                  >
-                    重新生成此素材
-                  </button>
-                )}
-              </div>
-            </div>
-          </article>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function AssetGroup(props: { title: string; assets: AssetReviewItem[]; openAsset: (asset: AssetReviewItem) => void }) {
-  return (
-    <section className="asset-group">
-      <div className="asset-group-head">
-        <h3>{props.title}</h3>
-        <span>{props.assets.length}</span>
-      </div>
-      {props.assets.length === 0 ? (
-        <div className="asset-empty">暂无素材</div>
-      ) : (
-        <div className="asset-card-grid">
-          {props.assets.map((asset) => (
-            <button className="asset-card" key={`${asset.subdir}-${asset.filename}`} type="button" onClick={() => props.openAsset(asset)}>
-              <div className="asset-thumb">
-                {asset.exists ? <Image src={asset.url} alt={asset.filename} width={320} height={180} unoptimized /> : <span>待生成</span>}
-              </div>
-              <div>
-                <strong>{assetDisplayName(asset)}</strong>
-                <small>{assetSceneDisplayName(asset)}</small>
-              </div>
-              <em className={asset.exists ? "ready" : ""}>{asset.exists ? "已生成" : "待生成"}</em>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
+    <LaperAssetWorkbench
+      imageEnabled={props.review.image_enabled}
+      assets={assets}
+      busy={props.busy}
+      readonly={props.readonly}
+      activeAsset={props.activeAsset}
+      assetPrompt={props.assetPrompt}
+      setAssetPrompt={props.setAssetPrompt}
+      openAsset={props.openAsset}
+      closeAsset={props.closeAsset}
+      regenerateAsset={props.regenerateAsset}
+      buildGame={props.buildGame}
+      displayName={assetDisplayName}
+      sceneDisplayName={assetSceneDisplayName}
+    />
   );
 }
 
@@ -1334,15 +1214,7 @@ function OutlineEditor(props: {
   syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncNarrativeStructureOptions) => Promise<void>;
   nextToScenes: () => void;
 }) {
-  const [showFlowModal, setShowFlowModal] = useState(false);
-  const { plan } = props;
-  function openFlowPreview() {
-    if (props.planDirty && !props.locked && !props.busy) {
-      void props.syncStructure(plan, { quiet: true });
-    }
-    setShowFlowModal(true);
-  }
-  if (!plan) {
+  if (!props.plan) {
     return (
       <section className="node-detail">
         <LoadingPlaceholder
@@ -1353,215 +1225,52 @@ function OutlineEditor(props: {
     );
   }
 
+  const plan = props.plan;
+
   return (
-    <section className={`outline-workbench ${props.locked ? "readonly" : ""}`}>
-      <fieldset className="outline-main outline-fieldset" disabled={props.locked || props.busy}>
-        {props.locked && (
-          <div className="readonly-banner">
-            {props.autoMode ? "Auto 模式正在自动生成完整游戏，大纲为只读状态。" : "大纲已确认，当前为只读状态。需要调整时请重新创建任务或回到确认前的任务。"}
-          </div>
-        )}
-        <section className="review-section">
-          <div className="review-section-head">
-            <div>
-              <h2>故事阶段</h2>
-              <p>可以删除过多阶段，也可以简述想补充的阶段后加入列表。</p>
-            </div>
-            <span>{plan.story_progression.length} 个阶段</span>
-          </div>
-          <div className="brief-row">
-            <input disabled={props.locked || props.busy} value={props.phaseBrief} onChange={(event) => props.setPhaseBrief(event.target.value)} placeholder="例如：增加一个暴露核心矛盾的转折阶段" />
-            <button className="btn outline" type="button" disabled={props.locked || props.busy} onClick={props.addPhase}>添加阶段</button>
-          </div>
-          <div className="phase-editor-list">
-            {props.pendingPhaseBrief && <PendingCard title="正在生成阶段" brief={props.pendingPhaseBrief} />}
-            {plan.story_progression.map((step, index) => (
-              <article className="phase-editor" key={`${step.id}-${index}`}>
-                <div className="phase-editor-top">
-                  <span>{step.id || `phase${index}`}</span>
-                  <select
-                    value={step.strtype || "main"}
-                    onChange={(event) => {
-                      const next = [...plan.story_progression];
-                      next[index] = { ...step, strtype: event.target.value };
-                      props.updatePlan({ ...plan, story_progression: next });
-                    }}
-                  >
-                    <option value="main">主线</option>
-                    <option value="branch">分支</option>
-                  </select>
-                  <button type="button" onClick={() => props.updatePlan({ ...plan, story_progression: plan.story_progression.filter((_, itemIndex) => itemIndex !== index) })}>删除</button>
+    <LaperOutlineWorkbench
+      plan={plan}
+      busy={props.busy}
+      planDirty={props.planDirty}
+      flowSyncing={props.flowSyncing}
+      locked={props.locked}
+      autoMode={props.autoMode}
+      phaseBrief={props.phaseBrief}
+      endingBrief={props.endingBrief}
+      characterBrief={props.characterBrief}
+      pendingPhaseBrief={props.pendingPhaseBrief}
+      pendingEndingBrief={props.pendingEndingBrief}
+      pendingCharacterBrief={props.pendingCharacterBrief}
+      setPhaseBrief={props.setPhaseBrief}
+      setEndingBrief={props.setEndingBrief}
+      setCharacterBrief={props.setCharacterBrief}
+      updatePlan={props.updatePlan}
+      addPhase={props.addPhase}
+      addEnding={props.addEnding}
+      addCharacter={props.addCharacter}
+      savePlan={props.savePlan}
+      syncStructure={props.syncStructure}
+      nextToScenes={props.nextToScenes}
+      renderFlowModal={(open, onClose) =>
+        open ? (
+          <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="故事流程图">
+            <button className="flow-modal-dismiss" type="button" aria-label="关闭流程图" onClick={onClose} />
+            <section className="flow-modal">
+              <div className="flow-modal-head">
+                <div>
+                  <span>{props.flowSyncing ? "同步中" : "自动同步"}</span>
+                  <h3>故事流程图</h3>
                 </div>
-                <input
-                  value={step.name}
-                  onChange={(event) => {
-                    const next = [...plan.story_progression];
-                    next[index] = { ...step, name: event.target.value };
-                    props.updatePlan({ ...plan, story_progression: next });
-                  }}
-                  placeholder="阶段名称"
-                />
-                <textarea
-                  value={step.content}
-                  onChange={(event) => {
-                    const next = [...plan.story_progression];
-                    next[index] = { ...step, content: event.target.value };
-                    props.updatePlan({ ...plan, story_progression: next });
-                  }}
-                  placeholder="阶段内容"
-                />
-                <textarea
-                  className="compact-textarea"
-                  value={step.narrative_target}
-                  onChange={(event) => {
-                    const next = [...plan.story_progression];
-                    next[index] = { ...step, narrative_target: event.target.value };
-                    props.updatePlan({ ...plan, story_progression: next });
-                  }}
-                  placeholder="叙事目标"
-                />
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="review-section">
-          <div className="review-section-head">
-            <div>
-              <h2>结局节点</h2>
-              <p>结局会在下一步生成独立场景，也需要在大纲阶段一起确认。</p>
-            </div>
-            <span>{plan.endings.length} 个结局</span>
-          </div>
-          <div className="brief-row">
-            <input disabled={props.locked || props.busy} value={props.endingBrief} onChange={(event) => props.setEndingBrief(event.target.value)} placeholder="例如：增加一个因没有完成关键选择而触发的遗憾结局" />
-            <button className="btn outline" type="button" disabled={props.locked || props.busy} onClick={props.addEnding}>添加结局</button>
-          </div>
-          <div className="phase-editor-list">
-            {props.pendingEndingBrief && <PendingCard title="正在生成结局" brief={props.pendingEndingBrief} />}
-            {plan.endings.map((ending, index) => (
-              <article className="phase-editor" key={`${ending.ending_type}-${index}`}>
-                <div className="phase-editor-top">
-                  <span>ending {index + 1}</span>
-                  <button type="button" onClick={() => props.updatePlan({ ...plan, endings: plan.endings.filter((_, itemIndex) => itemIndex !== index) })}>删除</button>
-                </div>
-                <input
-                  value={ending.ending_type}
-                  onChange={(event) => {
-                    const next = [...plan.endings];
-                    next[index] = { ...ending, ending_type: event.target.value };
-                    props.updatePlan({ ...plan, endings: next });
-                  }}
-                  placeholder="结局类型"
-                />
-                <textarea
-                  value={ending.description}
-                  onChange={(event) => {
-                    const next = [...plan.endings];
-                    next[index] = { ...ending, description: event.target.value };
-                    props.updatePlan({ ...plan, endings: next });
-                  }}
-                  placeholder="结局描述"
-                />
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="review-section">
-          <div className="review-section-head">
-            <div>
-              <h2>角色信息</h2>
-              <p>可以增删角色，也可以先写一句补充说明，再在卡片中细化。</p>
-            </div>
-            <span>{plan.characters.length} 个角色</span>
-          </div>
-          <div className="brief-row">
-            <input disabled={props.locked || props.busy} value={props.characterBrief} onChange={(event) => props.setCharacterBrief(event.target.value)} placeholder="例如：增加一个代表现实压力的反对者角色" />
-            <button className="btn outline" type="button" disabled={props.locked || props.busy} onClick={props.addCharacter}>添加角色</button>
-          </div>
-          <div className="character-editor-grid">
-            {props.pendingCharacterBrief && <PendingCard title="正在生成角色" brief={props.pendingCharacterBrief} />}
-            {plan.characters.map((character, index) => (
-              <article className="character-editor" key={`${character.id}-${index}`}>
-                <div className="phase-editor-top">
-                  <span>{character.id}</span>
-                  <button type="button" onClick={() => props.updatePlan({ ...plan, characters: plan.characters.filter((_, itemIndex) => itemIndex !== index) })}>删除</button>
-                </div>
-                <input
-                  value={character.name}
-                  onChange={(event) => {
-                    const next = [...plan.characters];
-                    next[index] = { ...character, name: event.target.value };
-                    props.updatePlan({ ...plan, characters: next });
-                  }}
-                  placeholder="角色名称"
-                />
-                <textarea
-                  value={character.personality}
-                  onChange={(event) => {
-                    const next = [...plan.characters];
-                    next[index] = { ...character, personality: event.target.value };
-                    props.updatePlan({ ...plan, characters: next });
-                  }}
-                  placeholder="性格"
-                />
-                <textarea
-                  className="compact-textarea"
-                  value={character.motivation}
-                  onChange={(event) => {
-                    const next = [...plan.characters];
-                    next[index] = { ...character, motivation: event.target.value };
-                    props.updatePlan({ ...plan, characters: next });
-                  }}
-                  placeholder="动机"
-                />
-              </article>
-            ))}
-          </div>
-        </section>
-      </fieldset>
-
-      <aside className="outline-side">
-        <div>
-          <span>标题</span>
-          <strong>{plan.title || "未命名"}</strong>
-        </div>
-        <div>
-          <span>主题</span>
-          <p>{plan.theme || "未填写"}</p>
-        </div>
-        <div>
-          <span>故事弧</span>
-          <p>{plan.story_arc || "未填写"}</p>
-        </div>
-        <button className="btn outline" type="button" disabled={props.locked || props.busy || !props.planDirty} onClick={props.savePlan}>保存大纲</button>
-        <button className="btn outline" type="button" onClick={openFlowPreview}>
-          查看流程图
-        </button>
-        <span className="flow-sync-note">{props.flowSyncing ? "流程图自动同步中..." : props.planDirty ? "修改后会自动同步流程图" : "流程图已同步"}</span>
-        <button className="btn primary" type="button" disabled={props.locked || props.busy} onClick={props.nextToScenes}>
-          {props.locked ? "大纲已确认" : "确认并生成下一步"}
-        </button>
-      </aside>
-      {showFlowModal && (
-        <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="故事流程图">
-          <button className="flow-modal-dismiss" type="button" aria-label="关闭流程图" onClick={() => setShowFlowModal(false)} />
-          <section className="flow-modal">
-            <div className="flow-modal-head">
-              <div>
-                <span>{props.flowSyncing ? "同步中" : "自动同步"}</span>
-                <h3>故事流程图</h3>
+                <button className="btn outline" type="button" onClick={onClose}>关闭</button>
               </div>
-              <button className="btn outline" type="button" onClick={() => setShowFlowModal(false)}>关闭</button>
-            </div>
-            <div className="flow-modal-body">
-              <NarrativeFlowPreview plan={plan} />
-            </div>
-          </section>
-        </div>
-      )}
-    </section>
+              <div className="flow-modal-body">
+                <NarrativeFlowPreview plan={plan} />
+              </div>
+            </section>
+          </div>
+        ) : null
+      }
+    />
   );
 }
 
@@ -1669,16 +1378,6 @@ function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
   );
 }
 
-function PendingCard({ title, brief }: { title: string; brief: string }) {
-  return (
-    <article className="phase-editor pending-card">
-      <div className="pending-spinner" aria-hidden="true" />
-      <strong>{title}</strong>
-      <p>{brief}</p>
-    </article>
-  );
-}
-
 function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
   return (
     <div className="node-placeholder loading">
@@ -1700,9 +1399,7 @@ function DesignDraftEditor(props: {
   saveDesignDraft: () => void;
   completeDesignDraft: () => void;
 }) {
-  const [speakerMenu, setSpeakerMenu] = useState<string | null>(null);
   const [activeDraftScene, setActiveDraftScene] = useState(0);
-  const speakers = ["旁白", ...(props.plan?.characters.map((character) => character.name).filter(Boolean) || [])];
   const activeSceneIndex = Math.min(activeDraftScene, Math.max(props.scenes.length - 1, 0));
   const activeScene = props.scenes[activeSceneIndex];
 
@@ -1710,32 +1407,7 @@ function DesignDraftEditor(props: {
     if (activeDraftScene > Math.max(props.scenes.length - 1, 0)) {
       setActiveDraftScene(Math.max(props.scenes.length - 1, 0));
     }
-    setSpeakerMenu(null);
   }, [activeDraftScene, props.scenes.length]);
-
-  function updateLine(sceneIndex: number, lineIndex: number, nextLine: SceneLine) {
-    if (props.readonly) return;
-    const nextScenes = props.scenes.map((scene, currentSceneIndex) => {
-      if (currentSceneIndex !== sceneIndex) return scene;
-      return {
-        ...scene,
-        lines: scene.lines.map((line, currentLineIndex) => (currentLineIndex === lineIndex ? nextLine : line))
-      };
-    });
-    props.onChange(nextScenes);
-  }
-
-  function switchSpeaker(sceneIndex: number, lineIndex: number, speaker: string) {
-    if (props.readonly) return;
-    const line = props.scenes[sceneIndex].lines[lineIndex];
-    updateLine(sceneIndex, lineIndex, {
-      ...line,
-      kind: speaker === "旁白" ? "narration" : "dialogue",
-      speaker,
-      rawPrefix: speaker === "旁白" ? "intro" : ""
-    });
-    setSpeakerMenu(null);
-  }
 
   if (!props.exists) {
     return (
@@ -1760,84 +1432,44 @@ function DesignDraftEditor(props: {
   }
 
   return (
-    <section className={`node-detail ${props.readonly ? "readonly" : ""}`}>
-      {speakerMenu && <button className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />}
-      <div className="node-detail-head">
-        <div>
-          <h2>场景设计稿</h2>
-          <p>先按阶段和结局审阅场景结构、旁白、对白与互动安排，确认后再生成详细旁白与对话。</p>
-        </div>
-        {!props.readonly && (
-          <div className="node-actions">
-            <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>保存设计稿</button>
-            <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>确认并生成详细场景</button>
-          </div>
-        )}
-      </div>
-
-      <div className="draft-scene-tabs" aria-label="场景与结局列表">
-        {props.scenes.map((scene, sceneIndex) => (
-          <button
-            className={sceneIndex === activeSceneIndex ? "active" : ""}
-            key={`${scene.header}-${sceneIndex}`}
-            type="button"
-            onClick={() => setActiveDraftScene(sceneIndex)}
-          >
-            <span>{scene.marker === "Ending" ? "结局" : "场景"}</span>
-            {scene.title}
-          </button>
-        ))}
-      </div>
-
-      <div className="draft-scene-stack">
-          <article className="draft-scene-card" key={`${activeScene.header}-${activeSceneIndex}`}>
-            <div className="draft-scene-card-head">
-              <span>{activeScene.marker === "Ending" ? "结局" : "场景"}</span>
-              <div className="draft-scene-title-wrap">
-                <h3>{activeScene.title}</h3>
-                <em>{draftSceneRouteLabel(activeScene, props.plan)}</em>
-              </div>
-            </div>
-
-            <div className="draft-line-stack">
-              {activeScene.lines.map((line, lineIndex) => {
-                const menuKey = `${activeSceneIndex}-${lineIndex}`;
-                return (
-                  <div className={`draft-line ${line.kind} ${speakerMenu === menuKey ? "menu-open" : ""}`} key={line.id}>
-                    <div className="draft-speaker-wrap">
-                      <button
-                        className={`draft-speaker ${line.kind === "command" || props.readonly ? "static" : ""}`}
-                        type="button"
-                        disabled={props.readonly}
-                        onClick={() => setSpeakerMenu(speakerMenu === menuKey ? null : menuKey)}
-                      >
-                        {line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}
-                      </button>
-                      {speakerMenu === menuKey && (
-                        <div className="speaker-popover">
-                          {speakers.map((speaker) => (
-                            <button key={speaker} type="button" onClick={() => switchSpeaker(activeSceneIndex, lineIndex, speaker)}>
-                              {speaker}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <textarea
-                      value={line.text}
-                      rows={draftLineRows(line.text)}
-                      onChange={(event) => updateLine(activeSceneIndex, lineIndex, { ...line, text: event.target.value })}
-                      spellCheck={false}
-                      readOnly={props.readonly}
-                      aria-label={`${activeScene.title} ${line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}`}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-      </div>
-    </section>
+    <LaperSceneWorkbench
+      mode="draft"
+      title={props.plan?.title || "场景设计稿"}
+      subtitle="先按阶段和结局审阅场景结构，确认后再生成详细旁白与对话。"
+      plan={props.plan}
+      scenes={props.scenes}
+      activeScene={activeDraftScene}
+      setActiveScene={setActiveDraftScene}
+      onScenesChange={(scenes) => props.onChange(scenes as GameDesignDraftScene[])}
+      readonly={props.readonly}
+      busy={props.busy}
+      routeLabel={(scene) => draftSceneRouteLabel(scene as GameDesignDraftScene, props.plan)}
+      markerLabel={(scene) => (scene.marker === "Ending" ? "结局" : "场景")}
+      inspector={
+        <LaperInspectorShell
+          eyebrow="信息"
+          title="设计稿概览"
+          stats={[
+            { label: "场次", value: props.scenes.length },
+            { label: "结局", value: props.scenes.filter((s) => s.marker === "Ending").length },
+            { label: "总行数", value: props.scenes.reduce((n, s) => n + s.lines.length, 0) }
+          ]}
+          note="确认场景结构与对白安排后，再生成详细旁白与对话。"
+          footer={
+            !props.readonly ? (
+              <>
+                <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>
+                  保存设计稿
+                </button>
+                <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>
+                  确认并生成详细场景
+                </button>
+              </>
+            ) : undefined
+          }
+        />
+      }
+    />
   );
 }
 
@@ -1856,65 +1488,10 @@ function SceneEditor(props: {
   saveScenes: () => void;
 }) {
   const scene = props.scenes[props.activeScene];
-  const [speakerMenu, setSpeakerMenu] = useState<string | null>(null);
-  const speakers = ["旁白", ...(props.plan?.characters.map((character) => character.name).filter(Boolean) || [])];
-
-  useEffect(() => {
-    setSpeakerMenu(null);
-  }, [props.activeScene]);
-
   const targetOptions = useMemo(
     () => sceneTargetOptions(props.scenePlan, props.plan, props.scenes, scene?.header),
     [props.scenePlan, props.plan, props.scenes, scene?.header]
   );
-  const defaultChoiceTarget = targetOptions[0]?.file || "new_branch";
-
-  function updateLine(lineIndex: number, nextLine: SceneLine) {
-    if (!scene || props.readonly) return;
-    const nextLines = [...scene.lines];
-    nextLines[lineIndex] = nextLine;
-    props.updateScene(props.activeScene, { ...scene, lines: nextLines });
-  }
-
-  function updateChoice(lineIndex: number, choiceIndex: number, nextChoice: SceneChoice) {
-    if (!scene || props.readonly) return;
-    const line = scene.lines[lineIndex];
-    const choices = [...(line.choices || [])];
-    choices[choiceIndex] = nextChoice;
-    updateLine(lineIndex, { ...line, choices });
-  }
-
-  function updateChoiceTarget(lineIndex: number, choiceIndex: number, choice: SceneChoice, target: string) {
-    updateChoice(lineIndex, choiceIndex, {
-      ...choice,
-      target,
-      target_scene_file: /\.txt$/i.test(target) ? target : undefined
-    });
-  }
-
-  function addLine(kind: "narration" | "dialogue") {
-    if (!scene || props.readonly) return;
-    const nextLine: SceneLine = {
-      id: `${scene.header}-${Date.now()}`,
-      kind,
-      speaker: kind === "dialogue" ? "角色" : "旁白",
-      text: kind === "dialogue" ? "新的对话内容" : "新的旁白内容",
-      rawPrefix: "旁白"
-    };
-    props.updateScene(props.activeScene, { ...scene, lines: [...scene.lines, nextLine] });
-  }
-
-  function switchSpeaker(lineIndex: number, speaker: string) {
-    if (!scene || props.readonly) return;
-    const line = scene.lines[lineIndex];
-    updateLine(lineIndex, {
-      ...line,
-      kind: speaker === "旁白" ? "narration" : "dialogue",
-      speaker,
-      rawPrefix: speaker === "旁白" ? "intro" : ""
-    });
-    setSpeakerMenu(null);
-  }
 
   if (!scene) {
     return (
@@ -1928,168 +1505,42 @@ function SceneEditor(props: {
   }
 
   return (
-    <section className={`node-detail ${props.readonly ? "readonly" : ""}`}>
-      {speakerMenu && <button className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />}
-      <div className="node-detail-head">
-        <div>
-          <h2>详细场景</h2>
-          <p>{props.readonly ? "素材阶段已开始，场景内容已锁定为只读状态。" : "按场景审阅旁白、对白和分支内容；分支会插入在正文中，并用 △ 标识。"}</p>
-        </div>
-        {!props.readonly && (
-          <div className="node-actions">
-            <button className="btn outline" type="button" onClick={() => addLine("narration")}>添加旁白</button>
-            <button className="btn outline" type="button" onClick={() => addLine("dialogue")}>添加对话</button>
-            <button className="btn primary" type="button" disabled={props.busy} onClick={props.saveScenes}>保存并生成素材</button>
-          </div>
-        )}
-      </div>
-
-      <div className="draft-scene-tabs" aria-label="场景列表">
-        {props.scenes.map((item, index) => (
-          <button className={props.activeScene === index ? "active" : ""} key={item.header} type="button" onClick={() => props.setActiveScene(index)}>
-            <span>{sceneMarkerLabel(item)}</span>
-            {item.title}
-          </button>
-        ))}
-      </div>
-
-      <div className="draft-scene-stack">
-        <article className="draft-scene-card" key={`${scene.header}-${props.activeScene}`}>
-          <div className="draft-scene-card-head">
-            <span>{sceneMarkerLabel(scene)}</span>
-            <div className="draft-scene-title-wrap editable">
-              <input
-                value={scene.title}
-                onChange={(event) => props.updateScene(props.activeScene, { ...scene, title: event.target.value })}
-                aria-label="场景名称"
-                readOnly={props.readonly}
-              />
-              <em>{completedSceneRouteLabel(scene)}</em>
-            </div>
-          </div>
-
-          <div className="draft-line-stack">
-          {scene.lines.map((line, lineIndex) => {
-            if (line.kind === "choice") {
-              return (
-                <div className="draft-branch-block choice" key={line.id}>
-                  <div className="branch-marker" aria-hidden="true">△</div>
-                  <div className="choice-editor-body">
-                    <div className="choice-editor-head">
-                      <strong>分支选项</strong>
-                        <button
-                          type="button"
-                          disabled={props.readonly}
-                          onClick={() => updateLine(lineIndex, { ...line, choices: [...(line.choices || []), { text: "新的选择", target: defaultChoiceTarget, target_scene_file: /\.txt$/i.test(defaultChoiceTarget) ? defaultChoiceTarget : undefined }] })}
-                        >
-                        添加选项
-                      </button>
-                    </div>
-                    <div className="choice-option-list">
-                      {(line.choices || []).map((choice, choiceIndex) => (
-                        <div className="choice-option-row" key={`${line.id}-${choiceIndex}`}>
-                          <input
-                            value={choice.text}
-                            onChange={(event) => updateChoice(lineIndex, choiceIndex, { ...choice, text: event.target.value })}
-                            aria-label="选项文本"
-                            readOnly={props.readonly}
-                          />
-                          <select
-                            value={choiceTargetValue(choice)}
-                            onChange={(event) => updateChoiceTarget(lineIndex, choiceIndex, choice, event.target.value)}
-                            aria-label="跳转场景"
-                            disabled={props.readonly}
-                          >
-                            {!targetOptions.some((option) => option.file === choiceTargetValue(choice)) && (
-                              <option value={choiceTargetValue(choice)}>{choiceTargetValue(choice) || "未设置目标"}</option>
-                            )}
-                            {targetOptions.map((option) => (
-                              <option key={option.file} value={option.file}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            disabled={props.readonly}
-                            onClick={() => updateLine(lineIndex, { ...line, choices: (line.choices || []).filter((_, index) => index !== choiceIndex) })}
-                          >
-                            删除
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            if (line.kind === "branch") {
-              return (
-                <div className="draft-branch-block branch" key={line.id}>
-                  <div className="branch-marker" aria-hidden="true">△</div>
-                  <div className="branch-label-body">
-                    <span>分支内容</span>
-                    <input
-                      value={line.branchLabel || line.text}
-                      onChange={(event) => updateLine(lineIndex, { ...line, text: event.target.value, branchLabel: event.target.value })}
-                      aria-label="分支标识"
-                      readOnly={props.readonly}
-                    />
-                  </div>
-                  {!props.readonly && (
-                    <button
-                      type="button"
-                      onClick={() => props.updateScene(props.activeScene, { ...scene, lines: scene.lines.filter((_, index) => index !== lineIndex) })}
-                    >
-                      删除
-                    </button>
-                  )}
-                </div>
-              );
-            }
-
-            const menuKey = `${props.activeScene}-${lineIndex}`;
-            return (
-              <div className={`draft-line ${line.kind} ${speakerMenu === menuKey ? "menu-open" : ""}`} key={line.id}>
-                <div className="draft-speaker-wrap">
-                  <button
-                    className={`draft-speaker ${line.kind === "command" || props.readonly ? "static" : ""}`}
-                    type="button"
-                    disabled={props.readonly}
-                    onClick={() => setSpeakerMenu(speakerMenu === menuKey ? null : menuKey)}
-                  >
-                    {line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}
-                  </button>
-                  {speakerMenu === menuKey && (
-                    <div className="speaker-popover">
-                      {speakers.map((speaker) => (
-                        <button key={speaker} type="button" onClick={() => switchSpeaker(lineIndex, speaker)}>
-                          {speaker}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <textarea
-                  value={line.text}
-                  rows={draftLineRows(line.text)}
-                  onChange={(event) => updateLine(lineIndex, { ...line, text: event.target.value })}
-                  spellCheck={false}
-                  aria-label="内容"
-                  readOnly={props.readonly}
-                />
-                {!props.readonly && (
-                  <button className="draft-line-delete" type="button" onClick={() => props.updateScene(props.activeScene, { ...scene, lines: scene.lines.filter((_, index) => index !== lineIndex) })}>
-                    删除
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          </div>
-        </article>
-      </div>
-    </section>
+    <LaperSceneWorkbench
+      mode="complete"
+      title={props.plan?.title || "详细场景"}
+      subtitle="按场景审阅旁白、对白和分支内容。"
+      plan={props.plan}
+      scenes={props.scenes}
+      activeScene={props.activeScene}
+      setActiveScene={props.setActiveScene}
+      onScenesChange={(nextScenes) => {
+        props.setScenes(nextScenes as SceneDraft[]);
+        props.setScenesDirty(true);
+      }}
+      readonly={props.readonly}
+      busy={props.busy}
+      routeLabel={(item) => completedSceneRouteLabel(item as SceneDraft)}
+      markerLabel={(item) => sceneMarkerLabel(item as SceneDraft)}
+      targetOptions={targetOptions}
+      inspector={
+        <LaperInspectorShell
+          eyebrow="信息"
+          title="场景概览"
+          stats={[
+            { label: "场次", value: props.scenes.length },
+            { label: "当前行数", value: scene.lines.length },
+            { label: "状态", value: props.scenesDirty ? "未保存" : "已同步" }
+          ]}
+          note="按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"
+          footer={
+            !props.readonly ? (
+              <button className="btn primary" type="button" disabled={props.busy} onClick={props.saveScenes}>
+                保存并生成素材
+              </button>
+            ) : undefined
+          }
+        />
+      }
+    />
   );
 }

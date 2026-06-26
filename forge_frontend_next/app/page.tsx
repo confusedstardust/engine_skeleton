@@ -54,6 +54,18 @@ function validDuration(value: string) {
   return /\d/.test(value) ? value : "20分钟";
 }
 
+function getGenerationReadiness(topic: string, sourceText: string) {
+  const hasTopic = Boolean(topic.trim());
+  const hasSource = Boolean(sourceText.trim());
+  if (!hasTopic && !hasSource) {
+    return {
+      canGenerate: false,
+      reason: "请至少填写课堂主题或教学文本，然后再点击入境生成。"
+    };
+  }
+  return { canGenerate: true, reason: "" };
+}
+
 export default function ClassroomGeneratorPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -81,12 +93,13 @@ export default function ClassroomGeneratorPage() {
   const selectedDuration = durations.find((item) => item.name === duration) || durations[2];
   const selectedMode = modes.find((item) => item.name === mode) || modes[0];
   const durationNumber = Number.parseInt(validDuration(duration), 10);
+  const { canGenerate, reason: generateBlockReason } = getGenerationReadiness(topic, sourceText);
 
   async function runGeneration() {
     const source = sourceText.trim();
     const title = topic.trim();
-    if (!source && !title) {
-      setMessage("请至少填写课堂主题或教学文本，然后再点击入境生成。");
+    if (!canGenerate) {
+      setMessage(generateBlockReason);
       return;
     }
 
@@ -315,7 +328,14 @@ export default function ClassroomGeneratorPage() {
               <button className="btn ghost" type="button">保存草稿</button>
               <button className="btn outline" type="button">预览方案</button>
               <span />
-              <button className="btn primary" disabled={running} type="button" onClick={runGeneration}>
+              <button
+                className="btn primary"
+                disabled={running || !canGenerate}
+                aria-busy={running}
+                title={!canGenerate ? generateBlockReason : undefined}
+                type="button"
+                onClick={runGeneration}
+              >
                 {running ? "正在创建..." : "入境生成"}
               </button>
             </div>
@@ -350,7 +370,7 @@ export default function ClassroomGeneratorPage() {
               <div className="runtime-head">
                 <strong>生成状态</strong>
               </div>
-              <p>{message || "填写主题或材料后即可生成。生成成功会自动进入任务工作台。"}</p>
+              <p>{message || (!canGenerate ? generateBlockReason : "填写主题或材料后即可生成。生成成功会自动进入任务工作台。")}</p>
             </div>
           </aside>
         </div>

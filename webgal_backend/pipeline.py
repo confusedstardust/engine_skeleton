@@ -178,13 +178,13 @@ class WebGALPipeline:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 1, "主题分析", "narrative_plan", "state/narrative_plan.json"):
-            prompt = narrative_prompt(job["source_material"], job["options"])
+        prompt = narrative_prompt(job["source_material"], job["options"])
             design = self._call_with_validation(
                 job_dir=job_dir,
-                function_name="emit_narrative_plan",
-                artifact_key="narrative_plan",
-                schema_name="narrative_plan.schema.json",
-                user_prompt=prompt,
+            function_name="emit_narrative_plan",
+            artifact_key="narrative_plan",
+            schema_name="narrative_plan.schema.json",
+            user_prompt=prompt,
                 artifact_normalizer=self._normalize_narrative_design,
                 semantic_validator=self._validate_narrative_design,
             )
@@ -198,7 +198,7 @@ class WebGALPipeline:
                 raise PipelineError(str(exc)) from exc
             validate_schema("narrative_plan.schema.json", design)
             write_json(job_dir / "state" / "narrative_plan.json", design)
-            self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
+        self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
 
     def run_game_design(self, job: dict[str, Any]) -> None:
@@ -411,16 +411,16 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         base_dir = str((job_dir / "public" / "game").resolve())
         with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
             prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
-            manifest = self._call_with_validation(
+        manifest = self._call_with_validation(
                 job_dir=job_dir,
-                function_name="emit_asset_manifest",
-                artifact_key="asset_manifest",
-                schema_name="asset_manifest.schema.json",
-                user_prompt=prompt,
+            function_name="emit_asset_manifest",
+            artifact_key="asset_manifest",
+            schema_name="asset_manifest.schema.json",
+            user_prompt=prompt,
                 semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
-            )
-            write_json(job_dir / "assets_manifest.json", manifest)
-            self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+        )
+        write_json(job_dir / "assets_manifest.json", manifest)
+        self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
         self.store.transition(job, "ASSET_MANIFEST_READY", "ASSET_PLANNING")
 
     def run_image_asset_generation(self, job: dict[str, Any]) -> None:
@@ -734,8 +734,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         with self._trace_stage(job, 9, "校验阶段", "validation_report", "state/validation_report.json"):
             result = validate_and_repair_scenes(job_dir)
             report = validation_report(result)
-            write_json(job_dir / "state" / "validation_report.json", report)
-            self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+        write_json(job_dir / "state" / "validation_report.json", report)
+        self.store.record_artifact(job, "validation_report", "state/validation_report.json")
             if report["summary"]["errors"] > 0:
                 self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
                 raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
@@ -985,7 +985,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         try:
             llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
         except TypeError:
-            llm = self.llm_factory()
+        llm = self.llm_factory()
         last_error = ""
         prompt = user_prompt
         for attempt in range(settings.max_schema_retries + 1):
@@ -1010,8 +1010,8 @@ Keep every text field concise (1-2 short sentences). Do not explain."""
             else:
                 artifact = args[artifact_key]
                 try:
-                    if artifact_normalizer:
-                        artifact = artifact_normalizer(artifact)
+                if artifact_normalizer:
+                    artifact = artifact_normalizer(artifact)
                     validate_schema(schema_name, artifact)
                     if semantic_validator:
                         semantic_validator(artifact)
