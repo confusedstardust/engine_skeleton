@@ -7,6 +7,7 @@ import time
 import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -40,6 +41,43 @@ from .validators import (
 
 class PipelineError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class PhaseSpec:
+    handler_name: str
+    validate_options: bool = True
+
+
+PHASE_SPECS: dict[str, PhaseSpec] = {
+    "narrative": PhaseSpec("run_narrative"),
+    "game_design": PhaseSpec("run_game_design"),
+    "game_design_draft": PhaseSpec("run_game_design_draft"),
+    "game_design_completion": PhaseSpec("run_game_design_completion"),
+    "asset_review": PhaseSpec("run_asset_review"),
+    "asset_manifest": PhaseSpec("run_asset_manifest"),
+    "asset_generation": PhaseSpec("run_asset_generation"),
+    "script_rewrite": PhaseSpec("run_script_rewrite"),
+    "sound_effects": PhaseSpec("run_sound_effects"),
+    "sound": PhaseSpec("run_sound_effects"),
+    "tts_generation": PhaseSpec("run_tts_generation"),
+    "tts": PhaseSpec("run_tts_generation"),
+    "assets": PhaseSpec("run_assets"),
+    "game_build": PhaseSpec("run_game_build"),
+    "scenes": PhaseSpec("run_scenes"),
+    "validation": PhaseSpec("run_validation"),
+}
+
+RUN_ALL_PHASE_ORDER: tuple[str, ...] = (
+    "narrative",
+    "game_design",
+    "asset_manifest",
+    "script_rewrite",
+    "sound_effects",
+    "asset_generation",
+    "scenes",
+    "validation",
+)
 
 
 class WebGALPipeline:
@@ -123,14 +161,8 @@ class WebGALPipeline:
         job = self.store.get(job_id)
         try:
             validate_generation_options(job.get("options", {}))
-            self.run_narrative(job)
-            self.run_game_design(job)
-            self.run_asset_manifest(job)
-            self.run_script_rewrite(job)
-            self.run_sound_effects(job)
-            self.run_asset_generation(job)
-            self.run_scenes(job)
-            self.run_validation(job)
+            for phase in RUN_ALL_PHASE_ORDER:
+                self._phase_handler(phase)(job)
             self.store.transition(job, "DONE", None)
             return self.store.get(job_id)
         except Exception as exc:
@@ -138,37 +170,23 @@ class WebGALPipeline:
             raise
 
     def phase_names(self) -> set[str]:
-        return set(self._phase_handlers())
+        return set(PHASE_SPECS)
 
-    def _phase_handlers(self) -> dict[str, Callable[[dict[str, Any]], None]]:
-        return {
-            "narrative": self.run_narrative,
-            "game_design": self.run_game_design,
-            "game_design_draft": self.run_game_design_draft,
-            "game_design_completion": self.run_game_design_completion,
-            "asset_review": self.run_asset_review,
-            "asset_manifest": self.run_asset_manifest,
-            "asset_generation": self.run_asset_generation,
-            "script_rewrite": self.run_script_rewrite,
-            "sound_effects": self.run_sound_effects,
-            "sound": self.run_sound_effects,
-            "tts_generation": self.run_tts_generation,
-            "tts": self.run_tts_generation,
-            "assets": self.run_assets,
-            "game_build": self.run_game_build,
-            "scenes": self.run_scenes,
-            "validation": self.run_validation,
-        }
+    def _phase_handler(self, phase: str) -> Callable[[dict[str, Any]], None]:
+        spec = PHASE_SPECS.get(phase)
+        if spec is None:
+            raise PipelineError(f"unknown phase: {phase}")
+        return getattr(self, spec.handler_name)
 
     def run_phase(self, job_id: str, phase: str) -> dict[str, Any]:
         job = self.store.get(job_id)
-        phases = self._phase_handlers()
-        if phase not in phases:
+        spec = PHASE_SPECS.get(phase)
+        if spec is None:
             raise PipelineError(f"unknown phase: {phase}")
         try:
-            if phase in {"narrative", "game_design", "game_design_draft", "game_design_completion", "asset_review", "asset_manifest", "asset_generation", "script_rewrite", "sound_effects", "sound", "tts_generation", "tts", "assets", "game_build", "scenes", "validation"}:
+            if spec.validate_options:
                 validate_generation_options(job.get("options", {}))
-            phases[phase](job)
+            self._phase_handler(phase)(job)
             return self.store.get(job_id)
         except Exception as exc:
             self.store.set_error(job, str(exc))
@@ -178,13 +196,13 @@ class WebGALPipeline:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 1, "主题分析", "narrative_plan", "state/narrative_plan.json"):
-        prompt = narrative_prompt(job["source_material"], job["options"])
+            prompt = narrative_prompt(job["source_material"], job["options"])
             design = self._call_with_validation(
                 job_dir=job_dir,
-            function_name="emit_narrative_plan",
-            artifact_key="narrative_plan",
-            schema_name="narrative_plan.schema.json",
-            user_prompt=prompt,
+                function_name="emit_narrative_plan",
+                artifact_key="narrative_plan",
+                schema_name="narrative_plan.schema.json",
+                user_prompt=prompt,
                 artifact_normalizer=self._normalize_narrative_design,
                 semantic_validator=self._validate_narrative_design,
             )
@@ -198,7 +216,7 @@ class WebGALPipeline:
                 raise PipelineError(str(exc)) from exc
             validate_schema("narrative_plan.schema.json", design)
             write_json(job_dir / "state" / "narrative_plan.json", design)
-        self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
+            self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
 
     def run_game_design(self, job: dict[str, Any]) -> None:
@@ -218,10 +236,24 @@ Current phase: game_design_text
 Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
         with self._trace_stage(job, 2, "游戏结构设计", "game_design", "state/game_design.json"):
             prompt = game_design_prompt(narrative_plan, job["options"], scene_plan=scene_plan)
-            game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
-            game_design_text = correct_generated_raw_file(game_design_text, narrative_plan)
-            self._validate_game_design_coverage(game_design_text, scene_plan, "game_design.txt")
-            game_design_json = self._game_design_text_to_json(game_design_text, narrative_plan, scene_plan)
+            last_error = ""
+            game_design_text = ""
+            for attempt in range(settings.max_text_retries + 1):
+                try:
+                    game_design_text = llm.call_text("game_design_text", system_prompt, prompt)
+                    game_design_text = correct_generated_raw_file(game_design_text, narrative_plan)
+                    game_design_text = self._normalize_game_design_coverage_text(game_design_text, scene_plan, "game_design.json")
+                    game_design_json = game_design.text_to_json(game_design_text, narrative_plan, scene_plan)
+                    break
+                except (LLMError, PipelineError, ValueError) as exc:
+                    last_error = str(exc)
+                    if attempt >= settings.max_text_retries:
+                        raise PipelineError(f"game_design_text failed after retries:\n{last_error}") from exc
+                    prompt = self._plain_text_retry_prompt(
+                        artifact_name="game_design.json",
+                        previous_text=game_design_text,
+                        error_message=last_error,
+                    )
             write_json(job_dir / "state" / "game_design.json", game_design_json)
             self.store.record_artifact(job, "game_design", "state/game_design.json")
         self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
@@ -229,7 +261,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
     def run_game_design_completion(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN_COMPLETION")
         job_dir, narrative_plan, scene_plan = self._game_design_context(job)
-        game_design_json = self._read_game_design_json(job_dir, narrative_plan, scene_plan)
+        game_design_json = self._read_game_design_json(job_dir)
         try:
             llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
         except TypeError:
@@ -239,7 +271,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
 Current phase: game_design_choices
 Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."""
         with self._trace_stage(job, 3, "互动补全", "design_completion", "state/game_design_completed.json"):
-            game_design_outline = self._extract_game_design_outline(game_design_json, narrative_plan, scene_plan)
+            game_design_outline = game_design.extract_outline(game_design_json, narrative_plan, scene_plan)
             completion_prompt = game_design_completion_prompt(narrative_plan, game_design_outline, job["options"], scene_plan=scene_plan)
             choices_text = llm.call_text("game_design_choices", system_prompt, completion_prompt)
             choices_payload = self._normalize_game_design_choices(
@@ -249,11 +281,11 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             )
             write_json(job_dir / "state" / "game_design_choices.json", choices_payload)
             self.store.record_artifact(job, "game_design_choices", "state/game_design_choices.json")
-            completed_json = self._apply_game_design_choices_to_json(game_design_json, choices_payload)
+            completed_json = game_design.apply_choices_to_json(game_design_json, choices_payload)
             write_json(job_dir / "state" / "game_design_completed.json", completed_json)
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.json")
-            completed_text = self._render_game_design_json(completed_json)
-            self._validate_game_design_coverage(completed_text, scene_plan, "game_design_completed.txt")
+            completed_text = game_design.render_json(completed_json)
+            completed_text = self._normalize_game_design_coverage_text(completed_text, scene_plan, "game_design_completed.json")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
     def _game_design_context(self, job: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str, Any]]:
@@ -264,16 +296,13 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.store.record_artifact(job, "scene_plan", "state/scene_plan.json")
         return job_dir, narrative_plan, scene_plan
 
-    def _read_game_design_json(self, job_dir: Path, narrative_plan: dict[str, Any], scene_plan: dict[str, Any]) -> dict[str, Any]:
+    def _read_game_design_json(self, job_dir: Path) -> dict[str, Any]:
         json_path = job_dir / "state" / "game_design.json"
         if json_path.exists():
             data = read_json(json_path)
             if isinstance(data, dict):
                 return data
             raise PipelineError("game_design.json must be a JSON object")
-        legacy_path = job_dir / "state" / "game_design.txt"
-        if legacy_path.exists():
-            return self._game_design_text_to_json(legacy_path.read_text(encoding="utf-8"), narrative_plan, scene_plan)
         raise PipelineError("game_design.json is required before design completion")
 
     def _read_game_design_completed_text(self, job_dir: Path) -> str:
@@ -281,72 +310,9 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         if json_path.exists():
             data = read_json(json_path)
             if isinstance(data, dict):
-                return self._render_game_design_json(data)
+                return game_design.render_json(data)
             raise PipelineError("game_design_completed.json must be a JSON object")
-        text_path = job_dir / "state" / "game_design_completed.txt"
-        if text_path.exists():
-            return text_path.read_text(encoding="utf-8")
         raise PipelineError("game_design_completed.json is required before this phase")
-
-    def _game_design_text_to_json(
-        self,
-        game_design_text: str,
-        narrative_plan: dict[str, Any],
-        scene_plan: dict[str, Any],
-    ) -> dict[str, Any]:
-        return game_design.text_to_json(game_design_text, narrative_plan, scene_plan)
-
-    def _parse_game_design_line(self, line: str, line_id: str) -> dict[str, Any] | None:
-        return game_design.parse_line(line, line_id)
-
-    def _render_game_design_json(self, game_design_json: dict[str, Any]) -> str:
-        return game_design.render_json(game_design_json)
-
-    def _render_scene_line(self, line: dict[str, Any]) -> str:
-        return game_design.render_scene_line(line)
-
-    def _parse_choice_options(self, text: str) -> list[dict[str, str]]:
-        return game_design.parse_choice_options(text)
-
-    def _clean_line_text(self, text: str) -> str:
-        return game_design.clean_line_text(text)
-
-    def _internal_metadata_match(self, line: str, key: str) -> str:
-        return game_design.internal_metadata_match(line, key)
-
-    def _story_step_strtype(self, narrative_plan: dict[str, Any], source_node: str) -> str:
-        return game_design.story_step_strtype(narrative_plan, source_node)
-
-    def _extract_game_design_outline(
-        self,
-        game_design_json: dict[str, Any],
-        narrative_plan: dict[str, Any],
-        scene_plan: dict[str, Any],
-    ) -> dict[str, Any]:
-        return game_design.extract_outline(game_design_json, narrative_plan, scene_plan)
-
-    def _narrative_connectable_pairs(
-        self,
-        narrative_plan: dict[str, Any],
-        scene_plan: dict[str, Any],
-        sections: dict[str, str],
-    ) -> list[dict[str, Any]]:
-        return game_design.narrative_connectable_pairs(narrative_plan, scene_plan, sections)
-
-    def _mermaid_edges(self, narrative_structure: str) -> list[dict[str, str]]:
-        return game_design.mermaid_edges(narrative_structure)
-
-    def _resolve_structure_scene(self, node_id: str, scene_by_node: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
-        return game_design.resolve_structure_scene(node_id, scene_by_node)
-
-    def _resolve_structure_ending(self, node_id: str, ending_by_node: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
-        return game_design.resolve_structure_ending(node_id, ending_by_node)
-
-    def _ending_structure_ids(self, ending: dict[str, Any], index: int) -> set[str]:
-        return game_design.ending_structure_ids(ending, index)
-
-    def _game_design_sections(self, text: str) -> dict[str, str]:
-        return game_design.game_design_sections(text)
 
     def _normalize_game_design_choices(
         self,
@@ -358,30 +324,6 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             return game_design.normalize_choices(parsed, scene_plan, game_design_outline)
         except game_design.GameDesignError as exc:
             raise PipelineError(str(exc)) from exc
-
-    def _apply_game_design_choices_to_json(self, game_design_json: dict[str, Any], choices_payload: dict[str, Any]) -> dict[str, Any]:
-        return game_design.apply_choices_to_json(game_design_json, choices_payload)
-
-    def _choice_group_to_scene_lines(self, group: dict[str, Any]) -> list[dict[str, Any]]:
-        return game_design.choice_group_to_scene_lines(group)
-
-    def _apply_game_design_choices(self, game_design_text: str, choices_payload: dict[str, Any]) -> str:
-        return game_design.apply_choices_to_text(game_design_text, choices_payload)
-
-    def _render_choice_group(self, group: dict[str, Any]) -> list[str]:
-        return game_design.render_choice_group(group)
-
-    def _render_choice_branch_line(self, line: dict[str, Any]) -> str:
-        return game_design.render_choice_branch_line(line)
-
-    def _safe_branch_label(self, value: str) -> str:
-        return game_design.safe_branch_label(value)
-
-    def _is_branch_label(self, value: str) -> bool:
-        return game_design.is_branch_label(value)
-
-    def _is_internal_scene_metadata(self, line: str) -> bool:
-        return game_design.is_internal_scene_metadata(line)
 
     def run_assets(self, job: dict[str, Any]) -> None:
         self.run_asset_manifest(job)
@@ -406,21 +348,21 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         job_dir = self.store.job_dir(job["id"])
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         scene_plan = build_scene_plan(narrative_plan)
-        game_design_text = self._render_game_design_json(self._read_game_design_json(job_dir, narrative_plan, scene_plan))
+        game_design_text = game_design.render_json(self._read_game_design_json(job_dir))
         asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
         base_dir = str((job_dir / "public" / "game").resolve())
         with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
             prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
-        manifest = self._call_with_validation(
+            manifest = self._call_with_validation(
                 job_dir=job_dir,
-            function_name="emit_asset_manifest",
-            artifact_key="asset_manifest",
-            schema_name="asset_manifest.schema.json",
-            user_prompt=prompt,
+                function_name="emit_asset_manifest",
+                artifact_key="asset_manifest",
+                schema_name="asset_manifest.schema.json",
+                user_prompt=prompt,
                 semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
-        )
-        write_json(job_dir / "assets_manifest.json", manifest)
-        self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+            )
+            write_json(job_dir / "assets_manifest.json", manifest)
+            self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
         self.store.transition(job, "ASSET_MANIFEST_READY", "ASSET_PLANNING")
 
     def run_image_asset_generation(self, job: dict[str, Any]) -> None:
@@ -576,8 +518,23 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             raise PipelineError("game_design_webgal.txt is required before sound effect insertion")
 
         assets = self._load_sound_effect_assets()
+        available_assets = [item for item in assets if isinstance(item, dict) and bool(item.get("available"))]
         write_json(job_dir / "state" / "sound_effect_assets.json", assets)
         self.store.record_artifact(job, "sound_effect_assets", "state/sound_effect_assets.json")
+
+        if not available_assets:
+            write_json(job_dir / "state" / "sound_effect_plan.json", [])
+            self.store.record_artifact(job, "sound_effect_plan", "state/sound_effect_plan.json")
+            self._write_stage_event(
+                job,
+                6,
+                "音效编排",
+                "sound_effect_plan",
+                "skipped",
+                f"sound effects directory unavailable or empty: {settings.sound_effects_dir}",
+            )
+            self.store.transition(job, "SOUND_EFFECTS_READY", "SOUND_EFFECT_PLANNING")
+            return
 
         with self._trace_stage(job, 6, "音效编排", "sound_effect_plan", "state/sound_effect_plan.json"):
             try:
@@ -592,10 +549,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             text = llm.call_text(
                 "sound_effect_planning",
                 system_prompt,
-                sound_effect_prompt(original_text, assets),
+                sound_effect_prompt(original_text, available_assets),
                 thinking="disabled",
             )
-            plan = self._normalize_sound_effect_plan(self._parse_sound_effect_plan_text(text), assets)
+            plan = self._normalize_sound_effect_plan(self._parse_sound_effect_plan_text(text), available_assets)
             write_json(job_dir / "state" / "sound_effect_plan.json", plan)
             self.store.record_artifact(job, "sound_effect_plan", "state/sound_effect_plan.json")
 
@@ -734,8 +691,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         with self._trace_stage(job, 9, "校验阶段", "validation_report", "state/validation_report.json"):
             result = validate_and_repair_scenes(job_dir)
             report = validation_report(result)
-        write_json(job_dir / "state" / "validation_report.json", report)
-        self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+            write_json(job_dir / "state" / "validation_report.json", report)
+            self.store.record_artifact(job, "validation_report", "state/validation_report.json")
             if report["summary"]["errors"] > 0:
                 self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
                 raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
@@ -748,9 +705,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         assets = read_json(path)
         if not isinstance(assets, list):
             raise PipelineError("sound_effect_assets.json must be a JSON array")
-        available_files = set()
-        if settings.sound_effects_dir.exists():
-            available_files = {item.name for item in settings.sound_effects_dir.glob("*.mp3")}
+        directory_exists = settings.sound_effects_dir.exists()
+        available_files = {item.name for item in settings.sound_effects_dir.glob("*.mp3")} if directory_exists else set()
         normalized = []
         for item in assets:
             if not isinstance(item, dict):
@@ -760,7 +716,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                 continue
             entry = dict(item)
             entry["filename"] = filename
-            entry["available"] = not available_files or filename in available_files
+            entry["available"] = directory_exists and filename in available_files
             normalized.append(entry)
         return normalized
 
@@ -795,7 +751,11 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         if not isinstance(raw_items, list):
             raise PipelineError("sound effect plan must be a JSON array")
 
-        asset_by_name = {str(item.get("filename", "")): item for item in assets if isinstance(item, dict)}
+        asset_by_name = {
+            str(item.get("filename", "")): item
+            for item in assets
+            if isinstance(item, dict) and bool(item.get("available"))
+        }
         allowed_categories = {"ambient", "movement", "event", "transition"}
         allowed_operations = {"start", "stop"}
         allowed_playback = {"once", "loop", "fadein_loop", "fadeout"}
@@ -985,33 +945,30 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         try:
             llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
         except TypeError:
-        llm = self.llm_factory()
+            llm = self.llm_factory()
         last_error = ""
         prompt = user_prompt
+        previous_output = ""
         for attempt in range(settings.max_schema_retries + 1):
             phase_context = build_phase_context(function_name)
             system_prompt = f"{SYSTEM_PROMPT}\n\n{phase_context}"
             try:
-                args = self._call_structured_llm(llm, function_name, artifact_key, system_prompt, prompt)
+                args, previous_output = self._call_structured_llm(llm, function_name, artifact_key, system_prompt, prompt)
             except LLMError as exc:
                 last_error = str(exc)
-                prompt = f"""{user_prompt}
-
-The previous {function_name} call failed on attempt {attempt + 1}.
-Return corrected JSON for {artifact_key}.
-
-Failure reason:
-{last_error}
-
-Keep every text field concise (1-2 short sentences). Do not explain."""
+                previous_output = str(getattr(exc, "generated_content", "") or "").strip()
+                prompt = self._structured_retry_prompt(artifact_key, previous_output, last_error)
                 continue
             if artifact_key not in args:
                 last_error = f"function arguments missing key: {artifact_key}"
+                previous_output = json.dumps(args, ensure_ascii=False, indent=2)
             else:
                 artifact = args[artifact_key]
+                previous_output = json.dumps(artifact, ensure_ascii=False, indent=2)
                 try:
-                if artifact_normalizer:
-                    artifact = artifact_normalizer(artifact)
+                    if artifact_normalizer:
+                        artifact = artifact_normalizer(artifact)
+                        previous_output = json.dumps(artifact, ensure_ascii=False, indent=2)
                     validate_schema(schema_name, artifact)
                     if semantic_validator:
                         semantic_validator(artifact)
@@ -1019,17 +976,34 @@ Keep every text field concise (1-2 short sentences). Do not explain."""
                 except ValidationFailure as exc:
                     last_error = "\n".join(exc.errors)
 
-            prompt = f"""{user_prompt}
-
-The previous {artifact_key} JSON failed validation on attempt {attempt + 1}.
-Return corrected JSON for {artifact_key}.
-
-Validation errors:
-{last_error}
-
-Do not explain."""
+            prompt = self._structured_retry_prompt(artifact_key, previous_output, last_error)
 
         raise PipelineError(f"{function_name} failed validation after retries:\n{last_error}")
+
+    def _plain_text_retry_prompt(self, artifact_name: str, previous_text: str, error_message: str) -> str:
+        previous_block = previous_text.strip() or "(empty output)"
+        return f"""The previous generated content for {artifact_name} failed validation.
+Return a fully corrected complete version of the same artifact as plain text only.
+Preserve valid content where possible and fix only what is needed to satisfy the error.
+
+Validation error:
+{error_message}
+
+Previous generated content:
+{previous_block}"""
+
+    def _structured_retry_prompt(self, artifact_name: str, previous_json: str, error_message: str) -> str:
+        previous_block = previous_json.strip() or "(empty output)"
+        return f"""The previous generated content for {artifact_name} failed validation.
+Return a fully corrected complete version of the same artifact as valid JSON only.
+Preserve valid fields where possible and fix only what is needed to satisfy the error.
+Do not return Markdown or explanation.
+
+Validation error:
+{error_message}
+
+Previous generated content:
+{previous_block}"""
 
     def _call_structured_llm(
         self,
@@ -1038,7 +1012,7 @@ Do not explain."""
         artifact_key: str,
         system_prompt: str,
         prompt: str,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
         if self._use_json_text_for_function(function_name) and "deepseek.com" in settings.llm_base_url:
             text_prompt = f"""{prompt}
@@ -1046,8 +1020,13 @@ Do not explain."""
 Return valid JSON only, without Markdown fences or explanation.
 The top-level JSON object must have exactly this key: "{artifact_key}"."""
             text = llm.call_text(function_name, system_prompt, text_prompt, thinking=thinking)
-            return llm.parse_json_text(text, function_name)
-        return llm.call_function(function_name, system_prompt, prompt, thinking=thinking)
+            try:
+                return llm.parse_json_text(text, function_name), text
+            except LLMError as exc:
+                setattr(exc, "generated_content", text)
+                raise
+        args = llm.call_function(function_name, system_prompt, prompt, thinking=thinking)
+        return args, json.dumps(args, ensure_ascii=False, indent=2)
 
     def _thinking_for_function(self, function_name: str) -> str:
         if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
@@ -1131,6 +1110,28 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
                 f"{artifact_name} coverage check failed: "
                 f"missing_scene_files={missing_files}, duplicate_scene_files={duplicate_files}"
             )
+
+    def _normalize_game_design_coverage_text(
+        self,
+        text: str,
+        scene_plan: dict[str, Any],
+        artifact_name: str,
+    ) -> str:
+        expected_files = expected_scene_files(scene_plan)
+        found_files = self._scene_headers(text)
+        if found_files == expected_files:
+            return text
+
+        normalized = self._normalize_scene_sections_to_reference(text, expected_files)
+        if normalized is not None:
+            normalized_files = self._scene_headers(normalized)
+            missing_files = [file_name for file_name in expected_files if file_name not in normalized_files]
+            duplicate_files = sorted({file_name for file_name in normalized_files if normalized_files.count(file_name) > 1})
+            if not missing_files and not duplicate_files:
+                return normalized
+
+        self._validate_game_design_coverage(text, scene_plan, artifact_name)
+        return text
 
     def _split_game_design_completed_to_scene_files(self, job_dir: Path, text: str) -> list[str]:
         import re

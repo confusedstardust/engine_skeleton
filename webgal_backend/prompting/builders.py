@@ -157,7 +157,7 @@ def game_design_prompt(
         - 本阶段不根据游戏时长压缩场景数量,必须严格按照 scene_plan.json 全量生成所有场景。
         - 每个 scene_plan.scenes 条目必须对应一个独立 Scene,不允许把多个 source_node 合并进同一个场景。
         - 每个 scene_plan.endings 条目必须对应一个独立 Ending,不允许只在普通 Scene 中用几句话概括结局。
-        - 每个场景的对话行数在 {contract['line_min']} 到 {contract['line_max']} 之间
+        - 每个场景的对话行数不超过{contract['line_min']}行
         - 从 Scene:start.txt 开始写。
         - 对话包括角色对话、内心独白、旁白,每一句不能超过{contract['line_length']}字
         - 角色台词行必须稳定使用 `角色名:台词正文`,冒号后直接写台词,不得写成 `角色名:(动作/语气)台词`

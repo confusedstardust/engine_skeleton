@@ -8,6 +8,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -45,6 +46,23 @@ frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
 
 def _contains_hidden_path(file_path: str) -> bool:
     return contains_hidden_path(file_path)
+
+
+def _public_base_path() -> str:
+    path = (urlsplit(frontend_url).path or "").strip()
+    if not path or path == "/":
+        return ""
+    return f"/{path.strip('/')}"
+
+
+def _public_app_path(path: str) -> str:
+    normalized = path if path.startswith("/") else f"/{path}"
+    prefix = _public_base_path()
+    if not prefix:
+        return normalized
+    if normalized == prefix or normalized.startswith(f"{prefix}/"):
+        return normalized
+    return f"{prefix}{normalized}"
 
 
 def _get_job_or_404(job_id: str) -> dict[str, Any]:
@@ -484,12 +502,19 @@ def play_game_with_slash(job_id: str) -> HTMLResponse:
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="engine index.html not found")
 
+    play_root = _public_app_path(f"/play/{job_id}/")
+    asset_root = _public_app_path(f"/play/{job_id}/assets/")
+    game_root = _public_app_path(f"/play/{job_id}/game/")
+    static_root = _public_app_path(f"/play/{job_id}/static-engine/")
+
     html = index_path.read_text(encoding="utf-8")
-    html = html.replace("./assets/", f"/play/{job_id}/assets/")
-    html = html.replace("./game/", f"/play/{job_id}/game/")
-    html = html.replace("./icons/", f"/play/{job_id}/static-engine/icons/")
-    html = html.replace("./manifest.json", f"/play/{job_id}/static-engine/manifest.json")
-    html = html.replace("<head>", f'<head>\n    <base href="/play/{job_id}/" />', 1)
+    html = html.replace("./assets/", asset_root)
+    html = html.replace("./game/", game_root)
+    html = html.replace("./icons/", f"{static_root}icons/")
+    html = html.replace("./manifest.json", f"{static_root}manifest.json")
+    html = html.replace("./webgal-serviceworker.js", f"{static_root}webgal-serviceworker.js")
+    html = html.replace("loadIifePlugin('lib/", f"loadIifePlugin('{static_root}lib/")
+    html = html.replace("<head>", f'<head>\n    <base href="{play_root}" />', 1)
     return HTMLResponse(content=html)
 
 
