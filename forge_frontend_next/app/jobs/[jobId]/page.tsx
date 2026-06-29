@@ -7,50 +7,607 @@ import { LaperAssetWorkbench } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
-import { withBasePath } from "../../base-path";
-import {
-  choiceTargetValue,
-  compactId,
-  completedSceneRouteLabel,
-  draftLineRows,
-  draftSceneRouteLabel,
-  flowNodes,
-  parseFlowEdges,
-  parseGameDesignDraft,
-  parsePlan,
-  parseScenePlan,
-  parseScenes,
-  sceneMarkerLabel,
-  sceneTargetOptions,
-  serializeGameDesignJson
-} from "./workspace-data";
-import type {
-  AssetReviewItem,
-  AssetReviewResponse,
-  GameDesignDraftScene,
-  GeneratedNarrativeNodeResponse,
-  Job,
-  NarrativeCharacter,
-  NarrativeEnding,
-  NarrativeNodeKind,
-  NarrativePlan,
-  NodesResponse,
-  SceneChoice,
-  SceneDraft,
-  SceneLine,
-  ScenePlan,
-  StoryStep,
-  SyncNarrativeStructureOptions,
-  SyncNarrativeStructureResponse
-} from "./workspace-data";
+
+type Job = {
+  id: string;
+  status: string;
+  phase?: string | null;
+  error?: string | null;
+  options?: {
+    generation_mode?: string;
+    [key: string]: unknown;
+  };
+};
+
+type NodeArtifact = {
+  key: string;
+  phase: string;
+  phase_status: string;
+  title: string;
+  description: string;
+  path: string;
+  content_type: "json" | "text";
+  exists: boolean;
+  content: string | null;
+};
+
+type NodesResponse = {
+  job: Job;
+  nodes: NodeArtifact[];
+  scenes: NodeArtifact[];
+};
+
+type AssetReviewItem = {
+  filename: string;
+  subdir: string;
+  kind: string;
+  display_name?: string;
+  size: string;
+  prompt: string;
+  available_scene: string;
+  scene_display_name?: string;
+  exists: boolean;
+  url: string;
+  avatar_exists: boolean;
+  avatar_url: string | null;
+};
+
+type AssetReviewResponse = {
+  job: Job;
+  assets: AssetReviewItem[];
+  image_enabled: boolean;
+};
+
+type StoryStep = {
+  id: string;
+  name: string;
+  content: string;
+  narrative_target: string;
+  strtype: string;
+};
+
+type NarrativeCharacter = {
+  id: string;
+  name: string;
+  gender: string;
+  personality: string;
+  motivation: string;
+  speech_style: string;
+  emotional_arc: string;
+  relationships: { with: string; dynamic: string }[];
+};
+
+type NarrativeEnding = {
+  ending_type: string;
+  description: string;
+};
+
+type NarrativeNodeKind = "phase" | "ending" | "character";
+
+type GeneratedNarrativeNodeResponse = {
+  kind: NarrativeNodeKind;
+  node: StoryStep | NarrativeEnding | NarrativeCharacter;
+};
+
+type SyncNarrativeStructureResponse = {
+  narrative_plan: NarrativePlan;
+  narrative_structure: string;
+  issues: { node: string; reason: string }[];
+};
+
+type SyncNarrativeStructureOptions = {
+  quiet?: boolean;
+  force?: boolean;
+};
+
+type NarrativePlan = {
+  title: string;
+  theme: string;
+  emotion_tone: string;
+  conflict_structure: string;
+  story_progression: StoryStep[];
+  story_arc: string;
+  characters: NarrativeCharacter[];
+  touchable_points: string[];
+  must_avoid: string[];
+  endings: NarrativeEnding[];
+  beat_structure: string[];
+  narrative_structure: string;
+};
+
+type ScenePlan = {
+  scenes: {
+    kind?: "Scene";
+    scene_file: string;
+    source_node: string;
+    node_name: string;
+    strtype: string;
+  }[];
+  endings: {
+    kind?: "Ending";
+    scene_file: string;
+    ending_type: string;
+    description: string;
+  }[];
+};
+
+type SceneDraft = {
+  header: string;
+  title: string;
+  lines: SceneLine[];
+  marker?: "Scene" | "Ending";
+  sourceNode?: string;
+  strtype?: string;
+};
+
+type GameDesignDraftScene = SceneDraft & {
+  marker: "Scene" | "Ending";
+  sourceNode: string;
+  endingType: string;
+};
+
+type SceneLine = {
+  id: string;
+  kind: "narration" | "dialogue" | "command" | "choice" | "branch";
+  speaker: string;
+  text: string;
+  rawPrefix: string;
+  choices?: SceneChoice[];
+  branchLabel?: string;
+};
+
+type SceneChoice = {
+  text: string;
+  target: string;
+  target_scene_file?: string;
+  targetSceneFile?: string;
+};
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge${path}`), {
+  const response = await fetch(`/api/forge${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
+}
+
+function compactId(id: string) {
+  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+function parsePlan(content: string | null): NarrativePlan | null {
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content) as Partial<NarrativePlan>;
+    return {
+      title: parsed.title || "",
+      theme: parsed.theme || "",
+      emotion_tone: parsed.emotion_tone || "",
+      conflict_structure: parsed.conflict_structure || "",
+      story_progression: parsed.story_progression || [],
+      story_arc: parsed.story_arc || "",
+      characters: parsed.characters || [],
+      touchable_points: parsed.touchable_points || [],
+      must_avoid: parsed.must_avoid || [],
+      endings: parsed.endings || [],
+      beat_structure: parsed.beat_structure || [],
+      narrative_structure: parsed.narrative_structure || ""
+    };
+  } catch {
+    return null;
+  }
+}
+
+function flowNodeId(value: string) {
+  const normalized = value.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!normalized) return "";
+  return /^[A-Za-z_]/.test(normalized) ? normalized : `node_${normalized}`;
+}
+
+function flowNodeLabel(id: string, plan: NarrativePlan) {
+  const phase = plan.story_progression.find((step) => flowNodeId(step.id) === id || step.id === id || step.name === id);
+  if (phase) return phase.name || phase.id;
+  const ending = plan.endings.find((item) => flowNodeId(item.ending_type) === id || item.ending_type === id);
+  if (ending) return `结局：${ending.ending_type}`;
+  return id.replace(/_/g, " ");
+}
+
+function parseFlowEdges(structure: string, plan: NarrativePlan) {
+  const edgePattern = /([A-Za-z_][A-Za-z0-9_-]*)(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?\s*(?:-->|==>|-\.->)\s*(?:\|[^|]+\|\s*)?([A-Za-z_][A-Za-z0-9_-]*)/g;
+  const edges: { source: string; target: string }[] = [];
+  for (const line of structure.split(/\r?\n/)) {
+    edgePattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = edgePattern.exec(line))) {
+      edges.push({ source: flowNodeLabel(match[1], plan), target: flowNodeLabel(match[2], plan) });
+    }
+  }
+  return edges;
+}
+
+function flowNodes(plan: NarrativePlan) {
+  return [
+    ...plan.story_progression.map((step, index) => ({
+      id: flowNodeId(step.id || `phase${index}`),
+      label: step.name || step.id || `阶段 ${index + 1}`,
+      meta: step.strtype === "branch" ? "分支" : "主线"
+    })),
+    ...plan.endings.map((ending, index) => ({
+      id: flowNodeId(ending.ending_type || `ending_${index + 1}`),
+      label: `结局：${ending.ending_type || index + 1}`,
+      meta: "结局"
+    }))
+  ];
+}
+
+function parseScenePlan(content: string | null): ScenePlan | null {
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content) as Partial<ScenePlan>;
+    return {
+      scenes: parsed.scenes || [],
+      endings: parsed.endings || []
+    };
+  } catch {
+    return null;
+  }
+}
+
+function scenePlanMetaByHeader(scenePlan: ScenePlan | null, plan: NarrativePlan | null) {
+  const mapping = new Map<string, SceneMeta>();
+  if (!scenePlan) return mapping;
+  scenePlan.scenes.forEach((scene, index) => {
+    const sourceNode = String(scene.source_node || "").trim();
+    const phase = plan?.story_progression.find((step) => step.id === sourceNode || step.name === sourceNode);
+    const title = String(scene.node_name || phase?.name || `场景 ${index + 1}`).trim();
+    mapping.set(scene.scene_file, {
+      title,
+      marker: "Scene",
+      sourceNode,
+      strtype: normalizeStrtype(scene.strtype || phase?.strtype)
+    });
+  });
+  scenePlan.endings.forEach((ending, index) => {
+    const endingType = String(ending.ending_type || "").trim();
+    mapping.set(ending.scene_file, {
+      title: endingType ? `结局：${endingType}` : `结局 ${index + 1}`,
+      marker: "Ending",
+      sourceNode: "",
+      strtype: ""
+    });
+  });
+  return mapping;
+}
+
+function isBranchLabel(value: string | undefined) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test((value || "").trim());
+}
+
+function normalizeSceneChoice(choice: Partial<SceneChoice> | string, fallbackIndex: number): SceneChoice {
+  if (typeof choice === "string") {
+    return { text: choice, target: `choice_${fallbackIndex}` };
+  }
+  const targetSceneFile = choice.target_scene_file || choice.targetSceneFile || "";
+  return {
+    text: choice.text || "",
+    target: choice.target || targetSceneFile || `choice_${fallbackIndex}`,
+    target_scene_file: targetSceneFile || undefined
+  };
+}
+
+function normalizeSceneLine(line: Partial<SceneLine>, fallbackId: string): SceneLine {
+  const branchLabel = line.branchLabel || line.text || "";
+  const kind = line.kind === "branch" && !isBranchLabel(branchLabel) ? "narration" : line.kind || "narration";
+  return {
+    id: line.id || fallbackId,
+    kind,
+    speaker: line.speaker || (kind === "dialogue" ? "角色" : kind === "choice" || kind === "branch" ? "分支" : "旁白"),
+    text: line.text || "",
+    rawPrefix: line.rawPrefix || (kind === "choice" ? "choose" : kind === "branch" ? "branch" : "旁白"),
+    choices: Array.isArray(line.choices) ? line.choices.map((choice, index) => normalizeSceneChoice(choice, index + 1)) : undefined,
+    branchLabel: kind === "branch" ? line.branchLabel : undefined
+  };
+}
+
+type GameDesignJsonScene = Partial<GameDesignDraftScene> & {
+  scene_file?: string;
+  source_node?: string;
+  ending_type?: string;
+};
+
+function scenesFromGameDesignJson(content: string, plan: NarrativePlan | null, scenePlan: ScenePlan | null): GameDesignDraftScene[] | null {
+  try {
+    const parsed = JSON.parse(content) as { scenes?: GameDesignJsonScene[] };
+    if (!Array.isArray(parsed.scenes)) return null;
+    const metaByHeader = scenePlanMetaByHeader(scenePlan, plan);
+    return parsed.scenes.map((scene, index) => {
+      const header = String(scene.scene_file || scene.header || `scene_${index}.txt`);
+      const meta = metaByHeader.get(header);
+      const marker = scene.marker || meta?.marker || "Scene";
+      const sourceNode = String(scene.sourceNode || scene.source_node || meta?.sourceNode || "");
+      const endingType = String(scene.endingType || scene.ending_type || "");
+      const lines = Array.isArray(scene.lines) ? scene.lines.map((line, lineIndex) => normalizeSceneLine(line, `${header}-${lineIndex}`)) : [];
+      return {
+        header,
+        marker,
+        sourceNode,
+        endingType,
+        title: String(scene.title || meta?.title || draftSceneTitle({ header, marker, sourceNode, endingType, title: "", lines }, index, plan)),
+        strtype: String(scene.strtype || meta?.strtype || storyStepStrtype(plan, sourceNode)),
+        lines
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+function scenesFromCompletedJson(content: string, plan: NarrativePlan | null, scenePlan: ScenePlan | null): SceneDraft[] | null {
+  const draftScenes = scenesFromGameDesignJson(content, plan, scenePlan);
+  if (!draftScenes) return null;
+  return draftScenes.map((scene) => ({ ...scene }));
+}
+
+function serializeGameDesignJson(scenes: SceneDraft[]) {
+  return JSON.stringify(
+    {
+      version: 1,
+      scenes: scenes.map((scene) => ({
+        marker: scene.marker || "Scene",
+        scene_file: scene.header,
+        source_node: scene.sourceNode || "",
+        ending_type: "endingType" in scene ? (scene as GameDesignDraftScene).endingType || "" : "",
+        title: scene.title,
+        strtype: scene.strtype || "",
+        lines: scene.lines
+      }))
+    },
+    null,
+    2
+  );
+}
+
+function parseGameDesignDraft(text: string, plan: NarrativePlan | null, scenePlan: ScenePlan | null = null): GameDesignDraftScene[] {
+  const fromJson = scenesFromGameDesignJson(text, plan, scenePlan);
+  if (fromJson) return fromJson;
+  const scenes: GameDesignDraftScene[] = [];
+  let current: GameDesignDraftScene | null = null;
+  const metaByHeader = scenePlanMetaByHeader(scenePlan, plan);
+
+  text.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    const sceneMatch = trimmed.match(/^(Scene|Ending)\s*[:：]\s*(.+)$/i);
+    if (sceneMatch) {
+      const header = sceneMatch[2].trim();
+      const meta = metaByHeader.get(header);
+      current = {
+        marker: meta?.marker || (sceneMatch[1].toLowerCase() === "ending" ? "Ending" : "Scene"),
+        header,
+        sourceNode: meta?.sourceNode || "",
+        endingType: "",
+        title: meta?.title || "",
+        lines: [],
+        strtype: meta?.strtype
+      };
+      scenes.push(current);
+      return;
+    }
+
+    const sourceMatch = trimmed.match(/^;?\s*source_node\s*[:：]\s*(.+)$/i);
+    if (sourceMatch && current) {
+      current.sourceNode = sourceMatch[1].trim();
+      current.title = draftSceneTitle(current, scenes.length - 1, plan);
+      current.strtype = current.strtype || storyStepStrtype(plan, current.sourceNode);
+      return;
+    }
+
+    const endingTypeMatch = trimmed.match(/^;?\s*ending_type\s*[:：]\s*(.+)$/i);
+    if (endingTypeMatch && current) {
+      current.endingType = endingTypeMatch[1].trim();
+      current.title = draftSceneTitle(current, scenes.length - 1, plan);
+      return;
+    }
+
+    if (!trimmed) return;
+    if (!current) {
+      current = {
+        marker: "Scene",
+        header: "draft.txt",
+        sourceNode: "",
+        endingType: "",
+        title: "场景草稿",
+        lines: []
+      };
+      scenes.push(current);
+    }
+    current.lines.push(parseGameDesignDraftLine(line, `${current.header}-${index}`));
+  });
+
+  return scenes.map((scene, index) => ({
+    ...scene,
+    title: scene.title || draftSceneTitle(scene, index, plan)
+  }));
+}
+
+function draftSceneTitle(scene: GameDesignDraftScene, index: number, plan: NarrativePlan | null) {
+  const source = scene.sourceNode || scene.endingType || scene.header.replace(/\.txt$/i, "");
+  const phase = plan?.story_progression.find((step) => step.id === source);
+  if (phase) return phase.name || `故事阶段 ${index + 1}`;
+  const ending = plan?.endings.find((item) => item.ending_type === source || source.includes(item.ending_type));
+  if (ending) return `结局：${ending.ending_type}`;
+  if (/^start/i.test(scene.header)) return "开场";
+  if (scene.marker === "Ending" || /^ending/i.test(scene.header)) return `结局 ${index + 1}`;
+  return `场景 ${index + 1}`;
+}
+
+function normalizeStrtype(strtype?: string) {
+  const normalized = (strtype || "").trim().toLowerCase();
+  if (normalized === "branch") return "branch";
+  if (normalized === "main") return "main";
+  return "";
+}
+
+function strtypeLabel(strtype?: string) {
+  const normalized = normalizeStrtype(strtype);
+  if (normalized === "branch") return "分支";
+  if (normalized === "main") return "主线";
+  return "";
+}
+
+function storyStepStrtype(plan: NarrativePlan | null, sourceNode?: string) {
+  if (!plan || !sourceNode) return "";
+  return normalizeStrtype(plan.story_progression.find((step) => step.id === sourceNode || step.name === sourceNode)?.strtype);
+}
+
+function draftSceneRouteLabel(scene: GameDesignDraftScene, plan: NarrativePlan | null) {
+  const label = strtypeLabel(storyStepStrtype(plan, scene.sourceNode || scene.header.replace(/\.txt$/i, "")));
+  if (label) return label;
+  return scene.marker === "Ending" ? "结局" : "未标注";
+}
+
+function completedSceneRouteLabel(scene: SceneDraft) {
+  return strtypeLabel(scene.strtype) || "未标注";
+}
+
+function sceneMarkerLabel(scene: Pick<SceneDraft, "marker">) {
+  return scene.marker === "Ending" ? "结局" : "场景";
+}
+
+function sceneTargetOptions(scenePlan: ScenePlan | null, plan: NarrativePlan | null, scenes: SceneDraft[], currentHeader?: string) {
+  const byHeader = scenePlanMetaByHeader(scenePlan, plan);
+  scenes.forEach((scene) => {
+    if (!byHeader.has(scene.header)) {
+      byHeader.set(scene.header, {
+        title: scene.title || scene.header.replace(/\.txt$/i, "").replace(/_/g, " "),
+        marker: scene.marker || "Scene",
+        sourceNode: scene.sourceNode || "",
+        strtype: scene.strtype || ""
+      });
+    }
+  });
+  return Array.from(byHeader.entries())
+    .filter(([file]) => file !== currentHeader)
+    .map(([file, meta]) => ({
+      file,
+      label: meta.marker === "Ending" ? `结局：${meta.title.replace(/^结局[:：]/, "")}` : meta.title || file
+    }));
+}
+
+function parseGameDesignDraftLine(line: string, id: string): SceneLine {
+  const trimmed = line.trim().replace(/^>\s*/, "");
+  const narrationMatch = trimmed.match(/^(旁白|intro)\s*[:：]\s*(.*?);?$/);
+  if (narrationMatch) {
+    return { id, kind: "narration", speaker: "旁白", text: cleanEditableLineText(narrationMatch[2]), rawPrefix: narrationMatch[1] === "intro" ? "intro" : "旁白" };
+  }
+
+  const dialogueMatch = trimmed.match(/^([^:：;]{1,24})[:：]\s*(.*?);?$/);
+  if (dialogueMatch && !trimmed.startsWith("setVar") && !trimmed.startsWith("change") && !trimmed.startsWith("choose")) {
+    return { id, kind: "dialogue", speaker: dialogueMatch[1].trim(), text: cleanEditableLineText(dialogueMatch[2]), rawPrefix: "" };
+  }
+
+  return { id, kind: "narration", speaker: "旁白", text: cleanEditableLineText(trimmed), rawPrefix: "intro" };
+}
+
+function cleanEditableLineText(text: string) {
+  return text.replace(/^\s*[:：]\s*/, "").replace(/\s*;\s*$/, "");
+}
+
+function parseChoiceOptions(text: string): SceneChoice[] {
+  return text
+    .replace(/\s*;\s*$/, "")
+    .split("|")
+    .map((part) => {
+      const trimmed = part.trim();
+      const targetSplit = trimmed.lastIndexOf(":");
+      if (targetSplit <= 0) return null;
+      const choiceText = trimmed.slice(0, targetSplit).trim();
+      const target = trimmed.slice(targetSplit + 1).trim();
+      if (!choiceText || !target) return null;
+      return { text: choiceText, target };
+    })
+    .filter((choice): choice is SceneChoice => Boolean(choice));
+}
+
+type SceneMeta = {
+  title: string;
+  marker: "Scene" | "Ending";
+  sourceNode: string;
+  strtype: string;
+};
+
+function sceneMetaByHeader(rawDesignText: string | null | undefined, plan: NarrativePlan | null, scenePlan: ScenePlan | null) {
+  const mapping = scenePlanMetaByHeader(scenePlan, plan);
+  if (!rawDesignText) return mapping;
+  parseGameDesignDraft(rawDesignText, plan, scenePlan).forEach((scene) => {
+    const strtype = storyStepStrtype(plan, scene.sourceNode);
+    mapping.set(scene.header, {
+      title: scene.title || mapping.get(scene.header)?.title || scene.header.replace(/\.txt$/i, "").replace(/_/g, " "),
+      marker: scene.marker,
+      sourceNode: scene.sourceNode,
+      strtype: strtype || scene.strtype || mapping.get(scene.header)?.strtype || ""
+    });
+  });
+  return mapping;
+}
+
+function parseScenes(text: string, plan: NarrativePlan | null, rawDesignText?: string | null, scenePlan: ScenePlan | null = null): SceneDraft[] {
+  const fromJson = scenesFromCompletedJson(text, plan, scenePlan);
+  if (fromJson) return fromJson;
+  const lines = text.split(/\r?\n/);
+  const scenes: SceneDraft[] = [];
+  let current: SceneDraft | null = null;
+  const metaByHeader = sceneMetaByHeader(rawDesignText, plan, scenePlan);
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    const bracket = trimmed.match(/^\[([A-Za-z0-9_-]+\.txt)\]$/);
+    const labelled = trimmed.match(/^(?:Scene|Ending)\s*[:：]\s*([A-Za-z0-9_-]+\.txt)$/i);
+    const header = bracket?.[1] || labelled?.[1];
+    if (header) {
+      const meta = metaByHeader.get(header);
+      current = {
+        header,
+        title: meta?.title || header.replace(/\.txt$/, "").replace(/_/g, " "),
+        lines: [],
+        marker: meta?.marker,
+        sourceNode: meta?.sourceNode,
+        strtype: meta?.strtype
+      };
+      scenes.push(current);
+      return;
+    }
+    if (!current || !trimmed) return;
+    current.lines.push(parseSceneLine(line, `${current.header}-${index}`));
+  });
+
+  return scenes;
+}
+
+function parseSceneLine(line: string, id: string): SceneLine {
+  const original = line.trim();
+  const choiceMatch = original.match(/^choose\s*[:：]\s*(.*)$/i);
+  if (choiceMatch) {
+    return { id, kind: "choice", speaker: "分支", text: "", rawPrefix: "choose", choices: parseChoiceOptions(choiceMatch[1]) };
+  }
+
+  const branchMatch = original.match(/^:([A-Za-z0-9_-]+)\s*;?$/);
+  if (branchMatch) {
+    return { id, kind: "branch", speaker: "分支", text: branchMatch[1], rawPrefix: "branch", branchLabel: branchMatch[1] };
+  }
+
+  const trimmed = original.replace(/^>\s*/, "");
+  const narrationMatch = trimmed.match(/^(旁白|intro)\s*[:：]\s*(.*?);?$/);
+  if (narrationMatch) {
+    return { id, kind: "narration", speaker: "旁白", text: cleanEditableLineText(narrationMatch[2]), rawPrefix: narrationMatch[1] };
+  }
+
+  const dialogueMatch = trimmed.match(/^([^:：;]{1,24})[:：]\s*(.*)$/);
+  if (dialogueMatch && !trimmed.startsWith("setVar:") && !trimmed.startsWith("change") && !trimmed.startsWith("choose:")) {
+    return { id, kind: "dialogue", speaker: dialogueMatch[1], text: cleanEditableLineText(dialogueMatch[2]), rawPrefix: "" };
+  }
+
+  return { id, kind: "command", speaker: "指令", text: cleanEditableLineText(trimmed), rawPrefix: "" };
 }
 
 export default function JobWorkspacePage() {
@@ -457,7 +1014,7 @@ export default function JobWorkspacePage() {
         </Link>
         <nav className="nav-links" aria-label="任务导航">
           <Link href="/">新建任务</Link>
-          {data.job.status === "DONE" && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
+          {data.job.status === "DONE" && <a className="nav-login" href={`/play/${data.job.id}/`} target="_blank">打开游戏</a>}
         </nav>
       </header>
 
@@ -527,7 +1084,7 @@ export default function JobWorkspacePage() {
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
             readonly={autoMode}
-            playUrl={withBasePath(`/play/${data.job.id}/`)}
+            playUrl={`/play/${data.job.id}/`}
           />
         ) : designNode?.exists ? (
           <SceneEditor
@@ -668,9 +1225,11 @@ function OutlineEditor(props: {
     );
   }
 
+  const plan = props.plan;
+
   return (
     <LaperOutlineWorkbench
-      plan={props.plan}
+      plan={plan}
       busy={props.busy}
       planDirty={props.planDirty}
       flowSyncing={props.flowSyncing}
@@ -705,7 +1264,7 @@ function OutlineEditor(props: {
                 <button className="btn outline" type="button" onClick={onClose}>关闭</button>
               </div>
               <div className="flow-modal-body">
-                <NarrativeFlowPreview plan={props.plan} />
+                <NarrativeFlowPreview plan={plan} />
               </div>
             </section>
           </div>
@@ -714,6 +1273,7 @@ function OutlineEditor(props: {
     />
   );
 }
+
 function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
   const nodes = flowNodes(plan);
   const edges = parseFlowEdges(plan.narrative_structure || "", plan);
@@ -818,16 +1378,6 @@ function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
   );
 }
 
-function PendingCard({ title, brief }: { title: string; brief: string }) {
-  return (
-    <article className="phase-editor pending-card">
-      <div className="pending-spinner" aria-hidden="true" />
-      <strong>{title}</strong>
-      <p>{brief}</p>
-    </article>
-  );
-}
-
 function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
   return (
     <div className="node-placeholder loading">
@@ -863,8 +1413,8 @@ function DesignDraftEditor(props: {
     return (
       <section className="node-detail">
         <LoadingPlaceholder
-          title="鍦烘櫙璁捐绋胯繕鍦ㄧ敓鎴愩€?
-          brief="鐢熸垚瀹屾垚鍚庯紝杩欓噷浼氭寜鍦烘櫙鍗＄墖灞曠ず锛岀‘璁ゅ悗鍐嶇敓鎴愯缁嗘梺鐧藉拰瀵硅瘽銆?
+          title="场景设计稿还在生成。"
+          brief="生成完成后，这里会按场景卡片展示，确认后再生成详细旁白和对话。"
         />
       </section>
     );
@@ -874,8 +1424,8 @@ function DesignDraftEditor(props: {
     return (
       <section className="node-detail">
         <div className="node-placeholder">
-          <strong>鍦烘櫙璁捐绋胯繕娌℃湁鍙睍绀虹殑鍦烘櫙銆?/strong>
-          <span>璇风◢鍚庡埛鏂帮紝鎴栧洖鍒板ぇ绾查噸鏂扮敓鎴愬満鏅璁＄銆?/span>
+          <strong>场景设计稿还没有可展示的场景。</strong>
+          <span>请稍后刷新，或回到大纲重新生成场景设计稿。</span>
         </div>
       </section>
     );
@@ -884,8 +1434,8 @@ function DesignDraftEditor(props: {
   return (
     <LaperSceneWorkbench
       mode="draft"
-      title={props.plan?.title || "鍦烘櫙璁捐绋?}
-      subtitle="鍏堟寜闃舵鍜岀粨灞€瀹￠槄鍦烘櫙缁撴瀯锛岀‘璁ゅ悗鍐嶇敓鎴愯缁嗘梺鐧戒笌瀵硅瘽銆?
+      title={props.plan?.title || "场景设计稿"}
+      subtitle="先按阶段和结局审阅场景结构，确认后再生成详细旁白与对话。"
       plan={props.plan}
       scenes={props.scenes}
       activeScene={activeDraftScene}
@@ -894,25 +1444,25 @@ function DesignDraftEditor(props: {
       readonly={props.readonly}
       busy={props.busy}
       routeLabel={(scene) => draftSceneRouteLabel(scene as GameDesignDraftScene, props.plan)}
-      markerLabel={(scene) => (scene.marker === "Ending" ? "缁撳眬" : "鍦烘櫙")}
+      markerLabel={(scene) => (scene.marker === "Ending" ? "结局" : "场景")}
       inspector={
         <LaperInspectorShell
-          eyebrow="淇℃伅"
-          title="璁捐绋挎瑙?
+          eyebrow="信息"
+          title="设计稿概览"
           stats={[
-            { label: "鍦烘", value: props.scenes.length },
-            { label: "缁撳眬", value: props.scenes.filter((s) => s.marker === "Ending").length },
-            { label: "鎬昏鏁?, value: props.scenes.reduce((n, s) => n + s.lines.length, 0) }
+            { label: "场次", value: props.scenes.length },
+            { label: "结局", value: props.scenes.filter((s) => s.marker === "Ending").length },
+            { label: "总行数", value: props.scenes.reduce((n, s) => n + s.lines.length, 0) }
           ]}
-          note="纭鍦烘櫙缁撴瀯涓庡鐧藉畨鎺掑悗锛屽啀鐢熸垚璇︾粏鏃佺櫧涓庡璇濄€?
+          note="确认场景结构与对白安排后，再生成详细旁白与对话。"
           footer={
             !props.readonly ? (
               <>
                 <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>
-                  淇濆瓨璁捐绋?
+                  保存设计稿
                 </button>
                 <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>
-                  纭骞剁敓鎴愯缁嗗満鏅?
+                  确认并生成详细场景
                 </button>
               </>
             ) : undefined
@@ -947,8 +1497,8 @@ function SceneEditor(props: {
     return (
       <section className="node-detail">
         <LoadingPlaceholder
-          title="璇︾粏鍦烘櫙杩樺湪鐢熸垚銆?
-          brief="鐢熸垚瀹屾垚鍚庯紝杩欓噷浼氭寜鍦烘櫙灞曠ず鏃佺櫧銆佸鐧藉拰鍒嗘敮鍐呭銆?
+          title="详细场景还在生成。"
+          brief="生成完成后，这里会按场景展示旁白、对白和分支内容。"
         />
       </section>
     );
@@ -957,8 +1507,8 @@ function SceneEditor(props: {
   return (
     <LaperSceneWorkbench
       mode="complete"
-      title={props.plan?.title || "璇︾粏鍦烘櫙"}
-      subtitle="鎸夊満鏅闃呮梺鐧姐€佸鐧藉拰鍒嗘敮鍐呭銆?
+      title={props.plan?.title || "详细场景"}
+      subtitle="按场景审阅旁白、对白和分支内容。"
       plan={props.plan}
       scenes={props.scenes}
       activeScene={props.activeScene}
@@ -974,18 +1524,18 @@ function SceneEditor(props: {
       targetOptions={targetOptions}
       inspector={
         <LaperInspectorShell
-          eyebrow="淇℃伅"
-          title="鍦烘櫙姒傝"
+          eyebrow="信息"
+          title="场景概览"
           stats={[
-            { label: "鍦烘", value: props.scenes.length },
-            { label: "褰撳墠琛屾暟", value: scene.lines.length },
-            { label: "鐘舵€?, value: props.scenesDirty ? "鏈繚瀛? : "宸插悓姝? }
+            { label: "场次", value: props.scenes.length },
+            { label: "当前行数", value: scene.lines.length },
+            { label: "状态", value: props.scenesDirty ? "未保存" : "已同步" }
           ]}
-          note="鎸夊満鏅闃呮梺鐧姐€佸鐧藉拰鍒嗘敮鍐呭锛屼繚瀛樺悗杩涘叆绱犳潗闃舵銆?
+          note="按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"
           footer={
             !props.readonly ? (
               <button className="btn primary" type="button" disabled={props.busy} onClick={props.saveScenes}>
-                淇濆瓨骞剁敓鎴愮礌鏉?
+                保存并生成素材
               </button>
             ) : undefined
           }
