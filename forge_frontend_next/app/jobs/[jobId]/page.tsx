@@ -7,6 +7,7 @@ import { LaperAssetWorkbench } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
+import { withBasePath } from "../../base-path";
 
 type Job = {
   id: string;
@@ -164,11 +165,15 @@ type SceneChoice = {
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/forge${path}`, {
+  const response = await fetch(withBasePath(`/api/forge${path}`), {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const body = await response.text();
+    const isHtml = /^\s*<(?:!DOCTYPE|html\b)/i.test(body);
+    throw new Error(isHtml ? `请求失败（${response.status}）` : body);
+  }
   return response.json() as Promise<T>;
 }
 
@@ -1014,7 +1019,7 @@ export default function JobWorkspacePage() {
         </Link>
         <nav className="nav-links" aria-label="任务导航">
           <Link href="/">新建任务</Link>
-          {data.job.status === "DONE" && <a className="nav-login" href={`/play/${data.job.id}/`} target="_blank">打开游戏</a>}
+          {data.job.status === "DONE" && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
         </nav>
       </header>
 
@@ -1084,7 +1089,7 @@ export default function JobWorkspacePage() {
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
             readonly={autoMode}
-            playUrl={`/play/${data.job.id}/`}
+            playUrl={withBasePath(`/play/${data.job.id}/`)}
           />
         ) : designNode?.exists ? (
           <SceneEditor
