@@ -319,7 +319,7 @@ def _asset_review_item(
         avatar_relative = f"figure/{avatar_name}"
         avatar_path = job_dir / "public" / "game" / avatar_relative
         avatar_exists = avatar_path.exists()
-        avatar_url = f"/play/{job_id}/game/{avatar_relative}"
+        avatar_url = _public_app_path(f"/play/{job_id}/game/{avatar_relative}")
     return {
         "filename": filename,
         "subdir": subdir,
@@ -330,7 +330,7 @@ def _asset_review_item(
         "available_scene": available_scene,
         "scene_display_name": scene_display_name,
         "exists": asset_path.exists(),
-        "url": f"/play/{job_id}/game/{asset_relative}",
+        "url": _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
         "avatar_exists": avatar_exists,
         "avatar_url": avatar_url,
     }
