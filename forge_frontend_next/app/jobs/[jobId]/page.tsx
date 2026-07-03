@@ -170,7 +170,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: jsonInviteHeaders(init?.headers)
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const body = await response.text();
+    const isHtml = /^\s*<(?:!DOCTYPE|html\b)/i.test(body);
+    throw new Error(isHtml ? `请求失败（${response.status}）` : body);
+  }
   return response.json() as Promise<T>;
 }
 
