@@ -40,7 +40,7 @@
   },
   "tts": {
     "enabled": true,
-    "model": "qwen3-tts-instruct-flash-realtime",
+    "model": "qwen3-tts-flash-realtime",
     "max_workers": 1,
     "voices": {
       "male": {

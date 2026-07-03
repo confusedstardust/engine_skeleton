@@ -9,6 +9,7 @@ services:
       WEBGAL_JOBS_DIR: /data/jobs
       WEBGAL_FRONTEND_URL: ${WEBGAL_FRONTEND_URL:?set WEBGAL_FRONTEND_URL}
       WEBGAL_SOUND_EFFECTS_DIR: ${WEBGAL_SOUND_EFFECTS_DIR:-/opt/forge/sound-effects}
+      WEBGAL_INVITE_CODES_FILE: /data/jobs/invite-codes.txt
     volumes:
       - forge_jobs:/data/jobs
       - ${WEBGAL_SOUND_EFFECTS_DIR_HOST:-./deploy/sound-effects}:/opt/forge/sound-effects:ro

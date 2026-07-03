@@ -1,0 +1,62 @@
+name: add-invite-code
+
+on:
+  workflow_dispatch:
+    inputs:
+      invite_code:
+        description: "Invite code to add. Leave empty to generate one."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  add-invite-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      invite_code: ${{ steps.invite.outputs.invite_code }}
+    steps:
+      - name: Resolve invite code
+        id: invite
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="${{ inputs.invite_code }}"
+          if [ -z "$code" ]; then
+            code="$(openssl rand -hex 16)"
+          fi
+          echo "invite_code=$code" >> "$GITHUB_OUTPUT"
+          echo "Invite code: $code"
+
+      - name: Add invite code on remote host
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          INVITE_CODE: ${{ steps.invite.outputs.invite_code }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: INVITE_CODE
+          command_timeout: 2m
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            else
+              echo "Neither 'docker compose' nor 'docker-compose' is installed on the remote host."
+              exit 1
+            fi
+            $COMPOSE_CMD -f docker-compose.prod.yml exec -T -e INVITE_CODE="$INVITE_CODE" backend sh -lc '
+              set -e
+              path="/data/jobs/invite-codes.txt"
+              touch "$path"
+              if ! grep -Fxq "$INVITE_CODE" "$path"; then
+                printf "%s\n" "$INVITE_CODE" >> "$path"
+              fi
+              chmod 600 "$path" || true
+            '

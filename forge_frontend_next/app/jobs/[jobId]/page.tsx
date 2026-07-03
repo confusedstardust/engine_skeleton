@@ -8,6 +8,7 @@ import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 import { withBasePath } from "../../base-path";
+import { jsonInviteHeaders } from "../../invite-identity";
 
 type Job = {
   id: string;
@@ -166,8 +167,8 @@ type SceneChoice = {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge${path}`), {
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init
+    ...init,
+    headers: jsonInviteHeaders(init?.headers)
   });
   if (!response.ok) {
     const body = await response.text();

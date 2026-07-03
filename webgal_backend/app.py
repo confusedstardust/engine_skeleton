@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import mimetypes
 import os
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -42,6 +43,9 @@ pipeline = WebGALPipeline(store)
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
+INVITE_HEADER_NAME = "X-WebGAL-Invite-Code"
+INVITE_CODES_ENV = "WEBGAL_INVITE_CODES"
+INVITE_CODES_FILE_ENV = "WEBGAL_INVITE_CODES_FILE"
 
 
 def _contains_hidden_path(file_path: str) -> bool:
@@ -70,6 +74,73 @@ def _get_job_or_404(job_id: str) -> dict[str, Any]:
         return store.get(job_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _invite_hash(code: str) -> str:
+    return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
+
+
+def _invite_hash_from_entry(entry: str) -> str | None:
+    value = entry.strip()
+    if not value or value.startswith("#"):
+        return None
+    if value.startswith("sha256:"):
+        digest = value.removeprefix("sha256:").strip().lower()
+        return digest if re.fullmatch(r"[a-f0-9]{64}", digest) else None
+    return _invite_hash(value)
+
+
+def _configured_invite_hashes() -> tuple[set[str], bool]:
+    configured = False
+    hashes: set[str] = set()
+
+    raw = os.getenv(INVITE_CODES_ENV, "").strip()
+    if raw:
+        configured = True
+        for item in re.split(r"[\s,;]+", raw):
+            digest = _invite_hash_from_entry(item)
+            if digest:
+                hashes.add(digest)
+
+    file_value = os.getenv(INVITE_CODES_FILE_ENV, "").strip()
+    if file_value:
+        configured = True
+        path = Path(file_value)
+        if not path.is_absolute():
+            path = (settings.workspace_root / path).resolve()
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                digest = _invite_hash_from_entry(line)
+                if digest:
+                    hashes.add(digest)
+
+    return hashes, configured
+
+
+def _identity_from_request(request: Request) -> dict[str, str]:
+    code = unquote(request.headers.get(INVITE_HEADER_NAME) or "").strip()
+    if not code:
+        raise HTTPException(status_code=401, detail="invite code is required")
+    invite_hash = _invite_hash(code)
+    allowed, configured = _configured_invite_hashes()
+    if configured and invite_hash not in allowed:
+        raise HTTPException(status_code=403, detail="invalid invite code")
+    return {"type": "invite", "invite_hash": invite_hash}
+
+
+def _job_belongs_to_identity(job: dict[str, Any], identity: dict[str, str]) -> bool:
+    stored = job.get("identity")
+    if not isinstance(stored, dict):
+        return False
+    return stored.get("type") == identity.get("type") and stored.get("invite_hash") == identity.get("invite_hash")
+
+
+def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
+    identity = _identity_from_request(request)
+    job = _get_job_or_404(job_id)
+    if not _job_belongs_to_identity(job, identity):
+        raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    return job
 
 
 def _job_dir_or_404(job_id: str) -> Path:
@@ -129,40 +200,44 @@ def index() -> RedirectResponse:
 
 
 @app.post("/jobs")
-def create_job(request: CreateJobRequest) -> dict[str, Any]:
-    return store.create(request.source_material, normalize_generation_options(request.options))
+def create_job(request: CreateJobRequest, http_request: Request) -> dict[str, Any]:
+    identity = _identity_from_request(http_request)
+    return store.create(request.source_material, normalize_generation_options(request.options), identity=identity)
 
 
 @app.get("/jobs")
-def list_jobs() -> dict[str, Any]:
+def list_jobs(request: Request) -> dict[str, Any]:
+    identity = _identity_from_request(request)
     jobs = []
     for path in sorted(store.jobs_dir.glob("*/job.json"), key=lambda item: item.stat().st_mtime, reverse=True):
         try:
-            jobs.append(store.get(path.parent.name))
+            job = store.get(path.parent.name)
         except FileNotFoundError:
             continue
+        if _job_belongs_to_identity(job, identity):
+            jobs.append(job)
     return {"jobs": jobs}
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> dict[str, Any]:
-    return _get_job_or_404(job_id)
+def get_job(job_id: str, request: Request) -> dict[str, Any]:
+    return _get_owned_job_or_404(job_id, request)
 
 
 @app.get("/jobs/{job_id}/nodes")
-def get_job_nodes(job_id: str) -> dict[str, Any]:
-    job = _get_job_or_404(job_id)
+def get_job_nodes(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
     job_dir = _job_dir_or_404(job_id)
     nodes = [artifacts.node_payload(job_dir, item) for item in artifacts.NODE_ARTIFACTS]
     return {"job": job, "nodes": nodes, "scenes": artifacts.scene_payloads(job_dir)}
 
 
 @app.patch("/jobs/{job_id}/artifacts")
-def update_artifact(job_id: str, request: ArtifactUpdateRequest) -> dict[str, Any]:
+def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: Request) -> dict[str, Any]:
     if contains_hidden_path(request.path):
         raise HTTPException(status_code=404, detail="artifact not found")
     try:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         path = store.artifact_path(job_id, request.path)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -183,13 +258,13 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest) -> dict[str, An
         raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}") from exc
 
     store.record_artifact(job, artifacts.artifact_key_for_path(relative), relative)
-    return {"job": _get_job_or_404(job_id), "path": relative, "saved": True}
+    return {"job": _get_owned_job_or_404(job_id, http_request), "path": relative, "saved": True}
 
 
 @app.post("/jobs/{job_id}/narrative-node")
-def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest) -> dict[str, Any]:
+def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest, http_request: Request) -> dict[str, Any]:
     try:
-        _get_job_or_404(job_id)
+        _get_owned_job_or_404(job_id, http_request)
         plan = request.narrative_plan or _read_narrative_plan(job_id)
         node = generate_narrative_node_payload(
             job_dir=store.job_dir(job_id),
@@ -206,16 +281,16 @@ def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest) 
 
 
 @app.post("/jobs/{job_id}/narrative-structure/sync")
-def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest) -> dict[str, Any]:
+def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest, http_request: Request) -> dict[str, Any]:
     try:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         plan = dict(request.narrative_plan)
         plan["narrative_structure"] = build_synced_narrative_structure(plan)
         path = store.artifact_path(job_id, "state/narrative_plan.json")
         write_json(path, plan)
         store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
         return {
-            "job": _get_job_or_404(job_id),
+            "job": _get_owned_job_or_404(job_id, http_request),
             "narrative_plan": plan,
             "narrative_structure": plan["narrative_structure"],
             "issues": narrative_structure_issues(plan),
@@ -337,8 +412,8 @@ def _asset_review_item(
 
 
 @app.get("/jobs/{job_id}/assets/review")
-def get_asset_review(job_id: str) -> dict[str, Any]:
-    job = _get_job_or_404(job_id)
+def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
     job_dir = _job_dir_or_404(job_id)
     manifest_path = job_dir / "assets_manifest.json"
     if not manifest_path.exists():
@@ -359,21 +434,26 @@ def get_asset_review(job_id: str) -> dict[str, Any]:
 
 
 @app.post("/jobs/{job_id}/assets/regenerate")
-def regenerate_asset(job_id: str, request: AssetRegenerateRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+def regenerate_asset(
+    job_id: str,
+    request: AssetRegenerateRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+) -> dict[str, Any]:
     filename = request.filename.replace("\\", "/").split("/")[-1].removesuffix(".webp")
     if not filename or filename.startswith("."):
         raise HTTPException(status_code=400, detail="invalid asset filename")
     if request.background:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
         job["status"] = "QUEUED"
         job["phase"] = "ASSET_GENERATION"
         store.save(job)
         return {"job": job, "queued": True, "filename": filename}
     try:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         image = pipeline.regenerate_asset_image(job, filename, request.prompt)
-        return {"job": _get_job_or_404(job_id), "queued": False, "asset": image}
+        return {"job": _get_owned_job_or_404(job_id, http_request), "queued": False, "asset": image}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
@@ -381,9 +461,10 @@ def regenerate_asset(job_id: str, request: AssetRegenerateRequest, background_ta
 
 
 @app.post("/jobs/{job_id}/run")
-def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks, http_request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, http_request)
     if request.background:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_pipeline_background, job_id)
         job["status"] = "QUEUED"
         store.save(job)
@@ -401,12 +482,14 @@ def run_phase(
     job_id: str,
     phase: str,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     request: RunJobRequest = RunJobRequest(),
 ) -> dict[str, Any]:
     if phase not in pipeline.phase_names():
         raise HTTPException(status_code=422, detail=f"unknown phase: {phase}")
+    _get_owned_job_or_404(job_id, http_request)
     if request.background:
-        job = _get_job_or_404(job_id)
+        job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_phase_background, job_id, phase)
         job["status"] = "QUEUED"
         job["phase"] = phase.upper()
@@ -421,7 +504,8 @@ def run_phase(
 
 
 @app.get("/jobs/{job_id}/artifacts")
-def list_artifacts(job_id: str) -> dict[str, Any]:
+def list_artifacts(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
     try:
         return {"job_id": job_id, "artifacts": store.list_artifacts(job_id)}
     except FileNotFoundError as exc:
@@ -429,9 +513,10 @@ def list_artifacts(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/jobs/{job_id}/artifacts/{artifact_path:path}")
-def get_artifact(job_id: str, artifact_path: str) -> FileResponse:
+def get_artifact(job_id: str, artifact_path: str, request: Request) -> FileResponse:
     if contains_hidden_path(artifact_path):
         raise HTTPException(status_code=404, detail="artifact not found")
+    _get_owned_job_or_404(job_id, request)
     try:
         path = store.artifact_path(job_id, artifact_path)
     except FileNotFoundError as exc:

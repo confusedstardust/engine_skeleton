@@ -31,7 +31,12 @@ class JobStore:
         self.jobs_dir = jobs_dir or settings.jobs_dir
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
 
-    def create(self, source_material: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create(
+        self,
+        source_material: str,
+        options: dict[str, Any] | None = None,
+        identity: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         job_dir = self.job_dir(job_id)
         (job_dir / "state").mkdir(parents=True, exist_ok=True)
@@ -46,6 +51,7 @@ class JobStore:
             "phase": None,
             "source_material": source_material,
             "options": options or {},
+            "identity": identity or {},
             "error": None,
             "created_at": utc_now(),
             "updated_at": utc_now(),

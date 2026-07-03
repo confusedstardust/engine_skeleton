@@ -22,7 +22,7 @@ else:
     _IMPORT_ERROR = None
 
 
-DEFAULT_QWEN_TTS_MODEL = "qwen3-tts-instruct-flash-realtime"
+DEFAULT_QWEN_TTS_MODEL = "qwen3-tts-flash-realtime"
 DEFAULT_QWEN_TTS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 DEFAULT_QWEN_TTS_VOICE = "Cherry"
 DEFAULT_SAMPLE_RATE = 24000

@@ -131,7 +131,7 @@ def _repair_scene_lines(
     lines: list[str],
     relative_file: str,
     character_avatars: dict[str, str],
-    vocal_map: dict[tuple[str, int], str],
+    vocal_map: dict[str, Any],
 ) -> tuple[list[str], list[ValidationIssue], list[AppliedFix]]:
     issues: list[ValidationIssue] = []
     fixes: list[AppliedFix] = []
@@ -193,8 +193,10 @@ def _repair_scene_lines(
                 stage_positions[position] = figure
                 transition_line = _transition_line_for_change_figure(line, position, lines[line_index + 1 :])
 
-        vocal_filename = vocal_map.get((relative_file.replace("public/game/scene/", ""), original_index))
-        if vocal_filename and _dialogue_speaker(line) and not _has_vocal_arg(line):
+        scene_name = relative_file.replace("public/game/scene/", "")
+        dialogue = _dialogue_identity(line)
+        vocal_filename = _match_vocal_filename(vocal_map, scene_name, original_index, dialogue)
+        if vocal_filename and dialogue and not _has_vocal_arg(line):
             line = _add_vocal_arg(line, vocal_filename)
             fixes.append(
                 AppliedFix(
@@ -265,18 +267,72 @@ def _dialogue_speaker(line: str) -> str | None:
     return speaker or None
 
 
+def _dialogue_identity(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(";") or stripped.startswith("//"):
+        return None
+    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "playEffect:", "end")):
+        return None
+    match = re.match(r"^(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]*?)\s*[\uFF1A:]\s*(?P<body>.+?)\s*;?\s*$", stripped)
+    if not match:
+        return None
+    speaker = match.group("speaker").strip()
+    if speaker in {"if", "label", "jumpLabel", "callScene"}:
+        return None
+    text = _strip_dialogue_args(match.group("body").strip()).strip().strip('"').strip("'").strip()
+    if not speaker or not text:
+        return None
+    return speaker, text
+
+
+def _strip_dialogue_args(text: str) -> str:
+    text = text.rstrip(";").strip()
+    arg_match = re.search(r"\s-[A-Za-z][A-Za-z0-9_-]*(?:=|\s|$)", text)
+    if arg_match:
+        return text[: arg_match.start()].strip()
+    return text
+
+
+def _match_vocal_filename(
+    vocal_map: dict[str, Any],
+    scene_name: str,
+    line_no: int,
+    dialogue: tuple[str, str] | None,
+) -> str | None:
+    if dialogue is None:
+        return None
+
+    by_line = vocal_map.get("by_line", {})
+    direct_item = by_line.get((scene_name, line_no))
+    if direct_item and _vocal_item_matches_dialogue(direct_item, dialogue):
+        return str(direct_item.get("filename") or "")
+
+    by_dialogue = vocal_map.get("by_dialogue", {})
+    candidates = by_dialogue.get((scene_name, dialogue[0], dialogue[1]))
+    if not candidates:
+        return None
+    while candidates:
+        filename = str(candidates.pop(0) or "")
+        if filename:
+            return filename
+    return None
+
+
+def _vocal_item_matches_dialogue(item: dict[str, Any], dialogue: tuple[str, str]) -> bool:
+    speaker, text = dialogue
+    return str(item.get("speaker") or "").strip() == speaker and str(item.get("text") or "").strip() == text
+
+
 def _add_vocal_arg(line: str, filename: str) -> str:
     stripped = line.rstrip()
-    suffix = f" -{filename}"
+    suffix = f" -vocal=./game/vocal/{filename}"
     if stripped.endswith(";"):
         return f"{stripped[:-1]}{suffix};"
     return f"{stripped}{suffix};"
 
 
 def _has_vocal_arg(line: str) -> bool:
-    if "-vocal=" in line:
-        return True
-    return bool(re.search(r"\s-[^\s;]+\.(mp3|wav|ogg|m4a)(\s|;|$)", line, flags=re.IGNORECASE))
+    return bool(re.search(r"\s-vocal(?:=|\s)", line, flags=re.IGNORECASE))
 
 
 def _parse_change_figure(line: str) -> tuple[str, str] | None:
@@ -542,26 +598,36 @@ def _character_avatar_map(job_dir: Path) -> dict[str, str]:
     return mapping
 
 
-def _tts_vocal_map(job_dir: Path) -> dict[tuple[str, int], str]:
+def _tts_vocal_map(job_dir: Path) -> dict[str, Any]:
     manifest_path = job_dir / "state" / "tts_manifest.json"
     vocal_dir = job_dir / "public" / "game" / "vocal"
+    empty_map: dict[str, Any] = {"by_line": {}, "by_dialogue": {}}
     if not manifest_path.exists() or not vocal_dir.exists():
-        return {}
+        return empty_map
 
     manifest = read_json(manifest_path)
-    mapping: dict[tuple[str, int], str] = {}
+    mapping: dict[str, Any] = {"by_line": {}, "by_dialogue": {}}
     for item in manifest.get("items", []):
         status = item.get("status")
         filename = str(item.get("filename", "")).strip()
         scene = str(item.get("scene", "")).strip()
         line_no = item.get("line_no")
+        speaker = str(item.get("speaker") or "").strip()
+        text = str(item.get("text") or "").strip()
         if status not in {"completed", "skipped_existing"} or not filename or not scene:
             continue
         if not isinstance(line_no, int):
             continue
         if not (vocal_dir / filename).exists():
             continue
-        mapping[(scene, line_no)] = filename
+        normalized_item = {
+            "filename": filename,
+            "speaker": speaker,
+            "text": text,
+        }
+        mapping["by_line"][(scene, line_no)] = normalized_item
+        if speaker and text:
+            mapping["by_dialogue"].setdefault((scene, speaker, text), []).append(filename)
     return mapping
 
 

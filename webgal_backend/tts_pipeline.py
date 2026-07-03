@@ -98,7 +98,7 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
     volume = int(limits.get("volume", 50))
     speech_rate = _rate_value(limits.get("speech_rate", limits.get("speed", 1.0)))
     pitch_rate = _rate_value(limits.get("pitch_rate", limits.get("pitch", 1.0)))
-    model = str(limits.get("model", "qwen3-tts-instruct-flash-realtime"))
+    model = str(limits.get("model", "qwen3-tts-flash-realtime"))
     url = str(limits.get("url", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"))
     optimize_instructions = bool(limits.get("optimize_instructions", True))
 
@@ -143,11 +143,8 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
 
 def _tts_selection(options: dict[str, Any]) -> dict[str, Any]:
     limits = generation_limits().get("tts", {})
-    scope = str(options.get("tts_scope") or options.get("voice_scope") or limits.get("scope") or "key_lines").strip()
-    if scope not in {"key_lines", "all"}:
-        scope = "key_lines"
     return {
-        "scope": scope,
+        "scope": "key_lines",
         "max_lines_per_scene": _positive_int(
             options.get("tts_max_lines_per_scene") or limits.get("max_lines_per_scene"),
             3,
