@@ -51,6 +51,9 @@ jobs:
               echo "Neither 'docker compose' nor 'docker-compose' is installed on the remote host."
               exit 1
             fi
+            BACKEND_IMAGE=invite-code-placeholder \
+            FRONTEND_IMAGE=invite-code-placeholder \
+            WEBGAL_FRONTEND_URL=http://127.0.0.1:3001 \
             $COMPOSE_CMD -f docker-compose.prod.yml exec -T -e INVITE_CODE="$INVITE_CODE" backend sh -lc '
               set -e
               path="/data/jobs/invite-codes.txt"
