@@ -3,7 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 import json
+import os
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from webgal_backend import game_design
 from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
@@ -93,6 +96,54 @@ class BackendContractTests(unittest.TestCase):
             self.assertEqual(_public_app_path("/play/job-1/assets/file.css"), "/play/job-1/assets/file.css")
         finally:
             backend_app.frontend_url = original
+
+    def test_job_apis_are_scoped_by_invite_code(self) -> None:
+        import webgal_backend.app as backend_app
+
+        original_store = backend_app.store
+        original_file = os.environ.get("WEBGAL_INVITE_CODES_FILE")
+        original_codes = os.environ.get("WEBGAL_INVITE_CODES")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                invite_file = tmp_path / "invite-codes.txt"
+                invite_file.write_text("alpha\nbeta\n内测码一\n", encoding="utf-8")
+                os.environ["WEBGAL_INVITE_CODES_FILE"] = str(invite_file)
+                os.environ.pop("WEBGAL_INVITE_CODES", None)
+                backend_app.store = JobStore(tmp_path / "jobs")
+                client = TestClient(backend_app.app)
+
+                payload = {"source_material": "lesson", "options": VALID_OPTIONS}
+                alpha_created = client.post("/jobs", json=payload, headers={"X-WebGAL-Invite-Code": "alpha"})
+                beta_created = client.post("/jobs", json=payload, headers={"X-WebGAL-Invite-Code": "beta"})
+
+                self.assertEqual(alpha_created.status_code, 200)
+                self.assertEqual(beta_created.status_code, 200)
+                alpha_id = alpha_created.json()["id"]
+                beta_id = beta_created.json()["id"]
+
+                alpha_jobs = client.get("/jobs", headers={"X-WebGAL-Invite-Code": "alpha"})
+                self.assertEqual(alpha_jobs.status_code, 200)
+                self.assertEqual([job["id"] for job in alpha_jobs.json()["jobs"]], [alpha_id])
+
+                self.assertEqual(client.get(f"/jobs/{alpha_id}", headers={"X-WebGAL-Invite-Code": "alpha"}).status_code, 200)
+                self.assertEqual(client.get(f"/jobs/{beta_id}", headers={"X-WebGAL-Invite-Code": "alpha"}).status_code, 404)
+                self.assertEqual(
+                    client.post("/jobs", json=payload, headers={"X-WebGAL-Invite-Code": "%E5%86%85%E6%B5%8B%E7%A0%81%E4%B8%80"}).status_code,
+                    200,
+                )
+                self.assertEqual(client.get("/jobs").status_code, 401)
+                self.assertEqual(client.post("/jobs", json=payload, headers={"X-WebGAL-Invite-Code": "missing"}).status_code, 403)
+        finally:
+            backend_app.store = original_store
+            if original_file is None:
+                os.environ.pop("WEBGAL_INVITE_CODES_FILE", None)
+            else:
+                os.environ["WEBGAL_INVITE_CODES_FILE"] = original_file
+            if original_codes is None:
+                os.environ.pop("WEBGAL_INVITE_CODES", None)
+            else:
+                os.environ["WEBGAL_INVITE_CODES"] = original_codes
 
     def test_pipeline_phase_registry_keeps_aliases_available(self) -> None:
         pipeline = WebGALPipeline()
@@ -480,6 +531,34 @@ class BackendContractTests(unittest.TestCase):
         )
         self.assertEqual(command, "playEffect:./game/vocal/door-open.mp3 -volume=75 -next;")
 
+    def test_vocal_arg_falls_back_to_dialogue_match_when_line_number_shifts(self) -> None:
+        lines = [
+            "playEffect:./game/vocal/door-open.mp3 -volume=75 -next;",
+            "Hero: Why can I not return?;",
+        ]
+        vocal_map = {
+            "by_line": {
+                ("start.txt", 1): {
+                    "filename": "start_001_hero.wav",
+                    "speaker": "Hero",
+                    "text": "Why can I not return?",
+                }
+            },
+            "by_dialogue": {
+                ("start.txt", "Hero", "Why can I not return?"): ["start_001_hero.wav"]
+            },
+        }
+
+        repaired, _issues, fixes = _repair_scene_lines(
+            lines,
+            "public/game/scene/start.txt",
+            {},
+            vocal_map,
+        )
+
+        self.assertIn("Hero: Why can I not return? -vocal=./game/vocal/start_001_hero.wav;", repaired)
+        self.assertTrue(any(fix.code == "missing_vocal_arg" for fix in fixes))
+
     def test_choose_parser_respects_escaped_separators(self) -> None:
         line = r"choose:说出\:留下来:branch_1.txt|沉默\|点头:branch_2.txt;"
         self.assertEqual(
@@ -591,7 +670,8 @@ class BackendContractTests(unittest.TestCase):
                 character_voices={"Hero": ["Ethan", ""]},
                 selection_options={"tts_scope": "all"},
             )
-            self.assertEqual(len([item for item in full_manifest["items"] if item["status"] == "pending"]), 7)
+            self.assertEqual(full_manifest["selection"]["scope"], "key_lines")
+            self.assertLess(len([item for item in full_manifest["items"] if item["status"] == "pending"]), 7)
 
     def test_job_store_rejects_non_uuid_job_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

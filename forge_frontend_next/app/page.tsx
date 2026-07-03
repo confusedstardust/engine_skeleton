@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { withBasePath } from "./base-path";
+import { getStoredInviteCode, jsonInviteHeaders } from "./invite-identity";
 
 type Choice = {
   name: string;
@@ -38,8 +40,8 @@ const voicePresets = ["古风男声", "古风女声", "少年声", "旁白声", 
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge${path}`), {
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init
+    ...init,
+    headers: jsonInviteHeaders(init?.headers)
   });
   if (!response.ok) {
     throw new Error(await response.text());
@@ -84,7 +86,6 @@ export default function ClassroomGeneratorPage() {
   const [taskCount, setTaskCount] = useState(6);
   const [voiceOn, setVoiceOn] = useState(false);
   const [voice, setVoice] = useState("");
-  const [ttsScope, setTtsScope] = useState<"key_lines" | "all">("key_lines");
   const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
   const [allowMissingAssets, setAllowMissingAssets] = useState(true);
   const [generateAssets, setGenerateAssets] = useState(false);
@@ -101,6 +102,11 @@ export default function ClassroomGeneratorPage() {
     const title = topic.trim();
     if (!canGenerate) {
       setMessage(generateBlockReason);
+      return;
+    }
+    if (!getStoredInviteCode()) {
+      setMessage("请先输入邀请码，生成任务会绑定到这个邀请码身份下。");
+      router.push("/login");
       return;
     }
 
@@ -137,7 +143,7 @@ export default function ClassroomGeneratorPage() {
             voice_enabled: voiceOn,
             generate_tts: voiceOn,
             voice_preset: voiceOn ? voice || voicePresets[0] : "",
-            tts_scope: ttsScope,
+            tts_scope: "key_lines",
             tts_max_lines_per_scene: 3,
             tts_max_total_lines: 60,
             output_packages: Array.from(checkedPackages)
@@ -186,10 +192,10 @@ export default function ClassroomGeneratorPage() {
           </div>
         </div>
         <nav className="nav-links" aria-label="主导航">
-          <a href="#library">我的游戏库</a>
-          <a href="#templates">资源模板</a>
-          <a href="#history">生成记录</a>
-          <a className="nav-login" href="#login">账号登录</a>
+          <Link href="/history">我的游戏库</Link>
+          <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
+          <Link href="/history">生成记录</Link>
+          <Link className="nav-login" href="/login">邀请码</Link>
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单">
           <span />
@@ -200,10 +206,10 @@ export default function ClassroomGeneratorPage() {
 
       {mobileOpen && (
         <nav className="mobile-menu" aria-label="移动端导航">
-          <a href="#library">我的游戏库</a>
-          <a href="#templates">资源模板</a>
-          <a href="#history">生成记录</a>
-          <a className="mobile-login" href="#login">账号登录</a>
+          <Link href="/history">我的游戏库</Link>
+          <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
+          <Link href="/history">生成记录</Link>
+          <Link className="mobile-login" href="/login">邀请码</Link>
         </nav>
       )}
 
@@ -301,8 +307,7 @@ export default function ClassroomGeneratorPage() {
                       ))}
                     </div>
                     <div className="voice-options">
-                      <button className={ttsScope === "key_lines" ? "selected" : ""} type="button" onClick={() => setTtsScope("key_lines")}>关键句配音</button>
-                      <button className={ttsScope === "all" ? "selected" : ""} type="button" onClick={() => setTtsScope("all")}>全部台词</button>
+                      <button className="selected" type="button">关键句配音</button>
                     </div>
                   </>
                 )}
@@ -326,8 +331,8 @@ export default function ClassroomGeneratorPage() {
             </FormSection>
 
             <div className="form-actions">
-              <button className="btn ghost" type="button">保存草稿</button>
-              <button className="btn outline" type="button">预览方案</button>
+              <button className="btn ghost" type="button" disabled title="草稿箱即将开放">保存草稿</button>
+              <button className="btn outline" type="button" disabled title="预览方案将在生成前校验接入后开放">预览方案</button>
               <span />
               <button
                 className="btn primary"
