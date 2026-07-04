@@ -653,6 +653,20 @@ export default function JobWorkspacePage() {
   const scenePlanContent = scenePlanNode?.content || null;
   const scenePlan = useMemo(() => parseScenePlan(scenePlanContent), [scenePlanContent]);
   const isGenerating = data?.job.status === "RUNNING" || data?.job.status === "QUEUED";
+  const activePhase = data?.job.phase || "";
+  const isDesignDraftRunning = isGenerating && activePhase === "GAME_DESIGN" && !rawDesignNode?.exists;
+  const isDesignCompletionRunning = isGenerating && activePhase === "GAME_DESIGN_COMPLETION" && !designNode?.exists;
+  const assetGenerationPhases = new Set(["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION"]);
+  const isAssetGenerationRunning = isGenerating && assetGenerationPhases.has(activePhase);
+  const gameBuildPhases = new Set([
+    "GAME_BUILD",
+    "SCRIPT_REWRITE",
+    "SOUND_EFFECT_PLANNING",
+    "TTS_GENERATION",
+    "SCENE_WRITING",
+    "VALIDATING"
+  ]);
+  const isGameBuildRunning = isGenerating && gameBuildPhases.has(activePhase);
   const autoMode = data?.job.options?.generation_mode === "auto";
   const assetPhases = new Set([
     "ASSET_REVIEW",
@@ -665,8 +679,8 @@ export default function JobWorkspacePage() {
     "SCENE_WRITING",
     "VALIDATING"
   ]);
-  const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(data?.job.phase || "") || data?.job.status === "DONE";
-  const outlineLocked = autoMode || outlineSubmitted || Boolean(designNode?.exists) || data?.job.phase === "GAME_DESIGN" || inAssetOrBuildStage;
+  const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(activePhase) || data?.job.status === "DONE";
+  const outlineLocked = autoMode || outlineSubmitted || Boolean(designNode?.exists) || activePhase === "GAME_DESIGN" || activePhase === "GAME_DESIGN_COMPLETION" || inAssetOrBuildStage;
   const scenesLocked = autoMode || inAssetOrBuildStage;
   const canOpenScenes = outlineLocked || Boolean(rawDesignNode?.exists) || Boolean(designNode?.exists);
   const canOpenAssets = inAssetOrBuildStage;
@@ -1045,7 +1059,10 @@ export default function JobWorkspacePage() {
         </section>
 
         <div className="workspace-status workflow-status">
-          <strong>{data.job.phase || "等待中"}</strong>
+          <strong>
+            {isGenerating ? <span className="inline-spinner" aria-hidden="true" /> : null}
+            {data.job.phase || "等待中"}
+          </strong>
           <span>{data.job.error || message}</span>
         </div>
 
@@ -1089,6 +1106,8 @@ export default function JobWorkspacePage() {
             regenerateAsset={regenerateAsset}
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
+            assetsGenerating={isAssetGenerationRunning}
+            gameBuilding={isGameBuildRunning}
             readonly={autoMode}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
           />
@@ -1115,6 +1134,8 @@ export default function JobWorkspacePage() {
             busy={busy || isGenerating}
             dirty={designDraftDirty}
             readonly={autoMode}
+            generatingDraft={isDesignDraftRunning}
+            generatingCompletion={isDesignCompletionRunning}
             onChange={updateDesignDraftScenes}
             saveDesignDraft={saveDesignDraft}
             completeDesignDraft={completeDesignDraft}
@@ -1136,6 +1157,8 @@ function AssetReviewPanel(props: {
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   buildGame: () => Promise<void>;
   gameReady: boolean;
+  assetsGenerating: boolean;
+  gameBuilding: boolean;
   readonly: boolean;
   playUrl: string;
 }) {
@@ -1149,6 +1172,28 @@ function AssetReviewPanel(props: {
           <span>素材和脚本已经写入游戏目录，现在可以直接打开试玩。</span>
           <a className="btn primary" href={props.playUrl} target="_blank">打开游戏</a>
         </div>
+      </section>
+    );
+  }
+
+  if (props.assetsGenerating) {
+    return (
+      <section className="node-detail">
+        <LoadingPlaceholder
+          title="素材正在生成。"
+          brief="系统正在生成角色和场景图片。部分素材可能已经完成，但需要等全部素材阶段结束后再确认并生成游戏。"
+        />
+      </section>
+    );
+  }
+
+  if (props.gameBuilding) {
+    return (
+      <section className="node-detail">
+        <LoadingPlaceholder
+          title="游戏正在生成。"
+          brief="系统正在把素材、脚本、音效和配音写入 WebGAL 游戏目录，完成后会自动显示打开游戏入口。"
+        />
       </section>
     );
   }
@@ -1401,6 +1446,8 @@ function DesignDraftEditor(props: {
   busy: boolean;
   dirty: boolean;
   readonly: boolean;
+  generatingDraft: boolean;
+  generatingCompletion: boolean;
   onChange: (scenes: GameDesignDraftScene[]) => void;
   saveDesignDraft: () => void;
   completeDesignDraft: () => void;
@@ -1415,12 +1462,23 @@ function DesignDraftEditor(props: {
     }
   }, [activeDraftScene, props.scenes.length]);
 
-  if (!props.exists) {
+  if (props.generatingDraft || !props.exists) {
     return (
       <section className="node-detail">
         <LoadingPlaceholder
           title="场景设计稿还在生成。"
           brief="生成完成后，这里会按场景卡片展示，确认后再生成详细旁白和对话。"
+        />
+      </section>
+    );
+  }
+
+  if (props.generatingCompletion) {
+    return (
+      <section className="node-detail">
+        <LoadingPlaceholder
+          title="详细场景正在生成。"
+          brief="系统正在根据场景设计稿补全旁白、对话和分支内容，完成后会自动进入逐场景审阅。"
         />
       </section>
     );
