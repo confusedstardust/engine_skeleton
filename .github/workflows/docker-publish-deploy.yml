@@ -112,7 +112,7 @@ jobs:
   deploy:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 240
     needs:
       - build-backend
       - build-frontend
@@ -142,7 +142,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: VERSION_TAG,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
-          command_timeout: 60m
+          command_timeout: 240m
           script: |
             set -e
             mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
@@ -159,5 +159,23 @@ jobs:
               echo "Neither 'docker compose' nor 'docker-compose' is installed on the remote host."
               exit 1
             fi
-            $COMPOSE_CMD -f docker-compose.prod.yml pull
+            timed_retry() {
+              name="$1"
+              shift
+              echo "[$(date -Is)] Starting $name"
+              for attempt in 1 2 3 4 5; do
+                if "$@"; then
+                  echo "[$(date -Is)] Finished $name"
+                  return 0
+                fi
+                echo "[$(date -Is)] $name failed, retry $attempt/5..."
+                sleep 20
+              done
+              echo "[$(date -Is)] $name failed after retries"
+              return 1
+            }
+            timed_retry "pull backend image" $COMPOSE_CMD -f docker-compose.prod.yml pull backend
+            timed_retry "pull frontend image" $COMPOSE_CMD -f docker-compose.prod.yml pull frontend
+            echo "[$(date -Is)] Starting docker compose up"
             $COMPOSE_CMD -f docker-compose.prod.yml up -d
+            echo "[$(date -Is)] Finished docker compose up"
