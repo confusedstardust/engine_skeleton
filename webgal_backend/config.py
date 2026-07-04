@@ -81,7 +81,9 @@ class Settings:
     llm_max_tokens: int | None
     asset_scripts_dir: Path
     sound_effects_dir: Path
+    image_base_url: str
     image_model: str
+    image_api_key_env: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -123,7 +125,17 @@ class Settings:
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
             sound_effects_dir=sound_effects_dir,
-            image_model=os.getenv("ARK_IMAGE_MODEL", "doubao-seedream-4-5-251128"),
+            image_base_url=(
+                os.getenv("WEBGAL_IMAGE_BASE_URL")
+                or os.getenv("ARK_IMAGE_BASE_URL")
+                or "https://ark.cn-beijing.volces.com/api/v3"
+            ).rstrip("/"),
+            image_model=(
+                os.getenv("WEBGAL_IMAGE_MODEL")
+                or os.getenv("ARK_IMAGE_MODEL")
+                or "doubao-seedream-4-5-251128"
+            ),
+            image_api_key_env=(os.getenv("WEBGAL_IMAGE_API_KEY_ENV") or "ARK_API_KEY"),
         )
 
 

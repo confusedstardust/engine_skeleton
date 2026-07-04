@@ -1739,7 +1739,11 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             raise PipelineError(f"asset scripts directory does not exist: {scripts}")
 
         (job_dir / "public" / "game").mkdir(parents=True, exist_ok=True)
-        extra_env = {}
+        extra_env = {
+            "WEBGAL_IMAGE_BASE_URL": settings.image_base_url,
+            "WEBGAL_IMAGE_MODEL": settings.image_model,
+            "WEBGAL_IMAGE_API_KEY_ENV": settings.image_api_key_env,
+        }
         ark_api_key = os.getenv("ARK_API_KEY")
         if ark_api_key:
             extra_env["ARK_API_KEY"] = ark_api_key
