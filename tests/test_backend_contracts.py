@@ -556,8 +556,32 @@ class BackendContractTests(unittest.TestCase):
             vocal_map,
         )
 
-        self.assertIn("Hero: Why can I not return? -vocal=./game/vocal/start_001_hero.wav;", repaired)
+        self.assertIn("Hero: Why can I not return? -start_001_hero.wav;", repaired)
         self.assertTrue(any(fix.code == "missing_vocal_arg" for fix in fixes))
+
+    def test_existing_bare_vocal_filename_arg_is_not_duplicated(self) -> None:
+        lines = ["Hero: Why can I not return? -start_001_hero.wav;"]
+        vocal_map = {
+            "by_line": {
+                ("start.txt", 1): {
+                    "filename": "start_001_hero.wav",
+                    "speaker": "Hero",
+                    "text": "Why can I not return?",
+                }
+            },
+            "by_dialogue": {},
+        }
+
+        repaired, _issues, fixes = _repair_scene_lines(
+            lines,
+            "public/game/scene/start.txt",
+            {},
+            vocal_map,
+        )
+
+        self.assertEqual(repaired[0], lines[0])
+        self.assertEqual(repaired[0].count("-start_001_hero.wav"), 1)
+        self.assertFalse(any(fix.code == "missing_vocal_arg" for fix in fixes))
 
     def test_choose_parser_respects_escaped_separators(self) -> None:
         line = r"choose:说出\:留下来:branch_1.txt|沉默\|点头:branch_2.txt;"

@@ -1539,6 +1539,9 @@ a {
 }
 
 .workspace-status strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--cinnabar);
 }
 

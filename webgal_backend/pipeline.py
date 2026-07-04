@@ -518,48 +518,63 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
             raise PipelineError("game_design_webgal.txt is required before sound effect insertion")
 
         assets = self._load_sound_effect_assets()
+        bgm_assets = self._load_bgm_assets()
         available_assets = [item for item in assets if isinstance(item, dict) and bool(item.get("available"))]
+        available_bgm = any(bgm_assets.get(kind) for kind in ("opening", "dialog", "ending"))
         write_json(job_dir / "state" / "sound_effect_assets.json", assets)
+        write_json(job_dir / "state" / "bgm_assets.json", bgm_assets)
         self.store.record_artifact(job, "sound_effect_assets", "state/sound_effect_assets.json")
+        self.store.record_artifact(job, "bgm_assets", "state/bgm_assets.json")
 
-        if not available_assets:
+        if not available_assets and not available_bgm:
             write_json(job_dir / "state" / "sound_effect_plan.json", [])
+            write_json(job_dir / "state" / "bgm_plan.json", [])
             self.store.record_artifact(job, "sound_effect_plan", "state/sound_effect_plan.json")
+            self.store.record_artifact(job, "bgm_plan", "state/bgm_plan.json")
             self._write_stage_event(
                 job,
                 6,
                 "音效编排",
                 "sound_effect_plan",
                 "skipped",
-                f"sound effects directory unavailable or empty: {settings.sound_effects_dir}",
+                f"sound effects and bgm directory unavailable or empty: {settings.sound_effects_dir}",
             )
             self.store.transition(job, "SOUND_EFFECTS_READY", "SOUND_EFFECT_PLANNING")
             return
 
         with self._trace_stage(job, 6, "音效编排", "sound_effect_plan", "state/sound_effect_plan.json"):
-            try:
-                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-            except TypeError:
-                llm = self.llm_factory()
+            if available_assets:
+                try:
+                    llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+                except TypeError:
+                    llm = self.llm_factory()
 
-            system_prompt = f"""{SYSTEM_PROMPT}
+                system_prompt = f"""{SYSTEM_PROMPT}
 
 Current phase: sound_effect_planning
 Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fences."""
-            text = llm.call_text(
-                "sound_effect_planning",
-                system_prompt,
-                sound_effect_prompt(original_text, available_assets),
-                thinking="disabled",
-            )
-            plan = self._normalize_sound_effect_plan(self._parse_sound_effect_plan_text(text), available_assets)
+                text = llm.call_text(
+                    "sound_effect_planning",
+                    system_prompt,
+                    sound_effect_prompt(original_text, available_assets),
+                    thinking="disabled",
+                )
+                plan = self._normalize_sound_effect_plan(self._parse_sound_effect_plan_text(text), available_assets)
+            else:
+                plan = []
             write_json(job_dir / "state" / "sound_effect_plan.json", plan)
             self.store.record_artifact(job, "sound_effect_plan", "state/sound_effect_plan.json")
 
             script_text = webgal_path.read_text(encoding="utf-8")
-            inserted_text, insertion_report = self._insert_sound_effects(script_text, plan)
+            bgm_plan = self._build_bgm_plan(script_text, bgm_assets)
+            write_json(job_dir / "state" / "bgm_plan.json", bgm_plan)
+            self.store.record_artifact(job, "bgm_plan", "state/bgm_plan.json")
+
+            with_bgm_text, bgm_report = self._insert_bgm(script_text, bgm_plan)
+            inserted_text, insertion_report = self._insert_sound_effects(with_bgm_text, plan)
             webgal_path.write_text(inserted_text.rstrip() + "\n", encoding="utf-8")
             self._copy_sound_effect_files(job_dir, insertion_report)
+            self._copy_bgm_files(job_dir, bgm_report)
 
         self.store.transition(job, "SOUND_EFFECTS_READY", "SOUND_EFFECT_PLANNING")
 
@@ -719,6 +734,153 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             entry["available"] = directory_exists and filename in available_files
             normalized.append(entry)
         return normalized
+
+    def _load_bgm_assets(self) -> dict[str, list[str]]:
+        assets: dict[str, list[str]] = {"opening": [], "dialog": [], "ending": []}
+        if not settings.sound_effects_dir.exists():
+            return assets
+
+        for path in sorted(settings.sound_effects_dir.glob("*.mp3"), key=lambda item: item.name.lower()):
+            name = path.name
+            lower = name.lower()
+            if lower.startswith("bgm_opening_"):
+                assets["opening"].append(name)
+            elif lower.startswith("bgm_dialog"):
+                assets["dialog"].append(name)
+            elif lower.startswith("bgm_ending_"):
+                assets["ending"].append(name)
+        return assets
+
+    def _build_bgm_plan(self, script_text: str, bgm_assets: dict[str, list[str]]) -> list[dict[str, Any]]:
+        opening_assets = bgm_assets.get("opening", [])
+        dialog_assets = bgm_assets.get("dialog", [])
+        ending_assets = bgm_assets.get("ending", [])
+        if not opening_assets and not dialog_assets and not ending_assets:
+            return []
+
+        lines = script_text.splitlines()
+        headers = [
+            {
+                "line_index": index,
+                "kind": match.group(1).lower(),
+                "scene_file": match.group(2),
+            }
+            for index, line in enumerate(lines)
+            if (match := self._scene_header_match(line.strip()))
+        ]
+        plan: list[dict[str, Any]] = []
+        dialog_index = 0
+        seen_story_scene = False
+
+        if not headers:
+            asset = opening_assets[0] if opening_assets else (dialog_assets[0] if dialog_assets else "")
+            if asset:
+                plan.append({"line_index": 0, "asset": asset, "role": "opening", "scene_file": ""})
+            return plan
+
+        for header in headers:
+            scene_file = str(header["scene_file"])
+            is_ending = header["kind"] == "ending" or scene_file.lower().startswith("ending")
+            if is_ending:
+                asset = self._select_ending_bgm(scene_file, ending_assets)
+                role = "ending"
+            elif not seen_story_scene:
+                asset = opening_assets[0] if opening_assets else (dialog_assets[0] if dialog_assets else "")
+                role = "opening"
+                seen_story_scene = True
+            else:
+                if dialog_assets:
+                    asset = dialog_assets[dialog_index % len(dialog_assets)]
+                    dialog_index += 1
+                else:
+                    asset = opening_assets[0] if opening_assets else ""
+                role = "dialog"
+            if asset:
+                plan.append(
+                    {
+                        "line_index": int(header["line_index"]) + 1,
+                        "asset": asset,
+                        "role": role,
+                        "scene_file": scene_file,
+                    }
+                )
+        return plan
+
+    def _select_ending_bgm(self, scene_file: str, ending_assets: list[str]) -> str:
+        import re
+
+        if not ending_assets:
+            return ""
+        lower_scene = scene_file.lower()
+        by_lower = {asset.lower(): asset for asset in ending_assets}
+
+        priority_match = re.search(r"(?:^|[_-])ending[_-]?([0-9]+)", lower_scene)
+        priority = int(priority_match.group(1)) if priority_match else None
+
+        if priority == 1 or any(token in lower_scene for token in ("true", "good", "best", "happy")):
+            preferred = by_lower.get("bgm_ending_happy.mp3")
+            if preferred:
+                return preferred
+        if priority in {2, 3} or any(token in lower_scene for token in ("normal", "default", "neutral")):
+            preferred = by_lower.get("bgm_ending_normal.mp3")
+            if preferred:
+                return preferred
+        if any(token in lower_scene for token in ("bad", "sad", "failure", "fail")):
+            for filename in ("bgm_ending_bad.mp3", "bgm_ending_sad.mp3"):
+                preferred = by_lower.get(filename)
+                if preferred:
+                    return preferred
+
+        for filename in ("bgm_ending_normal.mp3", "bgm_ending_bad.mp3", "bgm_ending_sad.mp3"):
+            preferred = by_lower.get(filename)
+            if preferred:
+                return preferred
+        return ending_assets[0]
+
+    def _insert_bgm(self, script_text: str, plan: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+        lines = script_text.splitlines()
+        inserted: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        offset = 0
+
+        for item in sorted(plan, key=lambda entry: int(entry.get("line_index", 0))):
+            asset = str(item.get("asset", "")).strip()
+            if not asset:
+                skipped.append({**item, "reason": "missing_asset"})
+                continue
+            line_index = max(0, min(int(item.get("line_index", 0)) + offset, len(lines)))
+            command = self._bgm_command(asset)
+            if self._bgm_already_active_near(lines, line_index, asset):
+                skipped.append({**item, "reason": "already_present"})
+                continue
+            if line_index < len(lines) and lines[line_index].strip().startswith("bgm:"):
+                lines[line_index] = command
+                inserted.append({**item, "line": line_index + 1, "command": command, "replaced": True})
+                continue
+            lines.insert(line_index, command)
+            offset += 1
+            inserted.append({**item, "line": line_index + 1, "command": command})
+
+        return "\n".join(lines), {"inserted": inserted, "skipped": skipped}
+
+    def _bgm_command(self, asset: str) -> str:
+        return f"bgm:{asset} -volume=45 -enter=1500;"
+
+    def _bgm_already_active_near(self, lines: list[str], line_index: int, asset: str) -> bool:
+        for index in range(line_index, min(line_index + 4, len(lines))):
+            stripped = lines[index].strip()
+            if self._is_scene_header(stripped):
+                return False
+            if stripped == self._bgm_command(asset):
+                return True
+            if self._is_sound_effect_story_line(stripped):
+                return False
+        return False
+
+    def _scene_header_match(self, line: str):
+        import re
+
+        return re.match(r"^(Scene|Ending)\s*:\s*([A-Za-z0-9_-]+\.txt)\s*$", line, flags=re.IGNORECASE)
 
     def _parse_sound_effect_plan_text(self, text: str) -> Any:
         import json
@@ -930,6 +1092,29 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             source = settings.sound_effects_dir / filename
             if not source.exists():
                 raise PipelineError(f"sound effect file is missing: {source}")
+            shutil.copy2(source, target_dir / filename)
+
+    def _copy_bgm_files(self, job_dir: Path, insertion_report: dict[str, Any]) -> None:
+        assets = {
+            str(item.get("asset", "")).strip()
+            for item in insertion_report.get("inserted", [])
+            if str(item.get("asset", "")).strip()
+        }
+        assets.update(
+            str(item.get("asset", "")).strip()
+            for item in insertion_report.get("skipped", [])
+            if item.get("reason") == "already_present" and str(item.get("asset", "")).strip()
+        )
+        if not assets:
+            return
+        if not settings.sound_effects_dir.exists():
+            raise PipelineError(f"sound effects directory does not exist: {settings.sound_effects_dir}")
+        target_dir = job_dir / "public" / "game" / "bgm"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for filename in assets:
+            source = settings.sound_effects_dir / filename
+            if not source.exists():
+                raise PipelineError(f"bgm file is missing: {source}")
             shutil.copy2(source, target_dir / filename)
 
     def _call_with_validation(

@@ -325,14 +325,18 @@ def _vocal_item_matches_dialogue(item: dict[str, Any], dialogue: tuple[str, str]
 
 def _add_vocal_arg(line: str, filename: str) -> str:
     stripped = line.rstrip()
-    suffix = f" -vocal=./game/vocal/{filename}"
+    clean_filename = filename.replace("\\", "/").split("/")[-1]
+    suffix = f" -{clean_filename}"
     if stripped.endswith(";"):
         return f"{stripped[:-1]}{suffix};"
     return f"{stripped}{suffix};"
 
 
 def _has_vocal_arg(line: str) -> bool:
-    return bool(re.search(r"\s-vocal(?:=|\s)", line, flags=re.IGNORECASE))
+    return bool(
+        re.search(r"\s-vocal(?:=|\s)", line, flags=re.IGNORECASE)
+        or re.search(r"\s-[^\s;]+\.wav(?=\s|;|$)", line, flags=re.IGNORECASE)
+    )
 
 
 def _parse_change_figure(line: str) -> tuple[str, str] | None:
