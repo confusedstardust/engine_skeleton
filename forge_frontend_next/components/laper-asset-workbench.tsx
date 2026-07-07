@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useMemo, useState } from "react";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 
@@ -36,6 +35,61 @@ type LaperAssetWorkbenchProps = {
 };
 
 type AssetSection = "figures" | "backgrounds";
+
+function assetPreviewClass(asset: AssetReviewItem) {
+  const isFigure = asset.kind === "角色立绘";
+  if (isFigure && asset.avatar_exists && asset.avatar_url) {
+    return "laper-asset-preview poster-duo";
+  }
+  if (isFigure) {
+    return "laper-asset-preview poster-solo";
+  }
+  return "laper-asset-preview poster-still";
+}
+
+type ContainedAssetImageProps = {
+  src: string;
+  alt: string;
+  objectPosition?: string;
+};
+
+function ContainedAssetImage({ src, alt, objectPosition = "bottom center" }: ContainedAssetImageProps) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className="asset-contained-img" src={src} alt={alt} loading="lazy" style={{ objectPosition }} />
+  );
+}
+
+function AssetPreviewImage({ asset }: { asset: AssetReviewItem }) {
+  const isFigure = asset.kind === "角色立绘";
+  const showAvatarStage = isFigure && asset.avatar_exists && asset.avatar_url;
+
+  if (showAvatarStage) {
+    return (
+      <div className="asset-still-stage">
+        <div className="asset-still-panel">
+          <span className="asset-still-label">头像</span>
+          <div className="asset-still-avatar">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={asset.avatar_url!} alt={`${asset.filename} 头像`} loading="lazy" />
+          </div>
+        </div>
+        <div className="asset-still-panel asset-still-figure-panel">
+          <span className="asset-still-label">立绘</span>
+          <div className="asset-still-figure">
+            <ContainedAssetImage src={asset.url} alt={asset.filename} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="asset-still-figure">
+      <ContainedAssetImage src={asset.url} alt={asset.filename} objectPosition={isFigure ? "bottom center" : "center"} />
+    </div>
+  );
+}
 
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [section, setSection] = useState<AssetSection>("figures");
@@ -102,18 +156,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 </div>
                 <span className={active.exists ? "ready" : ""}>{active.exists ? "已生成" : "待生成"}</span>
               </header>
-              <div className="laper-asset-preview">
-                {active.exists ? (
-                  <Image src={active.url} alt={active.filename} width={960} height={540} unoptimized />
-                ) : (
-                  <div className="asset-image-placeholder">图片尚未生成</div>
-                )}
-                {active.avatar_exists && active.avatar_url && (
-                  <div className="asset-avatar-preview">
-                    <span>头像</span>
-                    <Image src={active.avatar_url} alt={`${active.filename} 头像`} width={88} height={88} unoptimized />
-                  </div>
-                )}
+              <div className={assetPreviewClass(active)}>
+                {active.exists ? <AssetPreviewImage asset={active} /> : <div className="asset-image-placeholder">图片尚未生成</div>}
               </div>
               <dl className="laper-asset-meta">
                 <div>
@@ -160,13 +204,23 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   {currentList.map((asset) => (
                     <button className="asset-card" key={`${asset.subdir}-${asset.filename}`} type="button" onClick={() => props.openAsset(asset)}>
                       <div className="asset-thumb">
-                        {asset.exists ? <Image src={asset.url} alt={asset.filename} width={320} height={180} unoptimized /> : <span>待生成</span>}
+                        {asset.exists ? (
+                          <ContainedAssetImage
+                            src={asset.url}
+                            alt={asset.filename}
+                            objectPosition={asset.kind === "角色立绘" ? "bottom center" : "center"}
+                          />
+                        ) : (
+                          <span>待生成</span>
+                        )}
                       </div>
-                      <div>
-                        <strong>{props.displayName(asset)}</strong>
-                        <small>{props.sceneDisplayName(asset)}</small>
+                      <div className="asset-card-body">
+                        <div className="asset-card-text">
+                          <strong>{props.displayName(asset)}</strong>
+                          <small>{props.sceneDisplayName(asset)}</small>
+                        </div>
+                        <em className={asset.exists ? "ready" : ""}>{asset.exists ? "已生成" : "待生成"}</em>
                       </div>
-                      <em className={asset.exists ? "ready" : ""}>{asset.exists ? "已生成" : "待生成"}</em>
                     </button>
                   ))}
                 </div>
