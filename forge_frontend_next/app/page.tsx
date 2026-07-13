@@ -63,7 +63,7 @@ function getGenerationReadiness(topic: string, sourceText: string) {
   if (!hasTopic && !hasSource) {
     return {
       canGenerate: false,
-      reason: "请至少填写课堂主题或教学文本，然后再点击入境生成。"
+      reason: "请至少填写课堂主题或教学文本，然后再点击临场生成。"
     };
   }
   return { canGenerate: true, reason: "" };
@@ -330,7 +330,7 @@ export default function ClassroomGeneratorPage() {
                 type="button"
                 onClick={runGeneration}
               >
-                {running ? "正在创建..." : "入境生成"}
+                {running ? "正在创建..." : "临场生成"}
               </button>
             </div>
           </section>

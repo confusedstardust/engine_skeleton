@@ -1,8 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LaperAssetWorkbench } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
@@ -616,9 +615,8 @@ function parseSceneLine(line: string, id: string): SceneLine {
   return { id, kind: "command", speaker: "指令", text: cleanEditableLineText(trimmed), rawPrefix: "" };
 }
 
-export default function JobWorkspacePage() {
-  const params = useParams<{ jobId: string }>();
-  const jobId = Array.isArray(params.jobId) ? params.jobId[0] : params.jobId;
+export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: string }> }) {
+  const { jobId } = use(params);
   const [data, setData] = useState<NodesResponse | null>(null);
   const [message, setMessage] = useState("正在读取任务...");
   const [busy, setBusy] = useState(false);
