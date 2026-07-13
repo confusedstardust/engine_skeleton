@@ -139,7 +139,7 @@ export default function HistoryPage() {
         <Link className="brand brand-link" href="/">
           <div className="brand-seal">文</div>
           <div className="brand-copy">
-            <span className="brand-name">文境 · 生成记录</span>
+            <span className="brand-name">临场 · 生成记录</span>
             <span className="brand-subtitle">GENERATION HISTORY</span>
           </div>
         </Link>

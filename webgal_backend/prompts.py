@@ -15,7 +15,6 @@ from .prompting.contract import (
     game_design_coverage_text as _game_design_coverage_text,
     generation_contract as _generation_contract,
     narrative_source_context as _narrative_source_context,
-    required_int_option as _required_int_option,
 )
 from .prompting.rules import (
     GAME_DESIGN_RULES,

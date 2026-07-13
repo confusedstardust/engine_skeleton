@@ -35,7 +35,7 @@ export default function LoginPage() {
         <Link className="brand brand-link" href="/">
           <div className="brand-seal">文</div>
           <div className="brand-copy">
-            <span className="brand-name">文境 · 邀请码</span>
+            <span className="brand-name">临场 · 邀请码</span>
             <span className="brand-subtitle">INVITE ACCESS</span>
           </div>
         </Link>

@@ -14,15 +14,6 @@ def _options_dict(options: OptionsLike) -> dict[str, Any]:
     return normalize_generation_options(options)
 
 
-def required_int_option(options: OptionsLike, key: str, minimum: int, maximum: int) -> int:
-    options = _options_dict(options)
-    try:
-        value = int(options[key])
-    except (TypeError, ValueError):
-        raise ValueError(f"options.{key} must be an integer")
-    return max(minimum, min(maximum, value))
-
-
 def duration_minutes(options: OptionsLike) -> int:
     options = _options_dict(options)
     raw = str(options["duration"]).strip()
@@ -32,14 +23,25 @@ def duration_minutes(options: OptionsLike) -> int:
     return max(5, min(60, int(digits)))
 
 
+def optional_int_option(options: OptionsLike, key: str, minimum: int, maximum: int) -> int | None:
+    options = _options_dict(options)
+    if key not in options or options[key] is None:
+        return None
+    try:
+        value = int(options[key])
+    except (TypeError, ValueError):
+        raise ValueError(f"options.{key} must be an integer")
+    return max(minimum, min(maximum, value))
+
+
 def generation_contract(options: OptionsLike) -> dict[str, Any]:
     options = _options_dict(options)
     limits = generation_limits()
     duration = duration_minutes(options)
-    character_count = required_int_option(options, "character_count", 1, 8)
-    interactive_task_count = required_int_option(options, "interactive_task_count", 1, 12)
+    character_count = optional_int_option(options, "character_count", 1, 8)
+    interactive_task_count = optional_int_option(options, "interactive_task_count", 1, 12)
 
-    ending_count = max(2, min(5, 2 + interactive_task_count // 4))
+    ending_count = max(2, min(5, 2 + (interactive_task_count or 4) // 4))
     option_count = max(
         limits["branches"]["choice_options_min"],
         min(limits["branches"]["choice_options_max"], 3),
@@ -61,6 +63,16 @@ def generation_contract(options: OptionsLike) -> dict[str, Any]:
 def contract_text(options: OptionsLike) -> str:
     options = _options_dict(options)
     contract = generation_contract(options)
+    character_line = (
+        f"- 主要角色数量：严格围绕 {contract['character_count']} 个 AI 角色设计，除非源材料强烈要求，否则不要超出。"
+        if contract["character_count"] is not None
+        else "- 主要角色数量：根据源材料、课堂主题和游戏时长由你自行决定合适数量，通常 2-6 个。"
+    )
+    task_line = (
+        f"- 互动任务/关键选择点：目标为 {contract['interactive_task_count']} 个。"
+        if contract["interactive_task_count"] is not None
+        else "- 互动任务/关键选择点：根据叙事节奏、时长和材料复杂度由你自行决定合适数量。"
+    )
     return "\n".join(
         [
             "本次 UI 传入的生成约束（优先级高于默认 generation_limits.json）：",
@@ -71,8 +83,8 @@ def contract_text(options: OptionsLike) -> str:
             f"- 学生学习目标：{options.get('student_goal') or '未指定'}",
             f"- 游戏时长：{contract['duration']} 分钟",
             f"- 叙事模式：{options.get('narrative_mode') or '未指定'}",
-            f"- 主要角色数量：严格围绕 {contract['character_count']} 个 AI 角色设计，除非源材料强烈要求，否则不要超出。",
-            f"- 互动任务/关键选择点：目标为 {contract['interactive_task_count']} 个。",
+            character_line,
+            task_line,
             "- 场景文件数量：不按游戏时长压缩或限制；必须完整覆盖 narrative_plan.story_progression 和 narrative_plan.endings。",
             f"- 每个选择点建议 {contract['option_count']} 个选项。",
             f"- 结局数量：建议 {contract['ending_count']} 个。",

@@ -3109,11 +3109,19 @@ a {
 }
 
 .laper-asset-canvas {
-  min-height: 520px;
+  min-height: auto;
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.laper-asset-canvas .laper-asset-grid,
+.laper-asset-canvas .laper-empty {
+  align-self: start;
 }
 
 .laper-asset-grid {
   padding-top: 8px;
+  padding-bottom: 4px;
 }
 
 .laper-asset-detail {

@@ -1028,7 +1028,7 @@ export default function JobWorkspacePage() {
         <Link className="brand brand-link" href="/">
           <div className="brand-seal">文</div>
           <div className="brand-copy">
-            <span className="brand-name">文境 · 生成工作台</span>
+            <span className="brand-name">临场 · 生成工作台</span>
             <span className="brand-subtitle">JOB {compactId(data.job.id)}</span>
           </div>
         </Link>

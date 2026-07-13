@@ -82,13 +82,10 @@ export default function ClassroomGeneratorPage() {
   const [duration, setDuration] = useState("20分钟");
   const [mode, setMode] = useState("角色扮演");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("advanced");
-  const [characterCount, setCharacterCount] = useState(3);
-  const [taskCount, setTaskCount] = useState(6);
   const [voiceOn, setVoiceOn] = useState(false);
   const [voice, setVoice] = useState("");
   const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
-  const [allowMissingAssets, setAllowMissingAssets] = useState(true);
-  const [generateAssets, setGenerateAssets] = useState(false);
+  const [generateAssets, setGenerateAssets] = useState(true);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -128,7 +125,6 @@ export default function ClassroomGeneratorPage() {
         body: JSON.stringify({
           source_material: sourceMaterial,
           options: {
-            allow_missing_assets: allowMissingAssets,
             generate_assets: generateAssets,
             generation_mode: generationMode,
             classroom_topic: fallbackText(topic, source.slice(0, 30) || "未命名课堂"),
@@ -138,8 +134,6 @@ export default function ClassroomGeneratorPage() {
             student_goal: fallbackText(studentGoal, "学生能够复述关键情节，分析角色动机，并表达自己的理解。"),
             duration: validDuration(duration),
             narrative_mode: fallbackText(mode, "角色扮演"),
-            character_count: characterCount,
-            interactive_task_count: taskCount,
             voice_enabled: voiceOn,
             generate_tts: voiceOn,
             voice_preset: voiceOn ? voice || voicePresets[0] : "",
@@ -187,7 +181,7 @@ export default function ClassroomGeneratorPage() {
         <div className="brand">
           <div className="brand-seal">文</div>
           <div className="brand-copy">
-            <span className="brand-name">文境 · AI叙事课堂生成平台</span>
+            <span className="brand-name">临场 · AI叙事课堂生成平台</span>
             <span className="brand-subtitle">WEBGAL FORGE CLASSROOM AI</span>
           </div>
         </div>
@@ -283,11 +277,6 @@ export default function ClassroomGeneratorPage() {
               <ChoiceGrid label="游戏时长与课堂场景" items={durations} value={duration} onChange={setDuration} columns="five" />
               <ChoiceGrid label="叙事模式" items={modes} value={mode} onChange={setMode} columns="three" />
 
-              <div className="number-grid">
-                <NumberControl label="AI角色数" value={characterCount} min={1} max={8} onChange={setCharacterCount} />
-                <NumberControl label="互动任务数" value={taskCount} min={1} max={12} onChange={setTaskCount} />
-              </div>
-
               <Field label="角色配音">
                 <div className="toggle-row">
                   <div>
@@ -314,7 +303,6 @@ export default function ClassroomGeneratorPage() {
               </Field>
 
               <div className="backend-options">
-                <label><input type="checkbox" checked={allowMissingAssets} onChange={(event) => setAllowMissingAssets(event.target.checked)} /> 允许先缺图生成</label>
                 <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
               </div>
             </FormSection>
@@ -360,16 +348,16 @@ export default function ClassroomGeneratorPage() {
                 <PreviewRow k="叙事模式" v={<span className="preview-tag">{selectedMode.name}</span>} />
                 <div className="preview-divider" />
                 <PreviewRow k="生成模式" v={<span className="preview-tag">{generationMode === "auto" ? "Auto 一键生成" : "Advance 节点审阅"}</span>} />
-                <PreviewRow k="内容预计" v={<span className="muted">{characterCount}个角色<br />{taskCount}道互动任务<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
+                <PreviewRow k="内容预计" v={<span className="muted">角色与互动任务由 AI 根据材料自动规划<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
                 <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? `已开启 · ${voice || voicePresets[0]}` : "未开启"}</span>} />
                 <PreviewRow k="难度" v={difficulty || "默认：基础理解"} />
               </div>
               <div className="preview-stats">
                 <Stat value={Number.isNaN(durationNumber) ? 20 : durationNumber} label="时长（分钟）" />
-                <Stat value={characterCount} label="AI角色数" />
-                <Stat value={taskCount} label="互动任务" />
+                <Stat value={generateAssets ? "开" : "关"} label="图片素材" />
+                <Stat value={generationMode === "auto" ? "Auto" : "Advance"} label="生成模式" />
               </div>
-              <div className="scroll-deco">文境 · 叙事课堂</div>
+              <div className="scroll-deco">临场 · 叙事课堂</div>
             </div>
 
             <div className="runtime-card">
@@ -454,23 +442,6 @@ function ChoiceGrid({ label, items, value, onChange, columns }: { label: string;
             <small>{item.desc}</small>
           </button>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function NumberControl({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
-  function setSafe(next: number) {
-    onChange(Math.max(min, Math.min(max, next)));
-  }
-
-  return (
-    <div className="number-control">
-      <span>{label}</span>
-      <div>
-        <button type="button" onClick={() => setSafe(value - 1)} aria-label={`${label}减少`}>-</button>
-        <strong>{value}</strong>
-        <button type="button" onClick={() => setSafe(value + 1)} aria-label={`${label}增加`}>+</button>
       </div>
     </div>
   );

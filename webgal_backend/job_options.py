@@ -13,8 +13,6 @@ REQUIRED_GENERATION_OPTIONS = [
     "student_goal",
     "duration",
     "narrative_mode",
-    "character_count",
-    "interactive_task_count",
     "voice_enabled",
     "generate_assets",
 ]
@@ -30,8 +28,8 @@ class GenerationOptions(BaseModel):
     student_goal: str
     duration: str
     narrative_mode: str
-    character_count: int = Field(ge=1, le=8)
-    interactive_task_count: int = Field(ge=1, le=12)
+    character_count: int | None = Field(default=None, ge=1, le=8)
+    interactive_task_count: int | None = Field(default=None, ge=1, le=12)
     voice_enabled: StrictBool
     generate_assets: StrictBool
     generate_tts: StrictBool | None = None

@@ -17,6 +17,11 @@ from .rules import WEBGAL_REWRITE_RULES
 
 def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
     contract = generation_contract(options)
+    character_rule = (
+        f"角色数量{contract['character_count']}个;"
+        if contract["character_count"] is not None
+        else "角色数量根据源材料、课堂主题和游戏时长自行决定，保证叙事完整且易于课堂使用;"
+    )
     return f"""请严格按照 narrative_plan.schema.json 的结构返回的function argument。
 
     源材料:
@@ -51,7 +56,7 @@ def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
         不允许branch直接形成独立故事线
     充实情节:开始、发展、高潮、结局
     开端要明确目的,通往高潮的过程:完成、推进、加深、额外
-    角色数量{contract['character_count']}个;
+    {character_rule}
     角色关系、情感基调、叙事弧线、冲突结构必须与原著主题一致
     叙事应为高沉浸度的叙事游戏剧情
     保持文学性与角色复杂度
