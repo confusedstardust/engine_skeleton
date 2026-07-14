@@ -142,7 +142,19 @@ def _repair_scene_lines(
 
     for line_index, original_line in enumerate(lines):
         original_index = line_index + 1
-        line = original_line
+        line, content_fixes = _sanitize_generated_content_line(original_line)
+        for fix_code in content_fixes:
+            fixes.append(
+                AppliedFix(
+                    code=fix_code,
+                    file=relative_file,
+                    line=original_index,
+                    message=_content_sanitizer_fix_message(fix_code),
+                )
+            )
+        if line is None:
+            continue
+
         normalized_line = _normalize_center_clear_line(line)
         if normalized_line != line:
             line = normalized_line
@@ -250,6 +262,106 @@ def _repair_scene_lines(
     repaired, ending_terminal_fixes = _ensure_ending_scene_has_end(repaired, relative_file)
     fixes.extend(ending_terminal_fixes)
     return repaired, issues, fixes
+
+
+def _sanitize_generated_content_line(line: str) -> tuple[str | None, list[str]]:
+    stripped = line.strip()
+    if not stripped:
+        return line, []
+    if stripped.startswith("//"):
+        return None, ["remove_generated_comment"]
+    if _is_functional_command_line(stripped):
+        return line, []
+
+    fixes: list[str] = []
+    sanitized = line
+    if _inline_comment_index(sanitized) is not None:
+        sanitized = _truncate_inline_comment(sanitized)
+        fixes.append("remove_generated_comment")
+    without_scene_filenames = _remove_leaked_scene_filenames(sanitized)
+    if without_scene_filenames != sanitized:
+        sanitized = without_scene_filenames
+        fixes.append("remove_leaked_scene_filename")
+
+    sanitized = _clean_sanitized_content_line(sanitized)
+    if not _has_display_content(sanitized):
+        return None, fixes
+    return sanitized, fixes
+
+
+def _is_functional_command_line(stripped: str) -> bool:
+    return stripped.startswith(
+        (
+            ";",
+            "setVar:",
+            "changeBg:",
+            "changeFigure:",
+            "setTransition:",
+            "miniAvatar:",
+            "bgm:",
+            "playEffect:",
+            "unlock",
+            "pixi",
+            "choose:",
+            "changeScene:",
+            "callScene:",
+            "label:",
+            "jumpLabel:",
+            "if",
+            "end",
+        )
+    )
+
+
+def _truncate_inline_comment(line: str) -> str:
+    comment_index = _inline_comment_index(line)
+    if comment_index is None:
+        return line
+    before = line[:comment_index].rstrip()
+    if line.rstrip().endswith(";") and before and not before.endswith(";"):
+        before = f"{before};"
+    return before
+
+
+def _inline_comment_index(line: str) -> int | None:
+    start = 0
+    while True:
+        index = line.find("//", start)
+        if index < 0:
+            return None
+        if index == 0 or line[index - 1] != ":":
+            return index
+        start = index + 2
+
+
+def _remove_leaked_scene_filenames(line: str) -> str:
+    return re.sub(r"(?<![A-Za-z0-9_/-])[A-Za-z0-9_-]+\.txt(?![A-Za-z0-9_/-])", "", line)
+
+
+def _clean_sanitized_content_line(line: str) -> str:
+    cleaned = re.sub(r"[ \t]{2,}", " ", line)
+    cleaned = re.sub(r"\s+([,.;:!?，。！？；：])", r"\1", cleaned)
+    cleaned = re.sub(r"([:：])\s*;", r"\1;", cleaned)
+    return cleaned.strip()
+
+
+def _has_display_content(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or stripped in {";", ":", "："}:
+        return False
+    if re.match(r"^(?:intro\s*[:：]|[:：])\s*;?\s*$", stripped):
+        return False
+    if re.match(r"^[^:：;\s][^:：;]*?[:：]\s*;?\s*$", stripped):
+        return False
+    return True
+
+
+def _content_sanitizer_fix_message(fix_code: str) -> str:
+    if fix_code == "remove_generated_comment":
+        return "Removed generated comment text from final scene content."
+    if fix_code == "remove_leaked_scene_filename":
+        return "Removed leaked scene filename from final display content."
+    return "Sanitized generated scene content."
 
 
 def _dialogue_speaker(line: str) -> str | None:

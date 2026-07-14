@@ -36,7 +36,7 @@ const modes: Choice[] = [
 ];
 
 const packages = ["学生端游戏", "教师操作说明", "课堂流程", "课堂提问链", "课后巩固题"];
-const voicePresets = ["古风男声", "古风女声", "少年声", "旁白声", "沉稳教师声", "多角色配音"];
+const defaultVoicePreset = "多角色配音";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge${path}`), {
@@ -83,7 +83,6 @@ export default function ClassroomGeneratorPage() {
   const [mode, setMode] = useState("角色扮演");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("advanced");
   const [voiceOn, setVoiceOn] = useState(false);
-  const [voice, setVoice] = useState("");
   const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
   const [generateAssets, setGenerateAssets] = useState(true);
   const [running, setRunning] = useState(false);
@@ -136,7 +135,7 @@ export default function ClassroomGeneratorPage() {
             narrative_mode: fallbackText(mode, "角色扮演"),
             voice_enabled: voiceOn,
             generate_tts: voiceOn,
-            voice_preset: voiceOn ? voice || voicePresets[0] : "",
+            voice_preset: voiceOn ? defaultVoicePreset : "",
             tts_scope: "key_lines",
             tts_max_lines_per_scene: 3,
             tts_max_total_lines: 60,
@@ -290,18 +289,6 @@ export default function ClassroomGeneratorPage() {
                     <span />
                   </label>
                 </div>
-                {voiceOn && (
-                  <>
-                    <div className="voice-options">
-                      {voicePresets.map((item) => (
-                        <button className={voice === item ? "selected" : ""} key={item} type="button" onClick={() => setVoice(item)}>{item}</button>
-                      ))}
-                    </div>
-                    <div className="voice-options">
-                      <button className="selected" type="button">关键句配音</button>
-                    </div>
-                  </>
-                )}
               </Field>
 
               <div className="backend-options">
@@ -351,7 +338,7 @@ export default function ClassroomGeneratorPage() {
                 <div className="preview-divider" />
                 <PreviewRow k="生成模式" v={<span className="preview-tag">{generationMode === "auto" ? "Auto 一键生成" : "Advance 节点审阅"}</span>} />
                 <PreviewRow k="内容预计" v={<span className="muted">角色与互动任务由 AI 根据材料自动规划<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
-                <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? `已开启 · ${voice || voicePresets[0]}` : "未开启"}</span>} />
+                <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? "已开启 · 多角色 · 关键句" : "未开启"}</span>} />
                 <PreviewRow k="难度" v={difficulty || "默认：基础理解"} />
               </div>
               <div className="preview-stats">
