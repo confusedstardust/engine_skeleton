@@ -179,3 +179,9 @@ jobs:
             echo "[$(date -Is)] Starting docker compose up"
             $COMPOSE_CMD -f docker-compose.prod.yml up -d
             echo "[$(date -Is)] Finished docker compose up"
+            echo "[$(date -Is)] Docker disk usage before image prune"
+            docker system df || true
+            echo "[$(date -Is)] Pruning unused Docker images older than 24h"
+            docker image prune -a -f --filter "until=24h" || true
+            echo "[$(date -Is)] Docker disk usage after image prune"
+            docker system df || true

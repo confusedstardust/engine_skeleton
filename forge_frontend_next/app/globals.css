@@ -840,29 +840,6 @@ a {
   transform: translateX(20px);
 }
 
-.voice-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.voice-options button {
-  min-height: 32px;
-  padding: 0 12px;
-  color: var(--ink-muted);
-  background: rgba(255, 255, 255, 0.48);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-}
-
-.voice-options button.selected,
-.voice-options button:hover {
-  color: var(--cinnabar);
-  background: var(--cinnabar-glow);
-  border-color: rgba(155, 35, 53, 0.28);
-}
-
 .backend-options {
   display: flex;
   flex-wrap: wrap;

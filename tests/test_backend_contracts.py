@@ -591,6 +591,32 @@ class BackendContractTests(unittest.TestCase):
         )
         self.assertEqual(_scene_targets(line), ["branch_1.txt", "branch_2.txt"])
 
+    def test_scene_validation_sanitizes_generated_comments_and_leaked_scene_filenames(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            [
+                "// internal note for the writer",
+                "Hero: Keep going // remove this note;",
+                ": Follow phase1.txt clue;",
+                "orphan_scene.txt",
+                "Hero: Open https://example.com/path;",
+                "choose:Go:phase1.txt|Stay:branch_2.txt;",
+                "changeScene:phase1.txt;",
+            ],
+            "public/game/scene/start.txt",
+            {},
+            {},
+        )
+
+        self.assertNotIn("// internal note for the writer", repaired)
+        self.assertIn("Hero: Keep going;", repaired)
+        self.assertIn(": Follow clue;", repaired)
+        self.assertNotIn("orphan_scene.txt", repaired)
+        self.assertIn("Hero: Open https://example.com/path;", repaired)
+        self.assertIn("choose:Go:phase1.txt|Stay:branch_2.txt;", repaired)
+        self.assertIn("changeScene:phase1.txt;", repaired)
+        self.assertTrue(any(fix.code == "remove_generated_comment" for fix in fixes))
+        self.assertTrue(any(fix.code == "remove_leaked_scene_filename" for fix in fixes))
+
     def test_inline_dialogue_directions_are_removed(self) -> None:
         line = "陶渊明：（踱步，语气渐坚）方才我还犹豫。"
         self.assertEqual(correct_inline_dialogue_direction(line), "陶渊明：方才我还犹豫。")
