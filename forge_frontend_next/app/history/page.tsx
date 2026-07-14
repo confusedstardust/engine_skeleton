@@ -137,7 +137,9 @@ export default function HistoryPage() {
     <>
       <header className="top-nav">
         <Link className="brand brand-link" href="/">
-          <div className="brand-seal">文</div>
+          <div className="brand-seal" aria-hidden="true">
+            <img src={withBasePath("/icon.png")} alt="" />
+          </div>
           <div className="brand-copy">
             <span className="brand-name">临场 · 生成记录</span>
             <span className="brand-subtitle">GENERATION HISTORY</span>

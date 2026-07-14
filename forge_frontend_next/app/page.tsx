@@ -179,10 +179,12 @@ export default function ClassroomGeneratorPage() {
 
       <header className="top-nav">
         <div className="brand">
-          <div className="brand-seal">文</div>
+          <div className="brand-seal" aria-hidden="true">
+            <img src={withBasePath("/icon.png")} alt="" />
+          </div>
           <div className="brand-copy">
             <span className="brand-name">临场 · AI叙事课堂生成平台</span>
-            <span className="brand-subtitle">WEBGAL FORGE CLASSROOM AI</span>
+            <span className="brand-subtitle">NarrativeOS</span>
           </div>
         </div>
         <nav className="nav-links" aria-label="主导航">
