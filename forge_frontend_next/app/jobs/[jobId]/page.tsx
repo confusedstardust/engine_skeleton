@@ -1024,7 +1024,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     <>
       <header className="top-nav">
         <Link className="brand brand-link" href="/">
-          <div className="brand-seal">文</div>
+          <div className="brand-seal" aria-hidden="true">
+            <img src={withBasePath("/icon.png")} alt="" />
+          </div>
           <div className="brand-copy">
             <span className="brand-name">临场 · 生成工作台</span>
             <span className="brand-subtitle">JOB {compactId(data.job.id)}</span>

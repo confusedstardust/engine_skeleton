@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { withBasePath } from "../base-path";
 import { clearStoredInviteCode, getStoredInviteCode, setStoredInviteCode } from "../invite-identity";
 
 export default function LoginPage() {
@@ -33,7 +34,9 @@ export default function LoginPage() {
     <>
       <header className="top-nav">
         <Link className="brand brand-link" href="/">
-          <div className="brand-seal">文</div>
+          <div className="brand-seal" aria-hidden="true">
+            <img src={withBasePath("/icon.png")} alt="" />
+          </div>
           <div className="brand-copy">
             <span className="brand-name">临场 · 邀请码</span>
             <span className="brand-subtitle">INVITE ACCESS</span>
