@@ -68,6 +68,15 @@ NODE_ARTIFACTS: tuple[ArtifactDescriptor, ...] = (
         content_type="json",
     ),
     ArtifactDescriptor(
+        key="game_project",
+        phase="game_design",
+        phase_status="GAME_DESIGN",
+        title="Canonical GameProject",
+        description="后端唯一游戏模型：稳定场景 ID、内容行和类型化控制流边。",
+        path="state/game_project.json",
+        content_type="json",
+    ),
+    ArtifactDescriptor(
         key="game_design_choices",
         phase="game_design",
         phase_status="GAME_DESIGN_COMPLETION",
@@ -95,12 +104,39 @@ NODE_ARTIFACTS: tuple[ArtifactDescriptor, ...] = (
         content_type="text",
     ),
     ArtifactDescriptor(
+        key="script_asset_operations",
+        phase="script_rewrite",
+        phase_status="SCRIPT_REWRITE",
+        title="素材放置操作",
+        description="LLM 只能建议这些受限操作；完整 WebGAL 脚本由后端确定性编译。",
+        path="state/script_asset_operations.json",
+        content_type="json",
+    ),
+    ArtifactDescriptor(
         key="sound_effect_plan",
         phase="sound_effects",
         phase_status="SOUND_EFFECT_PLANNING",
         title="\u97f3\u6548\u7f16\u6392",
         description="\u97f3\u6548\u63d2\u5165\u89c4\u5212\u3002",
         path="state/sound_effect_plan.json",
+        content_type="json",
+    ),
+    ArtifactDescriptor(
+        key="repair_report",
+        phase="repair",
+        phase_status="REPAIRING",
+        title="场景修复报告",
+        description="独立修复阶段实际应用的修改；validation 阶段本身不会改写文件。",
+        path="state/repair_report.json",
+        content_type="json",
+    ),
+    ArtifactDescriptor(
+        key="published_revision",
+        phase="validation",
+        phase_status="VALIDATING",
+        title="已发布版本",
+        description="validation 通过后原子切换的不可变游戏快照和内容哈希。",
+        path="state/published_revision.json",
         content_type="json",
     ),
 )
@@ -154,6 +190,13 @@ def scene_payloads(job_dir: Path) -> list[dict[str, Any]]:
 
 
 def is_editable_artifact(relative: str) -> bool:
+    if relative in {
+        "state/game_project.json",
+        "state/repair_report.json",
+        "state/script_asset_operations.json",
+        "state/published_revision.json",
+    }:
+        return False
     if relative in NODE_ARTIFACTS_BY_PATH:
         return True
     return relative.startswith("public/game/scene/") and relative.endswith(".txt")

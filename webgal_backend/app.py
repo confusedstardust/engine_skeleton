@@ -11,20 +11,38 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import artifacts
+from . import artifacts, game_design
 from .artifacts import contains_hidden_path
 from .config import settings
+from .game_project import GameProjectError, completed_from_game_project, game_project_from_completed
 from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
 from .narrative_structure import build_synced_narrative_structure, narrative_structure_issues
 from .pipeline import PipelineError, WebGALPipeline
+from .publisher import (
+    PublishError,
+    activate_game_revision,
+    current_publication,
+    list_game_revisions,
+    published_game_root,
+    revision_game_root,
+)
 from .scene_plan import build_scene_plan
-from .storage import JobStore, write_json
+from .storage import (
+    ConcurrentJobUpdateError,
+    JobBusyError,
+    JobStore,
+    read_json,
+    utc_now,
+    write_json,
+    write_text_atomic,
+)
+from .task_queue import DurableTaskQueue, DurableTaskWorker, QueueBusyError, QueuedTask
 
 
 @asynccontextmanager
@@ -34,18 +52,149 @@ async def lifespan(_app: FastAPI):
         settings.contracts_dir,
         settings.asset_scripts_dir,
     )
-    yield
+    queue_recovery = task_queue.recover_expired()
+    for job_id in [*queue_recovery["failed_job_ids"], *queue_recovery["abandoned_preparing_job_ids"]]:
+        _mark_queue_recovery_failed(job_id)
+    cleared_reservations = store.clear_inactive_run_reservations(task_queue.active_run_ids())
+    if cleared_reservations:
+        logging.getLogger("uvicorn.error").warning(
+            "Cleared %s stale task reservations from WebGAL jobs", cleared_reservations
+        )
+    recovered = store.recover_stale_running_jobs(protected_job_ids=task_queue.active_job_ids())
+    if recovered:
+        logging.getLogger("uvicorn.error").warning("Recovered %s interrupted WebGAL jobs", recovered)
+    task_worker.start()
+    task_worker.notify()
+    try:
+        yield
+    finally:
+        task_worker.stop()
 
 
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
+
+
+@app.exception_handler(ConcurrentJobUpdateError)
+async def concurrent_job_update_handler(_request: Request, exc: ConcurrentJobUpdateError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc), "code": "concurrent_job_update"})
+
+
 store = JobStore()
 pipeline = WebGALPipeline(store)
+task_queue = DurableTaskQueue(settings.jobs_dir / "task_runs.sqlite3")
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
 INVITE_HEADER_NAME = "X-WebGAL-Invite-Code"
 INVITE_CODES_ENV = "WEBGAL_INVITE_CODES"
 INVITE_CODES_FILE_ENV = "WEBGAL_INVITE_CODES_FILE"
+
+
+def _execute_queued_task(task: QueuedTask) -> None:
+    try:
+        reserved_job = store.get(task.job_id)
+        if reserved_job.get("active_run_id") != task.id:
+            raise PipelineError(
+                f"queued task does not match the job reservation: run_id={task.id} "
+                f"active_run_id={reserved_job.get('active_run_id')}"
+            )
+        if task.task_type == "pipeline":
+            pipeline.run_all(task.job_id)
+        elif task.task_type == "phase" and task.phase:
+            pipeline.run_phase(task.job_id, task.phase)
+        elif task.task_type == "asset_regeneration":
+            with store.execution(task.job_id):
+                job = store.get(task.job_id)
+                pipeline.regenerate_asset_image(
+                    job,
+                    str(task.payload.get("filename") or ""),
+                    task.payload.get("prompt"),
+                )
+        else:
+            raise PipelineError(f"unsupported queued task type: {task.task_type}")
+    except Exception as exc:
+        if task.task_type == "asset_regeneration":
+            try:
+                store.set_error(store.get(task.job_id), str(exc))
+            except FileNotFoundError:
+                pass
+        logging.getLogger("uvicorn.error").exception(
+            "Durable WebGAL task failed: run_id=%s job_id=%s type=%s phase=%s",
+            task.id,
+            task.job_id,
+            task.task_type,
+            task.phase,
+        )
+        raise
+
+
+def _finalize_queued_task(task: QueuedTask, status: str, error: str | None) -> None:
+    try:
+        job = store.get(task.job_id)
+    except FileNotFoundError:
+        return
+    if job.get("active_run_id") != task.id:
+        return
+    if status == "FAILED" and job.get("status") != "FAILED":
+        store.set_error(job, error or "background task failed")
+    job["active_run_id"] = None
+    store.save(job)
+
+
+def _mark_queue_recovery_failed(job_id: str) -> None:
+    try:
+        job = store.get(job_id)
+        store.set_error(job, "background task could not be recovered; rerun the interrupted phase")
+        job["active_run_id"] = None
+        store.save(job)
+    except FileNotFoundError:
+        pass
+
+
+task_worker = DurableTaskWorker(
+    task_queue,
+    _execute_queued_task,
+    recovery_failure_handler=_mark_queue_recovery_failed,
+    terminal_handler=_finalize_queued_task,
+)
+
+
+def _job_has_active_task(job_id: str) -> bool:
+    return task_queue.has_active(job_id) or store.is_execution_active(job_id)
+
+
+def _enqueue_job_task(
+    job: dict[str, Any],
+    task_type: str,
+    *,
+    phase: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> str:
+    try:
+        run_id = task_queue.prepare(job["id"], task_type, phase=phase, payload=payload)
+    except QueueBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        store.transition(job, "QUEUED", phase.upper() if phase else task_type.upper())
+        job["active_run_id"] = run_id
+        store.save(job)
+        task_queue.activate(run_id)
+    except Exception as exc:
+        task_queue.cancel_prepared(run_id, f"job state update failed: {exc}")
+        try:
+            failed_job = store.get(job["id"])
+            store.set_error(failed_job, "task could not be queued consistently; please retry")
+            failed_job["active_run_id"] = None
+            store.save(failed_job)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception(
+                "Failed to compensate job state after queue preparation failure: job_id=%s run_id=%s",
+                job["id"],
+                run_id,
+            )
+        raise HTTPException(status_code=503, detail="task could not be queued consistently; please retry") from exc
+    task_worker.notify()
+    return run_id
 
 
 def _contains_hidden_path(file_path: str) -> bool:
@@ -208,20 +357,59 @@ def create_job(request: CreateJobRequest, http_request: Request) -> dict[str, An
 @app.get("/jobs")
 def list_jobs(request: Request) -> dict[str, Any]:
     identity = _identity_from_request(request)
-    jobs = []
-    for path in sorted(store.jobs_dir.glob("*/job.json"), key=lambda item: item.stat().st_mtime, reverse=True):
-        try:
-            job = store.get(path.parent.name)
-        except FileNotFoundError:
-            continue
-        if _job_belongs_to_identity(job, identity):
-            jobs.append(job)
+    jobs = [job for job in store.list_all() if _job_belongs_to_identity(job, identity)]
     return {"jobs": jobs}
 
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> dict[str, Any]:
     return _get_owned_job_or_404(job_id, request)
+
+
+@app.get("/jobs/{job_id}/runs")
+def get_job_runs(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    return {"job_id": job_id, "runs": task_queue.list_for_job(job_id)}
+
+
+@app.get("/jobs/{job_id}/publication")
+def get_job_publication(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    job_dir = store.job_dir(job_id)
+    return {
+        "job_id": job_id,
+        "publication": current_publication(job_dir),
+        "revisions": list_game_revisions(job_dir),
+    }
+
+
+@app.post("/jobs/{job_id}/publication/{revision_id}/activate")
+def activate_job_publication(job_id: str, revision_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    if _job_has_active_task(job_id):
+        raise HTTPException(status_code=409, detail="job is running; wait before changing the published revision")
+    try:
+        publication = activate_game_revision(store.job_dir(job_id), revision_id)
+    except PublishError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    store.record_artifact(job, "published_revision", "state/published_revision.json")
+    job["published_revision"] = publication["revision_id"]
+    job["published_root_hash"] = publication["root_hash"]
+    job.setdefault("history", []).append(
+        {
+            "at": utc_now(),
+            "status": job.get("status"),
+            "event": "PUBLICATION_ACTIVATED",
+            "revision_id": publication["revision_id"],
+        }
+    )
+    store.save(job)
+    return {
+        "job_id": job_id,
+        "job": job,
+        "publication": publication,
+        "revisions": list_game_revisions(store.job_dir(job_id)),
+    }
 
 
 @app.get("/jobs/{job_id}/nodes")
@@ -238,6 +426,8 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
         raise HTTPException(status_code=404, detail="artifact not found")
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        if _job_has_active_task(job_id):
+            raise HTTPException(status_code=409, detail="job is running; wait for the current phase before editing artifacts")
         path = store.artifact_path(job_id, request.path)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -250,14 +440,34 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
 
     try:
         if relative.endswith(".json"):
-            write_json(path, json.loads(request.content))
+            parsed_content = json.loads(request.content)
+            if relative == "state/game_design_completed.json":
+                if not isinstance(parsed_content, dict):
+                    raise HTTPException(status_code=422, detail="game_design_completed.json must be a JSON object")
+                topology_errors = game_design.completed_topology_errors(parsed_content)
+                if topology_errors:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"code": "invalid_scene_topology", "errors": topology_errors},
+                    )
+                project_path = store.artifact_path(job_id, "state/game_project.json")
+                previous_project = read_json(project_path) if project_path.exists() else None
+                try:
+                    project = game_project_from_completed(parsed_content, previous=previous_project)
+                except GameProjectError as exc:
+                    raise HTTPException(status_code=422, detail={"code": "invalid_game_project", "message": str(exc)}) from exc
+                write_json(project_path, project.model_dump(mode="json"))
+                store.record_artifact(job, "game_project", "state/game_project.json")
+                parsed_content = completed_from_game_project(project)
+            write_json(path, parsed_content)
         else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(request.content.rstrip() + "\n", encoding="utf-8")
+            write_text_atomic(path, request.content.rstrip() + "\n")
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}") from exc
 
     store.record_artifact(job, artifacts.artifact_key_for_path(relative), relative)
+    if relative.startswith("public/game/scene/"):
+        store.mark_artifacts_stale(job, {"validation_report"}, because=relative)
     return {"job": _get_owned_job_or_404(job_id, http_request), "path": relative, "saved": True}
 
 
@@ -284,6 +494,8 @@ def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest, 
 def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest, http_request: Request) -> dict[str, Any]:
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        if _job_has_active_task(job_id):
+            raise HTTPException(status_code=409, detail="job is running; wait for the current phase before syncing structure")
         plan = dict(request.narrative_plan)
         plan["narrative_structure"] = build_synced_narrative_structure(plan)
         path = store.artifact_path(job_id, "state/narrative_plan.json")
@@ -394,7 +606,7 @@ def _asset_review_item(
         avatar_relative = f"figure/{avatar_name}"
         avatar_path = job_dir / "public" / "game" / avatar_relative
         avatar_exists = avatar_path.exists()
-        avatar_url = _public_app_path(f"/play/{job_id}/game/{avatar_relative}")
+        avatar_url = _public_app_path(f"/preview/{job_id}/game/{avatar_relative}")
     return {
         "filename": filename,
         "subdir": subdir,
@@ -405,7 +617,7 @@ def _asset_review_item(
         "available_scene": available_scene,
         "scene_display_name": scene_display_name,
         "exists": asset_path.exists(),
-        "url": _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
+        "url": _public_app_path(f"/preview/{job_id}/game/{asset_relative}"),
         "avatar_exists": avatar_exists,
         "avatar_url": avatar_url,
     }
@@ -437,7 +649,6 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
 def regenerate_asset(
     job_id: str,
     request: AssetRegenerateRequest,
-    background_tasks: BackgroundTasks,
     http_request: Request,
 ) -> dict[str, Any]:
     filename = request.filename.replace("\\", "/").split("/")[-1].removesuffix(".webp")
@@ -445,14 +656,19 @@ def regenerate_asset(
         raise HTTPException(status_code=400, detail="invalid asset filename")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
-        background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
-        job["status"] = "QUEUED"
-        job["phase"] = "ASSET_GENERATION"
-        store.save(job)
-        return {"job": job, "queued": True, "filename": filename}
+        run_id = _enqueue_job_task(
+            job,
+            "asset_regeneration",
+            phase="asset_generation",
+            payload={"filename": filename, "prompt": request.prompt},
+        )
+        return {"job": job, "queued": True, "filename": filename, "run_id": run_id}
     try:
         job = _get_owned_job_or_404(job_id, http_request)
-        image = pipeline.regenerate_asset_image(job, filename, request.prompt)
+        if _job_has_active_task(job_id):
+            raise HTTPException(status_code=409, detail=f"job already has a queued or running task: {job_id}")
+        with store.execution(job_id):
+            image = pipeline.regenerate_asset_image(job, filename, request.prompt)
         return {"job": _get_owned_job_or_404(job_id, http_request), "queued": False, "asset": image}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -461,27 +677,28 @@ def regenerate_asset(
 
 
 @app.post("/jobs/{job_id}/run")
-def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks, http_request: Request) -> dict[str, Any]:
+def run_job(job_id: str, request: RunJobRequest, http_request: Request) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, http_request)
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
-        background_tasks.add_task(run_pipeline_background, job_id)
-        job["status"] = "QUEUED"
-        store.save(job)
+        _enqueue_job_task(job, "pipeline")
         return job
     try:
+        if _job_has_active_task(job_id):
+            raise HTTPException(status_code=409, detail=f"job already has a queued or running task: {job_id}")
         return pipeline.run_all(job_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except JobBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/jobs/{job_id}/phases/{phase}")
 def run_phase(
     job_id: str,
     phase: str,
-    background_tasks: BackgroundTasks,
     http_request: Request,
     request: RunJobRequest = RunJobRequest(),
 ) -> dict[str, Any]:
@@ -490,17 +707,18 @@ def run_phase(
     _get_owned_job_or_404(job_id, http_request)
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
-        background_tasks.add_task(run_phase_background, job_id, phase)
-        job["status"] = "QUEUED"
-        job["phase"] = phase.upper()
-        store.save(job)
+        _enqueue_job_task(job, "phase", phase=phase)
         return job
     try:
+        if _job_has_active_task(job_id):
+            raise HTTPException(status_code=409, detail=f"job already has a queued or running task: {job_id}")
         return pipeline.run_phase(job_id, phase)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except JobBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/jobs/{job_id}/artifacts")
@@ -532,13 +750,29 @@ def get_artifact(job_id: str, artifact_path: str, request: Request) -> FileRespo
 def play_game_asset(job_id: str, file_path: str) -> FileResponse:
     if contains_hidden_path(file_path):
         raise HTTPException(status_code=404, detail=f"game asset not found: {file_path}")
-    job_dir = _job_dir_or_404(job_id)
+    job = _get_job_or_404(job_id)
+    job_dir = store.job_dir(job_id)
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    game_root = published_game_root(job_dir, fallback_to_working=not bool(job.get("publication_required", False)))
+    if game_root is None:
+        raise HTTPException(status_code=409, detail="game has not been published yet")
+    return _file_response_under_root(
+        root=game_root,
+        file_path=file_path,
+        missing_detail=f"game asset not found: {file_path}",
+    )
+
+
+@app.get("/preview/{job_id}/game/{file_path:path}")
+def preview_game_asset(job_id: str, file_path: str) -> FileResponse:
+    if contains_hidden_path(file_path):
+        raise HTTPException(status_code=404, detail=f"preview asset not found: {file_path}")
+    job_dir = _job_dir_or_404(job_id)
     return _file_response_under_root(
         root=job_dir / "public" / "game",
         file_path=file_path,
-        missing_detail=f"game asset not found: {file_path}",
+        missing_detail=f"preview asset not found: {file_path}",
     )
 
 
@@ -549,6 +783,21 @@ def play_game_asset_from_referer(file_path: str, request: Request) -> FileRespon
     if not match:
         raise HTTPException(status_code=404, detail=f"game asset not found: {file_path}")
     return play_game_asset(match.group(1), file_path)
+
+
+@app.get("/play/{job_id}/revisions/{revision_id}/game/{file_path:path}")
+def play_revision_game_asset(job_id: str, revision_id: str, file_path: str) -> FileResponse:
+    if contains_hidden_path(file_path):
+        raise HTTPException(status_code=404, detail=f"game asset not found: {file_path}")
+    job_dir = _job_dir_or_404(job_id)
+    game_root = revision_game_root(job_dir, revision_id)
+    if game_root is None:
+        raise HTTPException(status_code=404, detail=f"published revision not found: {revision_id}")
+    return _file_response_under_root(
+        root=game_root,
+        file_path=file_path,
+        missing_detail=f"game asset not found: {file_path}",
+    )
 
 
 @app.get("/play/{job_id}/assets/{file_path:path}")
@@ -577,7 +826,8 @@ def play_engine_static(job_id: str, file_path: str) -> FileResponse:
 @app.get("/play/{job_id}/")
 @app.get("/play/{job_id}")
 def play_game_with_slash(job_id: str) -> HTMLResponse:
-    job_dir = _job_dir_or_404(job_id)
+    job = _get_job_or_404(job_id)
+    job_dir = store.job_dir(job_id)
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
     if not engine_dist_dir.exists():
@@ -586,10 +836,17 @@ def play_game_with_slash(job_id: str) -> HTMLResponse:
     index_path = engine_dist_dir / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="engine index.html not found")
+    publication = current_publication(job_dir)
+    if published_game_root(job_dir, fallback_to_working=not bool(job.get("publication_required", False))) is None:
+        raise HTTPException(status_code=409, detail="game has not been published yet")
 
     play_root = _public_app_path(f"/play/{job_id}/")
     asset_root = _public_app_path(f"/play/{job_id}/assets/")
-    game_root = _public_app_path(f"/play/{job_id}/game/")
+    game_root = (
+        _public_app_path(f"/play/{job_id}/revisions/{publication['revision_id']}/game/")
+        if publication
+        else _public_app_path(f"/play/{job_id}/game/")
+    )
     static_root = _public_app_path(f"/play/{job_id}/static-engine/")
 
     html = index_path.read_text(encoding="utf-8")
@@ -612,32 +869,6 @@ def _file_response_under_root(*, root: Path, file_path: str, missing_detail: str
         raise HTTPException(status_code=404, detail=missing_detail)
     content_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(path, media_type=content_type)
-
-
-def run_pipeline_background(job_id: str) -> None:
-    try:
-        pipeline.run_all(job_id)
-    except Exception:
-        logging.getLogger("uvicorn.error").exception("Forge pipeline failed for job_id=%s", job_id)
-
-
-def run_phase_background(job_id: str, phase: str) -> None:
-    try:
-        pipeline.run_phase(job_id, phase)
-    except Exception:
-        logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
-
-
-def run_asset_regeneration_background(job_id: str, filename: str, prompt: str | None) -> None:
-    try:
-        job = store.get(job_id)
-        pipeline.regenerate_asset_image(job, filename, prompt)
-    except Exception as exc:
-        try:
-            store.set_error(store.get(job_id), str(exc))
-        except Exception:
-            pass
-        logging.getLogger("uvicorn.error").exception("Forge asset regeneration failed for job_id=%s filename=%s", job_id, filename)
 
 
 def _read_narrative_plan(job_id: str) -> dict[str, Any]:

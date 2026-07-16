@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .llm import LLMError, OpenAIFunctionClient
+from .mermaid import mermaid_edge_node_pairs, mermaid_standalone_nodes as parse_mermaid_standalone_nodes
 
 
 class NarrativeStructureError(RuntimeError):
@@ -200,35 +201,8 @@ def _mermaid_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").strip()
 
 
-def mermaid_edge_node_pairs(narrative_structure: str) -> list[tuple[str, str]]:
-    node = r"[A-Za-z_][A-Za-z0-9_-]*"
-    shape = r"(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?"
-    edge_re = re.compile(
-        rf"(?P<source>{node}){shape}\s*(?:-->|==>|-\.->)\s*(?:\|[^|]+\|\s*)?(?P<target>{node}){shape}"
-    )
-    pairs = []
-    for line in narrative_structure.splitlines():
-        cleaned = line.strip().rstrip(";")
-        if not cleaned or cleaned.startswith(("%%", "#")):
-            continue
-        for match in edge_re.finditer(cleaned):
-            pairs.append((match.group("source").strip(), match.group("target").strip()))
-    return pairs
-
-
 def mermaid_standalone_nodes(narrative_structure: str) -> list[str]:
-    node_re = re.compile(r"^\s*(?P<node>[A-Za-z_][A-Za-z0-9_-]*)\s*(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?\s*$")
-    nodes = []
-    for line in narrative_structure.splitlines():
-        cleaned = line.strip().rstrip(";")
-        if not cleaned or cleaned.startswith(("%%", "#")) or "-->" in cleaned or "==>" in cleaned or "-.->" in cleaned:
-            continue
-        match = node_re.match(cleaned)
-        if match:
-            node = match.group("node")
-            if node not in MERMAID_KEYWORDS:
-                nodes.append(node)
-    return nodes
+    return parse_mermaid_standalone_nodes(narrative_structure, MERMAID_KEYWORDS)
 
 
 def ending_structure_ids(ending_type: str, index: int) -> set[str]:

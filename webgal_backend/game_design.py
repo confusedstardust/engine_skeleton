@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Any
+
+from .mermaid import mermaid_edges
 
 
 class GameDesignError(ValueError):
@@ -140,6 +143,14 @@ def render_json(game_design_json: dict[str, Any]) -> str:
 
 def render_scene_line(line: dict[str, Any]) -> str:
     kind = str(line.get("kind") or "narration")
+    if kind == "transition":
+        target = str(line.get("target_scene_file") or line.get("target") or "").strip()
+        if not target:
+            return ""
+        transition_kind = str(line.get("transition_kind") or "AUTO_TRANSITION")
+        if transition_kind == "CALL":
+            return f"callScene:{target};"
+        return f"changeScene:{target};"
     if kind == "choice":
         choices = []
         for choice in line.get("choices", []):
@@ -164,6 +175,129 @@ def render_scene_line(line: dict[str, Any]) -> str:
         return f"{speaker}:{text};"
     prefix = "intro" if str(line.get("rawPrefix") or "") == "intro" else "旁白"
     return f"{prefix}:{text};"
+
+
+def completed_control_flow_edges(game_design_json: dict[str, Any]) -> set[tuple[str, str]]:
+    edges: set[tuple[str, str]] = set()
+    for scene in game_design_json.get("scenes", []):
+        if not isinstance(scene, dict):
+            continue
+        source = str(scene.get("scene_file") or scene.get("header") or "").strip()
+        if not source:
+            continue
+        for line in scene.get("lines", []):
+            if not isinstance(line, dict):
+                continue
+            if str(line.get("kind") or "") == "choice":
+                for choice in line.get("choices", []):
+                    if not isinstance(choice, dict):
+                        continue
+                    target = str(choice.get("target_scene_file") or choice.get("target") or "").strip()
+                    if target.endswith(".txt"):
+                        edges.add((source, target.replace("\\", "/").split("/")[-1]))
+                continue
+            rendered = render_scene_line(line)
+            for target in scene_targets_from_line(rendered):
+                edges.add((source, target))
+    return edges
+
+
+def text_control_flow_edges(script_text: str) -> set[tuple[str, str]]:
+    edges: set[tuple[str, str]] = set()
+    matches = scene_header_matches(script_text)
+    for index, match in enumerate(matches):
+        source = match.group("filename").replace("\\", "/").split("/")[-1]
+        body_start = match.end()
+        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(script_text)
+        for line in script_text[body_start:body_end].splitlines():
+            for target in scene_targets_from_line(line):
+                edges.add((source, target))
+    return edges
+
+
+def scene_targets_from_line(line: str) -> list[str]:
+    stripped = line.strip()
+    targets: list[str] = []
+    if stripped.lower().startswith("choose:"):
+        for choice in parse_choice_options(stripped.split(":", 1)[1]):
+            target = str(choice.get("target") or "").strip()
+            if target.endswith(".txt"):
+                targets.append(target.replace("\\", "/").split("/")[-1])
+    for command in ("changeScene", "callScene"):
+        match = re.match(rf"^{command}\s*:\s*(?P<target>[^;\s]+)", stripped, flags=re.IGNORECASE)
+        if match and match.group("target").endswith(".txt"):
+            targets.append(match.group("target").replace("\\", "/").split("/")[-1])
+    return targets
+
+
+def completed_topology_errors(game_design_json: dict[str, Any]) -> list[str]:
+    scenes = [scene for scene in game_design_json.get("scenes", []) if isinstance(scene, dict)]
+    scene_file_list = [
+        str(scene.get("scene_file") or scene.get("header") or "").strip()
+        for scene in scenes
+        if str(scene.get("scene_file") or scene.get("header") or "").strip()
+    ]
+    files = set(scene_file_list)
+    ending_files = {
+        str(scene.get("scene_file") or scene.get("header") or "").strip()
+        for scene in scenes
+        if str(scene.get("marker") or "").lower() == "ending"
+        or str(scene.get("scene_file") or scene.get("header") or "").strip().startswith("ending_")
+    }
+    edges = completed_control_flow_edges(game_design_json)
+    errors: list[str] = []
+
+    for scene_file, count in sorted(Counter(scene_file_list).items()):
+        if count > 1:
+            errors.append(f"duplicate_scene_file:{scene_file}")
+
+    for source, target in sorted(edges):
+        if target not in files:
+            errors.append(f"missing_scene_target:{source}->{target}")
+
+    valid_edges = {(source, target) for source, target in edges if source in files and target in files}
+    incoming = {target for _source, target in valid_edges}
+    outgoing: dict[str, set[str]] = {}
+    reverse: dict[str, set[str]] = {}
+    for source, target in valid_edges:
+        outgoing.setdefault(source, set()).add(target)
+        reverse.setdefault(target, set()).add(source)
+
+    for ending in sorted(ending_files - incoming):
+        errors.append(f"orphan_ending:{ending}")
+    for ending in sorted(ending_files):
+        if outgoing.get(ending):
+            errors.append(f"ending_has_outgoing_edge:{ending}")
+    for scene_file in sorted(files - ending_files):
+        if not outgoing.get(scene_file):
+            errors.append(f"dead_end_scene:{scene_file}")
+
+    if "start.txt" not in files:
+        errors.append("missing_start_scene:start.txt")
+        return errors
+
+    reachable = {"start.txt"}
+    frontier = ["start.txt"]
+    while frontier:
+        source = frontier.pop()
+        for target in outgoing.get(source, set()):
+            if target not in reachable:
+                reachable.add(target)
+                frontier.append(target)
+    for scene_file in sorted(files - reachable):
+        errors.append(f"unreachable_scene:{scene_file}")
+
+    can_reach_ending = set(ending_files)
+    frontier = list(ending_files)
+    while frontier:
+        target = frontier.pop()
+        for source in reverse.get(target, set()):
+            if source not in can_reach_ending:
+                can_reach_ending.add(source)
+                frontier.append(source)
+    for scene_file in sorted((reachable - ending_files) - can_reach_ending):
+        errors.append(f"no_ending_path:{scene_file}")
+    return errors
 
 
 def extract_outline(
@@ -284,6 +418,16 @@ def normalize_choices(
     if not isinstance(raw_groups, list):
         raise GameDesignError("game_design_choices must contain a choices_group list")
 
+    connectable_pairs = [
+        pair for pair in game_design_outline.get("connectable_pairs", []) if isinstance(pair, dict)
+    ]
+    allowed_targets_by_source: dict[str, set[str]] = {}
+    for pair in connectable_pairs:
+        source = str(pair.get("source_scene_file") or "").strip()
+        target = str(pair.get("target_scene_file") or "").strip()
+        if source and target:
+            allowed_targets_by_source.setdefault(source, set()).add(target)
+
     normalized_groups = []
     for group_index, group in enumerate(raw_groups, start=1):
         if not isinstance(group, dict):
@@ -312,8 +456,10 @@ def normalize_choices(
             if not text:
                 continue
             if target_scene_file and target_scene_file not in valid_files:
-                target_scene_file = ""
-                target = ""
+                continue
+            allowed_targets = allowed_targets_by_source.get(scene_file)
+            if target_scene_file and allowed_targets is not None and target_scene_file not in allowed_targets:
+                continue
             choices.append({"text": text, "target": target, "target_scene_file": target_scene_file})
 
         if choices:
@@ -340,9 +486,105 @@ def normalize_choices(
                 }
             )
 
-    if not normalized_groups and scene_plan.get("required_scene_count", 0) > 1:
-        raise GameDesignError("game_design_choices did not contain any valid choices_group")
-    return {"choices_group": normalized_groups}
+    normalized_groups, transitions = ensure_choice_coverage(normalized_groups, connectable_pairs, line_counts)
+
+    if not normalized_groups and not transitions and scene_plan.get("required_scene_count", 0) > 1:
+        raise GameDesignError("game_design_choices did not contain any valid control flow")
+    payload: dict[str, Any] = {"choices_group": normalized_groups}
+    if transitions:
+        payload["transitions"] = transitions
+    return payload
+
+
+def ensure_choice_coverage(
+    groups: list[dict[str, Any]],
+    connectable_pairs: list[dict[str, Any]],
+    line_counts: dict[str, int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Create choices only for real forks; single-target sources become automatic transitions."""
+    if not connectable_pairs:
+        return groups, []
+
+    result = json.loads(json.dumps(groups, ensure_ascii=False))
+    groups_by_source: dict[str, list[dict[str, Any]]] = {}
+    for group in result:
+        source = str(group.get("scene_file") or "").strip()
+        if source:
+            groups_by_source.setdefault(source, []).append(group)
+
+    pairs_by_source: dict[str, list[dict[str, Any]]] = {}
+    for pair in connectable_pairs:
+        source = str(pair.get("source_scene_file") or "").strip()
+        target = str(pair.get("target_scene_file") or "").strip()
+        if source and target:
+            pairs_by_source.setdefault(source, []).append(pair)
+
+    for source, pairs in pairs_by_source.items():
+        unique_targets = list(dict.fromkeys(str(pair.get("target_scene_file") or "").strip() for pair in pairs))
+        unique_targets = [target for target in unique_targets if target]
+        if len(unique_targets) == 1:
+            result = [group for group in result if str(group.get("scene_file") or "").strip() != source]
+            groups_by_source.pop(source, None)
+            continue
+        source_groups = groups_by_source.get(source, [])
+        if source_groups:
+            target_group = source_groups[0]
+        else:
+            target_group = {
+                "id": f"{source.removesuffix('.txt')}_choice_auto",
+                "scene_file": source,
+                "insert_index": line_counts.get(source, 0),
+                "content": "",
+                "target_scene_file": "",
+                "choices": [],
+            }
+            result.append(target_group)
+            groups_by_source[source] = [target_group]
+
+        existing_targets = {
+            str(choice.get("target_scene_file") or choice.get("target") or "").strip()
+            for group in groups_by_source[source]
+            for choice in group.get("choices", [])
+            if isinstance(choice, dict)
+        }
+        seen_pairs: set[str] = set()
+        for pair in pairs:
+            target = str(pair.get("target_scene_file") or "").strip()
+            if not target or target in existing_targets or target in seen_pairs:
+                continue
+            seen_pairs.add(target)
+            target_group.setdefault("choices", []).append(
+                {
+                    "text": fallback_choice_text(pair),
+                    "target": target,
+                    "target_scene_file": target,
+                }
+            )
+    transitions = []
+    for source, pairs in pairs_by_source.items():
+        unique_targets = list(dict.fromkeys(str(pair.get("target_scene_file") or "").strip() for pair in pairs))
+        unique_targets = [target for target in unique_targets if target]
+        if len(unique_targets) == 1:
+            transitions.append(
+                {
+                    "id": f"{source.removesuffix('.txt')}_auto_transition",
+                    "scene_file": source,
+                    "target_scene_file": unique_targets[0],
+                    "insert_index": line_counts.get(source, 0),
+                    "kind": "AUTO_TRANSITION",
+                }
+            )
+    return result, transitions
+
+
+def fallback_choice_text(pair: dict[str, Any]) -> str:
+    relationship = str(pair.get("relationship_label") or "").strip()
+    if relationship:
+        return relationship
+    title = str(pair.get("target_title") or pair.get("target_node") or "").strip()
+    if str(pair.get("target_kind") or "") == "Ending":
+        return f"走向{title or '结局'}"
+    return f"继续前往{title or str(pair.get('target_scene_file') or '').removesuffix('.txt')}"
 
 
 def apply_choices_to_json(game_design_json: dict[str, Any], choices_payload: dict[str, Any]) -> dict[str, Any]:
@@ -353,15 +595,39 @@ def apply_choices_to_json(game_design_json: dict[str, Any], choices_payload: dic
             scene_file = str(group.get("scene_file") or "").strip()
             if scene_file:
                 groups_by_file.setdefault(scene_file, []).append(group)
+    transitions_by_file: dict[str, list[dict[str, Any]]] = {}
+    for transition in choices_payload.get("transitions", []):
+        if not isinstance(transition, dict):
+            continue
+        scene_file = str(transition.get("scene_file") or "").strip()
+        target = str(transition.get("target_scene_file") or "").strip()
+        if scene_file and target:
+            transitions_by_file.setdefault(scene_file, []).append(transition)
 
     for scene in result.get("scenes", []):
         if not isinstance(scene, dict):
             continue
         scene_file = str(scene.get("scene_file") or "").strip()
         groups = groups_by_file.get(scene_file, [])
-        if not groups:
+        transitions = transitions_by_file.get(scene_file, [])
+        if not groups and not transitions:
             continue
         lines = list(scene.get("lines", []))
+        for transition in sorted(transitions, key=lambda item: int(item.get("insert_index", 0) or 0), reverse=True):
+            try:
+                insert_index = int(transition.get("insert_index", len(lines)))
+            except (TypeError, ValueError):
+                insert_index = len(lines)
+            insert_index = max(0, min(insert_index, len(lines)))
+            lines.insert(
+                insert_index,
+                {
+                    "id": str(transition.get("id") or f"{scene_file}_auto_transition"),
+                    "kind": "transition",
+                    "transition_kind": str(transition.get("kind") or "AUTO_TRANSITION"),
+                    "target_scene_file": str(transition.get("target_scene_file") or "").strip(),
+                },
+            )
         for group in sorted(groups, key=lambda item: int(item.get("insert_index", 0) or 0), reverse=True):
             try:
                 insert_index = int(group.get("insert_index", 0))
@@ -536,28 +802,6 @@ def render_choice_branch_line(line: dict[str, Any]) -> str:
     if kind == "intro":
         return f"intro:{text};"
     return f">旁白:{text};"
-
-
-def mermaid_edges(narrative_structure: str) -> list[dict[str, str]]:
-    node = r"[A-Za-z_][A-Za-z0-9_-]*"
-    shape = r"(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?"
-    edge_re = re.compile(
-        rf"(?P<source>{node}){shape}\s*(?:-->|==>|-\.->)\s*(?:\|(?P<label>[^|]+)\|\s*)?(?P<target>{node}){shape}"
-    )
-    edges = []
-    for line in narrative_structure.splitlines():
-        cleaned = line.strip().rstrip(";")
-        if not cleaned or cleaned.startswith(("%%", "#")):
-            continue
-        for match in edge_re.finditer(cleaned):
-            edges.append(
-                {
-                    "source": match.group("source").strip(),
-                    "target": match.group("target").strip(),
-                    "label": (match.group("label") or "").strip(),
-                }
-            )
-    return edges
 
 
 def resolve_structure_scene(node_id: str, scene_by_node: dict[str, dict[str, Any]]) -> dict[str, Any] | None:

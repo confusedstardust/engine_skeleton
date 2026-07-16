@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import settings
+from .storage import write_text_atomic
 
 
 class LLMError(RuntimeError):
@@ -110,7 +111,7 @@ class OpenAIFunctionClient:
             "messages": self._trace_messages(payload),
             "parsed_arguments": None,
         }
-        path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(path, json.dumps(trace, ensure_ascii=False, indent=2) + "\n")
         return path
 
     def _trace_messages(self, payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -260,7 +261,7 @@ class OpenAIFunctionClient:
             path = traces[-1]
         trace = json.loads(path.read_text(encoding="utf-8"))
         trace["parsed_arguments"] = parsed_arguments
-        path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(path, json.dumps(trace, ensure_ascii=False, indent=2) + "\n")
 
     def _write_text_trace(self, trace_name: str, text: str) -> None:
         if not self.trace_dir:
@@ -272,7 +273,7 @@ class OpenAIFunctionClient:
         path = traces[-1]
         trace = json.loads(path.read_text(encoding="utf-8"))
         trace["parsed_arguments"] = {"content": text}
-        path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(path, json.dumps(trace, ensure_ascii=False, indent=2) + "\n")
 
     def _strip_markdown_json_fence(self, text: str) -> str:
         stripped = text.strip()
