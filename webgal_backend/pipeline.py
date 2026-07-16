@@ -16,6 +16,13 @@ from . import game_design
 from .job_options import validate_generation_options
 from .contract_context import build_phase_context
 from .generation_limits import generation_limits
+from .game_project import (
+    GameProject,
+    GameProjectError,
+    compile_game_project,
+    completed_from_game_project,
+    game_project_from_completed,
+)
 from .llm import LLMError, OpenAIFunctionClient
 from .narrative_structure import NarrativeStructureError, repair_narrative_structure_if_needed
 from .prompts import (
@@ -25,12 +32,14 @@ from .prompts import (
     game_design_prompt,
     narrative_prompt,
     sound_effect_prompt,
-    webgal_script_rewrite_prompt,
+    webgal_asset_operations_prompt,
 )
+from .publisher import PublishError, publish_game_revision
 from .raw_correction import correct_generated_raw_file
 from .scene_plan import build_scene_plan, expected_scene_files
-from .storage import JobStore, read_json, utc_now, write_json
-from .scene_validation import validate_and_repair_scenes, validation_report
+from .script_enrichment import normalize_asset_operations
+from .storage import JobStore, read_json, utc_now, write_json, write_text_atomic
+from .scene_validation import repair_scenes, validate_scenes, validation_report
 from .tts_pipeline import build_tts_manifest, generate_tts_audio, write_tts_manifest
 from .validators import (
     ValidationFailure,
@@ -65,6 +74,7 @@ PHASE_SPECS: dict[str, PhaseSpec] = {
     "assets": PhaseSpec("run_assets"),
     "game_build": PhaseSpec("run_game_build"),
     "scenes": PhaseSpec("run_scenes"),
+    "repair": PhaseSpec("run_repair"),
     "validation": PhaseSpec("run_validation"),
 }
 
@@ -76,8 +86,28 @@ RUN_ALL_PHASE_ORDER: tuple[str, ...] = (
     "sound_effects",
     "asset_generation",
     "scenes",
+    "repair",
     "validation",
 )
+
+PHASE_INPUT_ARTIFACTS: dict[str, set[str]] = {
+    "game_design": {"narrative_plan"},
+    "game_design_draft": {"narrative_plan"},
+    "game_design_completion": {"narrative_plan", "scene_plan", "game_design"},
+    "asset_review": {"narrative_plan", "game_project"},
+    "asset_manifest": {"narrative_plan", "game_project"},
+    "asset_generation": {"asset_manifest"},
+    "script_rewrite": {"game_project", "asset_manifest"},
+    "sound_effects": {"game_design_webgal"},
+    "sound": {"game_design_webgal"},
+    "tts_generation": {"narrative_plan", "game_design_webgal"},
+    "tts": {"narrative_plan", "game_design_webgal"},
+    "assets": {"narrative_plan", "game_project"},
+    "game_build": {"game_design_webgal"},
+    "scenes": {"game_design_webgal"},
+    "repair": {"scene_files"},
+    "validation": {"scene_files"},
+}
 
 
 class WebGALPipeline:
@@ -157,17 +187,18 @@ class WebGALPipeline:
         if job.get("artifacts", {}).get("stage_timings") != "state/llm_traces/stage_timings.jsonl":
             self.store.record_artifact(job, "stage_timings", "state/llm_traces/stage_timings.jsonl")
 
-    def run_all(self, job_id: str) -> dict[str, Any]:
-        job = self.store.get(job_id)
-        try:
-            validate_generation_options(job.get("options", {}))
-            for phase in RUN_ALL_PHASE_ORDER:
-                self._phase_handler(phase)(job)
-            self.store.transition(job, "DONE", None)
-            return self.store.get(job_id)
-        except Exception as exc:
-            self.store.set_error(job, str(exc))
-            raise
+    def run_all(self, job_id: str, lock_token: str | None = None) -> dict[str, Any]:
+        with self.store.execution(job_id, lock_token):
+            job = self.store.get(job_id)
+            try:
+                validate_generation_options(job.get("options", {}))
+                for phase in RUN_ALL_PHASE_ORDER:
+                    self._phase_handler(phase)(job)
+                self.store.transition(job, "DONE", None)
+                return self.store.get(job_id)
+            except Exception as exc:
+                self.store.set_error(job, str(exc))
+                raise
 
     def phase_names(self) -> set[str]:
         return set(PHASE_SPECS)
@@ -178,19 +209,24 @@ class WebGALPipeline:
             raise PipelineError(f"unknown phase: {phase}")
         return getattr(self, spec.handler_name)
 
-    def run_phase(self, job_id: str, phase: str) -> dict[str, Any]:
-        job = self.store.get(job_id)
+    def run_phase(self, job_id: str, phase: str, lock_token: str | None = None) -> dict[str, Any]:
         spec = PHASE_SPECS.get(phase)
         if spec is None:
             raise PipelineError(f"unknown phase: {phase}")
-        try:
-            if spec.validate_options:
-                validate_generation_options(job.get("options", {}))
-            self._phase_handler(phase)(job)
-            return self.store.get(job_id)
-        except Exception as exc:
-            self.store.set_error(job, str(exc))
-            raise
+        with self.store.execution(job_id, lock_token):
+            job = self.store.get(job_id)
+            try:
+                if spec.validate_options:
+                    validate_generation_options(job.get("options", {}))
+                try:
+                    self.store.require_artifacts_fresh(job_id, PHASE_INPUT_ARTIFACTS.get(phase, set()))
+                except ValueError as exc:
+                    raise PipelineError(str(exc)) from exc
+                self._phase_handler(phase)(job)
+                return self.store.get(job_id)
+            except Exception as exc:
+                self.store.set_error(job, str(exc))
+                raise
 
     def run_narrative(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
@@ -282,9 +318,21 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             write_json(job_dir / "state" / "game_design_choices.json", choices_payload)
             self.store.record_artifact(job, "game_design_choices", "state/game_design_choices.json")
             completed_json = game_design.apply_choices_to_json(game_design_json, choices_payload)
-            write_json(job_dir / "state" / "game_design_completed.json", completed_json)
+            topology_errors = game_design.completed_topology_errors(completed_json)
+            if topology_errors:
+                raise PipelineError("game_design_completed topology validation failed: " + ", ".join(topology_errors))
+            try:
+                previous_path = job_dir / "state" / "game_project.json"
+                previous_project = read_json(previous_path) if previous_path.exists() else None
+                project = game_project_from_completed(completed_json, previous=previous_project)
+            except GameProjectError as exc:
+                raise PipelineError(str(exc)) from exc
+            normalized_completed = completed_from_game_project(project)
+            write_json(job_dir / "state" / "game_project.json", project.model_dump(mode="json"))
+            self.store.record_artifact(job, "game_project", "state/game_project.json")
+            write_json(job_dir / "state" / "game_design_completed.json", normalized_completed)
             self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.json")
-            completed_text = game_design.render_json(completed_json)
+            completed_text = compile_game_project(project)
             completed_text = self._normalize_game_design_coverage_text(completed_text, scene_plan, "game_design_completed.json")
         self.store.transition(job, "GAME_DESIGN_READY", "GAME_DESIGN")
 
@@ -306,6 +354,12 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         raise PipelineError("game_design.json is required before design completion")
 
     def _read_game_design_completed_text(self, job_dir: Path) -> str:
+        project_path = job_dir / "state" / "game_project.json"
+        if project_path.exists():
+            try:
+                return compile_game_project(read_json(project_path))
+            except GameProjectError as exc:
+                raise PipelineError(str(exc)) from exc
         json_path = job_dir / "state" / "game_design_completed.json"
         if json_path.exists():
             data = read_json(json_path)
@@ -313,6 +367,26 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 return game_design.render_json(data)
             raise PipelineError("game_design_completed.json must be a JSON object")
         raise PipelineError("game_design_completed.json is required before this phase")
+
+    def _ensure_game_project(self, job: dict[str, Any], job_dir: Path) -> GameProject:
+        project_path = job_dir / "state" / "game_project.json"
+        if project_path.exists():
+            try:
+                return GameProject.model_validate(read_json(project_path))
+            except Exception as exc:
+                raise PipelineError(f"invalid game_project.json: {exc}") from exc
+        completed_path = job_dir / "state" / "game_design_completed.json"
+        completed = self._read_required(completed_path)
+        try:
+            project = game_project_from_completed(completed, strict=False)
+        except GameProjectError as exc:
+            raise PipelineError(str(exc)) from exc
+        write_json(project_path, project.model_dump(mode="json"))
+        self.store.record_artifact(job, "game_project", "state/game_project.json")
+        normalized_completed = completed_from_game_project(project)
+        write_json(completed_path, normalized_completed)
+        self.store.record_artifact(job, "game_design_completed", "state/game_design_completed.json")
+        return project
 
     def _normalize_game_design_choices(
         self,
@@ -340,6 +414,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.run_sound_effects(job)
         self.run_tts_generation(job)
         self.run_scenes(job)
+        self.run_repair(job)
         self.run_validation(job)
         self.store.transition(job, "DONE", None)
 
@@ -348,8 +423,14 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         job_dir = self.store.job_dir(job["id"])
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         scene_plan = build_scene_plan(narrative_plan)
-        game_design_text = game_design.render_json(self._read_game_design_json(job_dir))
-        asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
+        project = self._ensure_game_project(job, job_dir)
+        design_json = completed_from_game_project(project)
+        game_design_text = game_design.render_json(design_json)
+        asset_context = self._asset_context_from_narrative_and_game_design(
+            narrative_plan,
+            game_design_text,
+            project=project,
+        )
         base_dir = str((job_dir / "public" / "game").resolve())
         with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
             prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
@@ -473,39 +554,58 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.store.transition(job, "RUNNING", "SCRIPT_REWRITE")
         job_dir = self.store.job_dir(job["id"])
         manifest = self._read_required(job_dir / "assets_manifest.json")
-        completed_text = self._read_game_design_completed_text(job_dir)
-
-        syntax_path = settings.contracts_dir / "syntax.md"
-        if not syntax_path.exists():
-            raise PipelineError("webgal_backend/contracts/syntax.md is required for WebGAL script rewriting")
+        project = self._ensure_game_project(job, job_dir)
+        completed_text = compile_game_project(project)
 
         assets = self._script_asset_lists(manifest)
         write_json(job_dir / "state" / "script_assets.json", assets)
 
-        with self._trace_stage(job, 5, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
-            try:
-                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-            except TypeError:
-                llm = self.llm_factory()
+        with self._trace_stage(job, 5, "插入素材", "webgal_asset_operations", "state/script_asset_operations.json"):
+            operation_report: dict[str, Any] = {"operations": [], "rejected": []}
+            if assets["background_assets"] or assets["figure_assets"]:
+                try:
+                    llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
+                except TypeError:
+                    llm = self.llm_factory()
+                system_prompt = f"""{SYSTEM_PROMPT}
 
-            system_prompt = f"""{SYSTEM_PROMPT}
-
-Current phase: webgal_script_rewrite
-Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
-            prompt = webgal_script_rewrite_prompt(
-                syntax_md=syntax_path.read_text(encoding="utf-8"),
-                game_design_completed_text=completed_text,
-                background_assets=assets["background_assets"],
-                figure_assets=assets["figure_assets"],
-            )
-            rewritten_text = llm.call_text("webgal_script_rewrite", system_prompt, prompt)
-            rewritten_text = self._format_check_scene_headers(
-                rewritten_text,
-                completed_text,
-                "game_design_webgal.txt",
-            )
-            (job_dir / "state" / "game_design_webgal.txt").write_text(rewritten_text.rstrip() + "\n", encoding="utf-8")
+Current phase: webgal_asset_operations
+Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."""
+                prompt = webgal_asset_operations_prompt(
+                    game_project_json=project.model_dump(mode="json"),
+                    background_assets=assets["background_assets"],
+                    figure_assets=assets["figure_assets"],
+                )
+                last_error = ""
+                for attempt in range(settings.max_text_retries + 1):
+                    try:
+                        response = llm.call_text("webgal_asset_operations", system_prompt, prompt)
+                        parsed = llm.parse_json_text(response, "webgal_asset_operations")
+                        operation_report = normalize_asset_operations(
+                            parsed,
+                            project,
+                            background_assets=assets["background_assets"],
+                            figure_assets=assets["figure_assets"],
+                        )
+                        break
+                    except (LLMError, ValueError, TypeError) as exc:
+                        last_error = str(exc)
+                        if attempt >= settings.max_text_retries:
+                            raise PipelineError(f"webgal asset operation generation failed: {last_error}") from exc
+                        prompt = webgal_asset_operations_prompt(
+                            game_project_json=project.model_dump(mode="json"),
+                            background_assets=assets["background_assets"],
+                            figure_assets=assets["figure_assets"],
+                        ) + f"\nPrevious response error: {last_error}\nReturn corrected JSON only."
+            write_json(job_dir / "state" / "script_asset_operations.json", operation_report)
+            rewritten_text = compile_game_project(project, operation_report["operations"])
+            expected_edges = game_design.text_control_flow_edges(completed_text)
+            actual_edges = game_design.text_control_flow_edges(rewritten_text)
+            if actual_edges != expected_edges:
+                raise PipelineError("deterministic compiler changed control flow")
+            write_text_atomic(job_dir / "state" / "game_design_webgal.txt", rewritten_text.rstrip() + "\n")
             self.store.record_artifact(job, "script_assets", "state/script_assets.json")
+            self.store.record_artifact(job, "script_asset_operations", "state/script_asset_operations.json")
             self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
         self.store.transition(job, "SCRIPT_REWRITE_READY", "SCRIPT_REWRITE")
 
@@ -572,7 +672,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
 
             with_bgm_text, bgm_report = self._insert_bgm(script_text, bgm_plan)
             inserted_text, insertion_report = self._insert_sound_effects(with_bgm_text, plan)
-            webgal_path.write_text(inserted_text.rstrip() + "\n", encoding="utf-8")
+            write_text_atomic(webgal_path, inserted_text.rstrip() + "\n")
+            self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")
             self._copy_sound_effect_files(job_dir, insertion_report)
             self._copy_bgm_files(job_dir, bgm_report)
 
@@ -691,7 +792,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             )
             if repaired_text == script_text:
                 raise
-            completed_design_path.write_text(repaired_text.rstrip() + "\n", encoding="utf-8")
+            write_text_atomic(completed_design_path, repaired_text.rstrip() + "\n")
             scene_files = self._split_game_design_completed_to_scene_files(job_dir, repaired_text)
         write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
         self.store.record_artifact(job, "scene_files", "state/scene_files.json")
@@ -704,14 +805,35 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 9, "校验阶段", "validation_report", "state/validation_report.json"):
-            result = validate_and_repair_scenes(job_dir)
+            result = validate_scenes(job_dir)
             report = validation_report(result)
             write_json(job_dir / "state" / "validation_report.json", report)
             self.store.record_artifact(job, "validation_report", "state/validation_report.json")
             if report["summary"]["errors"] > 0:
                 self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
                 raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
+            try:
+                publication = publish_game_revision(
+                    job_dir,
+                    source_revision=int(job.get("revision", 0)),
+                )
+            except PublishError as exc:
+                raise PipelineError(f"publishing validated game failed: {exc}") from exc
+            self.store.record_artifact(job, "published_revision", "state/published_revision.json")
+            job["published_revision"] = publication["revision_id"]
+            job["published_root_hash"] = publication["root_hash"]
+            self.store.save(job)
         self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
+
+    def run_repair(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "REPAIRING")
+        job_dir = self.store.job_dir(job["id"])
+        with self._trace_stage(job, 8, "显式修复", "repair_report", "state/repair_report.json"):
+            result = repair_scenes(job_dir)
+            report = validation_report(result)
+            write_json(job_dir / "state" / "repair_report.json", report)
+            self.store.record_artifact(job, "repair_report", "state/repair_report.json")
+        self.store.transition(job, "SCENES_REPAIRED", "REPAIRING")
 
     def _load_sound_effect_assets(self) -> list[dict[str, Any]]:
         path = settings.workspace_root / "webgal_backend" / "sound_effect_assets.json"
@@ -975,6 +1097,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             command = self._sound_effect_command(item, loop_ids)
             if not command:
                 skipped.append({**item, "reason": "unsupported_operation"})
+                continue
+            nearby_lines = lines[max(0, line_index - 2) : line_index]
+            if command in nearby_lines:
+                skipped.append({**item, "reason": "already_inserted"})
                 continue
             lines.insert(line_index, command)
             used_line_indexes = {index + 1 if index >= line_index else index for index in used_line_indexes}
@@ -1325,18 +1451,29 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         if not matches:
             raise PipelineError("script text did not contain any Scene:/Ending: sections")
 
+        planned_files = []
+        for match in matches:
+            file_name = match.group("filename").replace("\\", "/").split("/")[-1]
+            if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
+                raise PipelineError(f"invalid scene filename in script text: {file_name}")
+            planned_files.append(file_name)
+        if len(planned_files) != len(set(planned_files)):
+            raise PipelineError("script text contains duplicate scene filenames")
+
         scene_dir = job_dir / "public" / "game" / "scene"
         scene_dir.mkdir(parents=True, exist_ok=True)
+        planned_set = set(planned_files)
         written = []
         for index, match in enumerate(matches):
             body_start = match.end()
             body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             file_name = match.group("filename").replace("\\", "/").split("/")[-1]
-            if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
-                raise PipelineError(f"invalid scene filename in script text: {file_name}")
             content = text[body_start:body_end].strip()
-            (scene_dir / file_name).write_text(content.rstrip() + "\n", encoding="utf-8")
+            write_text_atomic(scene_dir / file_name, content.rstrip() + "\n")
             written.append(f"public/game/scene/{file_name}")
+        for stale_path in scene_dir.glob("*.txt"):
+            if stale_path.name not in planned_set:
+                stale_path.unlink()
         return written
 
     def _scene_header_matches(self, text: str):
@@ -1616,13 +1753,30 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             "figure_assets": sorted(set(figure_assets)),
         }
 
-    def _asset_context_from_narrative_and_game_design(self, narrative_plan: dict[str, Any], game_design_text: str) -> dict[str, Any]:
+    def _asset_context_from_narrative_and_game_design(
+        self,
+        narrative_plan: dict[str, Any],
+        game_design_text: str,
+        project: GameProject | None = None,
+    ) -> dict[str, Any]:
         import re
 
+        character_id_by_name = {
+            str(character.get("name") or "").strip(): self._safe_id(character.get("id") or character.get("name"))
+            for character in narrative_plan.get("characters", [])
+            if isinstance(character, dict) and str(character.get("name") or "").strip()
+        }
+        project_scene_by_file = {scene.scene_file: scene for scene in project.scenes} if project else {}
         scenes = []
         for index, match in enumerate(self._scene_header_matches(game_design_text)):
             file_name = match.group("filename").replace("\\", "/").split("/")[-1]
             scene_id = self._safe_id(file_name.removesuffix(".txt"))
+            project_scene = project_scene_by_file.get(file_name)
+            speakers = {
+                line.speaker.strip()
+                for line in (project_scene.lines if project_scene else [])
+                if line.kind == "dialogue" and line.speaker.strip()
+            }
             scenes.append(
                 {
                     "id": scene_id,
@@ -1633,7 +1787,11 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
                     "purpose": "asset_planning",
                     "is_entry": file_name == "start.txt",
                     "is_ending": file_name.startswith("ending_"),
-                    "characters_present": [self._safe_id(character["id"]) for character in narrative_plan["characters"]],
+                    "characters_present": sorted(
+                        character_id_by_name[speaker]
+                        for speaker in speakers
+                        if speaker in character_id_by_name
+                    ),
                 }
             )
 
@@ -1648,7 +1806,7 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
                     "purpose": "asset_planning",
                     "is_entry": True,
                     "is_ending": False,
-                    "characters_present": [self._safe_id(character["id"]) for character in narrative_plan["characters"]],
+                    "characters_present": [],
                 }
             )
 
@@ -1692,24 +1850,25 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         game_dir = job_dir / "public" / "game"
         game_dir.mkdir(parents=True, exist_ok=True)
         title = plan.get("title") or plan.get("theme", {}).get("title") or "WebGAL Game"
-        job_data = self._read_required(job_dir / "job.json")
+        job_data = self.store.get(job_dir.name)
         if title == "WebGAL Game":
             title = job_data.get("source_material", "WebGAL Game")[:30]
         game_key = plan.get("game_key", job_dir.name[:16])
-        lines = [
-            f"Game_name:{title};",
-            f"Game_key:{game_key};",
-            "Title_img:;",
-            "Title_bgm:;",
-            "Game_Logo:;",
-        ]
+        config = {
+            "Game_name": title,
+            "Game_key": game_key,
+            "Title_img": "",
+            "Title_bgm": "",
+            "Game_Logo": "",
+        }
         bg_files = list((game_dir / "background").glob("*.webp")) if (game_dir / "background").exists() else []
         if bg_files:
-            lines[3] = f"Title_img:{bg_files[0].name};"
+            config["Title_img"] = bg_files[0].name
         bgm_files = list((game_dir / "bgm").glob("*.mp3")) if (game_dir / "bgm").exists() else []
         if bgm_files:
-            lines[4] = f"Title_bgm:{bgm_files[0].name};"
-        (game_dir / "config.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            config["Title_bgm"] = bgm_files[0].name
+        lines = [f"{key}:{value};" for key, value in config.items()]
+        write_text_atomic(game_dir / "config.txt", "\n".join(lines) + "\n")
 
     def _copy_engine_skeleton(self, job_dir: Path) -> None:
         """Copy engine skeleton files (animation, template) to job's game directory."""
@@ -1722,7 +1881,7 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
                 shutil.copytree(src, dst)
         hotspots = target_game / "hotspots.json"
         if not hotspots.exists():
-            hotspots.write_text("[]\n", encoding="utf-8")
+            write_text_atomic(hotspots, "[]\n")
 
     def _run_asset_scripts(self, job_dir: Path) -> None:
         manifest = job_dir / "assets_manifest.json"

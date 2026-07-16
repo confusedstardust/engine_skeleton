@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - development
   workflow_dispatch:
     inputs:
       deploy:
@@ -16,6 +17,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: docker-publish-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE_NAME: ${{ github.repository }}-backend
@@ -24,6 +29,7 @@ env:
 jobs:
   build-backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     outputs:
       version_tag: ${{ steps.vars.outputs.version_tag }}
     steps:
@@ -50,7 +56,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=development,enable=${{ github.ref_name == 'development' }}
             type=raw,value=${{ steps.vars.outputs.version_tag }}
 
       - name: Build and push backend image
@@ -61,11 +68,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=webgal-backend
+          cache-to: type=gha,scope=webgal-backend,mode=max
 
   build-frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     outputs:
       version_tag: ${{ steps.vars.outputs.version_tag }}
     steps:
@@ -92,7 +100,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=development,enable=${{ github.ref_name == 'development' }}
             type=raw,value=${{ steps.vars.outputs.version_tag }}
 
       - name: Build and push frontend image
@@ -106,10 +115,11 @@ jobs:
             NEXT_PUBLIC_BASE_PATH=/narrativeos
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=webgal-frontend
+          cache-to: type=gha,scope=webgal-frontend,mode=max
 
   deploy:
+    name: Deploy ${{ github.ref_name }}
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -117,17 +127,70 @@ jobs:
       - build-backend
       - build-frontend
     steps:
+      - name: Validate branch deployment secrets
+        shell: bash
+        env:
+          PROD_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          PROD_DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          PROD_DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PROD_DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEV_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST_DEV }}
+          DEV_DEPLOY_USER: ${{ secrets.DEPLOY_USER_DEV }}
+          DEV_DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY_DEV }}
+          DEV_DEPLOY_PATH: ${{ secrets.DEPLOY_PATH_DEV }}
+        run: |
+          set -euo pipefail
+          require_secret() {
+            name="$1"
+            value="$2"
+            if [ -z "$value" ]; then
+              echo "::error::$name is not configured for branch $GITHUB_REF_NAME"
+              return 1
+            fi
+          }
+
+          case "$GITHUB_REF_NAME" in
+            main)
+              require_secret DEPLOY_HOST "$PROD_DEPLOY_HOST"
+              require_secret DEPLOY_USER "$PROD_DEPLOY_USER"
+              require_secret DEPLOY_SSH_KEY "$PROD_DEPLOY_SSH_KEY"
+              require_secret DEPLOY_PATH "$PROD_DEPLOY_PATH"
+              ;;
+            development)
+              require_secret DEPLOY_HOST_DEV "$DEV_DEPLOY_HOST"
+              require_secret DEPLOY_USER_DEV "$DEV_DEPLOY_USER"
+              require_secret DEPLOY_SSH_KEY_DEV "$DEV_DEPLOY_SSH_KEY"
+              require_secret DEPLOY_PATH_DEV "$DEV_DEPLOY_PATH"
+              ;;
+            *)
+              echo "::error::Deployment is only allowed from main or development, got $GITHUB_REF_NAME"
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare remote deployment directory
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ github.ref_name == 'development' && secrets.DEPLOY_PATH_DEV || secrets.DEPLOY_PATH }}
+        with:
+          host: ${{ github.ref_name == 'development' && secrets.DEPLOY_HOST_DEV || secrets.DEPLOY_HOST }}
+          username: ${{ github.ref_name == 'development' && secrets.DEPLOY_USER_DEV || secrets.DEPLOY_USER }}
+          key: ${{ github.ref_name == 'development' && secrets.DEPLOY_SSH_KEY_DEV || secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_PATH
+          command_timeout: 2m
+          script: mkdir -p "$DEPLOY_PATH"
 
       - name: Upload deployment files
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          host: ${{ github.ref_name == 'development' && secrets.DEPLOY_HOST_DEV || secrets.DEPLOY_HOST }}
+          username: ${{ github.ref_name == 'development' && secrets.DEPLOY_USER_DEV || secrets.DEPLOY_USER }}
+          key: ${{ github.ref_name == 'development' && secrets.DEPLOY_SSH_KEY_DEV || secrets.DEPLOY_SSH_KEY }}
           source: "docker-compose.prod.yml"
-          target: ${{ secrets.DEPLOY_PATH }}
+          target: ${{ github.ref_name == 'development' && secrets.DEPLOY_PATH_DEV || secrets.DEPLOY_PATH }}
 
       - name: Deploy on remote host
         uses: appleboy/ssh-action@v1.0.3
@@ -137,16 +200,17 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_PATH: ${{ github.ref_name == 'development' && secrets.DEPLOY_PATH_DEV || secrets.DEPLOY_PATH }}
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
+          host: ${{ github.ref_name == 'development' && secrets.DEPLOY_HOST_DEV || secrets.DEPLOY_HOST }}
+          username: ${{ github.ref_name == 'development' && secrets.DEPLOY_USER_DEV || secrets.DEPLOY_USER }}
+          key: ${{ github.ref_name == 'development' && secrets.DEPLOY_SSH_KEY_DEV || secrets.DEPLOY_SSH_KEY }}
+          envs: VERSION_TAG,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD,DEPLOY_PATH
           command_timeout: 240m
           script: |
-            set -e
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
-            cd "${{ secrets.DEPLOY_PATH }}"
+            set -eu
+            mkdir -p "$DEPLOY_PATH/deploy/sound-effects"
+            cd "$DEPLOY_PATH"
             echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
             REPOSITORY_LC="$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
             export BACKEND_IMAGE="$REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
@@ -179,6 +243,13 @@ jobs:
             echo "[$(date -Is)] Starting docker compose up"
             $COMPOSE_CMD -f docker-compose.prod.yml up -d
             echo "[$(date -Is)] Finished docker compose up"
+            timed_retry "backend health check" \
+              $COMPOSE_CMD -f docker-compose.prod.yml exec -T backend \
+              python -c "import urllib.request; response = urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=10); assert response.status == 200"
+            timed_retry "frontend health check" \
+              $COMPOSE_CMD -f docker-compose.prod.yml exec -T frontend \
+              node -e "fetch('http://127.0.0.1:3001/narrativeos').then(r => { if (!r.ok) throw new Error(String(r.status)); }).catch(e => { console.error(e); process.exit(1); })"
+            $COMPOSE_CMD -f docker-compose.prod.yml ps
             echo "[$(date -Is)] Docker disk usage before image prune"
             docker system df || true
             echo "[$(date -Is)] Pruning unused Docker images older than 24h"

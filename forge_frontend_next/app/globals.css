@@ -2044,6 +2044,96 @@ a {
   line-height: 1;
 }
 
+.publication-history {
+  width: min(760px, 100%);
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-light);
+  text-align: left;
+}
+
+.publication-history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.publication-history-head > span {
+  color: var(--ink);
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  font-weight: 800;
+}
+
+.publication-history-head small {
+  color: var(--ink-muted);
+}
+
+.publication-revisions {
+  display: grid;
+  gap: 8px;
+}
+
+.publication-revision {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.publication-revision.current {
+  background: linear-gradient(90deg, var(--gold-pale), rgba(255, 255, 255, 0.7));
+  border-color: var(--border);
+}
+
+.publication-revision > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.publication-revision strong {
+  font-size: 14px;
+}
+
+.publication-revision span,
+.publication-revision code {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publication-revision code {
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.publication-revision .btn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .publication-history-head,
+  .publication-revision {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .publication-revision .btn {
+    width: 100%;
+  }
+}
+
 .artifact-editor {
   min-height: 520px;
   margin-top: 18px;

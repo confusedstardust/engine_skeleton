@@ -122,6 +122,7 @@ export type ScenePlan = {
 };
 
 export type SceneDraft = {
+  sceneId?: string;
   header: string;
   title: string;
   lines: SceneLine[];
@@ -154,6 +155,7 @@ export type SceneChoice = {
 };
 
 type GameDesignJsonScene = Partial<GameDesignDraftScene> & {
+  scene_id?: string;
   scene_file?: string;
   source_node?: string;
   ending_type?: string;
@@ -317,6 +319,7 @@ function scenesFromGameDesignJson(content: string, plan: NarrativePlan | null, s
       const endingType = String(scene.endingType || scene.ending_type || "");
       const lines = Array.isArray(scene.lines) ? scene.lines.map((line, lineIndex) => normalizeSceneLine(line, `${header}-${lineIndex}`)) : [];
       return {
+        sceneId: String(scene.sceneId || scene.scene_id || "") || undefined,
         header,
         marker,
         sourceNode,
@@ -342,6 +345,7 @@ export function serializeGameDesignJson(scenes: SceneDraft[]) {
     {
       version: 1,
       scenes: scenes.map((scene) => ({
+        scene_id: scene.sceneId || undefined,
         marker: scene.marker || "Scene",
         scene_file: scene.header,
         source_node: scene.sourceNode || "",

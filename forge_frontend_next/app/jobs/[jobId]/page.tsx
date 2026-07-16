@@ -59,6 +59,25 @@ type AssetReviewResponse = {
   image_enabled: boolean;
 };
 
+type PublicationRevision = {
+  revision_id: string;
+  source_revision: number;
+  root_hash: string;
+  created_at: string;
+  file_count: number;
+  is_current: boolean;
+};
+
+type PublicationResponse = {
+  job_id: string;
+  job?: Job;
+  publication: {
+    revision_id: string;
+    published_at: string;
+  } | null;
+  revisions: PublicationRevision[];
+};
+
 type StoryStep = {
   id: string;
   name: string;
@@ -133,6 +152,7 @@ type ScenePlan = {
 };
 
 type SceneDraft = {
+  sceneId?: string;
   header: string;
   title: string;
   lines: SceneLine[];
@@ -172,13 +192,45 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
     const isHtml = /^\s*<(?:!DOCTYPE|html\b)/i.test(body);
-    throw new Error(isHtml ? `请求失败（${response.status}）` : body);
+    throw new Error(isHtml ? `请求失败（${response.status}）` : formatApiError(body));
   }
   return response.json() as Promise<T>;
 }
 
+function formatApiError(body: string) {
+  try {
+    const parsed = JSON.parse(body) as { detail?: string | { code?: string; errors?: string[] } };
+    if (typeof parsed.detail === "string") return parsed.detail;
+    if (parsed.detail?.code === "invalid_scene_topology" && Array.isArray(parsed.detail.errors)) {
+      return `场景分支尚未连接完整：\n${parsed.detail.errors.map(formatTopologyError).join("\n")}`;
+    }
+  } catch {
+    // Preserve non-JSON server responses as-is.
+  }
+  return body;
+}
+
+function formatTopologyError(error: string) {
+  const [code, detail = ""] = error.split(":", 2);
+  const messages: Record<string, string> = {
+    orphan_ending: `结局 ${detail} 没有入口`,
+    dead_end_scene: `场景 ${detail} 没有后续分支`,
+    unreachable_scene: `场景 ${detail} 无法从 start.txt 到达`,
+    no_ending_path: `场景 ${detail} 无法通往任何结局`,
+    missing_scene_target: `跳转目标不存在：${detail}`,
+    ending_has_outgoing_edge: `结局 ${detail} 不应继续跳回普通场景`,
+    missing_start_scene: "缺少 start.txt"
+  };
+  return `• ${messages[code] || error}`;
+}
+
 function compactId(id: string) {
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+function formatRevisionTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function parsePlan(content: string | null): NarrativePlan | null {
@@ -316,6 +368,7 @@ function normalizeSceneLine(line: Partial<SceneLine>, fallbackId: string): Scene
 }
 
 type GameDesignJsonScene = Partial<GameDesignDraftScene> & {
+  scene_id?: string;
   scene_file?: string;
   source_node?: string;
   ending_type?: string;
@@ -334,6 +387,7 @@ function scenesFromGameDesignJson(content: string, plan: NarrativePlan | null, s
       const endingType = String(scene.endingType || scene.ending_type || "");
       const lines = Array.isArray(scene.lines) ? scene.lines.map((line, lineIndex) => normalizeSceneLine(line, `${header}-${lineIndex}`)) : [];
       return {
+        sceneId: String(scene.sceneId || scene.scene_id || "") || undefined,
         header,
         marker,
         sourceNode,
@@ -359,6 +413,7 @@ function serializeGameDesignJson(scenes: SceneDraft[]) {
     {
       version: 1,
       scenes: scenes.map((scene) => ({
+        scene_id: scene.sceneId || undefined,
         marker: scene.marker || "Scene",
         scene_file: scene.header,
         source_node: scene.sourceNode || "",
@@ -639,6 +694,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [designDraftScenes, setDesignDraftScenes] = useState<GameDesignDraftScene[]>([]);
   const [designDraftDirty, setDesignDraftDirty] = useState(false);
   const [assetReview, setAssetReview] = useState<AssetReviewResponse | null>(null);
+  const [publication, setPublication] = useState<PublicationResponse | null>(null);
   const [activeAssetFilename, setActiveAssetFilename] = useState<string | null>(null);
   const [assetPrompt, setAssetPrompt] = useState("");
   const planRef = useRef<NarrativePlan | null>(null);
@@ -687,10 +743,14 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const refresh = useCallback(async (silent = false) => {
     if (!jobId) return;
     try {
-      const next = await api<NodesResponse>(`/jobs/${jobId}/nodes`);
+      const [next, review, published] = await Promise.all([
+        api<NodesResponse>(`/jobs/${jobId}/nodes`),
+        api<AssetReviewResponse>(`/jobs/${jobId}/assets/review`),
+        api<PublicationResponse>(`/jobs/${jobId}/publication`)
+      ]);
       setData(next);
-      const review = await api<AssetReviewResponse>(`/jobs/${jobId}/assets/review`);
       setAssetReview(review);
+      setPublication(published);
       if (!silent) setMessage("任务内容已更新。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取任务失败。");
@@ -956,6 +1016,26 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function activatePublication(revision: PublicationRevision) {
+    if (revision.is_current || isGenerating) return;
+    if (!window.confirm(`确认恢复发布版本 ${revision.revision_id}？\n当前编辑内容不会被删除，只会切换玩家访问的版本。`)) return;
+    setBusy(true);
+    setMessage(`正在校验并恢复版本 ${revision.revision_id}...`);
+    try {
+      const result = await api<PublicationResponse>(`/jobs/${jobId}/publication/${revision.revision_id}/activate`, {
+        method: "POST"
+      });
+      setPublication(result);
+      setData((current) => current && result.job ? { ...current, job: result.job } : current);
+      setMessage("已恢复历史发布版本，工作区中的编辑内容保持不变。");
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "恢复发布版本失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveDesignDraft() {
     setBusy(true);
     setMessage("正在保存场景设计稿...");
@@ -1110,6 +1190,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             gameBuilding={isGameBuildRunning}
             readonly={autoMode}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
+            publication={publication}
+            activatePublication={activatePublication}
           />
         ) : designNode?.exists ? (
           <SceneEditor
@@ -1161,6 +1243,8 @@ function AssetReviewPanel(props: {
   gameBuilding: boolean;
   readonly: boolean;
   playUrl: string;
+  publication: PublicationResponse | null;
+  activatePublication: (revision: PublicationRevision) => Promise<void>;
 }) {
   const assets = props.review?.assets || [];
 
@@ -1171,6 +1255,33 @@ function AssetReviewPanel(props: {
           <strong>游戏生成完成。</strong>
           <span>素材和脚本已经写入游戏目录，现在可以直接打开试玩。</span>
           <a className="btn primary" href={props.playUrl} target="_blank">打开游戏</a>
+          {props.publication?.revisions.length ? (
+            <div className="publication-history">
+              <div className="publication-history-head">
+                <span>发布记录</span>
+                <small>恢复版本只切换玩家入口，不覆盖工作区</small>
+              </div>
+              <div className="publication-revisions">
+                {props.publication.revisions.map((revision) => (
+                  <div className={`publication-revision ${revision.is_current ? "current" : ""}`} key={revision.revision_id}>
+                    <div>
+                      <strong>{revision.is_current ? "当前版本" : `版本 ${revision.source_revision}`}</strong>
+                      <span>{formatRevisionTime(revision.created_at)} · {revision.file_count} 个文件</span>
+                      <code>{revision.revision_id}</code>
+                    </div>
+                    <button
+                      className="btn outline"
+                      type="button"
+                      disabled={revision.is_current || props.busy}
+                      onClick={() => void props.activatePublication(revision)}
+                    >
+                      {revision.is_current ? "使用中" : "恢复此版本"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     );

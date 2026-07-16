@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -40,6 +42,7 @@ def build_tts_manifest(
         narrative_plan,
         character_voices or _character_voice_map(narrative_plan),
     )
+    tts_limits = generation_limits().get("tts", {})
 
     items: list[dict[str, Any]] = []
     for scene_name, body in _scene_sections(script_text):
@@ -54,7 +57,23 @@ def build_tts_manifest(
                 continue
             speaker_id = _safe_filename(str(character.get("id") or speaker))
             voice, tone = character_voices.get(speaker, [_default_voice(), ""])
-            filename = f"{scene_stem}_{line_no:03d}_{speaker_id}.wav"
+            cache_key = hashlib.sha256(
+                json.dumps(
+                    {
+                        "text": text,
+                        "voice": voice,
+                        "tone": tone,
+                        "model": tts_limits.get("model"),
+                        "volume": tts_limits.get("volume"),
+                        "speech_rate": tts_limits.get("speech_rate", tts_limits.get("speed")),
+                        "pitch_rate": tts_limits.get("pitch_rate", tts_limits.get("pitch")),
+                        "optimize_instructions": tts_limits.get("optimize_instructions", True),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()[:16]
+            filename = f"{scene_stem}_{line_no:03d}_{speaker_id}_{cache_key}.wav"
             items.append(
                 {
                     "scene": scene_name,
@@ -143,8 +162,11 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
 
 def _tts_selection(options: dict[str, Any]) -> dict[str, Any]:
     limits = generation_limits().get("tts", {})
+    scope = str(options.get("tts_scope") or "key_lines").strip().lower()
+    if scope not in {"key_lines", "all"}:
+        scope = "key_lines"
     return {
-        "scope": "key_lines",
+        "scope": scope,
         "max_lines_per_scene": _positive_int(
             options.get("tts_max_lines_per_scene") or limits.get("max_lines_per_scene"),
             3,

@@ -7,6 +7,7 @@ from .prompting import (
     game_design_prompt,
     narrative_prompt,
     sound_effect_prompt,
+    webgal_asset_operations_prompt,
     webgal_script_rewrite_prompt,
 )
 from .prompting.contract import (
@@ -34,5 +35,6 @@ __all__ = [
     "game_design_prompt",
     "narrative_prompt",
     "sound_effect_prompt",
+    "webgal_asset_operations_prompt",
     "webgal_script_rewrite_prompt",
 ]

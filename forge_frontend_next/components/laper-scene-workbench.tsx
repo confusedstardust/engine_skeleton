@@ -20,6 +20,7 @@ export type SceneChoice = {
 };
 
 export type EditableScene = {
+  sceneId?: string;
   header: string;
   title: string;
   lines: SceneLine[];
@@ -118,6 +119,25 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     patchScene({ ...scene, lines: [...scene.lines, nextLine] });
   }
 
+  function addChoiceLine() {
+    if (!scene || disabled || scene.marker === "Ending" || !defaultChoiceTarget.endsWith(".txt")) return;
+    const nextLine: SceneLine = {
+      id: `${scene.header}-choice-${Date.now()}`,
+      kind: "choice",
+      speaker: "分支",
+      text: "",
+      rawPrefix: "choose",
+      choices: [
+        {
+          text: "新的选择",
+          target: defaultChoiceTarget,
+          target_scene_file: defaultChoiceTarget
+        }
+      ]
+    };
+    patchScene({ ...scene, lines: [...scene.lines, nextLine] });
+  }
+
   function switchSpeaker(lineIndex: number, speaker: string) {
     if (!scene || disabled) return;
     const line = scene.lines[lineIndex];
@@ -187,6 +207,16 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
           <button className="laper-tool" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
             对话
           </button>
+          {props.mode === "complete" && scene.marker !== "Ending" && (
+            <button
+              className="laper-tool"
+              type="button"
+              disabled={disabled || !defaultChoiceTarget.endsWith(".txt")}
+              onClick={addChoiceLine}
+            >
+              添加选择点
+            </button>
+          )}
           <span className="laper-toolbar-divider" />
           <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
             + 添加行

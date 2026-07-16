@@ -77,6 +77,8 @@ class GenerationOptions(BaseModel):
     def _voice_preset_required_when_voice_enabled(self) -> "GenerationOptions":
         if self.voice_enabled and not self.voice_preset:
             raise ValueError("voice_preset is required when voice_enabled is true")
+        if not self.generate_assets and not self.allow_missing_assets:
+            raise ValueError("generate_assets must be true when allow_missing_assets is false")
         return self
 
 

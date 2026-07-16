@@ -162,7 +162,7 @@ def game_design_prompt(
         - 本阶段不根据游戏时长压缩场景数量,必须严格按照 scene_plan.json 全量生成所有场景。
         - 每个 scene_plan.scenes 条目必须对应一个独立 Scene,不允许把多个 source_node 合并进同一个场景。
         - 每个 scene_plan.endings 条目必须对应一个独立 Ending,不允许只在普通 Scene 中用几句话概括结局。
-        - 每个场景的对话行数不超过{contract['line_min']}行
+        - 每个场景的总内容行数应在{contract['line_min']}到{contract['line_max']}行之间
         - 从 Scene:start.txt 开始写。
         - 对话包括角色对话、内心独白、旁白,每一句不能超过{contract['line_length']}字
         - 角色台词行必须稳定使用 `角色名:台词正文`,冒号后直接写台词,不得写成 `角色名:(动作/语气)台词`
@@ -265,6 +265,12 @@ def game_design_completion_prompt(
         {schema_example}
         Raw_Scene.json:
         {outline_json}
+
+        scene_plan.json（只可使用这里声明的场景文件）:
+        {scene_plan_json}
+
+        本次生成约束:
+        {contract_text}
         """.format(
                 schema_example=json.dumps(schema_example, ensure_ascii=False, indent=2),
                 scene_plan_json=json.dumps(scene_plan or {}, ensure_ascii=False, indent=2),
@@ -313,6 +319,45 @@ def webgal_script_rewrite_prompt(
         -----
 
         {WEBGAL_REWRITE_RULES}"""
+
+
+def webgal_asset_operations_prompt(
+    game_project_json: dict[str, Any],
+    background_assets: list[str],
+    figure_assets: list[str],
+) -> str:
+    return f"""你是一名视觉小说素材编排师。你不能重写脚本，只能返回素材放置操作 JSON。
+
+可用背景资源:
+{json.dumps(background_assets, ensure_ascii=False, indent=2)}
+
+可用立绘资源:
+{json.dumps(figure_assets, ensure_ascii=False, indent=2)}
+
+GameProject（scene_id 和 line_id 必须原样使用）:
+{json.dumps(game_project_json, ensure_ascii=False, indent=2)}
+
+只返回以下结构:
+{{
+  "operations": [
+    {{
+      "scene_id": "已有 scene_id",
+      "line_id": "已有 line_id；场景开头操作可为空",
+      "position": "scene_start | before | after | scene_end",
+      "type": "background | figure | clear_figure",
+      "asset": "上方资源列表中的完整文件名；clear_figure 时为空",
+      "slot": "left | center | right"
+    }}
+  ]
+}}
+
+规则:
+- 不得返回脚本文本、场景标题、跳转、选择、台词或旁白。
+- 不得编造 scene_id、line_id 或资源名。
+- 每个场景通常在 scene_start 放置一个合适背景。
+- 仅在角色实际出场或焦点切换时放置立绘，不要每行重复切换。
+- 单场景最多 12 个操作；宁缺毋滥。
+- 只返回 JSON，不要 Markdown。"""
 
 
 def sound_effect_prompt(game_design_completed_text: str, sound_effect_assets: list[dict[str, Any]]) -> str:

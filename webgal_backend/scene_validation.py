@@ -7,7 +7,7 @@ from typing import Any
 
 from .generation_limits import generation_limits
 from .raw_correction import correct_inline_dialogue_direction
-from .storage import read_json
+from .storage import read_json, write_text_atomic
 
 
 @dataclass(frozen=True)
@@ -52,13 +52,28 @@ class SceneValidationResult:
     fixes: list[AppliedFix]
     total_scenes: int
     total_lines: int
+    suggested_fixes: list[AppliedFix] | None = None
+
+
+def validate_scenes(job_dir: Path) -> SceneValidationResult:
+    return _inspect_scenes(job_dir, apply_repairs=False)
+
+
+def repair_scenes(job_dir: Path) -> SceneValidationResult:
+    return _inspect_scenes(job_dir, apply_repairs=True)
 
 
 def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
+    """Backward-compatible entry point. New pipeline code uses repair_scenes/validate_scenes explicitly."""
+    return repair_scenes(job_dir)
+
+
+def _inspect_scenes(job_dir: Path, *, apply_repairs: bool) -> SceneValidationResult:
     scene_dir = job_dir / "public" / "game" / "scene"
     scene_files = sorted(scene_dir.glob("*.txt"))
     issues: list[ValidationIssue] = []
     fixes: list[AppliedFix] = []
+    suggested_fixes: list[AppliedFix] = []
 
     if not scene_files:
         issues.append(
@@ -70,7 +85,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
                 message="No scene files were generated.",
             )
         )
-        return SceneValidationResult(issues=issues, fixes=fixes, total_scenes=0, total_lines=0)
+        return SceneValidationResult(issues=issues, fixes=fixes, total_scenes=0, total_lines=0, suggested_fixes=[])
 
     character_avatars = _character_avatar_map(job_dir)
     vocal_map = _tts_vocal_map(job_dir)
@@ -84,9 +99,12 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
             vocal_map,
         )
         issues.extend(file_issues)
-        fixes.extend(file_fixes)
-        if repaired_lines != original_lines:
-            scene_path.write_text("\n".join(repaired_lines).rstrip() + "\n", encoding="utf-8")
+        if apply_repairs:
+            fixes.extend(file_fixes)
+        else:
+            suggested_fixes.extend(file_fixes)
+        if apply_repairs and repaired_lines != original_lines:
+            write_text_atomic(scene_path, "\n".join(repaired_lines).rstrip() + "\n")
 
     scene_files = sorted(scene_dir.glob("*.txt"))
     issues.extend(_validate_scene_structure(job_dir, scene_files))
@@ -96,6 +114,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
         fixes=fixes,
         total_scenes=len(scene_files),
         total_lines=total_lines,
+        suggested_fixes=suggested_fixes,
     )
 
 
@@ -109,6 +128,7 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
             "errors": len(errors),
             "warnings": len(warnings),
             "fixes": len(result.fixes),
+            "suggested_fixes": len(result.suggested_fixes or []),
             "passed": not errors,
         },
         "checks": {
@@ -124,6 +144,7 @@ def validation_report(result: SceneValidationResult) -> dict[str, Any]:
         "errors": [issue.to_json() for issue in errors],
         "warnings": [issue.to_json() for issue in warnings],
         "fixes": [fix.to_json() for fix in result.fixes],
+        "suggested_fixes": [fix.to_json() for fix in result.suggested_fixes or []],
     }
 
 
@@ -823,6 +844,102 @@ def _validate_scene_structure(job_dir: Path, scene_files: list[Path]) -> list[Va
             )
         issues.extend(_validate_scene_references(relative_file, lines, names, relative_files))
         issues.extend(_validate_story_quality(relative_file, lines))
+    issues.extend(_validate_scene_graph(job_dir, scene_files))
+    return issues
+
+
+def _validate_scene_graph(job_dir: Path, scene_files: list[Path]) -> list[ValidationIssue]:
+    files = {path.name for path in scene_files}
+    endings = {name for name in files if name.startswith("ending_")}
+    edges: set[tuple[str, str]] = set()
+    for path in scene_files:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            for target in _scene_targets(line):
+                normalized = target.replace("\\", "/").split("/")[-1]
+                if normalized in files:
+                    edges.add((path.name, normalized))
+
+    outgoing: dict[str, set[str]] = {}
+    reverse: dict[str, set[str]] = {}
+    incoming: set[str] = set()
+    for source, target in edges:
+        outgoing.setdefault(source, set()).add(target)
+        reverse.setdefault(target, set()).add(source)
+        incoming.add(target)
+
+    issues: list[ValidationIssue] = []
+    for ending in sorted(endings - incoming):
+        issues.append(
+            ValidationIssue(
+                code="orphan_ending",
+                severity="error",
+                file=f"public/game/scene/{ending}",
+                line=None,
+                message="Ending scene has no incoming choice or scene transition.",
+            )
+        )
+    for ending in sorted(endings):
+        if outgoing.get(ending):
+            issues.append(
+                ValidationIssue(
+                    code="ending_has_outgoing_edge",
+                    severity="error",
+                    file=f"public/game/scene/{ending}",
+                    line=None,
+                    message="Ending scenes must not transition back into the story graph.",
+                )
+            )
+    for scene_file in sorted(files - endings):
+        if not outgoing.get(scene_file):
+            issues.append(
+                ValidationIssue(
+                    code="dead_end_scene",
+                    severity="error",
+                    file=f"public/game/scene/{scene_file}",
+                    line=None,
+                    message="Non-ending scene has no outgoing choice or scene transition.",
+                )
+            )
+
+    if "start.txt" not in files:
+        return issues
+    reachable = {"start.txt"}
+    frontier = ["start.txt"]
+    while frontier:
+        source = frontier.pop()
+        for target in outgoing.get(source, set()):
+            if target not in reachable:
+                reachable.add(target)
+                frontier.append(target)
+    for scene_file in sorted(files - reachable):
+        issues.append(
+            ValidationIssue(
+                code="unreachable_scene",
+                severity="error",
+                file=f"public/game/scene/{scene_file}",
+                line=None,
+                message="Scene cannot be reached from start.txt.",
+            )
+        )
+
+    can_reach_ending = set(endings)
+    frontier = list(endings)
+    while frontier:
+        target = frontier.pop()
+        for source in reverse.get(target, set()):
+            if source not in can_reach_ending:
+                can_reach_ending.add(source)
+                frontier.append(source)
+    for scene_file in sorted((reachable - endings) - can_reach_ending):
+        issues.append(
+            ValidationIssue(
+                code="no_ending_path",
+                severity="error",
+                file=f"public/game/scene/{scene_file}",
+                line=None,
+                message="Reachable scene has no path to any ending.",
+            )
+        )
     return issues
 
 
