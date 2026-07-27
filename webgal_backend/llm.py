@@ -16,9 +16,23 @@ class LLMError(RuntimeError):
 
 
 class OpenAIFunctionClient:
-    def __init__(self, trace_dir: Path | None = None) -> None:
-        if not settings.llm_api_key:
-            raise LLMError("DEEPSEEK_API_KEY is not set")
+    def __init__(self, trace_dir: Path | None = None, provider: str = "deepseek") -> None:
+        if provider == "mimo":
+            self.api_key = settings.mimo_api_key
+            self.base_url = settings.mimo_base_url
+            self.model = settings.mimo_model
+            self.api_mode = "chat"
+            self.provider = "mimo"
+            missing_key = "MIMO_API_KEY"
+        else:
+            self.api_key = settings.llm_api_key
+            self.base_url = settings.llm_base_url
+            self.model = settings.llm_model
+            self.api_mode = settings.llm_api_mode
+            self.provider = "deepseek"
+            missing_key = "DEEPSEEK_API_KEY"
+        if not self.api_key:
+            raise LLMError(f"{missing_key} is not set")
         self.trace_dir = trace_dir
         self.source_tools_path = settings.contracts_dir / "openai-tools.json"
         self.tools = self._load_tools()
@@ -43,7 +57,7 @@ class OpenAIFunctionClient:
         thinking: str | None = None,
     ) -> dict[str, Any]:
         tool = self._find_tool(function_name)
-        if settings.llm_api_mode == "chat":
+        if self.api_mode == "chat":
             return self._call_chat(function_name, tool, system_prompt, user_prompt, thinking=thinking)
         return self._call_responses(function_name, tool, system_prompt, user_prompt, thinking=thinking)
 
@@ -54,7 +68,7 @@ class OpenAIFunctionClient:
         user_prompt: str,
         thinking: str | None = None,
     ) -> str:
-        if settings.llm_api_mode == "chat":
+        if self.api_mode == "chat":
             return self._call_chat_text(trace_name, system_prompt, user_prompt, thinking=thinking)
         return self._call_responses_text(trace_name, system_prompt, user_prompt, thinking=thinking)
 
@@ -72,7 +86,7 @@ class OpenAIFunctionClient:
         raise LLMError(f"unknown function tool: {function_name}")
 
     def _request(self, path: str, payload: dict[str, Any], function_name: str) -> dict[str, Any]:
-        base_url = settings.llm_base_url
+        base_url = self.base_url
         if "api.deepseek.com" in base_url and not base_url.endswith("/beta"):
             base_url = f"{base_url}/beta"
         url = f"{base_url}{path}"
@@ -82,7 +96,7 @@ class OpenAIFunctionClient:
             url,
             data=data,
             headers={
-                "Authorization": f"Bearer {settings.llm_api_key}",
+                "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",
@@ -145,7 +159,7 @@ class OpenAIFunctionClient:
         thinking: str | None = None,
     ) -> dict[str, Any]:
         payload = {
-            "model": settings.llm_model,
+            "model": self.model,
             "input": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -177,7 +191,7 @@ class OpenAIFunctionClient:
         thinking: str | None = None,
     ) -> dict[str, Any]:
         payload = {
-            "model": settings.llm_model,
+            "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -205,7 +219,7 @@ class OpenAIFunctionClient:
 
     def _call_chat_text(self, trace_name: str, system_prompt: str, user_prompt: str, thinking: str | None = None) -> str:
         payload = {
-            "model": settings.llm_model,
+            "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -227,7 +241,7 @@ class OpenAIFunctionClient:
 
     def _call_responses_text(self, trace_name: str, system_prompt: str, user_prompt: str, thinking: str | None = None) -> str:
         payload = {
-            "model": settings.llm_model,
+            "model": self.model,
             "input": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -420,12 +434,12 @@ class OpenAIFunctionClient:
         return {"type": "function", "function": function}
 
     def _provider_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-        if "deepseek.com" not in settings.llm_base_url:
+        if self.provider != "deepseek":
             return schema
         return _deepseek_compatible_schema(schema)
 
     def _apply_deepseek_thinking(self, payload: dict[str, Any], thinking: str | None = None) -> None:
-        if "deepseek.com" not in settings.llm_base_url:
+        if self.provider != "deepseek":
             return
         thinking_mode = thinking or settings.llm_thinking
         if thinking_mode not in {"enabled", "disabled"}:

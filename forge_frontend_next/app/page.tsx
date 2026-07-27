@@ -17,6 +17,12 @@ type Job = {
 };
 
 type GenerationMode = "auto" | "advanced";
+type TextModel = "deepseek" | "mimo";
+
+const textModels: Array<{ id: TextModel; name: string; model: string; note: string }> = [
+  { id: "deepseek", name: "DeepSeek", model: "deepseek-v4-pro", note: "默认 · 深度推理" },
+  { id: "mimo", name: "MiMo", model: "V2.5 Pro UltraSpeed", note: "小米 · 极速生成" }
+];
 
 const durations: Choice[] = [
   { name: "5分钟", desc: "课前导入" },
@@ -82,6 +88,7 @@ export default function ClassroomGeneratorPage() {
   const [duration, setDuration] = useState("20分钟");
   const [mode, setMode] = useState("角色扮演");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("advanced");
+  const [textModel, setTextModel] = useState<TextModel>("deepseek");
   const [voiceOn, setVoiceOn] = useState(false);
   const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
   const [generateAssets, setGenerateAssets] = useState(true);
@@ -90,6 +97,7 @@ export default function ClassroomGeneratorPage() {
 
   const selectedDuration = durations.find((item) => item.name === duration) || durations[2];
   const selectedMode = modes.find((item) => item.name === mode) || modes[0];
+  const selectedTextModel = textModels.find((item) => item.id === textModel) || textModels[0];
   const durationNumber = Number.parseInt(validDuration(duration), 10);
   const { canGenerate, reason: generateBlockReason } = getGenerationReadiness(topic, sourceText);
 
@@ -126,6 +134,7 @@ export default function ClassroomGeneratorPage() {
           options: {
             generate_assets: generateAssets,
             generation_mode: generationMode,
+            text_model: textModel,
             classroom_topic: fallbackText(topic, source.slice(0, 30) || "未命名课堂"),
             grade: fallbackText(grade, "高中语文"),
             difficulty: fallbackText(difficulty, "基础理解"),
@@ -311,16 +320,54 @@ export default function ClassroomGeneratorPage() {
               <button className="btn ghost" type="button" disabled title="草稿箱即将开放">保存草稿</button>
               <button className="btn outline" type="button" disabled title="预览方案将在生成前校验接入后开放">预览方案</button>
               <span />
-              <button
-                className="btn primary"
-                disabled={running || !canGenerate}
-                aria-busy={running}
-                title={!canGenerate ? generateBlockReason : undefined}
-                type="button"
-                onClick={runGeneration}
-              >
-                {running ? "正在创建..." : "临场生成"}
-              </button>
+              <div className="generate-control">
+                <button
+                  className="btn primary"
+                  disabled={running || !canGenerate}
+                  aria-busy={running}
+                  title={!canGenerate ? generateBlockReason : undefined}
+                  type="button"
+                  onClick={runGeneration}
+                >
+                  {running ? "正在创建..." : "临场生成"}
+                </button>
+                <details className={`model-picker ${running ? "disabled" : ""}`}>
+                  <summary
+                    aria-label={`当前文本模型：${selectedTextModel.name}`}
+                    aria-disabled={running}
+                    onClick={(event) => {
+                      if (running) event.preventDefault();
+                    }}
+                  >
+                    <span className="model-spark" aria-hidden="true">✦</span>
+                    <span>{selectedTextModel.name}</span>
+                    <span className="model-chevron" aria-hidden="true">⌄</span>
+                  </summary>
+                  <div className="model-menu" role="menu" aria-label="选择文本生成模型">
+                    <div className="model-menu-label">文本生成模型</div>
+                    {textModels.map((item) => (
+                      <button
+                        className={item.id === textModel ? "selected" : ""}
+                        key={item.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={item.id === textModel}
+                        onClick={(event) => {
+                          setTextModel(item.id);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        <span className="model-option-copy">
+                          <strong>{item.name}</strong>
+                          <small>{item.note}</small>
+                        </span>
+                        <span className="model-option-id">{item.model}</span>
+                        <span className="model-check" aria-hidden="true">{item.id === textModel ? "✓" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              </div>
             </div>
           </section>
 
@@ -337,6 +384,7 @@ export default function ClassroomGeneratorPage() {
                 <PreviewRow k="叙事模式" v={<span className="preview-tag">{selectedMode.name}</span>} />
                 <div className="preview-divider" />
                 <PreviewRow k="生成模式" v={<span className="preview-tag">{generationMode === "auto" ? "Auto 一键生成" : "Advance 节点审阅"}</span>} />
+                <PreviewRow k="文本模型" v={<span className="preview-tag">{selectedTextModel.name}</span>} />
                 <PreviewRow k="内容预计" v={<span className="muted">角色与互动任务由 AI 根据材料自动规划<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
                 <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? "已开启 · 多角色 · 关键句" : "未开启"}</span>} />
                 <PreviewRow k="难度" v={difficulty || "默认：基础理解"} />

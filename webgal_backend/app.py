@@ -446,9 +446,7 @@ def regenerate_asset(
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
-        job["status"] = "QUEUED"
-        job["phase"] = "ASSET_GENERATION"
-        store.save(job)
+        store.transition(job, "QUEUED", "ASSET_GENERATION")
         return {"job": job, "queued": True, "filename": filename}
     try:
         job = _get_owned_job_or_404(job_id, http_request)
@@ -466,8 +464,7 @@ def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTas
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_pipeline_background, job_id)
-        job["status"] = "QUEUED"
-        store.save(job)
+        store.transition(job, "QUEUED", job.get("phase"))
         return job
     try:
         return pipeline.run_all(job_id)
@@ -491,9 +488,7 @@ def run_phase(
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_phase_background, job_id, phase)
-        job["status"] = "QUEUED"
-        job["phase"] = phase.upper()
-        store.save(job)
+        store.transition(job, "QUEUED", phase.upper())
         return job
     try:
         return pipeline.run_phase(job_id, phase)

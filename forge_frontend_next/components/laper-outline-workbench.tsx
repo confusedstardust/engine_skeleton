@@ -72,6 +72,8 @@ type LaperOutlineWorkbenchProps = {
   savePlan: () => void;
   syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncOptions) => Promise<void>;
   nextToScenes: () => void;
+  retryAction?: () => void;
+  retryLabel?: string;
   renderFlowModal: (open: boolean, onClose: () => void) => React.ReactNode;
 };
 
@@ -505,8 +507,16 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
               <button className="btn outline" type="button" onClick={openFlowPreview}>
                 查看流程图
               </button>
-              <button className="btn primary" type="button" disabled={disabled} onClick={props.nextToScenes}>
-                {props.locked ? "大纲已确认" : "确认并生成下一步"}
+              <button
+                className={`btn primary ${props.retryAction ? "retry-action" : ""}`}
+                type="button"
+                disabled={props.retryAction ? props.busy : disabled}
+                onClick={props.retryAction || props.nextToScenes}
+              >
+                {props.retryAction ? <span aria-hidden="true">↻</span> : null}
+                {props.busy && props.retryAction
+                  ? "正在重试..."
+                  : props.retryLabel || (props.locked ? "大纲已确认" : "确认并生成下一步")}
               </button>
             </>
           }
