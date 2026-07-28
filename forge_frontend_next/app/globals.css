@@ -843,6 +843,7 @@ a {
 .backend-options {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 16px;
   color: var(--ink-muted);
   font-size: 13px;
@@ -919,6 +920,31 @@ a {
 
 .form-actions > span {
   flex: 1;
+}
+
+.asset-model-picker summary {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  box-shadow: 0 3px 10px rgba(68, 50, 38, 0.06);
+}
+
+.asset-model-picker .model-menu {
+  top: calc(100% + 8px);
+  right: auto;
+  bottom: auto;
+  left: 0;
+  width: 310px;
+}
+
+.image-model-dot {
+  width: 9px;
+  height: 9px;
+  background: linear-gradient(135deg, #d8a64a, var(--cinnabar));
+  border: 2px solid rgba(155, 35, 53, 0.12);
+  border-radius: 3px;
+  background-clip: padding-box;
+  transform: rotate(12deg);
 }
 
 .generate-control {

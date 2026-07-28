@@ -18,10 +18,18 @@ type Job = {
 
 type GenerationMode = "auto" | "advanced";
 type TextModel = "deepseek" | "mimo";
+type ImageModel = "default" | "qwen-image-2.0-pro" | "qwen-image-2.0" | "qwen-image-max";
 
 const textModels: Array<{ id: TextModel; name: string; model: string; note: string }> = [
   { id: "deepseek", name: "DeepSeek", model: "deepseek-v4-pro", note: "默认 · 深度推理" },
   { id: "mimo", name: "MiMo", model: "V2.5 Pro UltraSpeed", note: "小米 · 极速生成" }
+];
+
+const imageModels: Array<{ id: ImageModel; name: string; model: string; note: string }> = [
+  { id: "default", name: "Seedream 4.5", model: "doubao-seedream-4-5-251128", note: "火山引擎 · 默认" },
+  { id: "qwen-image-2.0-pro", name: "Qwen Image Pro", model: "qwen-image-2.0-pro", note: "阿里云百炼 · 高质量" },
+  { id: "qwen-image-2.0", name: "Qwen Image 2.0", model: "qwen-image-2.0", note: "阿里云百炼 · 标准" },
+  { id: "qwen-image-max", name: "Qwen Image Max", model: "qwen-image-max", note: "阿里云百炼 · Max" }
 ];
 
 const durations: Choice[] = [
@@ -92,12 +100,14 @@ export default function ClassroomGeneratorPage() {
   const [voiceOn, setVoiceOn] = useState(false);
   const [checkedPackages, setCheckedPackages] = useState(new Set(packages.slice(0, 3)));
   const [generateAssets, setGenerateAssets] = useState(true);
+  const [imageModel, setImageModel] = useState<ImageModel>("default");
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedDuration = durations.find((item) => item.name === duration) || durations[2];
   const selectedMode = modes.find((item) => item.name === mode) || modes[0];
   const selectedTextModel = textModels.find((item) => item.id === textModel) || textModels[0];
+  const selectedImageModel = imageModels.find((item) => item.id === imageModel) || imageModels[0];
   const durationNumber = Number.parseInt(validDuration(duration), 10);
   const { canGenerate, reason: generateBlockReason } = getGenerationReadiness(topic, sourceText);
 
@@ -133,6 +143,7 @@ export default function ClassroomGeneratorPage() {
           source_material: sourceMaterial,
           options: {
             generate_assets: generateAssets,
+            image_model: imageModel,
             generation_mode: generationMode,
             text_model: textModel,
             classroom_topic: fallbackText(topic, source.slice(0, 30) || "未命名课堂"),
@@ -302,6 +313,42 @@ export default function ClassroomGeneratorPage() {
 
               <div className="backend-options">
                 <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
+                <details className={`model-picker asset-model-picker ${!generateAssets || running ? "disabled" : ""}`}>
+                  <summary
+                    aria-label={`当前生图模型：${selectedImageModel.name}`}
+                    aria-disabled={!generateAssets || running}
+                    onClick={(event) => {
+                      if (!generateAssets || running) event.preventDefault();
+                    }}
+                  >
+                    <span className="image-model-dot" aria-hidden="true" />
+                    <span>{selectedImageModel.name}</span>
+                    <span className="model-chevron" aria-hidden="true">⌄</span>
+                  </summary>
+                  <div className="model-menu" role="menu" aria-label="选择图片生成模型">
+                    <div className="model-menu-label">图片生成模型</div>
+                    {imageModels.map((item) => (
+                      <button
+                        className={item.id === imageModel ? "selected" : ""}
+                        key={item.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={item.id === imageModel}
+                        onClick={(event) => {
+                          setImageModel(item.id);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        <span className="model-option-copy">
+                          <strong>{item.name}</strong>
+                          <small>{item.note}</small>
+                        </span>
+                        <span className="model-option-id">{item.model}</span>
+                        <span className="model-check" aria-hidden="true">{item.id === imageModel ? "✓" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </div>
             </FormSection>
 
@@ -385,6 +432,7 @@ export default function ClassroomGeneratorPage() {
                 <div className="preview-divider" />
                 <PreviewRow k="生成模式" v={<span className="preview-tag">{generationMode === "auto" ? "Auto 一键生成" : "Advance 节点审阅"}</span>} />
                 <PreviewRow k="文本模型" v={<span className="preview-tag">{selectedTextModel.name}</span>} />
+                <PreviewRow k="生图模型" v={<span className="preview-tag">{generateAssets ? selectedImageModel.name : "未开启"}</span>} />
                 <PreviewRow k="内容预计" v={<span className="muted">角色与互动任务由 AI 根据材料自动规划<br />{generationMode === "auto" ? "自动生成完整游戏" : "生成后进入节点工作台"}</span>} />
                 <PreviewRow k="角色配音" v={<span><i className={`status-dot ${voiceOn ? "on" : "off"}`} />{voiceOn ? "已开启 · 多角色 · 关键句" : "未开启"}</span>} />
                 <PreviewRow k="难度" v={difficulty || "默认：基础理解"} />

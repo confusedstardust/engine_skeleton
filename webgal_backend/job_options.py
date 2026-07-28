@@ -35,6 +35,12 @@ class GenerationOptions(BaseModel):
     generate_tts: StrictBool | None = None
     generation_mode: Literal["auto", "advanced"] = "advanced"
     text_model: Literal["deepseek", "mimo"] = "deepseek"
+    image_model: Literal[
+        "default",
+        "qwen-image-2.0-pro",
+        "qwen-image-2.0",
+        "qwen-image-max",
+    ] = "default"
     voice_preset: str | None = None
     tts_scope: Literal["key_lines", "all"] = "key_lines"
     tts_max_lines_per_scene: int = Field(default=3, ge=1, le=20)

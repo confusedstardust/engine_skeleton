@@ -72,6 +72,8 @@ def asset_prompt(
     narrative_plan: dict[str, Any] | None = None,
     ) -> str:
         limits = generation_limits()
+        selected_image_model = str(options.get("image_model") or "default")
+        image_model = settings.image_model if selected_image_model == "default" else selected_image_model
         narrative_block = json.dumps(narrative_plan or asset_context, ensure_ascii=False, indent=2)
         game_design_block = game_design_text or ""
         return f"""基于 narrative_plan.json 中的 characters 节点,并结合由 game_design.json 渲染出的每个场景上下文,生成 assets_manifest.json。
@@ -95,7 +97,7 @@ def asset_prompt(
         {{
         "asset_manifest": {{
             "base_dir": "{base_dir}",
-            "model": "{settings.image_model}",
+            "model": "{image_model}",
             "images": [
             {{
                 "filename": "title_fortress_besieged",
