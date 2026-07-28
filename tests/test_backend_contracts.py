@@ -153,6 +153,20 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("tts_generation", phases)
         self.assertIn("tts", phases)
 
+    def test_requeued_failed_job_clears_previous_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = JobStore(Path(tmp) / "jobs")
+            job = store.create("lesson", dict(VALID_OPTIONS))
+            store.transition(job, "RUNNING", "GAME_DESIGN")
+            store.set_error(job, "temporary model failure")
+
+            store.transition(job, "QUEUED", "GAME_DESIGN_DRAFT")
+
+            requeued = store.get(job["id"])
+            self.assertEqual(requeued["status"], "QUEUED")
+            self.assertEqual(requeued["phase"], "GAME_DESIGN_DRAFT")
+            self.assertIsNone(requeued["error"])
+
     def test_generation_options_require_frontend_contract(self) -> None:
         validate_generation_options(dict(VALID_OPTIONS))
         with self.assertRaises(ValueError) as missing:
@@ -176,6 +190,36 @@ class BackendContractTests(unittest.TestCase):
         self.assertEqual(normalized["output_packages"], ["学生端游戏"])
         self.assertEqual(normalized["custom_flag"], "kept")
         self.assertIsInstance(validate_generation_options(options), GenerationOptions)
+
+    def test_generation_options_select_text_model_and_default_to_deepseek(self) -> None:
+        self.assertEqual(normalize_generation_options(dict(VALID_OPTIONS))["text_model"], "deepseek")
+
+        mimo_options = dict(VALID_OPTIONS)
+        mimo_options["text_model"] = "mimo"
+        self.assertEqual(normalize_generation_options(mimo_options)["text_model"], "mimo")
+
+        invalid_options = dict(VALID_OPTIONS)
+        invalid_options["text_model"] = "unknown"
+        with self.assertRaises(ValueError):
+            validate_generation_options(invalid_options)
+
+    def test_pipeline_passes_job_text_model_to_llm_factory(self) -> None:
+        captured: dict = {}
+        fake_llm = object()
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return fake_llm
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pipeline = WebGALPipeline(llm_factory=factory)
+            created = pipeline._make_llm(
+                {"options": {"text_model": "mimo"}},
+                Path(tmp),
+            )
+
+        self.assertIs(created, fake_llm)
+        self.assertEqual(captured["provider"], "mimo")
 
     def test_generation_options_reject_string_booleans(self) -> None:
         options = dict(VALID_OPTIONS)

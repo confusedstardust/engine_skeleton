@@ -30,6 +30,8 @@ type LaperAssetWorkbenchProps = {
   closeAsset: () => void;
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   buildGame: () => Promise<void>;
+  retryAction?: () => void;
+  retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
   sceneDisplayName: (asset: AssetReviewItem) => string;
 };
@@ -241,7 +243,17 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           ]}
           note={props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
           footer={
-            props.readonly ? (
+            props.retryAction ? (
+              <button
+                className="btn primary retry-action"
+                type="button"
+                disabled={props.busy}
+                onClick={props.retryAction}
+              >
+                <span aria-hidden="true">↻</span>
+                {props.busy ? "正在重试..." : props.retryLabel || "重试生成"}
+              </button>
+            ) : props.readonly ? (
               <span className="readonly-status">
                 <span className="inline-spinner" aria-hidden="true" />
                 游戏自动生成中

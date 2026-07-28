@@ -20,6 +20,94 @@ type Job = {
   };
 };
 
+type WorkflowStage = "outline" | "scenes" | "assets";
+
+type FailedPhaseRetry = {
+  path: string;
+  label: string;
+  pendingMessage: string;
+  successMessage: string;
+  stage: WorkflowStage;
+};
+
+function failedPhaseRetry(job: Job): FailedPhaseRetry | null {
+  if (job.status !== "FAILED") return null;
+
+  const phase = job.phase || "";
+  const stage: WorkflowStage =
+    phase === "NARRATIVE_PLANNING"
+      ? "outline"
+      : ["GAME_DESIGN", "GAME_DESIGN_COMPLETION"].includes(phase)
+        ? "scenes"
+        : "assets";
+
+  if (job.options?.generation_mode === "auto") {
+    return {
+      path: "run",
+      label: "重试自动生成",
+      pendingMessage: "正在重新启动自动生成流程...",
+      successMessage: "自动生成已重新启动，页面会持续更新进度。",
+      stage
+    };
+  }
+
+  if (phase === "NARRATIVE_PLANNING") {
+    return {
+      path: "phases/narrative",
+      label: "重试生成故事大纲",
+      pendingMessage: "正在重试故事大纲生成...",
+      successMessage: "故事大纲已重新加入生成队列。",
+      stage
+    };
+  }
+  if (phase === "GAME_DESIGN") {
+    return {
+      path: "phases/game_design_draft",
+      label: "重试生成场景设计稿",
+      pendingMessage: "正在重试场景设计稿生成...",
+      successMessage: "场景设计稿已重新加入生成队列。",
+      stage
+    };
+  }
+  if (phase === "GAME_DESIGN_COMPLETION") {
+    return {
+      path: "phases/game_design_completion",
+      label: "重试生成详细场景",
+      pendingMessage: "正在重试详细场景生成...",
+      successMessage: "详细场景已重新加入生成队列。",
+      stage
+    };
+  }
+  if (["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION"].includes(phase)) {
+    return {
+      path: "phases/asset_review",
+      label: "重试生成素材",
+      pendingMessage: "正在重试素材规划与生成...",
+      successMessage: "素材阶段已重新加入生成队列。",
+      stage
+    };
+  }
+  if (
+    [
+      "GAME_BUILD",
+      "SCRIPT_REWRITE",
+      "SOUND_EFFECT_PLANNING",
+      "TTS_GENERATION",
+      "SCENE_WRITING",
+      "VALIDATING"
+    ].includes(phase)
+  ) {
+    return {
+      path: "phases/game_build",
+      label: "重试生成游戏",
+      pendingMessage: "正在从游戏构建阶段重新生成...",
+      successMessage: "游戏构建已重新加入生成队列。",
+      stage
+    };
+  }
+  return null;
+}
+
 type NodeArtifact = {
   key: string;
   phase: string;
@@ -620,7 +708,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [data, setData] = useState<NodesResponse | null>(null);
   const [message, setMessage] = useState("正在读取任务...");
   const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState<"outline" | "scenes" | "assets">("outline");
+  const [stage, setStage] = useState<WorkflowStage>("outline");
   const [stageHydrated, setStageHydrated] = useState(false);
   const [plan, setPlan] = useState<NarrativePlan | null>(null);
   const [planDirty, setPlanDirty] = useState(false);
@@ -651,6 +739,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const scenePlanContent = scenePlanNode?.content || null;
   const scenePlan = useMemo(() => parseScenePlan(scenePlanContent), [scenePlanContent]);
   const isGenerating = data?.job.status === "RUNNING" || data?.job.status === "QUEUED";
+  const failedRetry = data ? failedPhaseRetry(data.job) : null;
   const activePhase = data?.job.phase || "";
   const isDesignDraftRunning = isGenerating && activePhase === "GAME_DESIGN" && !rawDesignNode?.exists;
   const isDesignCompletionRunning = isGenerating && activePhase === "GAME_DESIGN_COMPLETION" && !designNode?.exists;
@@ -998,6 +1087,25 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function retryFailedPhase() {
+    if (!failedRetry) return;
+    setBusy(true);
+    setStage(failedRetry.stage);
+    setMessage(failedRetry.pendingMessage);
+    try {
+      await api<Job>(`/jobs/${jobId}/${failedRetry.path}`, {
+        method: "POST",
+        body: JSON.stringify({ background: true })
+      });
+      await refresh(true);
+      setMessage(failedRetry.successMessage);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "重试失败，请稍后再试。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function updateScene(index: number, next: SceneDraft) {
     setScenes((current) => current.map((scene, sceneIndex) => (sceneIndex === index ? next : scene)));
     setScenesDirty(true);
@@ -1058,10 +1166,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           </div>
         </section>
 
-        <div className="workspace-status workflow-status">
+        <div className={`workspace-status workflow-status ${failedRetry ? "failed" : ""}`} role="status" aria-live="polite">
           <strong>
             {isGenerating ? <span className="inline-spinner" aria-hidden="true" /> : null}
-            {data.job.phase || "等待中"}
+            {failedRetry ? "生成失败 · 可重试" : data.job.phase || "等待中"}
           </strong>
           <span>{data.job.error || message}</span>
         </div>
@@ -1090,6 +1198,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             savePlan={savePlan}
             syncStructure={syncNarrativeStructure}
             nextToScenes={nextToScenes}
+            retryAction={failedRetry?.stage === "outline" ? retryFailedPhase : undefined}
+            retryLabel={failedRetry?.stage === "outline" ? failedRetry.label : undefined}
           />
         ) : stage === "assets" ? (
           <AssetReviewPanel
@@ -1110,6 +1220,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             gameBuilding={isGameBuildRunning}
             readonly={autoMode}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
+            retryAction={failedRetry?.stage === "assets" ? retryFailedPhase : undefined}
+            retryLabel={failedRetry?.stage === "assets" ? failedRetry.label : undefined}
           />
         ) : designNode?.exists ? (
           <SceneEditor
@@ -1139,6 +1251,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             onChange={updateDesignDraftScenes}
             saveDesignDraft={saveDesignDraft}
             completeDesignDraft={completeDesignDraft}
+            retryAction={failedRetry?.stage === "scenes" ? retryFailedPhase : undefined}
+            retryLabel={failedRetry?.stage === "scenes" ? failedRetry.label : undefined}
           />
         )}
       </main>
@@ -1161,6 +1275,8 @@ function AssetReviewPanel(props: {
   gameBuilding: boolean;
   readonly: boolean;
   playUrl: string;
+  retryAction?: () => void;
+  retryLabel?: string;
 }) {
   const assets = props.review?.assets || [];
 
@@ -1201,10 +1317,20 @@ function AssetReviewPanel(props: {
   if (!props.review || assets.length === 0) {
     return (
       <section className="node-detail">
-        <LoadingPlaceholder
-          title="素材规划还在生成。"
-          brief="场景保存后会自动进入素材阶段，完成后这里会展示角色卡和场景卡。"
-        />
+        {props.retryAction ? (
+          <FailedPlaceholder
+            title="素材阶段生成失败。"
+            brief="自动重试仍未完成这一阶段，可以从失败的阶段重新生成。"
+            action={props.retryAction}
+            actionLabel={props.retryLabel || "重试生成素材"}
+            busy={props.busy}
+          />
+        ) : (
+          <LoadingPlaceholder
+            title="素材规划还在生成。"
+            brief="场景保存后会自动进入素材阶段，完成后这里会展示角色卡和场景卡。"
+          />
+        )}
       </section>
     );
   }
@@ -1222,6 +1348,8 @@ function AssetReviewPanel(props: {
       closeAsset={props.closeAsset}
       regenerateAsset={props.regenerateAsset}
       buildGame={props.buildGame}
+      retryAction={props.retryAction}
+      retryLabel={props.retryLabel}
       displayName={assetDisplayName}
       sceneDisplayName={assetSceneDisplayName}
     />
@@ -1264,14 +1392,26 @@ function OutlineEditor(props: {
   savePlan: () => void;
   syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncNarrativeStructureOptions) => Promise<void>;
   nextToScenes: () => void;
+  retryAction?: () => void;
+  retryLabel?: string;
 }) {
   if (!props.plan) {
     return (
       <section className="node-detail">
-        <LoadingPlaceholder
-          title="故事大纲还没有生成完成。"
-          brief="页面会自动刷新，大纲出现后就可以开始审阅。"
-        />
+        {props.retryAction ? (
+          <FailedPlaceholder
+            title="故事大纲生成失败。"
+            brief="后台自动重试仍未成功，你可以保留当前任务并重新生成这一阶段。"
+            action={props.retryAction}
+            actionLabel={props.retryLabel || "重试生成故事大纲"}
+            busy={props.busy}
+          />
+        ) : (
+          <LoadingPlaceholder
+            title="故事大纲还没有生成完成。"
+            brief="页面会自动刷新，大纲出现后就可以开始审阅。"
+          />
+        )}
       </section>
     );
   }
@@ -1302,6 +1442,8 @@ function OutlineEditor(props: {
       savePlan={props.savePlan}
       syncStructure={props.syncStructure}
       nextToScenes={props.nextToScenes}
+      retryAction={props.retryAction}
+      retryLabel={props.retryLabel}
       renderFlowModal={(open, onClose) =>
         open ? (
           <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="故事流程图">
@@ -1439,6 +1581,26 @@ function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) 
   );
 }
 
+function FailedPlaceholder(props: {
+  title: string;
+  brief: string;
+  action: () => void;
+  actionLabel: string;
+  busy: boolean;
+}) {
+  return (
+    <div className="node-placeholder failed-placeholder">
+      <span className="failed-mark" aria-hidden="true">!</span>
+      <strong>{props.title}</strong>
+      <span>{props.brief}</span>
+      <button className="btn primary retry-action" type="button" disabled={props.busy} onClick={props.action}>
+        <span aria-hidden="true">↻</span>
+        {props.busy ? "正在重试..." : props.actionLabel}
+      </button>
+    </div>
+  );
+}
+
 function DesignDraftEditor(props: {
   plan: NarrativePlan | null;
   scenes: GameDesignDraftScene[];
@@ -1451,6 +1613,8 @@ function DesignDraftEditor(props: {
   onChange: (scenes: GameDesignDraftScene[]) => void;
   saveDesignDraft: () => void;
   completeDesignDraft: () => void;
+  retryAction?: () => void;
+  retryLabel?: string;
 }) {
   const [activeDraftScene, setActiveDraftScene] = useState(0);
   const activeSceneIndex = Math.min(activeDraftScene, Math.max(props.scenes.length - 1, 0));
@@ -1465,10 +1629,20 @@ function DesignDraftEditor(props: {
   if (props.generatingDraft || !props.exists) {
     return (
       <section className="node-detail">
-        <LoadingPlaceholder
-          title="场景设计稿还在生成。"
-          brief="生成完成后，这里会按场景卡片展示，确认后再生成详细旁白和对话。"
-        />
+        {props.retryAction ? (
+          <FailedPlaceholder
+            title="场景设计稿生成失败。"
+            brief="自动重试仍未完成场景设计稿，可以直接重新执行这一阶段。"
+            action={props.retryAction}
+            actionLabel={props.retryLabel || "重试生成场景设计稿"}
+            busy={props.busy}
+          />
+        ) : (
+          <LoadingPlaceholder
+            title="场景设计稿还在生成。"
+            brief="生成完成后，这里会按场景卡片展示，确认后再生成详细旁白和对话。"
+          />
+        )}
       </section>
     );
   }
@@ -1520,13 +1694,21 @@ function DesignDraftEditor(props: {
           ]}
           note="确认场景结构与对白安排后，再生成详细旁白与对话。"
           footer={
-            !props.readonly ? (
+            !props.readonly || props.retryAction ? (
               <>
-                <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>
-                  保存设计稿
-                </button>
-                <button className="btn primary" type="button" disabled={props.busy || props.scenes.length === 0} onClick={props.completeDesignDraft}>
-                  确认并生成详细场景
+                {!props.readonly ? (
+                  <button className="btn outline" type="button" disabled={props.busy || !props.dirty} onClick={props.saveDesignDraft}>
+                    保存设计稿
+                  </button>
+                ) : null}
+                <button
+                  className={`btn primary ${props.retryAction ? "retry-action" : ""}`}
+                  type="button"
+                  disabled={props.busy || (!props.retryAction && props.scenes.length === 0)}
+                  onClick={props.retryAction || props.completeDesignDraft}
+                >
+                  {props.retryAction ? <span aria-hidden="true">↻</span> : null}
+                  {props.busy && props.retryAction ? "正在重试..." : props.retryLabel || "确认并生成详细场景"}
                 </button>
               </>
             ) : undefined

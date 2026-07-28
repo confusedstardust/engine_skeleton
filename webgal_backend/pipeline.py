@@ -85,6 +85,31 @@ class WebGALPipeline:
         self.store = store or JobStore()
         self.llm_factory = llm_factory
 
+    def _make_llm(self, job: dict[str, Any], job_dir: Path) -> OpenAIFunctionClient:
+        trace_dir = job_dir / "state" / "llm_traces"
+        provider = str(job.get("options", {}).get("text_model", "deepseek"))
+        try:
+            return self.llm_factory(trace_dir=trace_dir, provider=provider)
+        except TypeError:
+            try:
+                return self.llm_factory(trace_dir=trace_dir)
+            except TypeError:
+                return self.llm_factory()
+
+    def _llm_factory_for_job(self, job: dict[str, Any]) -> Callable[..., OpenAIFunctionClient]:
+        provider = str(job.get("options", {}).get("text_model", "deepseek"))
+
+        def create(**kwargs: Any) -> OpenAIFunctionClient:
+            try:
+                return self.llm_factory(provider=provider, **kwargs)
+            except TypeError:
+                try:
+                    return self.llm_factory(**kwargs)
+                except TypeError:
+                    return self.llm_factory()
+
+        return create
+
     @contextmanager
     def _trace_stage(
         self,
@@ -198,6 +223,7 @@ class WebGALPipeline:
         with self._trace_stage(job, 1, "主题分析", "narrative_plan", "state/narrative_plan.json"):
             prompt = narrative_prompt(job["source_material"], job["options"])
             design = self._call_with_validation(
+                job=job,
                 job_dir=job_dir,
                 function_name="emit_narrative_plan",
                 artifact_key="narrative_plan",
@@ -210,7 +236,7 @@ class WebGALPipeline:
                 design = repair_narrative_structure_if_needed(
                     narrative_plan=design,
                     job_dir=job_dir,
-                    llm_factory=self.llm_factory,
+                    llm_factory=self._llm_factory_for_job(job),
                 )
             except NarrativeStructureError as exc:
                 raise PipelineError(str(exc)) from exc
@@ -226,10 +252,7 @@ class WebGALPipeline:
     def run_game_design_draft(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN")
         job_dir, narrative_plan, scene_plan = self._game_design_context(job)
-        try:
-            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-        except TypeError:
-            llm = self.llm_factory()
+        llm = self._make_llm(job, job_dir)
         system_prompt = f"""{SYSTEM_PROMPT}
 
 Current phase: game_design_text
@@ -262,10 +285,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.transition(job, "RUNNING", "GAME_DESIGN_COMPLETION")
         job_dir, narrative_plan, scene_plan = self._game_design_context(job)
         game_design_json = self._read_game_design_json(job_dir)
-        try:
-            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-        except TypeError:
-            llm = self.llm_factory()
+        llm = self._make_llm(job, job_dir)
         system_prompt = f"""{SYSTEM_PROMPT}
 
 Current phase: game_design_choices
@@ -354,6 +374,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
             prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
             manifest = self._call_with_validation(
+                job=job,
                 job_dir=job_dir,
                 function_name="emit_asset_manifest",
                 artifact_key="asset_manifest",
@@ -483,10 +504,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         write_json(job_dir / "state" / "script_assets.json", assets)
 
         with self._trace_stage(job, 5, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
-            try:
-                llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-            except TypeError:
-                llm = self.llm_factory()
+            llm = self._make_llm(job, job_dir)
 
             system_prompt = f"""{SYSTEM_PROMPT}
 
@@ -544,10 +562,7 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
 
         with self._trace_stage(job, 6, "音效编排", "sound_effect_plan", "state/sound_effect_plan.json"):
             if available_assets:
-                try:
-                    llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-                except TypeError:
-                    llm = self.llm_factory()
+                llm = self._make_llm(job, job_dir)
 
                 system_prompt = f"""{SYSTEM_PROMPT}
 
@@ -595,7 +610,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         limits = generation_limits().get("tts", {})
         enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-        character_voices = self._assign_tts_voices(job_dir, narrative_plan, limits)
+        character_voices = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
         manifest = build_tts_manifest(job_dir, character_voices=character_voices, selection_options=job["options"])
         manifest = generate_tts_audio(job_dir, manifest, enabled=enabled)
         write_tts_manifest(job_dir, manifest)
@@ -608,14 +623,12 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
 
     def _assign_tts_voices(
         self,
+        job: dict[str, Any],
         job_dir: Path,
         narrative_plan: dict[str, Any],
         limits: dict[str, Any],
     ) -> dict[str, list[str]]:
-        try:
-            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-        except TypeError:
-            llm = self.llm_factory()
+        llm = self._make_llm(job, job_dir)
 
         characters = [
             {
@@ -1126,11 +1139,9 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         user_prompt: str,
         semantic_validator: Callable[[dict[str, Any]], None] | None,
         artifact_normalizer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        job: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        try:
-            llm = self.llm_factory(trace_dir=job_dir / "state" / "llm_traces")
-        except TypeError:
-            llm = self.llm_factory()
+        llm = self._make_llm(job or {}, job_dir)
         last_error = ""
         prompt = user_prompt
         previous_output = ""
@@ -1199,7 +1210,7 @@ Previous generated content:
         prompt: str,
     ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
-        if self._use_json_text_for_function(function_name) and "deepseek.com" in settings.llm_base_url:
+        if self._use_json_text_for_function(function_name) and getattr(llm, "provider", "deepseek") == "deepseek":
             text_prompt = f"""{prompt}
 
 Return valid JSON only, without Markdown fences or explanation.

@@ -76,6 +76,9 @@ class Settings:
     llm_api_mode: str
     llm_thinking: str
     llm_reasoning_effort: str
+    mimo_api_key: str | None
+    mimo_base_url: str
+    mimo_model: str
     max_schema_retries: int
     max_text_retries: int
     llm_max_tokens: int | None
@@ -120,6 +123,9 @@ class Settings:
             llm_api_mode=(os.getenv("LLM_API_MODE") or os.getenv("OPENAI_API_MODE") or "chat").lower(),
             llm_thinking=(os.getenv("DEEPSEEK_THINKING") or "enabled").lower(),
             llm_reasoning_effort=(os.getenv("DEEPSEEK_REASONING_EFFORT") or "high").lower(),
+            mimo_api_key=os.getenv("MIMO_API_KEY"),
+            mimo_base_url=(os.getenv("MIMO_BASE_URL") or "https://api.xiaomimimo.com/v1").rstrip("/"),
+            mimo_model=os.getenv("MIMO_MODEL") or "MiMo-V2.5-Pro-UltraSpeed",
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             max_text_retries=int(os.getenv("WEBGAL_MAX_TEXT_RETRIES", "1")),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
