@@ -87,6 +87,8 @@ class Settings:
     image_base_url: str
     image_model: str
     image_api_key_env: str
+    qwen_image_base_url: str
+    qwen_image_api_key_env: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -142,6 +144,11 @@ class Settings:
                 or "doubao-seedream-4-5-251128"
             ),
             image_api_key_env=(os.getenv("WEBGAL_IMAGE_API_KEY_ENV") or "ARK_API_KEY"),
+            qwen_image_base_url=(
+                os.getenv("QWEN_IMAGE_BASE_URL")
+                or "https://dashscope.aliyuncs.com/api/v1"
+            ).rstrip("/"),
+            qwen_image_api_key_env=(os.getenv("QWEN_IMAGE_API_KEY_ENV") or "DASHSCOPE_API_KEY"),
         )
 
 

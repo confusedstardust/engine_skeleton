@@ -79,6 +79,12 @@ RUN_ALL_PHASE_ORDER: tuple[str, ...] = (
     "validation",
 )
 
+QWEN_IMAGE_MODELS = {
+    "qwen-image-2.0-pro",
+    "qwen-image-2.0",
+    "qwen-image-max",
+}
+
 
 class WebGALPipeline:
     def __init__(self, store: JobStore | None = None, llm_factory: Callable[..., OpenAIFunctionClient] = OpenAIFunctionClient) -> None:
@@ -109,6 +115,20 @@ class WebGALPipeline:
                     return self.llm_factory()
 
         return create
+
+    def _image_generation_config(self, job: dict[str, Any]) -> tuple[str, str, str]:
+        selected_model = str(job.get("options", {}).get("image_model", "default"))
+        if selected_model in QWEN_IMAGE_MODELS:
+            return (
+                settings.qwen_image_base_url,
+                selected_model,
+                settings.qwen_image_api_key_env,
+            )
+        return (
+            settings.image_base_url,
+            settings.image_model,
+            settings.image_api_key_env,
+        )
 
     @contextmanager
     def _trace_stage(
@@ -382,6 +402,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 user_prompt=prompt,
                 semantic_validator=lambda artifact: semantic_asset_manifest(artifact, asset_context, base_dir),
             )
+            manifest["model"] = self._image_generation_config(job)[1]
             write_json(job_dir / "assets_manifest.json", manifest)
             self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
         self.store.transition(job, "ASSET_MANIFEST_READY", "ASSET_PLANNING")
@@ -405,7 +426,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             return
 
         with self._trace_stage(job, 7, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
-            self._run_asset_scripts(job_dir)
+            self._run_asset_scripts(job, job_dir)
         self.store.transition(job, "ASSET_REVIEW_READY", "ASSET_GENERATION")
 
     def run_asset_generation(self, job: dict[str, Any]) -> None:
@@ -433,7 +454,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             tasks = []
             with ThreadPoolExecutor(max_workers=2) as executor:
                 if image_enabled:
-                    tasks.append(("image_assets", executor.submit(self._run_asset_scripts, job_dir)))
+                    tasks.append(("image_assets", executor.submit(self._run_asset_scripts, job, job_dir)))
                 if tts_enabled:
                     tasks.append(("voice_assets", executor.submit(self._generate_tts_artifacts, job, job_dir)))
                 errors: list[str] = []
@@ -478,7 +499,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         single_manifest = {**manifest, "images": [image]}
         temp_manifest_path = job_dir / "state" / "asset_regeneration_manifest.json"
         write_json(temp_manifest_path, single_manifest)
-        self._run_asset_script_manifest(job_dir, temp_manifest_path)
+        self._run_asset_script_manifest(job, job_dir, temp_manifest_path)
 
         if str(image.get("subdir", "")).strip() == generation_limits()["assets"]["figure_subdir"]:
             figure_path = job_dir / "public" / "game" / "figure" / f"{clean_filename}.webp"
@@ -1735,29 +1756,30 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         if not hotspots.exists():
             hotspots.write_text("[]\n", encoding="utf-8")
 
-    def _run_asset_scripts(self, job_dir: Path) -> None:
+    def _run_asset_scripts(self, job: dict[str, Any], job_dir: Path) -> None:
         manifest = job_dir / "assets_manifest.json"
-        self._run_asset_script_manifest(job_dir, manifest)
+        self._run_asset_script_manifest(job, job_dir, manifest)
         figures = sorted((job_dir / "public" / "game" / "figure").glob("figure_*.webp"))
         if figures:
             scripts = settings.asset_scripts_dir
             self._run_script([scripts / "remove_bg.py", *figures], job_dir)
             self._run_script([scripts / "make_avatar.py", *figures], job_dir)
 
-    def _run_asset_script_manifest(self, job_dir: Path, manifest: Path) -> None:
+    def _run_asset_script_manifest(self, job: dict[str, Any], job_dir: Path, manifest: Path) -> None:
         scripts = settings.asset_scripts_dir
         if not scripts.exists():
             raise PipelineError(f"asset scripts directory does not exist: {scripts}")
 
         (job_dir / "public" / "game").mkdir(parents=True, exist_ok=True)
+        image_base_url, image_model, image_api_key_env = self._image_generation_config(job)
         extra_env = {
-            "WEBGAL_IMAGE_BASE_URL": settings.image_base_url,
-            "WEBGAL_IMAGE_MODEL": settings.image_model,
-            "WEBGAL_IMAGE_API_KEY_ENV": settings.image_api_key_env,
+            "WEBGAL_IMAGE_BASE_URL": image_base_url,
+            "WEBGAL_IMAGE_MODEL": image_model,
+            "WEBGAL_IMAGE_API_KEY_ENV": image_api_key_env,
         }
-        ark_api_key = os.getenv("ARK_API_KEY")
-        if ark_api_key:
-            extra_env["ARK_API_KEY"] = ark_api_key
+        image_api_key = os.getenv(image_api_key_env)
+        if image_api_key:
+            extra_env[image_api_key_env] = image_api_key
 
         self._run_script([scripts / "generate_assets.py", manifest], job_dir, extra_env=extra_env)
 

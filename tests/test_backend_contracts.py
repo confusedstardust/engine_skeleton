@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from asset_scripts.generate_assets import MAX_WORKERS, _qwen_image_url, _qwen_size, _worker_count_for_model
 from webgal_backend import game_design
 from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
 from webgal_backend.job_options import GenerationOptions, normalize_generation_options, validate_generation_options
@@ -220,6 +221,61 @@ class BackendContractTests(unittest.TestCase):
 
         self.assertIs(created, fake_llm)
         self.assertEqual(captured["provider"], "mimo")
+
+    def test_generation_options_select_image_model_and_default_to_current_provider(self) -> None:
+        self.assertEqual(normalize_generation_options(dict(VALID_OPTIONS))["image_model"], "default")
+
+        for model in ("qwen-image-2.0-pro", "qwen-image-2.0", "qwen-image-max"):
+            options = dict(VALID_OPTIONS)
+            options["image_model"] = model
+            self.assertEqual(normalize_generation_options(options)["image_model"], model)
+
+        invalid_options = dict(VALID_OPTIONS)
+        invalid_options["image_model"] = "unconfigured-image-model"
+        with self.assertRaises(ValueError):
+            validate_generation_options(invalid_options)
+
+    def test_pipeline_resolves_qwen_image_models_to_shared_dashscope_provider(self) -> None:
+        pipeline = WebGALPipeline()
+        base_url, model, api_key_env = pipeline._image_generation_config(
+            {"options": {"image_model": "qwen-image-max"}}
+        )
+        self.assertEqual(base_url, settings.qwen_image_base_url)
+        self.assertEqual(model, "qwen-image-max")
+        self.assertEqual(api_key_env, settings.qwen_image_api_key_env)
+
+        default_config = pipeline._image_generation_config({"options": {"image_model": "default"}})
+        self.assertEqual(
+            default_config,
+            (settings.image_base_url, settings.image_model, settings.image_api_key_env),
+        )
+
+    def test_qwen_image_request_adapts_size_and_native_response(self) -> None:
+        self.assertEqual(_qwen_size("qwen-image-2.0-pro", "2560x1440"), "2560*1440")
+        self.assertEqual(_qwen_size("qwen-image-max", "2560x1440"), "1664*928")
+        self.assertEqual(_qwen_size("qwen-image-max", "1280x1920"), "1104*1472")
+        self.assertEqual(
+            _qwen_image_url(
+                {
+                    "output": {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": [{"image": "https://example.com/generated.png"}]
+                                }
+                            }
+                        ]
+                    }
+                }
+            ),
+            "https://example.com/generated.png",
+        )
+
+    def test_qwen_image_generation_is_serial(self) -> None:
+        self.assertEqual(_worker_count_for_model("qwen-image-2.0-pro"), 1)
+        self.assertEqual(_worker_count_for_model("qwen-image-2.0"), 1)
+        self.assertEqual(_worker_count_for_model("qwen-image-max"), 1)
+        self.assertEqual(_worker_count_for_model("doubao-seedream-4-5-251128"), MAX_WORKERS)
 
     def test_generation_options_reject_string_booleans(self) -> None:
         options = dict(VALID_OPTIONS)
