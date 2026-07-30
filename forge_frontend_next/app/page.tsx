@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getStoredInviteCode, jsonInviteHeaders } from "./invite-identity";
 
@@ -85,6 +85,8 @@ function getGenerationReadiness(topic: string, sourceText: string) {
 
 export default function ClassroomGeneratorPage() {
   const router = useRouter();
+  const imageModelPickerRef = useRef<HTMLDetailsElement>(null);
+  const textModelPickerRef = useRef<HTMLDetailsElement>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<"paste" | "upload" | "library">("paste");
   const [topic, setTopic] = useState("");
@@ -110,6 +112,20 @@ export default function ClassroomGeneratorPage() {
   const selectedImageModel = imageModels.find((item) => item.id === imageModel) || imageModels[0];
   const durationNumber = Number.parseInt(validDuration(duration), 10);
   const { canGenerate, reason: generateBlockReason } = getGenerationReadiness(topic, sourceText);
+
+  useEffect(() => {
+    function closeModelPickersOnOutsidePointer(event: PointerEvent) {
+      if (!(event.target instanceof Node)) return;
+      for (const picker of [imageModelPickerRef.current, textModelPickerRef.current]) {
+        if (picker && !picker.contains(event.target)) {
+          picker.removeAttribute("open");
+        }
+      }
+    }
+
+    document.addEventListener("pointerdown", closeModelPickersOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeModelPickersOnOutsidePointer);
+  }, []);
 
   async function runGeneration() {
     const source = sourceText.trim();
@@ -313,7 +329,7 @@ export default function ClassroomGeneratorPage() {
 
               <div className="backend-options">
                 <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
-                <details className={`model-picker asset-model-picker ${!generateAssets || running ? "disabled" : ""}`}>
+                <details ref={imageModelPickerRef} className={`model-picker asset-model-picker ${!generateAssets || running ? "disabled" : ""}`}>
                   <summary
                     aria-label={`当前生图模型：${selectedImageModel.name}`}
                     aria-disabled={!generateAssets || running}
@@ -378,7 +394,7 @@ export default function ClassroomGeneratorPage() {
                 >
                   {running ? "正在创建..." : "临场生成"}
                 </button>
-                <details className={`model-picker ${running ? "disabled" : ""}`}>
+                <details ref={textModelPickerRef} className={`model-picker ${running ? "disabled" : ""}`}>
                   <summary
                     aria-label={`当前文本模型：${selectedTextModel.name}`}
                     aria-disabled={running}

@@ -369,6 +369,14 @@ def _fallback_asset_name(filename: str) -> str:
     return filename.removesuffix(".webp").removeprefix("figure_").removeprefix("bg_").removeprefix("title_").replace("_", " ")
 
 
+def _versioned_file_url(url: str, path: Path) -> str:
+    try:
+        version = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return url
+    return f"{url}?v={version}"
+
+
 def _asset_review_item(
     job_id: str,
     job_dir: Path,
@@ -394,7 +402,14 @@ def _asset_review_item(
         avatar_relative = f"figure/{avatar_name}"
         avatar_path = job_dir / "public" / "game" / avatar_relative
         avatar_exists = avatar_path.exists()
-        avatar_url = _public_app_path(f"/play/{job_id}/game/{avatar_relative}")
+        avatar_url = _versioned_file_url(
+            _public_app_path(f"/play/{job_id}/game/{avatar_relative}"),
+            avatar_path,
+        )
+    asset_url = _versioned_file_url(
+        _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
+        asset_path,
+    )
     return {
         "filename": filename,
         "subdir": subdir,
@@ -405,7 +420,7 @@ def _asset_review_item(
         "available_scene": available_scene,
         "scene_display_name": scene_display_name,
         "exists": asset_path.exists(),
-        "url": _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
+        "url": asset_url,
         "avatar_exists": avatar_exists,
         "avatar_url": avatar_url,
     }

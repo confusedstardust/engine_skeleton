@@ -118,17 +118,19 @@ class WebGALPipeline:
 
     def _image_generation_config(self, job: dict[str, Any]) -> tuple[str, str, str]:
         selected_model = str(job.get("options", {}).get("image_model", "default"))
+        if selected_model == "default":
+            return (
+                settings.image_base_url,
+                settings.image_model,
+                settings.image_api_key_env,
+            )
         if selected_model in QWEN_IMAGE_MODELS:
             return (
                 settings.qwen_image_base_url,
                 selected_model,
                 settings.qwen_image_api_key_env,
             )
-        return (
-            settings.image_base_url,
-            settings.image_model,
-            settings.image_api_key_env,
-        )
+        raise PipelineError(f"unsupported image model: {selected_model}")
 
     @contextmanager
     def _trace_stage(
@@ -491,8 +493,15 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         if not image:
             raise PipelineError(f"asset not found in assets_manifest.json: {filename}")
 
+        manifest_changed = False
+        selected_image_model = self._image_generation_config(job)[1]
+        if manifest.get("model") != selected_image_model:
+            manifest["model"] = selected_image_model
+            manifest_changed = True
         if prompt is not None and prompt.strip():
             image["prompt"] = prompt.strip()
+            manifest_changed = True
+        if manifest_changed:
             write_json(manifest_path, manifest)
             self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
 
@@ -501,8 +510,13 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         write_json(temp_manifest_path, single_manifest)
         self._run_asset_script_manifest(job, job_dir, temp_manifest_path)
 
-        if str(image.get("subdir", "")).strip() == generation_limits()["assets"]["figure_subdir"]:
-            figure_path = job_dir / "public" / "game" / "figure" / f"{clean_filename}.webp"
+        subdir = str(image.get("subdir", "")).strip()
+        output_path = job_dir / "public" / "game" / subdir / f"{clean_filename}.webp"
+        if not output_path.exists():
+            raise PipelineError(f"asset regeneration produced no file: {subdir}/{clean_filename}.webp")
+
+        if subdir == generation_limits()["assets"]["figure_subdir"]:
+            figure_path = output_path
             if figure_path.exists():
                 scripts = settings.asset_scripts_dir
                 self._run_script([scripts / "remove_bg.py", figure_path], job_dir)
@@ -1772,6 +1786,12 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
 
         (job_dir / "public" / "game").mkdir(parents=True, exist_ok=True)
         image_base_url, image_model, image_api_key_env = self._image_generation_config(job)
+        manifest_data = read_json(manifest)
+        if not isinstance(manifest_data, dict):
+            raise PipelineError(f"asset manifest must be an object: {manifest}")
+        if manifest_data.get("model") != image_model:
+            manifest_data["model"] = image_model
+            write_json(manifest, manifest_data)
         extra_env = {
             "WEBGAL_IMAGE_BASE_URL": image_base_url,
             "WEBGAL_IMAGE_MODEL": image_model,

@@ -4,16 +4,24 @@ import tempfile
 import unittest
 import json
 import os
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from asset_scripts import generate_assets
 from asset_scripts.generate_assets import MAX_WORKERS, _qwen_image_url, _qwen_size, _worker_count_for_model
 from webgal_backend import game_design
 from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
 from webgal_backend.job_options import GenerationOptions, normalize_generation_options, validate_generation_options
-from webgal_backend.app import _contains_hidden_path, _public_app_path
-from webgal_backend.config import settings
+from webgal_backend.app import _asset_review_item, _contains_hidden_path, _public_app_path
+from webgal_backend.config import (
+    DOUBAO_IMAGE_API_KEY_ENV,
+    DOUBAO_IMAGE_MODEL,
+    Settings,
+    settings,
+)
 from webgal_backend.narrative_structure import narrative_structure_issues, repair_narrative_structure_if_needed
 from webgal_backend.pipeline import PipelineError, WebGALPipeline
 from webgal_backend.prompts import game_design_completion_prompt
@@ -97,6 +105,45 @@ class BackendContractTests(unittest.TestCase):
             self.assertEqual(_public_app_path("/play/job-1/assets/file.css"), "/play/job-1/assets/file.css")
         finally:
             backend_app.frontend_url = original
+
+    def test_asset_review_urls_change_when_generated_files_are_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            figure_dir = job_dir / "public" / "game" / "figure"
+            figure_dir.mkdir(parents=True)
+            figure_path = figure_dir / "figure_main_role.webp"
+            avatar_path = figure_dir / "miniavatar_main_role.webp"
+            figure_path.write_bytes(b"first figure")
+            avatar_path.write_bytes(b"first avatar")
+
+            image = {
+                "filename": "figure_main_role",
+                "subdir": "figure",
+                "size": "1024x1024",
+                "prompt": "test prompt",
+                "available_scene": "start.txt",
+            }
+            first = _asset_review_item("job-1", job_dir, image, {}, {})
+
+            figure_stat = figure_path.stat()
+            avatar_stat = avatar_path.stat()
+            os.utime(
+                figure_path,
+                ns=(figure_stat.st_atime_ns, figure_stat.st_mtime_ns + 1_000_000_000),
+            )
+            os.utime(
+                avatar_path,
+                ns=(avatar_stat.st_atime_ns, avatar_stat.st_mtime_ns + 1_000_000_000),
+            )
+            second = _asset_review_item("job-1", job_dir, image, {}, {})
+
+            self.assertNotEqual(first["url"], second["url"])
+            self.assertNotEqual(first["avatar_url"], second["avatar_url"])
+            self.assertEqual(second["url"], f"/play/job-1/game/figure/figure_main_role.webp?v={figure_path.stat().st_mtime_ns}")
+            self.assertEqual(
+                second["avatar_url"],
+                f"/play/job-1/game/figure/miniavatar_main_role.webp?v={avatar_path.stat().st_mtime_ns}",
+            )
 
     def test_job_apis_are_scoped_by_invite_code(self) -> None:
         import webgal_backend.app as backend_app
@@ -222,7 +269,7 @@ class BackendContractTests(unittest.TestCase):
         self.assertIs(created, fake_llm)
         self.assertEqual(captured["provider"], "mimo")
 
-    def test_generation_options_select_image_model_and_default_to_current_provider(self) -> None:
+    def test_generation_options_select_image_model_and_default_to_doubao(self) -> None:
         self.assertEqual(normalize_generation_options(dict(VALID_OPTIONS))["image_model"], "default")
 
         for model in ("qwen-image-2.0-pro", "qwen-image-2.0", "qwen-image-max"):
@@ -234,6 +281,19 @@ class BackendContractTests(unittest.TestCase):
         invalid_options["image_model"] = "unconfigured-image-model"
         with self.assertRaises(ValueError):
             validate_generation_options(invalid_options)
+
+    def test_legacy_generic_image_env_cannot_change_default_from_doubao(self) -> None:
+        legacy_overrides = {
+            "WEBGAL_IMAGE_BASE_URL": "https://dashscope.example.invalid/api/v1",
+            "WEBGAL_IMAGE_MODEL": "qwen-image-2.0",
+            "WEBGAL_IMAGE_API_KEY_ENV": "DASHSCOPE_API_KEY",
+        }
+        with patch("webgal_backend.config.load_dotenv"), patch.dict(os.environ, legacy_overrides):
+            configured = Settings.from_env()
+
+        self.assertEqual(configured.image_model, DOUBAO_IMAGE_MODEL)
+        self.assertEqual(configured.image_api_key_env, DOUBAO_IMAGE_API_KEY_ENV)
+        self.assertNotIn("dashscope.example.invalid", configured.image_base_url)
 
     def test_pipeline_resolves_qwen_image_models_to_shared_dashscope_provider(self) -> None:
         pipeline = WebGALPipeline()
@@ -249,6 +309,59 @@ class BackendContractTests(unittest.TestCase):
             default_config,
             (settings.image_base_url, settings.image_model, settings.image_api_key_env),
         )
+        self.assertEqual(default_config[1], DOUBAO_IMAGE_MODEL)
+        self.assertEqual(default_config[2], DOUBAO_IMAGE_API_KEY_ENV)
+
+    def test_asset_script_manifest_model_follows_job_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            manifest_path = job_dir / "assets_manifest.json"
+            write_json(
+                manifest_path,
+                {
+                    "base_dir": str(job_dir / "public" / "game"),
+                    "model": "qwen-image-2.0",
+                    "images": [],
+                },
+            )
+            pipeline = WebGALPipeline()
+            with patch.object(pipeline, "_run_script") as run_script:
+                pipeline._run_asset_script_manifest(
+                    {"options": {"image_model": "default"}},
+                    job_dir,
+                    manifest_path,
+                )
+
+            self.assertEqual(read_json(manifest_path)["model"], DOUBAO_IMAGE_MODEL)
+            run_script.assert_called_once()
+
+    def test_asset_script_exits_nonzero_when_any_image_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "assets_manifest.json"
+            write_json(
+                manifest_path,
+                {
+                    "base_dir": str(Path(tmp) / "public" / "game"),
+                    "model": DOUBAO_IMAGE_MODEL,
+                    "images": [
+                        {
+                            "filename": "background_test",
+                            "subdir": "background",
+                            "prompt": "test",
+                            "size": "1024x1024",
+                        }
+                    ],
+                },
+            )
+            with (
+                patch.object(generate_assets, "_api_key_from_env", return_value=("ARK_API_KEY", "test-key")),
+                patch.object(generate_assets, "generate_image", return_value=False),
+                patch.object(sys, "argv", ["generate_assets.py", str(manifest_path)]),
+                self.assertRaises(SystemExit) as exited,
+            ):
+                generate_assets.main()
+
+        self.assertEqual(exited.exception.code, 1)
 
     def test_qwen_image_request_adapts_size_and_native_response(self) -> None:
         self.assertEqual(_qwen_size("qwen-image-2.0-pro", "2560x1440"), "2560*1440")

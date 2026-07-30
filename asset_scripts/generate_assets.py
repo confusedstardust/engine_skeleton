@@ -250,6 +250,7 @@ def main() -> None:
     print(f"\nDone: {generated} generated, {failed} failed.")
     if failed > 0:
         print("Rerun to retry failed images.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
