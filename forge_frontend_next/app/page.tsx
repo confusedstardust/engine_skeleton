@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getStoredInviteCode, jsonInviteHeaders } from "./invite-identity";
+import { OnboardingTour } from "../components/onboarding-tour";
 
 type Choice = {
   name: string;
@@ -226,9 +227,9 @@ export default function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <Link className="nav-login" href="/login">邀请码</Link>
+          <Link className="nav-login" href="/login" data-tour="invite">邀请码</Link>
         </nav>
-        <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单">
+        <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
           <span />
           <span />
@@ -240,7 +241,7 @@ export default function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <Link className="mobile-login" href="/login">邀请码</Link>
+          <Link className="mobile-login" href="/login" data-tour="invite">邀请码</Link>
         </nav>
       )}
 
@@ -256,11 +257,11 @@ export default function ClassroomGeneratorPage() {
         <div className="content-grid">
           <section className="form-panel" aria-label="课堂生成表单">
             <FormSection title="核心教学信息">
-              <Field label="课堂主题">
+              <Field label="课堂主题" tourId="topic">
                 <input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="例如：《垓下歌》中的英雄悲剧 / 《关雎》中的爱情与礼教" />
               </Field>
 
-              <Field label="教学文本 / 知识材料">
+              <Field label="教学文本 / 知识材料" tourId="material">
                 <div className="tab-group">
                   <button className={sourceTab === "paste" ? "active" : ""} type="button" onClick={() => setSourceTab("paste")}>直接粘贴文本</button>
                   <button className={sourceTab === "upload" ? "active" : ""} type="button" onClick={() => setSourceTab("upload")}>上传文档</button>
@@ -310,11 +311,13 @@ export default function ClassroomGeneratorPage() {
             </FormSection>
 
             <FormSection title="游戏设计配置">
-              <GenerationModeRadio value={generationMode} onChange={setGenerationMode} />
+              <div data-tour="mode">
+                <GenerationModeRadio value={generationMode} onChange={setGenerationMode} />
+              </div>
               <ChoiceGrid label="游戏时长与课堂场景" items={durations} value={duration} onChange={setDuration} columns="five" />
               <ChoiceGrid label="叙事模式" items={modes} value={mode} onChange={setMode} columns="three" />
 
-              <Field label="角色配音">
+              <Field label="角色配音" tourId="voice">
                 <div className="toggle-row">
                   <div>
                     <strong>开启配音</strong>
@@ -327,7 +330,7 @@ export default function ClassroomGeneratorPage() {
                 </div>
               </Field>
 
-              <div className="backend-options">
+              <div className="backend-options" data-tour="image">
                 <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
                 <details ref={imageModelPickerRef} className={`model-picker asset-model-picker ${!generateAssets || running ? "disabled" : ""}`}>
                   <summary
@@ -470,6 +473,7 @@ export default function ClassroomGeneratorPage() {
           </aside>
         </div>
       </main>
+      <OnboardingTour />
     </>
   );
 }
@@ -522,9 +526,9 @@ function GenerationModeRadio({ value, onChange }: { value: GenerationMode; onCha
   );
 }
 
-function Field({ label, hint, required, compact, children }: { label: string; hint?: string; required?: boolean; compact?: boolean; children: React.ReactNode }) {
+function Field({ label, hint, required, compact, tourId, children }: { label: string; hint?: string; required?: boolean; compact?: boolean; tourId?: string; children: React.ReactNode }) {
   return (
-    <label className={`field-group ${compact ? "compact" : ""}`}>
+    <label className={`field-group ${compact ? "compact" : ""}`} data-tour={tourId}>
       <span className="field-label">{label}{required && <em>*</em>}</span>
       {hint && <span className="field-hint">{hint}</span>}
       {children}
