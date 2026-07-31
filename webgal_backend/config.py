@@ -6,6 +6,9 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+DOUBAO_IMAGE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+DOUBAO_IMAGE_MODEL = "doubao-seedream-4-5-251128"
+DOUBAO_IMAGE_API_KEY_ENV = "ARK_API_KEY"
 
 
 def load_dotenv(path: Path) -> None:
@@ -134,16 +137,11 @@ class Settings:
             asset_scripts_dir=asset_scripts_dir,
             sound_effects_dir=sound_effects_dir,
             image_base_url=(
-                os.getenv("WEBGAL_IMAGE_BASE_URL")
-                or os.getenv("ARK_IMAGE_BASE_URL")
-                or "https://ark.cn-beijing.volces.com/api/v3"
+                os.getenv("ARK_IMAGE_BASE_URL")
+                or DOUBAO_IMAGE_BASE_URL
             ).rstrip("/"),
-            image_model=(
-                os.getenv("WEBGAL_IMAGE_MODEL")
-                or os.getenv("ARK_IMAGE_MODEL")
-                or "doubao-seedream-4-5-251128"
-            ),
-            image_api_key_env=(os.getenv("WEBGAL_IMAGE_API_KEY_ENV") or "ARK_API_KEY"),
+            image_model=DOUBAO_IMAGE_MODEL,
+            image_api_key_env=DOUBAO_IMAGE_API_KEY_ENV,
             qwen_image_base_url=(
                 os.getenv("QWEN_IMAGE_BASE_URL")
                 or "https://dashscope.aliyuncs.com/api/v1"
