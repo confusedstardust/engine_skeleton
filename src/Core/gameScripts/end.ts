@@ -10,12 +10,14 @@ import { playBgm } from '@/Core/controller/stage/playBgm';
 import { WebGAL } from '@/Core/WebGAL';
 import { dumpToStorageFast } from '@/Core/controller/storage/storageController';
 import { saveActions } from '@/store/savesReducer';
+import { notifyNarrativeOSGameEnded } from '@/Core/events/gameLifecycle';
 
 /**
  * 结束游戏
  * @param sentence
  */
 export const end = (sentence: ISentence): IPerform => {
+  notifyNarrativeOSGameEnded();
   resetStage(true);
   const dispatch = webgalStore.dispatch;
   // 重新获取初始场景
