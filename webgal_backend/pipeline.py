@@ -31,7 +31,15 @@ from .raw_correction import correct_generated_raw_file
 from .scene_plan import build_scene_plan, expected_scene_files
 from .storage import JobStore, read_json, utc_now, write_json
 from .scene_validation import validate_and_repair_scenes, validation_report
-from .tts_pipeline import build_tts_manifest, generate_tts_audio, write_tts_manifest
+from .tts_pipeline import (
+    build_tts_manifest,
+    build_tts_voice_review,
+    generate_tts_audio,
+    generate_tts_voice_previews,
+    selected_character_voices,
+    select_tts_review_voice,
+    write_tts_manifest,
+)
 from .validators import (
     ValidationFailure,
     semantic_asset_manifest,
@@ -374,8 +382,32 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.run_asset_generation(job)
 
     def run_asset_review(self, job: dict[str, Any]) -> None:
-        self.run_asset_manifest(job)
+        if self._can_reuse_asset_manifest(job):
+            self.store.transition(job, "ASSET_MANIFEST_READY", "ASSET_PLANNING")
+        else:
+            self.run_asset_manifest(job)
         self.run_image_asset_generation(job)
+        if bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False))):
+            self.run_tts_preview_generation(job)
+
+    def _can_reuse_asset_manifest(self, job: dict[str, Any]) -> bool:
+        job_dir = self.store.job_dir(job["id"])
+        manifest_path = job_dir / "assets_manifest.json"
+        if not manifest_path.exists():
+            return False
+        try:
+            manifest = read_json(manifest_path)
+            if not isinstance(manifest, dict):
+                return False
+            narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+            game_design_text = game_design.render_json(self._read_game_design_json(job_dir))
+            asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
+            base_dir = str((job_dir / "public" / "game").resolve())
+            validate_schema("asset_manifest.schema.json", manifest)
+            semantic_asset_manifest(manifest, asset_context, base_dir)
+            return manifest.get("model") == self._image_generation_config(job)[1]
+        except (OSError, ValueError, PipelineError, ValidationFailure):
+            return False
 
     def run_game_build(self, job: dict[str, Any]) -> None:
         self.run_script_rewrite(job)
@@ -635,6 +667,57 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             self._generate_tts_artifacts(job, job_dir)
         self.store.transition(job, "TTS_READY", "TTS_GENERATION")
 
+    def run_tts_preview_generation(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "TTS_PREVIEW_GENERATION")
+        job_dir = self.store.job_dir(job["id"])
+        preview_script = self._read_game_design_completed_text(job_dir)
+        narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        limits = generation_limits().get("tts", {})
+        review_path = job_dir / "state" / "tts_voice_review.json"
+        existing_review = read_json(review_path) if review_path.exists() else None
+        with self._trace_stage(
+            job,
+            7,
+            "素材生成",
+            "tts_voice_review",
+            "state/tts_voice_review.json, public/game/vocal_preview/*.wav",
+        ):
+            assigned = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
+            review = build_tts_voice_review(
+                job_dir,
+                assigned,
+                existing_review=existing_review,
+                script_text=preview_script,
+            )
+            review = generate_tts_voice_previews(job_dir, review)
+            write_json(review_path, review)
+            self.store.record_artifact(job, "tts_voice_review", "state/tts_voice_review.json")
+        failed = [item for item in review.get("characters", []) if item.get("status") == "failed"]
+        if failed:
+            sample = "; ".join(f"{item.get('speaker')}: {item.get('error')}" for item in failed[:3])
+            raise PipelineError(f"TTS preview generation failed for {len(failed)} characters: {sample}")
+        self.store.transition(job, "ASSET_REVIEW_READY", "TTS_PREVIEW_GENERATION")
+
+    def regenerate_tts_preview(self, job: dict[str, Any], speaker: str, voice: str) -> dict[str, Any]:
+        job_dir = self.store.job_dir(job["id"])
+        review_path = job_dir / "state" / "tts_voice_review.json"
+        if not review_path.exists():
+            raise PipelineError("TTS voice review is not ready")
+        review = read_json(review_path)
+        try:
+            item = select_tts_review_voice(review, speaker, voice)
+            preview_path = job_dir / "public" / "game" / "vocal_preview" / str(item.get("filename") or "")
+            if preview_path.exists():
+                preview_path.unlink()
+            generate_tts_voice_previews(job_dir, review, speakers={speaker})
+        except ValueError as exc:
+            raise PipelineError(str(exc)) from exc
+        write_json(review_path, review)
+        self.store.record_artifact(job, "tts_voice_review", "state/tts_voice_review.json")
+        if item.get("status") == "failed":
+            raise PipelineError(f"TTS preview generation failed for {speaker}: {item.get('error')}")
+        return item
+
     def _generate_tts_artifacts(self, job: dict[str, Any], job_dir: Path) -> None:
         script_path = job_dir / "state" / "game_design_webgal.txt"
         if not script_path.exists():
@@ -645,8 +728,31 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         limits = generation_limits().get("tts", {})
         enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-        character_voices = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
+        review_path = job_dir / "state" / "tts_voice_review.json"
+        requires_review = job.get("options", {}).get("generation_mode", "advanced") == "advanced"
+        if enabled and requires_review:
+            if not review_path.exists():
+                raise PipelineError("character voice review is required before game build")
+            character_voices = selected_character_voices(read_json(review_path))
+        else:
+            character_voices = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
+        previous_manifest_path = job_dir / "state" / "tts_manifest.json"
+        previous_manifest = read_json(previous_manifest_path) if previous_manifest_path.exists() else {}
         manifest = build_tts_manifest(job_dir, character_voices=character_voices, selection_options=job["options"])
+        previous_items = {
+            str(item.get("filename") or ""): item
+            for item in previous_manifest.get("items", [])
+            if isinstance(item, dict)
+        }
+        for item in manifest.get("items", []):
+            previous = previous_items.get(str(item.get("filename") or ""))
+            if not previous:
+                continue
+            if previous.get("voice") == item.get("voice") and previous.get("text") == item.get("text"):
+                continue
+            old_audio = job_dir / "public" / "game" / "vocal" / str(item.get("filename") or "")
+            if old_audio.exists():
+                old_audio.unlink()
         manifest = generate_tts_audio(job_dir, manifest, enabled=enabled)
         write_tts_manifest(job_dir, manifest)
         self.store.record_artifact(job, "tts_manifest", "state/tts_manifest.json")
@@ -1245,7 +1351,7 @@ Previous generated content:
         prompt: str,
     ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
-        if self._use_json_text_for_function(function_name) and getattr(llm, "provider", "deepseek") == "deepseek":
+        if self._use_json_text_for_function(function_name):
             text_prompt = f"""{prompt}
 
 Return valid JSON only, without Markdown fences or explanation.

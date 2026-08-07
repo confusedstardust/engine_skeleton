@@ -168,6 +168,11 @@ class ArtifactUpdateRequest(BaseModel):
     content: str
 
 
+class TTSPreviewRequest(BaseModel):
+    speaker: str = Field(min_length=1)
+    voice: str = Field(min_length=1)
+
+
 class GenerateNarrativeNodeRequest(BaseModel):
     kind: NarrativeNodeKind
     prompt: str = Field(min_length=1)
@@ -426,13 +431,50 @@ def _asset_review_item(
     }
 
 
+def _tts_voice_review_payload(job_id: str, job_dir: Path, voice_enabled: bool) -> dict[str, Any]:
+    review_path = job_dir / "state" / "tts_voice_review.json"
+    if not voice_enabled or not review_path.exists():
+        return {
+            "voice_enabled": voice_enabled,
+            "voices": [],
+            "available_voices": [],
+        }
+    review = _read_json_file(review_path)
+    characters: list[dict[str, Any]] = []
+    for raw_item in review.get("characters", []):
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        filename = str(item.get("filename") or "").replace("\\", "/").split("/")[-1]
+        preview_path = job_dir / "public" / "game" / "vocal_preview" / filename
+        item["preview_exists"] = bool(filename) and preview_path.exists()
+        item["preview_url"] = (
+            _versioned_file_url(_public_app_path(f"/play/{job_id}/game/vocal_preview/{filename}"), preview_path)
+            if item["preview_exists"]
+            else None
+        )
+        characters.append(item)
+    return {
+        "voice_enabled": True,
+        "voices": characters,
+        "available_voices": review.get("available_voices", []),
+    }
+
+
 @app.get("/jobs/{job_id}/assets/review")
 def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     job = _get_owned_job_or_404(job_id, request)
     job_dir = _job_dir_or_404(job_id)
+    voice_enabled = bool(job.get("options", {}).get("generate_tts", job.get("options", {}).get("voice_enabled", False)))
+    voice_review = _tts_voice_review_payload(job_id, job_dir, voice_enabled)
     manifest_path = job_dir / "assets_manifest.json"
     if not manifest_path.exists():
-        return {"job": job, "assets": [], "image_enabled": bool(job.get("options", {}).get("generate_assets", False))}
+        return {
+            "job": job,
+            "assets": [],
+            "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+            **voice_review,
+        }
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -445,7 +487,24 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
         "job": job,
         "assets": [_asset_review_item(job_id, job_dir, image, character_labels, scene_labels) for image in images if isinstance(image, dict)],
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+        **voice_review,
     }
+
+
+@app.post("/jobs/{job_id}/voices/preview")
+def regenerate_voice_preview(job_id: str, request: TTSPreviewRequest, http_request: Request) -> dict[str, Any]:
+    try:
+        job = _get_owned_job_or_404(job_id, http_request)
+        item = pipeline.regenerate_tts_preview(job, request.speaker.strip(), request.voice.strip())
+        return {
+            "job": _get_owned_job_or_404(job_id, http_request),
+            "voice": item,
+            **_tts_voice_review_payload(job_id, store.job_dir(job_id), True),
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/jobs/{job_id}/assets/regenerate")

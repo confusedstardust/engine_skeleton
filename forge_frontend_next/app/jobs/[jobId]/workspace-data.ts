@@ -42,10 +42,35 @@ export type AssetReviewItem = {
   avatar_url: string | null;
 };
 
+export type TTSVoiceOption = {
+  name: string;
+  gender: string;
+  description: string;
+};
+
+export type TTSVoiceReviewItem = {
+  speaker: string;
+  speaker_id: string;
+  gender: string;
+  voice: string;
+  tone: string;
+  scene: string;
+  line_no: number;
+  text: string;
+  filename: string;
+  status: string;
+  error?: string | null;
+  preview_exists: boolean;
+  preview_url: string | null;
+};
+
 export type AssetReviewResponse = {
   job: Job;
   assets: AssetReviewItem[];
   image_enabled: boolean;
+  voice_enabled: boolean;
+  voices: TTSVoiceReviewItem[];
+  available_voices: TTSVoiceOption[];
 };
 
 export type StoryStep = {
