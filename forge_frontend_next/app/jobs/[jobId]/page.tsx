@@ -78,7 +78,7 @@ function failedPhaseRetry(job: Job): FailedPhaseRetry | null {
       stage
     };
   }
-  if (["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION"].includes(phase)) {
+  if (["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION", "TTS_PREVIEW_GENERATION"].includes(phase)) {
     return {
       path: "phases/asset_review",
       label: "重试生成素材",
@@ -141,10 +141,35 @@ type AssetReviewItem = {
   avatar_url: string | null;
 };
 
+type TTSVoiceOption = {
+  name: string;
+  gender: string;
+  description: string;
+};
+
+type TTSVoiceReviewItem = {
+  speaker: string;
+  speaker_id: string;
+  gender: string;
+  voice: string;
+  tone: string;
+  scene: string;
+  line_no: number;
+  text: string;
+  filename: string;
+  status: string;
+  error?: string | null;
+  preview_exists: boolean;
+  preview_url: string | null;
+};
+
 type AssetReviewResponse = {
   job: Job;
   assets: AssetReviewItem[];
   image_enabled: boolean;
+  voice_enabled: boolean;
+  voices: TTSVoiceReviewItem[];
+  available_voices: TTSVoiceOption[];
 };
 
 type StoryStep = {
@@ -729,6 +754,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [assetReview, setAssetReview] = useState<AssetReviewResponse | null>(null);
   const [activeAssetFilename, setActiveAssetFilename] = useState<string | null>(null);
   const [assetPrompt, setAssetPrompt] = useState("");
+  const [voiceGeneratingSpeaker, setVoiceGeneratingSpeaker] = useState<string | null>(null);
   const planRef = useRef<NarrativePlan | null>(null);
 
   const narrativeNode = data?.nodes.find((node) => node.key === "narrative_plan");
@@ -743,7 +769,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const activePhase = data?.job.phase || "";
   const isDesignDraftRunning = isGenerating && activePhase === "GAME_DESIGN" && !rawDesignNode?.exists;
   const isDesignCompletionRunning = isGenerating && activePhase === "GAME_DESIGN_COMPLETION" && !designNode?.exists;
-  const assetGenerationPhases = new Set(["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION"]);
+  const assetGenerationPhases = new Set(["ASSET_REVIEW", "ASSET_PLANNING", "ASSET_GENERATION", "TTS_PREVIEW_GENERATION"]);
   const isAssetGenerationRunning = isGenerating && assetGenerationPhases.has(activePhase);
   const gameBuildPhases = new Set([
     "GAME_BUILD",
@@ -759,6 +785,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     "ASSET_REVIEW",
     "ASSET_PLANNING",
     "ASSET_GENERATION",
+    "TTS_PREVIEW_GENERATION",
     "GAME_BUILD",
     "SCRIPT_REWRITE",
     "SOUND_EFFECT_PLANNING",
@@ -1028,6 +1055,25 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function previewCharacterVoice(speaker: string, voice: string) {
+    setVoiceGeneratingSpeaker(speaker);
+    setBusy(true);
+    setMessage(`正在为 ${speaker} 生成新的音色试听...`);
+    try {
+      await api(`/jobs/${jobId}/voices/preview`, {
+        method: "POST",
+        body: JSON.stringify({ speaker, voice })
+      });
+      setMessage(`${speaker} 的新试听已生成，可以直接播放比较。`);
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "语音试听生成失败。");
+    } finally {
+      setVoiceGeneratingSpeaker(null);
+      setBusy(false);
+    }
+  }
+
   async function buildGameFromAssets() {
     setBusy(true);
     setMessage("正在改写 WebGAL 脚本并生成游戏...");
@@ -1214,6 +1260,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             }}
             closeAsset={() => setActiveAssetFilename(null)}
             regenerateAsset={regenerateAsset}
+            previewVoice={previewCharacterVoice}
+            voiceGeneratingSpeaker={voiceGeneratingSpeaker}
             buildGame={buildGameFromAssets}
             gameReady={data.job.status === "DONE"}
             assetsGenerating={isAssetGenerationRunning}
@@ -1269,6 +1317,8 @@ function AssetReviewPanel(props: {
   openAsset: (asset: AssetReviewItem) => void;
   closeAsset: () => void;
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
+  previewVoice: (speaker: string, voice: string) => Promise<void>;
+  voiceGeneratingSpeaker: string | null;
   buildGame: () => Promise<void>;
   gameReady: boolean;
   assetsGenerating: boolean;
@@ -1297,7 +1347,7 @@ function AssetReviewPanel(props: {
       <section className="node-detail">
         <LoadingPlaceholder
           title="素材正在生成。"
-          brief="系统正在生成角色和场景图片。部分素材可能已经完成，但需要等全部素材阶段结束后再确认并生成游戏。"
+          brief="系统正在生成角色和场景图片；开启配音时，还会为每位角色生成一句语音试听。完成后可直接在角色卡播放并按需更换音色。"
         />
       </section>
     );
@@ -1339,6 +1389,9 @@ function AssetReviewPanel(props: {
     <LaperAssetWorkbench
       imageEnabled={props.review.image_enabled}
       assets={assets}
+      voiceEnabled={props.review.voice_enabled}
+      voices={props.review.voices || []}
+      availableVoices={props.review.available_voices || []}
       busy={props.busy}
       readonly={props.readonly}
       activeAsset={props.activeAsset}
@@ -1347,6 +1400,8 @@ function AssetReviewPanel(props: {
       openAsset={props.openAsset}
       closeAsset={props.closeAsset}
       regenerateAsset={props.regenerateAsset}
+      previewVoice={props.previewVoice}
+      voiceGeneratingSpeaker={props.voiceGeneratingSpeaker}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}

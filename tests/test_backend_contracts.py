@@ -30,7 +30,13 @@ from webgal_backend.scene_plan import build_scene_plan, expected_ending_types, e
 from webgal_backend.scene_validation import _repair_scene_lines
 from webgal_backend.scene_validation import _parse_choose_options, _scene_targets
 from webgal_backend.storage import JobStore, read_json, write_json
-from webgal_backend.tts_pipeline import build_tts_manifest
+from webgal_backend.tts_pipeline import (
+    available_tts_voices,
+    build_tts_manifest,
+    build_tts_voice_review,
+    selected_character_voices,
+    select_tts_review_voice,
+)
 from webgal_backend.validators import validate_schema
 
 
@@ -546,6 +552,39 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("title", fake.prompts[1])
         self.assertNotIn("STRUCTURED_SOURCE_SENTINEL", fake.prompts[1])
 
+    def test_mimo_asset_manifest_uses_json_text_instead_of_function_call(self) -> None:
+        class FakeMiMO:
+            provider = "mimo"
+
+            def __init__(self) -> None:
+                self.text_calls = 0
+
+            def call_text(self, _trace_name: str, _system_prompt: str, user_prompt: str, thinking: str | None = None) -> str:
+                self.text_calls += 1
+                self.assert_prompt = user_prompt
+                return json.dumps({"asset_manifest": {"images": []}})
+
+            def parse_json_text(self, text: str, _trace_name: str) -> dict:
+                return json.loads(text)
+
+            def call_function(self, *_args, **_kwargs) -> dict:
+                raise AssertionError("MiMo must not use function calling for asset manifests")
+
+        fake = FakeMiMO()
+        pipeline = WebGALPipeline()
+        parsed, raw = pipeline._call_structured_llm(
+            fake,
+            "emit_asset_manifest",
+            "asset_manifest",
+            "system",
+            "prompt",
+        )
+
+        self.assertEqual(fake.text_calls, 1)
+        self.assertEqual(parsed, {"asset_manifest": {"images": []}})
+        self.assertEqual(json.loads(raw), parsed)
+        self.assertIn('exactly this key: "asset_manifest"', fake.assert_prompt)
+
     def test_game_design_choices_are_inserted_without_internal_metadata(self) -> None:
         text = "\n".join(
             [
@@ -935,6 +974,183 @@ class BackendContractTests(unittest.TestCase):
             )
             self.assertEqual(full_manifest["selection"]["scope"], "key_lines")
             self.assertLess(len([item for item in full_manifest["items"] if item["status"] == "pending"]), 7)
+
+    def test_tts_voice_review_builds_one_preview_per_character_and_excludes_narrator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            (job_dir / "state").mkdir()
+            plan = minimal_narrative_plan()
+            plan["characters"] = [
+                {
+                    "id": "hero",
+                    "name": "Hero",
+                    "gender": "male",
+                    "personality": "calm",
+                    "motivation": "choose freely",
+                    "speech_style": "direct",
+                    "emotional_arc": "hesitation to resolve",
+                    "relationships": [],
+                },
+                {
+                    "id": "friend",
+                    "name": "Friend",
+                    "gender": "female",
+                    "personality": "warm",
+                    "motivation": "help",
+                    "speech_style": "gentle",
+                    "emotional_arc": "steady",
+                    "relationships": [],
+                },
+            ]
+            write_json(job_dir / "state" / "narrative_plan.json", plan)
+            (job_dir / "state" / "game_design_webgal.txt").write_text(
+                "\n".join(
+                    [
+                        "Scene:start.txt",
+                        "旁白: This line must not receive a voice preview.",
+                        "Hero: Short.",
+                        "Hero: This is a representative and measured preview sentence.",
+                        "Friend: I will stay here and help you finish the work.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            review = build_tts_voice_review(
+                job_dir,
+                {"Hero": ["Ethan", "bright"], "Friend": ["Cherry", "warm"]},
+            )
+
+            self.assertEqual([item["speaker"] for item in review["characters"]], ["Hero", "Friend"])
+            self.assertEqual(review["characters"][0]["voice"], "Ethan")
+            self.assertIn("representative", review["characters"][0]["text"])
+            self.assertTrue(review["available_voices"])
+
+    def test_tts_preview_generation_uses_completed_design_before_webgal_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = JobStore(Path(tmp))
+            options = dict(VALID_OPTIONS)
+            options.update({"voice_enabled": True, "generate_tts": True})
+            job = store.create("lesson", options)
+            job_dir = store.job_dir(job["id"])
+            write_json(job_dir / "state" / "narrative_plan.json", minimal_narrative_plan())
+            write_json(
+                job_dir / "state" / "game_design_completed.json",
+                {
+                    "version": 1,
+                    "scenes": [
+                        {
+                            "marker": "Scene",
+                            "scene_file": "start.txt",
+                            "lines": [
+                                {
+                                    "kind": "dialogue",
+                                    "speaker": "主角",
+                                    "text": "我必须先理解选择带来的真正后果。",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+            pipeline = WebGALPipeline(store=store)
+            pipeline._assign_tts_voices = lambda *_args, **_kwargs: {"主角": ["Cherry", "克制"]}
+
+            with patch(
+                "webgal_backend.pipeline.generate_tts_voice_previews",
+                side_effect=lambda _job_dir, review: review,
+            ):
+                pipeline.run_tts_preview_generation(job)
+
+            review = read_json(job_dir / "state" / "tts_voice_review.json")
+            self.assertFalse((job_dir / "state" / "game_design_webgal.txt").exists())
+            self.assertEqual(review["characters"][0]["speaker"], "主角")
+            self.assertIn("真正后果", review["characters"][0]["text"])
+
+    def test_valid_existing_asset_manifest_is_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = JobStore(Path(tmp))
+            job = store.create("lesson", dict(VALID_OPTIONS))
+            job_dir = store.job_dir(job["id"])
+            write_json(job_dir / "state" / "narrative_plan.json", minimal_narrative_plan())
+            write_json(
+                job_dir / "state" / "game_design.json",
+                {
+                    "version": 1,
+                    "scenes": [
+                        {
+                            "marker": "Scene",
+                            "scene_file": "start.txt",
+                            "lines": [{"kind": "dialogue", "speaker": "主角", "text": "开始。"}],
+                        }
+                    ],
+                },
+            )
+            write_json(
+                job_dir / "assets_manifest.json",
+                {
+                    "base_dir": str((job_dir / "public" / "game").resolve()),
+                    "model": settings.image_model,
+                    "images": [
+                        {
+                            "filename": "figure_main_role",
+                            "subdir": "figure",
+                            "size": "1440x2560",
+                            "prompt": "完整角色立绘，纯白背景，全身可见，彩色，统一美术风格。",
+                            "available_scene": "",
+                        }
+                    ],
+                },
+            )
+
+            pipeline = WebGALPipeline(store=store)
+            self.assertTrue(pipeline._can_reuse_asset_manifest(job))
+            with patch.object(
+                pipeline,
+                "run_asset_manifest",
+                side_effect=AssertionError("a valid asset manifest must not be regenerated"),
+            ):
+                pipeline.run_asset_review(job)
+            self.assertEqual(store.get(job["id"])["status"], "ASSET_REVIEW_READY")
+
+    def test_tts_voice_review_uses_current_selection_without_confirmation(self) -> None:
+        review = {
+            "characters": [
+                {
+                    "speaker": "Hero",
+                    "speaker_id": "hero",
+                    "voice": "Ethan",
+                    "tone": "bright",
+                    "status": "completed",
+                }
+            ]
+        }
+        self.assertEqual(selected_character_voices(review), {"Hero": ["Ethan", "bright"]})
+
+        changed = select_tts_review_voice(review, "Hero", "Moon")
+        self.assertEqual(changed["status"], "pending")
+        self.assertIn("moon", changed["filename"])
+        self.assertEqual(
+            selected_character_voices(review),
+            {"Hero": ["Moon", next(option["description"] for option in available_tts_voices() if option["name"] == "Moon")]},
+        )
+
+    def test_tts_voice_review_rejects_cross_gender_voice(self) -> None:
+        review = {
+            "characters": [
+                {
+                    "speaker": "Hero",
+                    "speaker_id": "hero",
+                    "gender": "男",
+                    "voice": "Ethan",
+                    "tone": "bright",
+                    "status": "completed",
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(ValueError, "gender does not match"):
+            select_tts_review_voice(review, "Hero", "Cherry")
 
     def test_job_store_rejects_non_uuid_job_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

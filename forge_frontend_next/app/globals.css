@@ -2216,7 +2216,6 @@ a {
 
 .asset-card {
   display: grid;
-  grid-template-rows: 120px auto;
   align-content: start;
   gap: 8px;
   min-width: 0;
@@ -2227,6 +2226,23 @@ a {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.asset-card-grid.character-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+}
+
+.asset-card-open {
+  display: grid;
+  grid-template-rows: 120px auto;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
 .asset-card:hover {
@@ -3865,6 +3881,255 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.character-card-voice {
+  display: grid;
+  gap: 8px;
+  padding: 10px 2px 2px;
+  border-top: 1px solid rgba(185, 146, 66, 0.24);
+}
+
+.voice-preview-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+}
+
+.voice-preview-action {
+  display: flex;
+  align-items: center;
+  width: 42px;
+  height: 42px;
+}
+
+.voice-preview-action audio {
+  display: none;
+}
+
+.voice-play-button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
+  color: #fff8e9;
+  background: linear-gradient(145deg, #c34b43, var(--cinnabar));
+  border: 1px solid rgba(114, 20, 32, 0.3);
+  border-radius: 50%;
+  box-shadow: 0 5px 12px rgba(138, 29, 43, 0.22), inset 0 1px rgba(255, 255, 255, 0.26);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.voice-play-button:hover {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 7px 16px rgba(138, 29, 43, 0.28), inset 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.voice-play-button:focus-visible {
+  outline: 3px solid rgba(185, 146, 66, 0.34);
+  outline-offset: 2px;
+}
+
+.voice-play-button svg {
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
+}
+
+.voice-generation-orbit svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.voice-preview-missing {
+  padding: 10px 12px;
+  color: var(--cinnabar);
+  background: var(--cinnabar-glow);
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.voice-preview-row.missing .voice-preview-missing {
+  grid-column: 1 / -1;
+}
+
+.voice-preview-row.missing .character-voice-line {
+  display: none;
+}
+
+.character-voice-line {
+  display: -webkit-box;
+  height: 3em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: "Noto Serif SC", "STSong", serif;
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.character-voice-options {
+  border-top: 1px dashed var(--border-light);
+}
+
+.character-voice-options summary {
+  padding-top: 8px;
+  color: var(--cinnabar);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.character-voice-picker {
+  display: grid;
+  gap: 8px;
+  padding-top: 9px;
+}
+
+.character-voice-picker label {
+  display: grid;
+  gap: 5px;
+}
+
+.character-voice-picker label > span,
+.character-voice-picker > small {
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.character-voice-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 28px 8px 9px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.character-voice-picker .btn {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.voice-generation-lock {
+  position: fixed;
+  z-index: 5000;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(92px, 16vh, 168px) 24px 24px;
+  background: rgba(29, 20, 16, 0.48);
+  backdrop-filter: blur(5px) saturate(0.82);
+  cursor: wait;
+}
+
+.voice-generation-card {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  width: min(480px, 100%);
+  padding: 22px 24px;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(155, 35, 53, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(155, 35, 53, 0.045) 1px, transparent 1px),
+    rgba(255, 250, 238, 0.96);
+  background-size: 24px 24px;
+  border: 1px solid rgba(185, 146, 66, 0.62);
+  border-radius: 16px;
+  box-shadow: 0 22px 70px rgba(20, 11, 8, 0.32), inset 0 1px rgba(255, 255, 255, 0.85);
+}
+
+.voice-generation-orbit {
+  position: relative;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  color: var(--cinnabar);
+  background: rgba(155, 35, 53, 0.07);
+  border-radius: 50%;
+  place-items: center;
+}
+
+.voice-generation-orbit::before,
+.voice-generation-orbit::after,
+.voice-generation-orbit > span {
+  position: absolute;
+  content: "";
+  border-radius: 50%;
+}
+
+.voice-generation-orbit::before {
+  inset: 0;
+  border: 2px solid rgba(185, 146, 66, 0.22);
+  border-top-color: var(--cinnabar);
+  animation: voice-orbit 1s linear infinite;
+}
+
+.voice-generation-orbit::after {
+  inset: 7px;
+  border: 1px dashed rgba(155, 35, 53, 0.32);
+  animation: voice-orbit 2.4s linear infinite reverse;
+}
+
+.voice-generation-orbit > span {
+  width: 7px;
+  height: 7px;
+  top: 4px;
+  right: 10px;
+  background: #b99242;
+  box-shadow: 0 0 0 4px rgba(185, 146, 66, 0.14);
+}
+
+.voice-generation-orbit svg {
+  width: 24px;
+  height: 24px;
+}
+
+.voice-generation-card strong {
+  display: block;
+  color: var(--cinnabar-dark);
+  font-family: "Noto Serif SC", "STSong", serif;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.voice-generation-card p,
+.voice-generation-card small {
+  display: block;
+  margin: 5px 0 0;
+  color: var(--ink-light);
+  line-height: 1.55;
+}
+
+.voice-generation-card p { font-size: 13px; }
+.voice-generation-card small { color: var(--ink-muted); font-size: 11px; }
+
+@keyframes voice-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-generation-orbit::before,
+  .voice-generation-orbit::after {
+    animation: none;
+  }
 }
 
 .laper-canvas-head > span.ready {
