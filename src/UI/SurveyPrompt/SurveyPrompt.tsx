@@ -3,7 +3,7 @@ import { NARRATIVEOS_GAME_ENDED_EVENT } from '@/Core/events/gameLifecycle';
 import styles from './surveyPrompt.module.scss';
 
 const SURVEY_SHOWN_SESSION_KEY = 'narrativeos:game-survey-shown';
-const DEFAULT_SURVEY_URL = 'https://my.feishu.cn/share/base/form/shrcn0hhWX4jndclNCe8nNYCCFf';
+const DEFAULT_SURVEY_URL = 'https://wenjuan.feishu.cn/m?t=swKDVCSGMVij-9bou';
 const SURVEY_ENABLED = import.meta.env.VITE_GAME_SURVEY_ENABLED?.trim().toLowerCase() !== 'false';
 const SURVEY_URL = import.meta.env.VITE_GAME_SURVEY_URL?.trim() || DEFAULT_SURVEY_URL;
 
