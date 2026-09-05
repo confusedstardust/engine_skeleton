@@ -6,6 +6,7 @@ import hashlib
 import mimetypes
 import os
 import re
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ from .narrative_structure import build_synced_narrative_structure, narrative_str
 from .pipeline import PipelineError, WebGALPipeline
 from .scene_plan import build_scene_plan
 from .storage import JobStore, write_json
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -198,6 +202,26 @@ class SceneMusicOverrideRequest(BaseModel):
     base_revision: int | None = Field(default=None, ge=0)
 
 
+def _internal_operation_error(operation: str, job_id: str, exc: Exception) -> HTTPException:
+    """Log the traceback and give the UI a safe identifier for correlating it."""
+    diagnostic_id = uuid.uuid4().hex[:12]
+    logger.exception(
+        "Forge operation failed: diagnostic_id=%s operation=%s job_id=%s error=%s",
+        diagnostic_id,
+        operation,
+        job_id,
+        exc,
+    )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "message": "服务端处理失败，请根据诊断编号查看后端日志。",
+            "operation": operation,
+            "diagnostic_id": diagnostic_id,
+        },
+    )
+
+
 def _require_job_editable(job: dict[str, Any], base_revision: int | None = None) -> None:
     if job.get("status") in {"RUNNING", "QUEUED"}:
         raise HTTPException(status_code=409, detail="job is running; wait for it to finish before editing")
@@ -297,21 +321,34 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
 
 @app.post("/jobs/{job_id}/narrative-node")
 def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest, http_request: Request) -> dict[str, Any]:
+    provider = "deepseek"
     try:
-        _get_owned_job_or_404(job_id, http_request)
+        job = _get_owned_job_or_404(job_id, http_request)
+        provider = str(job.get("options", {}).get("text_model", "deepseek"))
         plan = request.narrative_plan or _read_narrative_plan(job_id)
         node = generate_narrative_node_payload(
             job_dir=store.job_dir(job_id),
-            llm_factory=pipeline.llm_factory,
+            llm_factory=pipeline._llm_factory_for_job(job),
             kind=request.kind,
             user_prompt=request.prompt,
             narrative_plan=plan,
         )
-        return {"kind": request.kind, "node": node}
+        return {"kind": request.kind, "node": node, "provider": provider}
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (NarrativeNodeError, ValueError, PipelineError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(exc),
+                "operation": "narrative_node_generate",
+                "provider": provider,
+            },
+        ) from exc
+    except Exception as exc:
+        raise _internal_operation_error("narrative_node_generate", job_id, exc) from exc
 
 
 @app.post("/jobs/{job_id}/narrative-structure/sync")
@@ -331,10 +368,14 @@ def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest
             "narrative_structure": plan["narrative_structure"],
             "issues": narrative_structure_issues(plan),
         }
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _internal_operation_error("narrative_structure_sync", job_id, exc) from exc
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
@@ -836,9 +877,45 @@ def run_pipeline_background(job_id: str) -> None:
 
 def run_phase_background(job_id: str, phase: str) -> None:
     try:
-        pipeline.run_phase(job_id, phase)
+        job = store.get(job_id)
+        advanced_mode = job.get("options", {}).get("generation_mode") == "advanced"
     except Exception:
-        logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+        advanced_mode = False
+
+    retries = settings.max_advanced_phase_retries if advanced_mode else 0
+    for attempt in range(retries + 1):
+        try:
+            pipeline.run_phase(job_id, phase)
+            return
+        except PipelineError as exc:
+            if attempt < retries:
+                logger.warning(
+                    "Retrying Advanced phase after generation failure: job_id=%s phase=%s attempt=%s/%s error=%s",
+                    job_id,
+                    phase,
+                    attempt + 1,
+                    retries,
+                    exc,
+                )
+                # The phase runner sets FAILED on every attempt. Move it back
+                # to QUEUED so polling clients do not expose a transient error.
+                try:
+                    store.transition(store.get(job_id), "QUEUED", phase.upper())
+                except Exception:
+                    logger.exception("Could not queue Advanced retry for job_id=%s phase=%s", job_id, phase)
+                    return
+                continue
+            if retries:
+                message = f"{exc}\n\nAdvanced 模式已自动重试 {retries} 次，仍未完成；你可以手动重试此阶段。"
+                try:
+                    store.set_error(store.get(job_id), message)
+                except Exception:
+                    logger.exception("Could not save exhausted retry message for job_id=%s phase=%s", job_id, phase)
+            logger.exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            return
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            return
 
 
 def run_asset_regeneration_background(job_id: str, filename: str, prompt: str | None) -> None:

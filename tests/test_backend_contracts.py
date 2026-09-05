@@ -22,7 +22,11 @@ from webgal_backend.config import (
     Settings,
     settings,
 )
-from webgal_backend.narrative_structure import narrative_structure_issues, repair_narrative_structure_if_needed
+from webgal_backend.narrative_structure import (
+    build_synced_narrative_structure,
+    narrative_structure_issues,
+    repair_narrative_structure_if_needed,
+)
 from webgal_backend.pipeline import PipelineError, WebGALPipeline
 from webgal_backend.prompts import game_design_completion_prompt
 from webgal_backend.raw_correction import correct_generated_raw_file, correct_inline_dialogue_direction
@@ -702,6 +706,17 @@ class BackendContractTests(unittest.TestCase):
         self.assertEqual(repaired["story_progression"], plan["story_progression"])
         self.assertIn("missing_phase", fake.prompt)
 
+    def test_synced_narrative_structure_escapes_labels_for_mermaid(self) -> None:
+        plan = minimal_narrative_plan()
+        plan["story_progression"][0]["name"] = '起点 "测试"\n下一行'
+        plan["endings"][0]["ending_type"] = '圆满 "结局"'
+
+        structure = build_synced_narrative_structure(plan)
+
+        self.assertTrue(structure.startswith("flowchart TD\n"))
+        self.assertIn('phase0["起点 \\"测试\\" 下一行"]', structure)
+        self.assertIn('圆满 \\"结局\\"', structure)
+
     def test_game_design_choices_can_target_scene_files(self) -> None:
         pipeline = WebGALPipeline()
         plan = minimal_narrative_plan()
@@ -831,8 +846,8 @@ class BackendContractTests(unittest.TestCase):
             vocal_map,
         )
 
-        self.assertEqual(repaired[0], lines[0])
-        self.assertEqual(repaired[0].count("-start_001_hero.wav"), 1)
+        self.assertIn(lines[0], repaired)
+        self.assertEqual(repaired.count(lines[0]), 1)
         self.assertFalse(any(fix.code == "missing_vocal_arg" for fix in fixes))
 
     def test_choose_parser_respects_escaped_separators(self) -> None:
@@ -842,6 +857,86 @@ class BackendContractTests(unittest.TestCase):
             [("说出:留下来", "branch_1.txt"), ("沉默|点头", "branch_2.txt")],
         )
         self.assertEqual(_scene_targets(line), ["branch_1.txt", "branch_2.txt"])
+
+    def test_interactive_choice_merge_label_is_valid_and_not_warned(self) -> None:
+        repaired, issues, _fixes = _repair_scene_lines(
+            [
+                "choose:靠近一点:continue_choice_test|先想一想:continue_choice_test;",
+                "label:continue_choice_test;",
+                "旁白:无论作何选择，故事仍向前展开。;",
+            ],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+        self.assertIn("label:continue_choice_test;", repaired)
+        self.assertFalse(any(issue.code == "shared_choice_target" for issue in issues))
+
+    def test_scene_validation_removes_content_after_external_choose(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            [
+                ":The pilot waits for an answer;",
+                "choose:立刻启动引擎，朝B612飞去:phase3.txt|绕道而行，多看几眼星空:phase3.txt;",
+                "Pilot: This dialogue is unreachable;",
+                "changeFigure:figure_pilot.webp -left;",
+            ],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+
+        self.assertIn("choose:立刻启动引擎，朝B612飞去:phase3.txt|绕道而行，多看几眼星空:phase3.txt;", repaired)
+        self.assertNotIn("Pilot: This dialogue is unreachable;", repaired)
+        self.assertNotIn("changeFigure:figure_pilot.webp -left;", repaired)
+        self.assertTrue(any(fix.code == "remove_unreachable_after_external_jump" for fix in fixes))
+
+    def test_scene_validation_keeps_content_after_non_external_choose(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            [
+                "choose:暂时沉默:*stay_here|继续前进:phase3.txt;",
+                "label:stay_here;",
+                "Hero: This local branch remains reachable;",
+            ],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+
+        self.assertIn("Hero: This local branch remains reachable;", repaired)
+        self.assertFalse(any(fix.code == "remove_unreachable_after_external_jump" for fix in fixes))
+
+    def test_scene_validation_removes_content_after_direct_change_scene(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            ["changeScene:phase3.txt;", "Hero: This dialogue is unreachable;"],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+
+        self.assertIn("changeScene:phase3.txt;", repaired)
+        self.assertNotIn("Hero: This dialogue is unreachable;", repaired)
+        self.assertTrue(any(fix.code == "remove_unreachable_after_external_jump" for fix in fixes))
+
+    def test_scene_validation_clears_figures_at_scene_opening(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            ["changeBg:station.webp;", "Hero: We have arrived;"],
+            "public/game/scene/phase3.txt",
+            {},
+            {},
+        )
+
+        self.assertEqual(repaired[:3], ["changeFigure:none -next;", "changeFigure:none -left -next;", "changeFigure:none -right -next;"])
+        self.assertIn("changeBg:station.webp;", repaired)
+        self.assertTrue(any(fix.code == "scene_opening_clear_figures" for fix in fixes))
+
+        repaired_again, _issues, repeated_fixes = _repair_scene_lines(
+            repaired,
+            "public/game/scene/phase3.txt",
+            {},
+            {},
+        )
+        self.assertEqual(repaired_again, repaired)
+        self.assertFalse(any(fix.code == "scene_opening_clear_figures" for fix in repeated_fixes))
 
     def test_scene_validation_sanitizes_generated_comments_and_leaked_scene_filenames(self) -> None:
         repaired, _issues, fixes = _repair_scene_lines(
@@ -865,9 +960,10 @@ class BackendContractTests(unittest.TestCase):
         self.assertNotIn("orphan_scene.txt", repaired)
         self.assertIn("Hero: Open https://example.com/path;", repaired)
         self.assertIn("choose:Go:phase1.txt|Stay:branch_2.txt;", repaired)
-        self.assertIn("changeScene:phase1.txt;", repaired)
+        self.assertNotIn("changeScene:phase1.txt;", repaired)
         self.assertTrue(any(fix.code == "remove_generated_comment" for fix in fixes))
         self.assertTrue(any(fix.code == "remove_leaked_scene_filename" for fix in fixes))
+        self.assertTrue(any(fix.code == "remove_unreachable_after_external_jump" for fix in fixes))
 
     def test_inline_dialogue_directions_are_removed(self) -> None:
         line = "陶渊明：（踱步，语气渐坚）方才我还犹豫。"
@@ -893,7 +989,7 @@ class BackendContractTests(unittest.TestCase):
             {},
         )
         self.assertEqual(repaired[-1], "end;")
-        self.assertEqual(repaired[-4:-1], ["changeFigure:none;", "changeFigure:none -left;", "changeFigure:none -right;"])
+        self.assertEqual(repaired[:3], ["changeFigure:none -next;", "changeFigure:none -left -next;", "changeFigure:none -right -next;"])
         self.assertTrue(any(fix.code == "missing_ending_end" for fix in fixes))
 
     def test_narrative_schema_rejects_incomplete_ending(self) -> None:

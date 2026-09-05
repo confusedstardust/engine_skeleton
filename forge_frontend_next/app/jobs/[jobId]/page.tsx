@@ -219,6 +219,7 @@ type NarrativeNodeKind = "phase" | "ending" | "character";
 type GeneratedNarrativeNodeResponse = {
   kind: NarrativeNodeKind;
   node: StoryStep | NarrativeEnding | NarrativeCharacter;
+  provider: "deepseek" | "mimo";
 };
 
 type SyncNarrativeStructureResponse = {
@@ -303,7 +304,35 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
     const isHtml = /^\s*<(?:!DOCTYPE|html\b)/i.test(body);
-    throw new Error(isHtml ? `请求失败（${response.status}）` : body);
+    if (isHtml) {
+      throw new Error(`请求失败（HTTP ${response.status}）：服务器没有返回可解析的错误详情。`);
+    }
+    try {
+      const payload = JSON.parse(body) as { detail?: unknown };
+      const detail = payload.detail;
+      if (typeof detail === "string") {
+        throw new Error(`请求失败（HTTP ${response.status}）：${detail}`);
+      }
+      if (detail && typeof detail === "object") {
+        const error = detail as {
+          message?: string;
+          operation?: string;
+          provider?: string;
+          diagnostic_id?: string;
+        };
+        const context = [
+          error.operation ? `环节：${error.operation}` : "",
+          error.provider ? `模型：${error.provider === "mimo" ? "MiMo" : error.provider}` : "",
+          error.diagnostic_id ? `诊断编号：${error.diagnostic_id}` : ""
+        ].filter(Boolean);
+        throw new Error(
+          `请求失败（HTTP ${response.status}）：${error.message || body}${context.length ? `（${context.join("；")}）` : ""}`
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("请求失败（HTTP")) throw error;
+    }
+    throw new Error(`请求失败（HTTP ${response.status}）：${body}`);
   }
   return response.json() as Promise<T>;
 }
@@ -731,6 +760,10 @@ function parseSceneLine(line: string, id: string): SceneLine {
   if (branchMatch) {
     return { id, kind: "branch", speaker: "分支", text: branchMatch[1], rawPrefix: "branch", branchLabel: branchMatch[1] };
   }
+  const labelMatch = original.match(/^label\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)\s*;?$/i);
+  if (labelMatch) {
+    return { id, kind: "branch", speaker: "分支", text: labelMatch[1], rawPrefix: "branch", branchLabel: labelMatch[1] };
+  }
 
   const trimmed = original.replace(/^>\s*/, "");
   const narrationMatch = trimmed.match(/^(旁白|intro)\s*[:：]\s*(.*?);?$/);
@@ -752,7 +785,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [message, setMessage] = useState("正在读取任务...");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<WorkflowStage>("outline");
-  const [editScope, setEditScope] = useState<"none" | "scenes" | "assets">("none");
+  const [editScope, setEditScope] = useState<"none" | "draft">("none");
   const [stageHydrated, setStageHydrated] = useState(false);
   const [plan, setPlan] = useState<NarrativePlan | null>(null);
   const [planDirty, setPlanDirty] = useState(false);
@@ -817,8 +850,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   ]);
   const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(activePhase) || hasPublishedBuild;
   const outlineLocked = autoMode || outlineSubmitted || Boolean(designNode?.exists) || activePhase === "GAME_DESIGN" || activePhase === "GAME_DESIGN_COMPLETION" || inAssetOrBuildStage;
-  const scenesLocked = isGenerating || (hasPublishedBuild ? editScope !== "scenes" : autoMode || inAssetOrBuildStage);
-  const assetsLocked = isGenerating || (hasPublishedBuild ? editScope !== "assets" : autoMode);
+  const scenesLocked = isGenerating || (hasPublishedBuild ? editScope === "none" : autoMode || inAssetOrBuildStage);
+  const assetsLocked = isGenerating || (hasPublishedBuild ? editScope === "none" : autoMode);
   const canOpenScenes = outlineLocked || Boolean(rawDesignNode?.exists) || Boolean(designNode?.exists);
   const canOpenAssets = inAssetOrBuildStage;
   const activeAsset = assetReview?.assets.find((asset) => asset.filename === activeAssetFilename) || null;
@@ -897,10 +930,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [assetPromptDirty, designDraftDirty, planDirty, scenesDirty]);
 
-  function beginCompletedEdit(scope: "scenes" | "assets") {
-    setEditScope(scope);
-    setStage(scope);
-    setMessage(scope === "scenes" ? "正在编辑场景草稿；当前可玩版本不会改变。" : "正在调整素材草稿；当前可玩版本不会改变。");
+  function beginCompletedEdit() {
+    setEditScope("draft");
+    setStage("scenes");
+    setMessage("已进入草稿编辑；可在场景与素材页修改，当前可玩版本不会立即改变。");
   }
 
   function exitCompletedEdit() {
@@ -1018,32 +1051,49 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   async function generateAndAppendNode(kind: NarrativeNodeKind, prompt: string) {
     if (!plan || outlineLocked) return;
     const brief = prompt.trim() || `新增${kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色"}`;
+    const nodeLabel = kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色";
     setBusy(true);
     if (kind === "phase") setPendingPhaseBrief(brief);
     if (kind === "ending") setPendingEndingBrief(brief);
     if (kind === "character") setPendingCharacterBrief(brief);
     try {
-      const result = await api<GeneratedNarrativeNodeResponse>(`/jobs/${jobId}/narrative-node`, {
-        method: "POST",
-        body: JSON.stringify({ kind, prompt: brief, narrative_plan: plan })
-      });
+      let result: GeneratedNarrativeNodeResponse;
+      try {
+        result = await api<GeneratedNarrativeNodeResponse>(`/jobs/${jobId}/narrative-node`, {
+          method: "POST",
+          body: JSON.stringify({ kind, prompt: brief, narrative_plan: plan })
+        });
+      } catch (error) {
+        throw new Error(`AI 生成${nodeLabel}失败：${error instanceof Error ? error.message : "未知错误"}`);
+      }
       const nextPlan: NarrativePlan =
         result.kind === "phase"
           ? { ...plan, story_progression: [...plan.story_progression, result.node as StoryStep] }
           : result.kind === "ending"
             ? { ...plan, endings: [...plan.endings, result.node as NarrativeEnding] }
             : { ...plan, characters: [...plan.characters, result.node as NarrativeCharacter] };
-      const synced = await api<SyncNarrativeStructureResponse>(`/jobs/${jobId}/narrative-structure/sync`, {
-        method: "POST",
-        body: JSON.stringify({ narrative_plan: nextPlan })
-      });
+      let synced: SyncNarrativeStructureResponse;
+      try {
+        synced = await api<SyncNarrativeStructureResponse>(`/jobs/${jobId}/narrative-structure/sync`, {
+          method: "POST",
+          body: JSON.stringify({ narrative_plan: nextPlan })
+        });
+      } catch (error) {
+        // Preserve successful AI output locally so the user can retry without regenerating it.
+        setPlan(nextPlan);
+        planRef.current = nextPlan;
+        setPlanDirty(true);
+        throw new Error(
+          `AI 已生成${nodeLabel}，但同步故事结构失败；新内容暂存在当前编辑器中，请点击“保存大纲”重试。${error instanceof Error ? ` 详情：${error.message}` : ""}`
+        );
+      }
       setPlan(synced.narrative_plan);
       planRef.current = synced.narrative_plan;
       setPlanDirty(false);
       if (kind === "phase") setPhaseBrief("");
       if (kind === "ending") setEndingBrief("");
       if (kind === "character") setCharacterBrief("");
-      setMessage(`新增${kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色"}已保存，流程图已同步。`);
+      setMessage(`已使用 ${result.provider === "mimo" ? "MiMo" : "DeepSeek"} 新增${nodeLabel}并同步流程图。`);
       await refresh(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "新增节点失败。");
@@ -1343,11 +1393,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             job={data.job}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
             busy={busy}
-            canEditScenes={Boolean(designNode?.exists)}
-            canEditAssets={Boolean(assetReview?.assets.length)}
-            editScenes={() => beginCompletedEdit("scenes")}
-            editAssets={() => beginCompletedEdit("assets")}
-            rebuild={() => void buildGameFromAssets()}
+            editDraft={beginCompletedEdit}
           />
         ) : stage === "outline" ? (
           <OutlineEditor
@@ -1406,6 +1452,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             saveSceneMusic={saveSceneMusic}
             previewSceneMusic={previewSceneMusic}
             gameReady={hasPublishedBuild}
+            buildState={data.job.build_state || "CURRENT"}
+            hasDraftChanges={(data.job.draft_revision ?? 0) > (data.job.published_revision ?? 0) || data.job.build_state === "STALE"}
             assetsGenerating={isAssetGenerationRunning}
             gameBuilding={isGameBuildRunning}
             readonly={assetsLocked}
@@ -1455,11 +1503,7 @@ function CompletionPanel(props: {
   job: Job;
   playUrl: string;
   busy: boolean;
-  canEditScenes: boolean;
-  canEditAssets: boolean;
-  editScenes: () => void;
-  editAssets: () => void;
-  rebuild: () => void;
+  editDraft: () => void;
 }) {
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
@@ -1488,9 +1532,7 @@ function CompletionPanel(props: {
       </div>
       <div className="completion-actions">
         <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
-        {stale ? <button className="btn primary" type="button" disabled={building || props.busy} onClick={props.rebuild}>重新构建草稿</button> : null}
-        <button className="btn outline" type="button" disabled={building || props.busy || !props.canEditScenes} onClick={props.editScenes}>编辑场景草稿</button>
-        <button className="btn outline" type="button" disabled={building || props.busy || !props.canEditAssets} onClick={props.editAssets}>调整素材草稿</button>
+        <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>继续编辑草稿</button>
       </div>
     </section>
   );
@@ -1514,6 +1556,8 @@ function AssetReviewPanel(props: {
   saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   gameReady: boolean;
+  buildState: string;
+  hasDraftChanges: boolean;
   assetsGenerating: boolean;
   gameBuilding: boolean;
   readonly: boolean;
@@ -1576,6 +1620,8 @@ function AssetReviewPanel(props: {
       busy={props.busy}
       readonly={props.readonly}
       published={props.gameReady}
+      buildState={props.buildState}
+      hasDraftChanges={props.hasDraftChanges}
       activeAsset={props.activeAsset}
       assetPrompt={props.assetPrompt}
       setAssetPrompt={props.setAssetPrompt}
@@ -1699,7 +1745,7 @@ function OutlineEditor(props: {
                 <button className="btn outline" type="button" onClick={onClose}>关闭</button>
               </div>
               <div className="flow-modal-body">
-                <NarrativeFlowPreview plan={plan} />
+                <NarrativeFlowPreview plan={plan} syncStructure={props.syncStructure} />
               </div>
             </section>
           </div>
@@ -1709,13 +1755,19 @@ function OutlineEditor(props: {
   );
 }
 
-function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
+function NarrativeFlowPreview(props: {
+  plan: NarrativePlan;
+  syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncNarrativeStructureOptions) => Promise<void>;
+}) {
+  const { plan, syncStructure } = props;
   const nodes = flowNodes(plan);
   const edges = parseFlowEdges(plan.narrative_structure || "", plan);
   const reactId = useId();
   const renderId = useMemo(() => `narrative-flow-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`, [reactId]);
   const [svg, setSvg] = useState("");
   const [renderError, setRenderError] = useState("");
+  const [repairing, setRepairing] = useState(false);
+  const repairedSourcesRef = useRef(new Set<string>());
   const source = plan.narrative_structure?.trim() || "";
 
   useEffect(() => {
@@ -1750,10 +1802,21 @@ function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
           setRenderError("");
         }
       } catch (error) {
-        if (!cancelled) {
-          setSvg("");
-          setRenderError(error instanceof Error ? error.message : "流程图渲染失败。");
+        if (cancelled) return;
+        setSvg("");
+        // Old jobs can contain Mermaid emitted before the structure was
+        // deterministic. Repair once through the silent sync endpoint, rather
+        // than exposing Mermaid's parser failure to the player.
+        if (!repairedSourcesRef.current.has(source)) {
+          repairedSourcesRef.current.add(source);
+          setRenderError("");
+          setRepairing(true);
+          void syncStructure(plan, { quiet: true, force: true }).finally(() => {
+            if (!cancelled) setRepairing(false);
+          });
+          return;
         }
+        setRenderError(error instanceof Error ? error.message : "流程图渲染失败。");
       }
     }
 
@@ -1761,7 +1824,7 @@ function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
     return () => {
       cancelled = true;
     };
-  }, [renderId, source]);
+  }, [renderId, source, syncStructure]);
 
   return (
     <section className="flow-preview">
@@ -1776,7 +1839,7 @@ function NarrativeFlowPreview({ plan }: { plan: NarrativePlan }) {
         ) : svg ? (
           <div className="flow-mermaid-svg" dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
-          <p>{renderError || "正在渲染流程图..."}</p>
+          <p>{repairing ? "正在自动修复流程图..." : renderError || "正在渲染流程图..."}</p>
         )}
       </div>
 

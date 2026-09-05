@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 
 export type StoryStep = {
@@ -78,9 +78,9 @@ type LaperOutlineWorkbenchProps = {
 };
 
 const SECTIONS: { id: OutlineSection; label: string; hint: string }[] = [
+  { id: "characters", label: "角色阵容", hint: "可增删角色，并补充性格与动机。" },
   { id: "phases", label: "故事阶段", hint: "拖动左侧把手可调整顺序，直接点击文本即可修改。" },
-  { id: "endings", label: "结局节点", hint: "每个结局会在下一步生成独立场景。" },
-  { id: "characters", label: "角色阵容", hint: "可增删角色，并补充性格与动机。" }
+  { id: "endings", label: "结局节点", hint: "每个结局会在下一步生成独立场景。" }
 ];
 
 function reorder<T>(items: T[], from: number, to: number) {
@@ -112,10 +112,18 @@ function blockLabel(section: OutlineSection, plan: NarrativePlan, index: number)
 }
 
 export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
-  const [section, setSection] = useState<OutlineSection>("phases");
+  const [section, setSection] = useState<OutlineSection>("characters");
+  const [expandedSection, setExpandedSection] = useState<OutlineSection | null>("characters");
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropHint, setDropHint] = useState<{ index: number; placement: "before" | "after" } | null>(null);
   const [showFlowModal, setShowFlowModal] = useState(false);
+  const dragPointerYRef = useRef<number | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const pointerDragIdRef = useRef<number | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+  const dropHintRef = useRef<{ index: number; placement: "before" | "after" } | null>(null);
+  const latestPlanRef = useRef(props.plan);
   const disabled = props.locked || props.busy;
 
   const sectionCount = useMemo(() => {
@@ -131,9 +139,107 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
     section === "phases" ? props.pendingPhaseBrief : section === "endings" ? props.pendingEndingBrief : props.pendingCharacterBrief;
   const addWithAi = section === "phases" ? props.addPhase : section === "endings" ? props.addEnding : props.addCharacter;
 
-  function scrollToBlock(index: number) {
-    setActiveIndex(index);
-    document.getElementById(`laper-block-${section}-${index}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  function stopDragAutoScroll() {
+    dragPointerYRef.current = null;
+    pointerDragIdRef.current = null;
+    dragIndexRef.current = null;
+    dropHintRef.current = null;
+    setDropHint(null);
+    if (autoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+  }
+
+  function updateDragAutoScroll(pointerY: number) {
+    dragPointerYRef.current = pointerY;
+    if (autoScrollFrameRef.current !== null) return;
+
+    const scroll = () => {
+      const currentY = dragPointerYRef.current;
+      if (currentY === null) {
+        autoScrollFrameRef.current = null;
+        return;
+      }
+      // Drag events only fire while hovering a droppable element. Keep the
+      // window listener below as the authoritative pointer feed so a card can
+      // be carried through the page header/footer without losing autoscroll.
+      const viewportTop = window.visualViewport?.offsetTop || 0;
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      // This mirrors document editors: a fixed edge lane with accelerating
+      // speed. Pointer capture (below), rather than a giant hit area, is what
+      // keeps it reliable while crossing cards or the browser edge.
+      const topEdge = Math.min(179, Math.round(viewportHeight * 0.192));
+      const bottomEdge = topEdge;
+      const distanceFromTop = currentY - viewportTop;
+      const distanceFromBottom = viewportTop + viewportHeight - currentY;
+      let delta = 0;
+      if (distanceFromTop < topEdge) {
+        delta = -Math.max(6, Math.round(((topEdge - distanceFromTop) / topEdge) * 27));
+      } else if (distanceFromBottom < bottomEdge) {
+        delta = Math.max(6, Math.round(((bottomEdge - distanceFromBottom) / bottomEdge) * 27));
+      }
+      if (!delta) {
+        autoScrollFrameRef.current = null;
+        return;
+      }
+      window.scrollBy({ top: delta, behavior: "auto" });
+      autoScrollFrameRef.current = window.requestAnimationFrame(scroll);
+    };
+    autoScrollFrameRef.current = window.requestAnimationFrame(scroll);
+  }
+
+  useEffect(() => () => stopDragAutoScroll(), []);
+
+  useEffect(() => {
+    latestPlanRef.current = props.plan;
+  }, [props.plan]);
+
+  function startPointerDrag(index: number, pointerId: number, pointerY: number) {
+    if (disabled) return;
+    pointerDragIdRef.current = pointerId;
+    dragIndexRef.current = index;
+    dropHintRef.current = null;
+    setDropHint(null);
+    setDragIndex(index);
+    updateDragAutoScroll(pointerY);
+  }
+
+  function movePointerDrag(pointerId: number, pointerX: number, pointerY: number) {
+    if (pointerDragIdRef.current !== pointerId) return;
+    updateDragAutoScroll(pointerY);
+    const card = document.elementFromPoint(pointerX, pointerY)?.closest<HTMLElement>("[data-laper-outline-index]");
+    const targetIndex = Number(card?.dataset.laperOutlineIndex);
+    const sourceIndex = dragIndexRef.current;
+    if (sourceIndex === null || Number.isNaN(targetIndex) || targetIndex === sourceIndex) {
+      if (dropHintRef.current !== null) {
+        dropHintRef.current = null;
+        setDropHint(null);
+      }
+      return;
+    }
+    const bounds = card?.getBoundingClientRect();
+    const placement = bounds && pointerY > bounds.top + bounds.height / 2 ? "after" : "before";
+    const nextHint = { index: targetIndex, placement } as const;
+    if (dropHintRef.current?.index !== nextHint.index || dropHintRef.current.placement !== nextHint.placement) {
+      dropHintRef.current = nextHint;
+      setDropHint(nextHint);
+    }
+  }
+
+  function finishPointerDrag(pointerId: number) {
+    if (pointerDragIdRef.current !== pointerId) return;
+    const sourceIndex = dragIndexRef.current;
+    const target = dropHintRef.current;
+    if (sourceIndex !== null && target && sourceIndex !== target.index) {
+      let insertionIndex = target.index + (target.placement === "after" ? 1 : 0);
+      // reorder() removes the source first, so every destination after it
+      // shifts left by one before insertion.
+      if (sourceIndex < insertionIndex) insertionIndex -= 1;
+      reorderSection(sourceIndex, insertionIndex);
+    }
+    setDragIndex(null);
+    stopDragAutoScroll();
   }
 
   function addBlankBlock() {
@@ -179,13 +285,15 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
 
   function reorderSection(from: number, to: number) {
     if (disabled) return;
+    const currentPlan = latestPlanRef.current;
     if (section === "phases") {
-      props.updatePlan({ ...props.plan, story_progression: reorder(props.plan.story_progression, from, to) });
+      latestPlanRef.current = { ...currentPlan, story_progression: reorder(currentPlan.story_progression, from, to) };
     } else if (section === "endings") {
-      props.updatePlan({ ...props.plan, endings: reorder(props.plan.endings, from, to) });
+      latestPlanRef.current = { ...currentPlan, endings: reorder(currentPlan.endings, from, to) };
     } else {
-      props.updatePlan({ ...props.plan, characters: reorder(props.plan.characters, from, to) });
+      latestPlanRef.current = { ...currentPlan, characters: reorder(currentPlan.characters, from, to) };
     }
+    props.updatePlan(latestPlanRef.current);
     setActiveIndex(to);
   }
 
@@ -222,36 +330,52 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
         </div>
         <nav className="laper-rail-nav">
           {SECTIONS.map((item) => (
-            <button
-              className={section === item.id ? "active" : ""}
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setSection(item.id);
-                setActiveIndex(0);
-              }}
-            >
-              {item.label}
-              <em>
-                {item.id === "phases"
-                  ? props.plan.story_progression.length
-                  : item.id === "endings"
-                    ? props.plan.endings.length
-                    : props.plan.characters.length}
-              </em>
-            </button>
+            <div className="laper-rail-tree-group" key={item.id}>
+              <button
+                aria-expanded={expandedSection === item.id}
+                className={section === item.id ? "active" : ""}
+                type="button"
+                onClick={() => {
+                  setSection(item.id);
+                  setActiveIndex(0);
+                  setExpandedSection((current) => current === item.id ? null : item.id);
+                }}
+              >
+                <span>{item.label}</span>
+                <span className="laper-rail-tree-meta">
+                  <em>
+                    {item.id === "phases"
+                      ? props.plan.story_progression.length
+                      : item.id === "endings"
+                        ? props.plan.endings.length
+                        : props.plan.characters.length}
+                  </em>
+                  <b aria-hidden="true">{expandedSection === item.id ? "⌄" : "›"}</b>
+                </span>
+              </button>
+              {expandedSection === item.id && (
+                <ol className="laper-rail-list laper-rail-tree-list">
+                  {Array.from({ length: item.id === "phases" ? props.plan.story_progression.length : item.id === "endings" ? props.plan.endings.length : props.plan.characters.length }, (_, index) => (
+                    <li key={`${item.id}-${index}`}>
+                      <button
+                        className={section === item.id && activeIndex === index ? "active" : ""}
+                        type="button"
+                        onClick={() => {
+                          setSection(item.id);
+                          setActiveIndex(index);
+                          document.getElementById(`laper-block-${item.id}-${index}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }}
+                      >
+                        <span>{index + 1}</span>
+                        {blockLabel(item.id, props.plan, index)}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           ))}
         </nav>
-        <ol className="laper-rail-list">
-          {Array.from({ length: sectionCount }, (_, index) => (
-            <li key={`${section}-${index}`}>
-              <button className={activeIndex === index ? "active" : ""} type="button" onClick={() => scrollToBlock(index)}>
-                <span>{index + 1}</span>
-                {blockLabel(section, props.plan, index)}
-              </button>
-            </li>
-          ))}
-        </ol>
       </aside>
 
       <section className="laper-canvas-wrap">
@@ -318,8 +442,14 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
             <span>{sectionCount} 项</span>
           </header>
 
-          <div className="laper-block-stack">
-            {pendingBrief && <PendingCard title={`正在生成${sectionMeta.label}`} brief={pendingBrief} />}
+          <div
+            className="laper-block-stack"
+            onDragOver={(event) => {
+              event.preventDefault();
+              updateDragAutoScroll(event.clientY);
+            }}
+          >
+            {pendingBrief && <PendingCard title={`AI 正在生成${sectionMeta.label}`} />}
 
             {section === "phases" &&
               props.plan.story_progression.map((step, index) => (
@@ -335,6 +465,12 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                   onDrop={reorderSection}
                   onRemove={() => removeAt(index)}
                   setDragIndex={setDragIndex}
+                  updateDragAutoScroll={updateDragAutoScroll}
+                  stopDragAutoScroll={stopDragAutoScroll}
+                  startPointerDrag={startPointerDrag}
+                  movePointerDrag={movePointerDrag}
+                  finishPointerDrag={finishPointerDrag}
+                  dropHint={dropHint}
                   tag={step.strtype === "branch" ? "分支" : "主线"}
                 >
                   <input
@@ -401,6 +537,12 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                   onDrop={reorderSection}
                   onRemove={() => removeAt(index)}
                   setDragIndex={setDragIndex}
+                  updateDragAutoScroll={updateDragAutoScroll}
+                  stopDragAutoScroll={stopDragAutoScroll}
+                  startPointerDrag={startPointerDrag}
+                  movePointerDrag={movePointerDrag}
+                  finishPointerDrag={finishPointerDrag}
+                  dropHint={dropHint}
                   tag="结局"
                 >
                   <input
@@ -442,6 +584,12 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                   onDrop={reorderSection}
                   onRemove={() => removeAt(index)}
                   setDragIndex={setDragIndex}
+                  updateDragAutoScroll={updateDragAutoScroll}
+                  stopDragAutoScroll={stopDragAutoScroll}
+                  startPointerDrag={startPointerDrag}
+                  movePointerDrag={movePointerDrag}
+                  finishPointerDrag={finishPointerDrag}
+                  dropHint={dropHint}
                   tag="角色"
                 >
                   <input
@@ -552,6 +700,12 @@ function LaperBlock(props: {
   disabled: boolean;
   dragIndex: number | null;
   setDragIndex: (value: number | null) => void;
+  updateDragAutoScroll: (pointerY: number) => void;
+  stopDragAutoScroll: () => void;
+  startPointerDrag: (index: number, pointerId: number, pointerY: number) => void;
+  movePointerDrag: (pointerId: number, pointerX: number, pointerY: number) => void;
+  finishPointerDrag: (pointerId: number) => void;
+  dropHint: { index: number; placement: "before" | "after" } | null;
   onActivate: () => void;
   onDrop: (from: number, to: number) => void;
   onRemove: () => void;
@@ -561,17 +715,20 @@ function LaperBlock(props: {
 
   return (
     <article
-      className={`laper-block ${props.active ? "active" : ""} ${dragging ? "dragging" : ""}`}
+      className={`laper-block ${props.active ? "active" : ""} ${dragging ? "dragging" : ""} ${!dragging && props.dropHint?.index === props.index ? `drop-${props.dropHint.placement}` : ""}`}
       id={props.id}
+      data-laper-outline-index={props.index}
       onClick={props.onActivate}
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
+        props.updateDragAutoScroll(event.clientY);
       }}
       onDrop={(event) => {
         event.preventDefault();
         const from = Number(event.dataTransfer.getData("text/plain"));
         props.setDragIndex(null);
+        props.stopDragAutoScroll();
         if (!Number.isNaN(from)) props.onDrop(from, props.index);
       }}
     >
@@ -580,13 +737,22 @@ function LaperBlock(props: {
         type="button"
         aria-label="拖动排序"
         disabled={props.disabled}
-        draggable={!props.disabled}
-        onDragStart={(event) => {
-          event.dataTransfer.setData("text/plain", String(props.index));
-          event.dataTransfer.effectAllowed = "move";
-          props.setDragIndex(props.index);
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          props.startPointerDrag(props.index, event.pointerId, event.clientY);
         }}
-        onDragEnd={() => props.setDragIndex(null)}
+        onPointerMove={(event) => {
+          props.movePointerDrag(event.pointerId, event.clientX, event.clientY);
+        }}
+        onPointerUp={(event) => {
+          props.finishPointerDrag(event.pointerId);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={(event) => {
+          props.finishPointerDrag(event.pointerId);
+        }}
       >
         ⋮⋮
       </button>
@@ -612,12 +778,11 @@ function LaperBlock(props: {
   );
 }
 
-function PendingCard({ title, brief }: { title: string; brief: string }) {
+function PendingCard({ title }: { title: string }) {
   return (
-    <article className="laper-block pending-card">
+    <article className="laper-block pending-card" aria-live="polite" aria-busy="true">
       <div className="pending-spinner" aria-hidden="true" />
       <strong>{title}</strong>
-      <p>{brief}</p>
     </article>
   );
 }

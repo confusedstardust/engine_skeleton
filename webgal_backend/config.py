@@ -84,6 +84,7 @@ class Settings:
     mimo_model: str
     max_schema_retries: int
     max_text_retries: int
+    max_advanced_phase_retries: int
     llm_max_tokens: int | None
     asset_scripts_dir: Path
     sound_effects_dir: Path
@@ -133,6 +134,7 @@ class Settings:
             mimo_model=os.getenv("MIMO_MODEL") or "MiMo-V2.5-Pro-UltraSpeed",
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             max_text_retries=int(os.getenv("WEBGAL_MAX_TEXT_RETRIES", "1")),
+            max_advanced_phase_retries=max(0, int(os.getenv("WEBGAL_MAX_ADVANCED_PHASE_RETRIES", "2"))),
             llm_max_tokens=_optional_positive_int(os.getenv("WEBGAL_MAX_TOKENS")),
             asset_scripts_dir=asset_scripts_dir,
             sound_effects_dir=sound_effects_dir,
