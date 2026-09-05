@@ -2046,9 +2046,27 @@ a {
 .scene-music-kicker { color: var(--cinnabar); font-size: 10px; font-weight: 800; letter-spacing: 0.16em; }
 .scene-music-editor label { display: grid; gap: 5px; color: var(--ink-muted); font-size: 12px; }
 .scene-music-editor select { width: 100%; min-height: 36px; padding: 0 8px; color: var(--ink); background: var(--paper); border: 1px solid var(--border); border-radius: 4px; }
-.scene-music-preview { display: flex; gap: 8px; }
-.scene-music-preview .btn { flex: 1; }
+.scene-music-preview { display: flex; align-items: center; gap: 11px; min-height: 52px; padding: 7px 9px; background: rgba(250, 247, 242, 0.78); border: 1px solid var(--border-light); }
+.scene-music-play { position: relative; display: grid; flex: 0 0 38px; width: 38px; height: 38px; padding: 0; color: var(--paper); cursor: pointer; place-items: center; background: var(--cinnabar); border: 0; border-radius: 50%; box-shadow: 0 5px 12px rgba(155, 35, 53, 0.28); transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease; }
+.scene-music-play:hover:not(:disabled) { background: var(--cinnabar-deep); box-shadow: 0 7px 16px rgba(155, 35, 53, 0.36); transform: scale(1.07); }
+.scene-music-play:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.scene-music-play:disabled { cursor: not-allowed; opacity: 0.45; }
+.scene-music-play svg { width: 18px; height: 18px; fill: currentColor; }
+.scene-music-play.is-playing::after { position: absolute; inset: -5px; content: ""; border: 1px solid var(--cinnabar); border-radius: inherit; animation: scene-music-pulse 1.5s ease-out infinite; }
+.scene-music-preview-copy { display: grid; min-width: 0; gap: 2px; }
+.scene-music-preview-copy strong { color: var(--ink-light); font-size: 12px; }
+.scene-music-preview-copy span { overflow: hidden; color: var(--ink-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .scene-music-error { color: var(--cinnabar); line-height: 1.5; }
+
+@keyframes scene-music-pulse {
+  0% { opacity: 0.8; transform: scale(0.86); }
+  100% { opacity: 0; transform: scale(1.28); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-music-play,
+  .scene-music-play.is-playing::after { animation: none; transition: none; }
+}
 
 .workspace-hero p,
 .workspace-status span,

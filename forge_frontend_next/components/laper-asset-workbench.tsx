@@ -625,14 +625,24 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             </label>
             <div className="scene-music-preview">
               <button
-                className="btn outline"
+                className={`scene-music-play ${musicPreviewingAsset ? "is-playing" : ""}`}
                 type="button"
                 disabled={props.busy || !(musicAsset || selectedMusicScene?.system_asset)}
-                onClick={() => void playMusicPreview()}
+                aria-label={musicPreviewingAsset ? "停止音乐试听" : "试听所选音乐"}
+                aria-pressed={Boolean(musicPreviewingAsset)}
+                title={musicPreviewingAsset ? "停止试听" : "试听所选音乐"}
+                onClick={() => musicPreviewingAsset ? stopMusicPreview() : void playMusicPreview()}
               >
-                {musicPreviewingAsset ? "重新试听" : "试听所选音乐"}
+                {musicPreviewingAsset ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="6" width="3.5" height="12" rx="1" /><rect x="13.5" y="6" width="3.5" height="12" rx="1" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4a1.1 1.1 0 0 0 1.7.94l9.2-6.2a1.12 1.12 0 0 0 0-1.86l-9.2-6.2A1.1 1.1 0 0 0 8 5.8Z" /></svg>
+                )}
               </button>
-              {musicPreviewingAsset ? <button className="btn outline" type="button" onClick={stopMusicPreview}>停止</button> : null}
+              <div className="scene-music-preview-copy">
+                <strong>{musicPreviewingAsset ? "正在试听" : "试听当前选择"}</strong>
+                <span>{musicPreviewingAsset || musicAsset || selectedMusicScene?.system_asset || "暂无可试听音乐"}</span>
+              </div>
             </div>
             {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
             <button
