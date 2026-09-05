@@ -69,6 +69,11 @@
           "strtype": {
             "type": "string",
             "description": "branch or main"
+          },
+          "music_mood": {
+            "type": "string",
+            "enum": ["ordinary", "peace", "slow", "soft", "tense", "warm"],
+            "description": "Preferred opening or scene BGM mood."
           }
         }
       }
@@ -180,6 +185,11 @@
             "type": "string",
             "minLength": 1,
             "description": "A brief description of the ending."
+          },
+          "music_mood": {
+            "type": "string",
+            "enum": ["happy", "normal", "sad", "bad", "terrible"],
+            "description": "Preferred ending BGM mood."
           }
         }
       }

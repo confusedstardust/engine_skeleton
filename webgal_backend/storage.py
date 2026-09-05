@@ -57,6 +57,11 @@ class JobStore:
             "updated_at": utc_now(),
             "artifacts": {},
             "history": [],
+            "draft_revision": 0,
+            "published_revision": 0,
+            "build_state": "NONE",
+            "dirty_scopes": [],
+            "has_published_build": False,
         }
         self.save(job)
         return job
@@ -73,11 +78,51 @@ class JobStore:
         path = self.job_file(job_id)
         if not path.exists():
             raise FileNotFoundError(f"job not found: {job_id}")
-        return read_json(path)
+        job = read_json(path)
+        self._ensure_build_metadata(job)
+        return job
 
     def save(self, job: dict[str, Any]) -> None:
+        self._ensure_build_metadata(job)
         job["updated_at"] = utc_now()
         write_json(self.job_file(job["id"]), job)
+
+    def _ensure_build_metadata(self, job: dict[str, Any]) -> None:
+        job_dir = self.job_dir(str(job["id"]))
+        has_published_build = (job_dir / "public" / "game" / "config.txt").exists()
+        job["has_published_build"] = has_published_build
+        if "draft_revision" not in job:
+            job["draft_revision"] = 1 if has_published_build else 0
+        if "published_revision" not in job:
+            job["published_revision"] = int(job["draft_revision"]) if has_published_build else 0
+        if "build_state" not in job:
+            job["build_state"] = "CURRENT" if has_published_build else "NONE"
+        if not isinstance(job.get("dirty_scopes"), list):
+            job["dirty_scopes"] = []
+
+    def mark_draft_changed(self, job: dict[str, Any], scope: str) -> None:
+        self._ensure_build_metadata(job)
+        job["draft_revision"] = int(job.get("draft_revision", 0)) + 1
+        scopes = [str(item) for item in job.get("dirty_scopes", []) if str(item)]
+        if scope not in scopes:
+            scopes.append(scope)
+        job["dirty_scopes"] = scopes
+        job["build_state"] = "STALE" if job.get("has_published_build") else "DRAFT"
+        self.save(job)
+
+    def mark_build_started(self, job: dict[str, Any]) -> None:
+        job["build_state"] = "BUILDING"
+        self.save(job)
+
+    def mark_build_complete(self, job: dict[str, Any]) -> None:
+        job["published_revision"] = int(job.get("draft_revision", 0))
+        job["build_state"] = "CURRENT"
+        job["dirty_scopes"] = []
+        self.save(job)
+
+    def mark_build_failed(self, job: dict[str, Any]) -> None:
+        job["build_state"] = "FAILED"
+        self.save(job)
 
     def transition(self, job: dict[str, Any], status: str, phase: str | None = None) -> None:
         job["status"] = status

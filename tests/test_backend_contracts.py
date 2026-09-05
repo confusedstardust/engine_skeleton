@@ -15,7 +15,7 @@ from asset_scripts.generate_assets import MAX_WORKERS, _qwen_image_url, _qwen_si
 from webgal_backend import game_design
 from webgal_backend.artifacts import NODE_ARTIFACTS, artifact_key_for_path, is_editable_artifact
 from webgal_backend.job_options import GenerationOptions, normalize_generation_options, validate_generation_options
-from webgal_backend.app import _asset_review_item, _contains_hidden_path, _public_app_path
+from webgal_backend.app import _asset_review_item, _contains_hidden_path, _public_app_path, _require_job_editable
 from webgal_backend.config import (
     DOUBAO_IMAGE_API_KEY_ENV,
     DOUBAO_IMAGE_MODEL,
@@ -904,6 +904,13 @@ class BackendContractTests(unittest.TestCase):
         with self.assertRaises(Exception):
             validate_schema("narrative_plan.schema.json", broken)
 
+    def test_narrative_music_moods_are_optional_for_legacy_plans_but_enum_constrained(self) -> None:
+        validate_schema("narrative_plan.schema.json", minimal_narrative_plan())
+        invalid = minimal_narrative_plan()
+        invalid["endings"][0]["music_mood"] = "devastating"
+        with self.assertRaises(Exception):
+            validate_schema("narrative_plan.schema.json", invalid)
+
     def test_narrative_normalizer_removes_unexpected_root_fields_before_schema_validation(self) -> None:
         plan = minimal_narrative_plan()
         plan["narrative_target"] = "这个字段不应出现在根对象。"
@@ -1159,6 +1166,32 @@ class BackendContractTests(unittest.TestCase):
                 store.job_dir("..")
             with self.assertRaises(FileNotFoundError):
                 store.job_dir("not-a-job-id")
+
+    def test_job_store_tracks_draft_and_published_revisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = JobStore(Path(tmp))
+            job = store.create("source")
+            store.mark_draft_changed(job, "scenes")
+            self.assertEqual(job["draft_revision"], 1)
+            self.assertEqual(job["build_state"], "DRAFT")
+            game_dir = store.job_dir(job["id"]) / "public" / "game"
+            (game_dir / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+            store.mark_build_complete(job)
+            self.assertEqual(job["published_revision"], 1)
+            self.assertEqual(job["build_state"], "CURRENT")
+            self.assertTrue(job["has_published_build"])
+            store.mark_draft_changed(job, "assets")
+            self.assertEqual(job["draft_revision"], 2)
+            self.assertEqual(job["published_revision"], 1)
+            self.assertEqual(job["build_state"], "STALE")
+
+    def test_edit_guard_rejects_running_jobs_and_stale_draft_revisions(self) -> None:
+        with self.assertRaisesRegex(Exception, "job is running") as running_error:
+            _require_job_editable({"status": "RUNNING", "draft_revision": 3}, 3)
+        self.assertEqual(running_error.exception.status_code, 409)
+        with self.assertRaisesRegex(Exception, "draft revision changed") as revision_error:
+            _require_job_editable({"status": "DONE", "draft_revision": 4}, 3)
+        self.assertEqual(revision_error.exception.status_code, 409)
 
 
 if __name__ == "__main__":

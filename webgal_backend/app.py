@@ -166,6 +166,7 @@ class RunJobRequest(BaseModel):
 class ArtifactUpdateRequest(BaseModel):
     path: str = Field(min_length=1)
     content: str
+    base_revision: int | None = Field(default=None, ge=0)
 
 
 class TTSPreviewRequest(BaseModel):
@@ -181,12 +182,32 @@ class GenerateNarrativeNodeRequest(BaseModel):
 
 class SyncNarrativeStructureRequest(BaseModel):
     narrative_plan: dict[str, Any]
+    base_revision: int | None = Field(default=None, ge=0)
 
 
 class AssetRegenerateRequest(BaseModel):
     filename: str = Field(min_length=1)
     prompt: str | None = None
     background: bool = True
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+def _require_job_editable(job: dict[str, Any], base_revision: int | None = None) -> None:
+    if job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is running; wait for it to finish before editing")
+    current_revision = int(job.get("draft_revision", 0))
+    if base_revision is not None and base_revision != current_revision:
+        raise HTTPException(status_code=409, detail=f"draft revision changed: expected {base_revision}, current {current_revision}")
+
+
+def _artifact_edit_scope(relative: str) -> str:
+    if relative == "state/narrative_plan.json":
+        return "outline"
+    if relative == "assets_manifest.json":
+        return "assets"
+    if relative == "state/game_design_completed.json" or relative.startswith("public/game/scene/"):
+        return "scenes"
+    return "design"
 
 
 @app.get("/health")
@@ -252,6 +273,7 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
     relative = artifacts.normalize_artifact_path(request.path)
     if not artifacts.is_editable_artifact(relative):
         raise HTTPException(status_code=400, detail=f"artifact is not editable: {relative}")
+    _require_job_editable(job, request.base_revision)
 
     try:
         if relative.endswith(".json"):
@@ -263,6 +285,7 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
         raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}") from exc
 
     store.record_artifact(job, artifacts.artifact_key_for_path(relative), relative)
+    store.mark_draft_changed(job, _artifact_edit_scope(relative))
     return {"job": _get_owned_job_or_404(job_id, http_request), "path": relative, "saved": True}
 
 
@@ -289,11 +312,13 @@ def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest, 
 def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest, http_request: Request) -> dict[str, Any]:
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         plan = dict(request.narrative_plan)
         plan["narrative_structure"] = build_synced_narrative_structure(plan)
         path = store.artifact_path(job_id, "state/narrative_plan.json")
         write_json(path, plan)
         store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
+        store.mark_draft_changed(job, "outline")
         return {
             "job": _get_owned_job_or_404(job_id, http_request),
             "narrative_plan": plan,
@@ -392,7 +417,9 @@ def _asset_review_item(
     filename = str(image.get("filename", "")).removesuffix(".webp")
     subdir = str(image.get("subdir", "")).strip()
     asset_relative = f"{subdir}/{filename}.webp"
-    asset_path = job_dir / "public" / "game" / asset_relative
+    draft_asset_path = job_dir / "draft" / "game" / asset_relative
+    asset_path = draft_asset_path if draft_asset_path.exists() else job_dir / "public" / "game" / asset_relative
+    asset_url_kind = "draft-game" if draft_asset_path.exists() else "game"
     kind = "\u89d2\u8272\u7acb\u7ed8" if subdir == "figure" or filename.startswith("figure_") else "\u573a\u666f\u80cc\u666f"
     available_scene = str(image.get("available_scene", "")).strip()
     scene_display_name = scene_labels.get(available_scene, "")
@@ -405,14 +432,16 @@ def _asset_review_item(
     if kind == "\u89d2\u8272\u7acb\u7ed8":
         avatar_name = f"miniavatar_{filename.removeprefix('figure_')}.webp"
         avatar_relative = f"figure/{avatar_name}"
-        avatar_path = job_dir / "public" / "game" / avatar_relative
+        draft_avatar_path = job_dir / "draft" / "game" / avatar_relative
+        avatar_path = draft_avatar_path if draft_avatar_path.exists() else job_dir / "public" / "game" / avatar_relative
+        avatar_url_kind = "draft-game" if draft_avatar_path.exists() else "game"
         avatar_exists = avatar_path.exists()
         avatar_url = _versioned_file_url(
-            _public_app_path(f"/play/{job_id}/game/{avatar_relative}"),
+            _public_app_path(f"/play/{job_id}/{avatar_url_kind}/{avatar_relative}"),
             avatar_path,
         )
     asset_url = _versioned_file_url(
-        _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
+        _public_app_path(f"/play/{job_id}/{asset_url_kind}/{asset_relative}"),
         asset_path,
     )
     return {
@@ -519,11 +548,13 @@ def regenerate_asset(
         raise HTTPException(status_code=400, detail="invalid asset filename")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
         store.transition(job, "QUEUED", "ASSET_GENERATION")
         return {"job": job, "queued": True, "filename": filename}
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         image = pipeline.regenerate_asset_image(job, filename, request.prompt)
         return {"job": _get_owned_job_or_404(job_id, http_request), "queued": False, "asset": image}
     except FileNotFoundError as exc:
@@ -534,7 +565,9 @@ def regenerate_asset(
 
 @app.post("/jobs/{job_id}/run")
 def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks, http_request: Request) -> dict[str, Any]:
-    _get_owned_job_or_404(job_id, http_request)
+    current_job = _get_owned_job_or_404(job_id, http_request)
+    if current_job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is already running")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_pipeline_background, job_id)
@@ -558,7 +591,9 @@ def run_phase(
 ) -> dict[str, Any]:
     if phase not in pipeline.phase_names():
         raise HTTPException(status_code=422, detail=f"unknown phase: {phase}")
-    _get_owned_job_or_404(job_id, http_request)
+    current_job = _get_owned_job_or_404(job_id, http_request)
+    if current_job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is already running")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_phase_background, job_id, phase)
@@ -604,10 +639,24 @@ def play_game_asset(job_id: str, file_path: str) -> FileResponse:
     job_dir = _job_dir_or_404(job_id)
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    backup_root = job_dir / "state" / "published_game_backup"
+    game_root = backup_root if store.get(job_id).get("build_state") == "BUILDING" and backup_root.exists() else job_dir / "public" / "game"
     return _file_response_under_root(
-        root=job_dir / "public" / "game",
+        root=game_root,
         file_path=file_path,
         missing_detail=f"game asset not found: {file_path}",
+    )
+
+
+@app.get("/play/{job_id}/draft-game/{file_path:path}")
+def play_draft_game_asset(job_id: str, file_path: str) -> FileResponse:
+    if contains_hidden_path(file_path):
+        raise HTTPException(status_code=404, detail=f"draft game asset not found: {file_path}")
+    job_dir = _job_dir_or_404(job_id)
+    return _file_response_under_root(
+        root=job_dir / "draft" / "game",
+        file_path=file_path,
+        missing_detail=f"draft game asset not found: {file_path}",
     )
 
 

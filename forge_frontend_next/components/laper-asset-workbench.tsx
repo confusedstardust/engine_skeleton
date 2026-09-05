@@ -49,6 +49,7 @@ type LaperAssetWorkbenchProps = {
   voiceGeneratingSpeaker: string | null;
   busy: boolean;
   readonly: boolean;
+  published?: boolean;
   activeAsset: AssetReviewItem | null;
   assetPrompt: string;
   setAssetPrompt: (value: string) => void;
@@ -491,7 +492,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             { label: "状态", value: hasGeneratedImages ? "有图" : "待图" },
             ...(props.voiceEnabled ? [{ label: "语音", value: `${props.voices.length} 条试听` }] : [])
           ]}
-          note={props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
+          note={props.published ? "新素材会先进入草稿，重新构建成功后才会更新当前游戏。" : props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
           footer={
             props.retryAction ? (
               <button
@@ -506,7 +507,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             ) : props.readonly ? (
               <span className="readonly-status">
                 <span className="inline-spinner" aria-hidden="true" />
-                游戏自动生成中
+                {props.published ? "完成态默认只读" : "游戏自动生成中"}
               </span>
             ) : (
               <button
@@ -516,7 +517,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 title={hasUnappliedVoiceSelection ? "已选择新音色，请先生成试听或恢复原选择" : undefined}
                 onClick={() => void props.buildGame()}
               >
-                确认素材并生成游戏
+                {props.published ? "使用草稿素材重新构建" : "确认素材并生成游戏"}
               </button>
             )
           }

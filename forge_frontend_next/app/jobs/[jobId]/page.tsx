@@ -14,13 +14,18 @@ type Job = {
   status: string;
   phase?: string | null;
   error?: string | null;
+  draft_revision?: number;
+  published_revision?: number;
+  build_state?: "NONE" | "DRAFT" | "CURRENT" | "STALE" | "BUILDING" | "FAILED";
+  dirty_scopes?: string[];
+  has_published_build?: boolean;
   options?: {
     generation_mode?: string;
     [key: string]: unknown;
   };
 };
 
-type WorkflowStage = "outline" | "scenes" | "assets";
+type WorkflowStage = "outline" | "scenes" | "assets" | "complete";
 
 type FailedPhaseRetry = {
   path: string;
@@ -177,6 +182,7 @@ type StoryStep = {
   name: string;
   content: string;
   narrative_target: string;
+  music_mood?: "ordinary" | "peace" | "slow" | "soft" | "tense" | "warm";
   strtype: string;
 };
 
@@ -194,6 +200,7 @@ type NarrativeCharacter = {
 type NarrativeEnding = {
   ending_type: string;
   description: string;
+  music_mood?: "happy" | "normal" | "sad" | "bad" | "terrible";
 };
 
 type NarrativeNodeKind = "phase" | "ending" | "character";
@@ -734,6 +741,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [message, setMessage] = useState("正在读取任务...");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<WorkflowStage>("outline");
+  const [editScope, setEditScope] = useState<"none" | "scenes" | "assets">("none");
   const [stageHydrated, setStageHydrated] = useState(false);
   const [plan, setPlan] = useState<NarrativePlan | null>(null);
   const [planDirty, setPlanDirty] = useState(false);
@@ -754,8 +762,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [assetReview, setAssetReview] = useState<AssetReviewResponse | null>(null);
   const [activeAssetFilename, setActiveAssetFilename] = useState<string | null>(null);
   const [assetPrompt, setAssetPrompt] = useState("");
+  const [assetPromptDirty, setAssetPromptDirty] = useState(false);
   const [voiceGeneratingSpeaker, setVoiceGeneratingSpeaker] = useState<string | null>(null);
   const planRef = useRef<NarrativePlan | null>(null);
+  const publishedSeenRef = useRef(false);
 
   const narrativeNode = data?.nodes.find((node) => node.key === "narrative_plan");
   const rawDesignNode = data?.nodes.find((node) => node.key === "game_design");
@@ -781,6 +791,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   ]);
   const isGameBuildRunning = isGenerating && gameBuildPhases.has(activePhase);
   const autoMode = data?.job.options?.generation_mode === "auto";
+  const hasPublishedBuild = Boolean(data?.job.has_published_build ?? data?.job.status === "DONE");
   const assetPhases = new Set([
     "ASSET_REVIEW",
     "ASSET_PLANNING",
@@ -793,9 +804,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     "SCENE_WRITING",
     "VALIDATING"
   ]);
-  const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(activePhase) || data?.job.status === "DONE";
+  const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(activePhase) || hasPublishedBuild;
   const outlineLocked = autoMode || outlineSubmitted || Boolean(designNode?.exists) || activePhase === "GAME_DESIGN" || activePhase === "GAME_DESIGN_COMPLETION" || inAssetOrBuildStage;
-  const scenesLocked = autoMode || inAssetOrBuildStage;
+  const scenesLocked = isGenerating || (hasPublishedBuild ? editScope !== "scenes" : autoMode || inAssetOrBuildStage);
+  const assetsLocked = isGenerating || (hasPublishedBuild ? editScope !== "assets" : autoMode);
   const canOpenScenes = outlineLocked || Boolean(rawDesignNode?.exists) || Boolean(designNode?.exists);
   const canOpenAssets = inAssetOrBuildStage;
   const activeAsset = assetReview?.assets.find((asset) => asset.filename === activeAssetFilename) || null;
@@ -847,16 +859,47 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
 
   useEffect(() => {
     if (!data || stageHydrated) return;
-    if (canOpenAssets) setStage("assets");
+    if (hasPublishedBuild) setStage("complete");
+    else if (canOpenAssets) setStage("assets");
     else if (canOpenScenes) setStage("scenes");
     setStageHydrated(true);
-  }, [canOpenAssets, canOpenScenes, data, stageHydrated]);
+  }, [canOpenAssets, canOpenScenes, data, hasPublishedBuild, stageHydrated]);
 
   useEffect(() => {
-    if (!autoMode) return;
+    if (!autoMode || hasPublishedBuild) return;
     if (canOpenAssets && stage !== "assets") setStage("assets");
     else if (!canOpenAssets && canOpenScenes && stage === "outline") setStage("scenes");
-  }, [autoMode, canOpenAssets, canOpenScenes, stage]);
+  }, [autoMode, canOpenAssets, canOpenScenes, hasPublishedBuild, stage]);
+
+  useEffect(() => {
+    if (hasPublishedBuild && !publishedSeenRef.current) {
+      publishedSeenRef.current = true;
+      setEditScope("none");
+      setStage("complete");
+    }
+  }, [hasPublishedBuild]);
+
+  useEffect(() => {
+    if (!planDirty && !scenesDirty && !designDraftDirty && !assetPromptDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [assetPromptDirty, designDraftDirty, planDirty, scenesDirty]);
+
+  function beginCompletedEdit(scope: "scenes" | "assets") {
+    setEditScope(scope);
+    setStage(scope);
+    setMessage(scope === "scenes" ? "正在编辑场景草稿；当前可玩版本不会改变。" : "正在调整素材草稿；当前可玩版本不会改变。");
+  }
+
+  function exitCompletedEdit() {
+    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定退出编辑吗？")) return;
+    setScenesDirty(false);
+    setDesignDraftDirty(false);
+    setAssetPromptDirty(false);
+    setEditScope("none");
+    setStage("complete");
+  }
 
   function updatePlan(next: NarrativePlan) {
     setPlan(next);
@@ -1013,16 +1056,35 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     void generateAndAppendNode("character", characterBrief);
   }
 
-  async function saveScenes() {
+  async function saveScenes(rebuild = false) {
     setBusy(true);
-    setMessage(scenesDirty ? "正在保存场景内容..." : "正在启动素材阶段...");
+    setMessage(scenesDirty ? "正在保存场景内容..." : hasPublishedBuild ? "正在启动重新构建..." : "正在启动素材阶段...");
     try {
       if (scenesDirty) {
         await api(`/jobs/${jobId}/artifacts`, {
           method: "PATCH",
-          body: JSON.stringify({ path: "state/game_design_completed.json", content: serializeGameDesignJson(scenes) })
+          body: JSON.stringify({
+            path: "state/game_design_completed.json",
+            content: serializeGameDesignJson(scenes),
+            base_revision: data?.job.draft_revision ?? 0
+          })
         });
         setScenesDirty(false);
+      }
+      if (hasPublishedBuild) {
+        if (rebuild) {
+          await api<Job>(`/jobs/${jobId}/phases/game_build`, {
+            method: "POST",
+            body: JSON.stringify({ background: true })
+          });
+          setEditScope("none");
+          setStage("complete");
+          setMessage("正在从已保存的草稿重新构建；完成前仍可打开上一版本。");
+        } else {
+          setMessage("场景草稿已保存；当前游戏仍是上一次发布版本。");
+        }
+        await refresh(true);
+        return;
       }
       await api<Job>(`/jobs/${jobId}/phases/asset_review`, {
         method: "POST",
@@ -1044,8 +1106,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     try {
       await api(`/jobs/${jobId}/assets/regenerate`, {
         method: "POST",
-        body: JSON.stringify({ filename: asset.filename, prompt, background: true })
+        body: JSON.stringify({ filename: asset.filename, prompt, background: true, base_revision: data?.job.draft_revision ?? 0 })
       });
+      setAssetPromptDirty(false);
       setMessage("单个素材已加入生成队列。");
       await refresh(true);
     } catch (error) {
@@ -1082,6 +1145,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         method: "POST",
         body: JSON.stringify({ background: true })
       });
+      if (hasPublishedBuild) {
+        setEditScope("none");
+        setStage("complete");
+      }
       setMessage("游戏生成已启动，完成后可以点击右上角打开游戏。");
       await refresh(true);
     } catch (error) {
@@ -1177,7 +1244,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   return (
     <>
       <header className="top-nav">
-        <Link className="brand brand-link" href="/">
+        <Link className="brand brand-link" href="/" onClick={(event) => {
+          if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+        }}>
           <div className="brand-seal" aria-hidden="true">
             <img src={withBasePath("/icon.png")} alt="" />
           </div>
@@ -1187,8 +1256,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           </div>
         </Link>
         <nav className="nav-links" aria-label="任务导航">
-          <Link href="/">新建任务</Link>
-          {data.job.status === "DONE" && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
+          <Link href="/" onClick={(event) => {
+            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          }}>新建任务</Link>
+          {hasPublishedBuild && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
         </nav>
       </header>
 
@@ -1196,31 +1267,52 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         <section className="workflow-head">
           <div>
             <span className={`status-pill ${data.job.status.toLowerCase()}`}>{data.job.status}</span>
-            <h1>{stage === "outline" ? "确认故事大纲" : stage === "scenes" ? "审阅场景文本" : "审阅素材资产"}</h1>
+            <h1>{stage === "outline" ? "确认故事大纲" : stage === "scenes" ? "审阅场景文本" : stage === "assets" ? "审阅素材资产" : "游戏生成完成"}</h1>
             <p>
               {stage === "outline"
                 ? "先确认阶段数量和角色阵容。这里的删改会影响下一阶段生成的场景。"
                 : stage === "scenes"
                   ? "按场景逐个审阅旁白、对话和分支内容，保存后会进入素材规划和生成。"
-                  : "按角色和场景检查素材规划、生成图片和提示词，不满意的单个资产可以重新生成。"}
+                  : stage === "assets"
+                    ? "按角色和场景检查素材规划、生成图片和提示词，不满意的单个资产可以重新生成。"
+                    : "当前可玩版本默认保持只读；需要修改时，请明确进入对应的草稿编辑模式。"}
             </p>
           </div>
           <div className="workflow-steps">
             <button className={stage === "outline" ? "active" : ""} type="button" onClick={() => setStage("outline")}>1 大纲</button>
             <button className={stage === "scenes" ? "active" : ""} type="button" onClick={() => setStage("scenes")} disabled={!canOpenScenes}>2 场景</button>
             <button className={stage === "assets" ? "active" : ""} type="button" onClick={() => setStage("assets")} disabled={!canOpenAssets}>3 素材</button>
+            <button className={stage === "complete" ? "active" : ""} type="button" onClick={() => setStage("complete")} disabled={!hasPublishedBuild}>4 完成</button>
           </div>
         </section>
+
+        {editScope !== "none" ? (
+          <div className="draft-edit-banner">
+            <div><strong>草稿编辑中</strong><span>当前可玩版本不会立即改变，重新构建成功后才会更新。</span></div>
+            <button className="btn outline" type="button" onClick={exitCompletedEdit}>退出编辑</button>
+          </div>
+        ) : null}
 
         <div className={`workspace-status workflow-status ${failedRetry ? "failed" : ""}`} role="status" aria-live="polite">
           <strong>
             {isGenerating ? <span className="inline-spinner" aria-hidden="true" /> : null}
-            {failedRetry ? "生成失败 · 可重试" : data.job.phase || "等待中"}
+            {failedRetry ? "生成失败 · 可重试" : data.job.phase || (hasPublishedBuild ? data.job.build_state === "STALE" ? "草稿待构建" : "发布版本可用" : "等待中")}
           </strong>
           <span>{data.job.error || message}</span>
         </div>
 
-        {stage === "outline" ? (
+        {stage === "complete" ? (
+          <CompletionPanel
+            job={data.job}
+            playUrl={withBasePath(`/play/${data.job.id}/`)}
+            busy={busy}
+            canEditScenes={Boolean(designNode?.exists)}
+            canEditAssets={Boolean(assetReview?.assets.length)}
+            editScenes={() => beginCompletedEdit("scenes")}
+            editAssets={() => beginCompletedEdit("assets")}
+            rebuild={() => void buildGameFromAssets()}
+          />
+        ) : stage === "outline" ? (
           <OutlineEditor
             plan={plan}
             busy={busy || isGenerating}
@@ -1253,20 +1345,28 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             busy={busy || isGenerating}
             activeAsset={activeAsset}
             assetPrompt={assetPrompt}
-            setAssetPrompt={setAssetPrompt}
+            setAssetPrompt={(value) => {
+              setAssetPrompt(value);
+              setAssetPromptDirty(true);
+            }}
             openAsset={(asset) => {
               setActiveAssetFilename(asset.filename);
               setAssetPrompt(asset.prompt || "");
+              setAssetPromptDirty(false);
             }}
-            closeAsset={() => setActiveAssetFilename(null)}
+            closeAsset={() => {
+              if (assetPromptDirty && !window.confirm("Prompt 还没有用于重新生成素材，确定返回列表吗？")) return;
+              setAssetPromptDirty(false);
+              setActiveAssetFilename(null);
+            }}
             regenerateAsset={regenerateAsset}
             previewVoice={previewCharacterVoice}
             voiceGeneratingSpeaker={voiceGeneratingSpeaker}
             buildGame={buildGameFromAssets}
-            gameReady={data.job.status === "DONE"}
+            gameReady={hasPublishedBuild}
             assetsGenerating={isAssetGenerationRunning}
             gameBuilding={isGameBuildRunning}
-            readonly={autoMode}
+            readonly={assetsLocked}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
             retryAction={failedRetry?.stage === "assets" ? retryFailedPhase : undefined}
             retryLabel={failedRetry?.stage === "assets" ? failedRetry.label : undefined}
@@ -1285,6 +1385,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             setScenes={setScenes}
             setScenesDirty={setScenesDirty}
             saveScenes={saveScenes}
+            published={hasPublishedBuild}
           />
         ) : (
           <DesignDraftEditor
@@ -1305,6 +1406,51 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         )}
       </main>
     </>
+  );
+}
+
+function CompletionPanel(props: {
+  job: Job;
+  playUrl: string;
+  busy: boolean;
+  canEditScenes: boolean;
+  canEditAssets: boolean;
+  editScenes: () => void;
+  editAssets: () => void;
+  rebuild: () => void;
+}) {
+  const state = props.job.build_state || "CURRENT";
+  const failed = state === "FAILED";
+  const stale = state === "STALE" || failed;
+  const building = state === "BUILDING" || props.job.status === "RUNNING" || props.job.status === "QUEUED";
+  return (
+    <section className="completion-panel" aria-labelledby="completion-title">
+      <div className="completion-seal" aria-hidden="true">成</div>
+      <div className="completion-copy">
+        <span className="completion-kicker">PUBLISHED BUILD</span>
+        <h2 id="completion-title">{building ? "正在构建新版本" : failed ? "新版本构建失败" : stale ? "已有草稿修改" : "当前游戏已发布"}</h2>
+        <p>
+          {building
+            ? "构建完成前，打开游戏仍会进入上一次成功版本。"
+            : failed
+              ? `上一版游戏仍可正常打开。${props.job.error ? `失败原因：${props.job.error}` : "可以检查草稿后重新构建。"}`
+              : stale
+                ? "当前可玩版本仍然安全保留。进入对应编辑区，可以继续修改或重新构建。"
+                : "成品默认保持只读，只有明确进入编辑模式后才会建立草稿。"}
+        </p>
+        <dl className="completion-revisions">
+          <div><dt>当前发布</dt><dd>R{props.job.published_revision ?? 0}</dd></div>
+          <div><dt>编辑草稿</dt><dd>R{props.job.draft_revision ?? 0}</dd></div>
+          <div><dt>构建状态</dt><dd>{state}</dd></div>
+        </dl>
+      </div>
+      <div className="completion-actions">
+        <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
+        {stale ? <button className="btn primary" type="button" disabled={building || props.busy} onClick={props.rebuild}>重新构建草稿</button> : null}
+        <button className="btn outline" type="button" disabled={building || props.busy || !props.canEditScenes} onClick={props.editScenes}>编辑场景草稿</button>
+        <button className="btn outline" type="button" disabled={building || props.busy || !props.canEditAssets} onClick={props.editAssets}>调整素材草稿</button>
+      </div>
+    </section>
   );
 }
 
@@ -1329,18 +1475,6 @@ function AssetReviewPanel(props: {
   retryLabel?: string;
 }) {
   const assets = props.review?.assets || [];
-
-  if (props.gameReady) {
-    return (
-      <section className="node-detail">
-        <div className="node-placeholder done-placeholder">
-          <strong>游戏生成完成。</strong>
-          <span>素材和脚本已经写入游戏目录，现在可以直接打开试玩。</span>
-          <a className="btn primary" href={props.playUrl} target="_blank">打开游戏</a>
-        </div>
-      </section>
-    );
-  }
 
   if (props.assetsGenerating) {
     return (
@@ -1394,6 +1528,7 @@ function AssetReviewPanel(props: {
       availableVoices={props.review.available_voices || []}
       busy={props.busy}
       readonly={props.readonly}
+      published={props.gameReady}
       activeAsset={props.activeAsset}
       assetPrompt={props.assetPrompt}
       setAssetPrompt={props.setAssetPrompt}
@@ -1786,7 +1921,8 @@ function SceneEditor(props: {
   updateScene: (index: number, scene: SceneDraft) => void;
   setScenes: React.Dispatch<React.SetStateAction<SceneDraft[]>>;
   setScenesDirty: (value: boolean) => void;
-  saveScenes: () => void;
+  saveScenes: (rebuild?: boolean) => void;
+  published: boolean;
 }) {
   const scene = props.scenes[props.activeScene];
   const targetOptions = useMemo(
@@ -1832,12 +1968,17 @@ function SceneEditor(props: {
             { label: "当前行数", value: scene.lines.length },
             { label: "状态", value: props.scenesDirty ? "未保存" : "已同步" }
           ]}
-          note="按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"
+          note={props.published ? "修改会先保存为草稿；重新构建成功后才会更新当前游戏。" : "按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"}
           footer={
             !props.readonly ? (
-              <button className="btn primary" type="button" disabled={props.busy} onClick={props.saveScenes}>
-                保存并生成素材
-              </button>
+              props.published ? (
+                <>
+                  <button className="btn outline" type="button" disabled={props.busy || !props.scenesDirty} onClick={() => props.saveScenes(false)}>仅保存草稿</button>
+                  <button className="btn primary" type="button" disabled={props.busy} onClick={() => props.saveScenes(true)}>保存并重新构建</button>
+                </>
+              ) : (
+                <button className="btn primary" type="button" disabled={props.busy} onClick={() => props.saveScenes(false)}>保存并生成素材</button>
+              )
             ) : undefined
           }
         />

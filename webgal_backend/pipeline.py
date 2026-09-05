@@ -215,12 +215,15 @@ class WebGALPipeline:
     def run_all(self, job_id: str) -> dict[str, Any]:
         job = self.store.get(job_id)
         try:
+            self.store.mark_build_started(job)
             validate_generation_options(job.get("options", {}))
             for phase in RUN_ALL_PHASE_ORDER:
                 self._phase_handler(phase)(job)
             self.store.transition(job, "DONE", None)
+            self.store.mark_build_complete(job)
             return self.store.get(job_id)
         except Exception as exc:
+            self.store.mark_build_failed(job)
             self.store.set_error(job, str(exc))
             raise
 
@@ -410,12 +413,50 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             return False
 
     def run_game_build(self, job: dict[str, Any]) -> None:
-        self.run_script_rewrite(job)
-        self.run_sound_effects(job)
-        self.run_tts_generation(job)
-        self.run_scenes(job)
-        self.run_validation(job)
+        job_dir = self.store.job_dir(job["id"])
+        game_dir = job_dir / "public" / "game"
+        backup_dir = job_dir / "state" / "published_game_backup"
+        had_published_build = bool(job.get("has_published_build")) and (game_dir / "config.txt").exists()
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        if had_published_build:
+            shutil.copytree(game_dir, backup_dir)
+        self.store.mark_build_started(job)
+        try:
+            self._copy_draft_game_assets(job_dir)
+            self.run_script_rewrite(job)
+            self.run_sound_effects(job)
+            self.run_tts_generation(job)
+            self.run_scenes(job)
+            self.run_validation(job)
+        except Exception:
+            if had_published_build and backup_dir.exists():
+                if game_dir.exists():
+                    shutil.rmtree(game_dir)
+                shutil.copytree(backup_dir, game_dir)
+            self.store.mark_build_failed(job)
+            if backup_dir.exists():
+                shutil.rmtree(backup_dir)
+            raise
         self.store.transition(job, "DONE", None)
+        self.store.mark_build_complete(job)
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        draft_game_dir = job_dir / "draft" / "game"
+        if draft_game_dir.exists():
+            shutil.rmtree(draft_game_dir)
+
+    def _copy_draft_game_assets(self, job_dir: Path) -> None:
+        draft_game_dir = job_dir / "draft" / "game"
+        if not draft_game_dir.exists():
+            return
+        game_dir = job_dir / "public" / "game"
+        for source in draft_game_dir.rglob("*"):
+            if not source.is_file():
+                continue
+            target = game_dir / source.relative_to(draft_game_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
 
     def run_asset_manifest(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "ASSET_PLANNING")
@@ -503,6 +544,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
 
     def regenerate_asset_image(self, job: dict[str, Any], filename: str, prompt: str | None = None) -> dict[str, Any]:
+        had_published_build = bool(job.get("has_published_build"))
         self.store.transition(job, "RUNNING", "ASSET_GENERATION")
         job_dir = self.store.job_dir(job["id"])
         manifest_path = job_dir / "assets_manifest.json"
@@ -533,17 +575,16 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         if prompt is not None and prompt.strip():
             image["prompt"] = prompt.strip()
             manifest_changed = True
-        if manifest_changed:
-            write_json(manifest_path, manifest)
-            self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
-
         single_manifest = {**manifest, "images": [image]}
+        if had_published_build:
+            single_manifest["base_dir"] = str((job_dir / "draft" / "game").resolve())
         temp_manifest_path = job_dir / "state" / "asset_regeneration_manifest.json"
         write_json(temp_manifest_path, single_manifest)
         self._run_asset_script_manifest(job, job_dir, temp_manifest_path)
 
         subdir = str(image.get("subdir", "")).strip()
-        output_path = job_dir / "public" / "game" / subdir / f"{clean_filename}.webp"
+        asset_root = job_dir / "draft" / "game" if had_published_build else job_dir / "public" / "game"
+        output_path = asset_root / subdir / f"{clean_filename}.webp"
         if not output_path.exists():
             raise PipelineError(f"asset regeneration produced no file: {subdir}/{clean_filename}.webp")
 
@@ -554,7 +595,11 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 self._run_script([scripts / "remove_bg.py", figure_path], job_dir)
                 self._run_script([scripts / "make_avatar.py", figure_path], job_dir)
 
-        self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
+        if manifest_changed:
+            write_json(manifest_path, manifest)
+            self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
+        self.store.transition(job, "DONE" if had_published_build else "ASSET_GENERATION_READY", None if had_published_build else "ASSET_GENERATION")
+        self.store.mark_draft_changed(job, "assets")
         return image
 
     def run_script_rewrite(self, job: dict[str, Any]) -> None:
@@ -648,7 +693,9 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             self.store.record_artifact(job, "sound_effect_plan", "state/sound_effect_plan.json")
 
             script_text = webgal_path.read_text(encoding="utf-8")
-            bgm_plan = self._build_bgm_plan(script_text, bgm_assets)
+            scene_plan_path = job_dir / "state" / "scene_plan.json"
+            scene_plan = read_json(scene_plan_path) if scene_plan_path.exists() else {}
+            bgm_plan = self._build_bgm_plan(script_text, bgm_assets, scene_plan)
             write_json(job_dir / "state" / "bgm_plan.json", bgm_plan)
             self.store.record_artifact(job, "bgm_plan", "state/bgm_plan.json")
 
@@ -905,7 +952,12 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                 assets["ending"].append(name)
         return assets
 
-    def _build_bgm_plan(self, script_text: str, bgm_assets: dict[str, list[str]]) -> list[dict[str, Any]]:
+    def _build_bgm_plan(
+        self,
+        script_text: str,
+        bgm_assets: dict[str, list[str]],
+        scene_plan: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         opening_assets = bgm_assets.get("opening", [])
         dialog_assets = bgm_assets.get("dialog", [])
         ending_assets = bgm_assets.get("ending", [])
@@ -922,24 +974,69 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             for index, line in enumerate(lines)
             if (match := self._scene_header_match(line.strip()))
         ]
+        scene_plan = scene_plan or {}
+        scene_metadata = {
+            str(item.get("scene_file", "")).lower(): item
+            for item in scene_plan.get("scenes", [])
+            if isinstance(item, dict)
+        }
+        ending_metadata = {
+            str(item.get("scene_file", "")).lower(): item
+            for item in scene_plan.get("endings", [])
+            if isinstance(item, dict)
+        }
         plan: list[dict[str, Any]] = []
         dialog_index = 0
         seen_story_scene = False
 
         if not headers:
-            asset = opening_assets[0] if opening_assets else (dialog_assets[0] if dialog_assets else "")
+            requested_mood = self._infer_opening_mood(script_text)
+            asset, resolved_mood = self._select_mood_bgm(opening_assets, "opening", requested_mood, "ordinary")
+            asset = asset or (dialog_assets[0] if dialog_assets else "")
             if asset:
-                plan.append({"line_index": 0, "asset": asset, "role": "opening", "scene_file": ""})
+                plan.append({
+                    "line_index": 0,
+                    "asset": asset,
+                    "role": "opening",
+                    "scene_file": "",
+                    "requested_mood": requested_mood,
+                    "resolved_mood": resolved_mood,
+                    "source": "scene.semantic_fallback",
+                    "fallback": bool(resolved_mood and resolved_mood != requested_mood),
+                })
             return plan
 
         for header in headers:
             scene_file = str(header["scene_file"])
             is_ending = header["kind"] == "ending" or scene_file.lower().startswith("ending")
             if is_ending:
-                asset = self._select_ending_bgm(scene_file, ending_assets)
+                metadata = ending_metadata.get(scene_file.lower(), {})
+                if not metadata:
+                    asset = self._select_ending_bgm(scene_file, ending_assets)
+                    resolved_mood = self._bgm_asset_mood(asset, "ending")
+                    requested_mood = resolved_mood
+                    source = "ending.filename_fallback"
+                else:
+                    requested_mood = str(metadata.get("music_mood") or "").strip().lower()
+                    source = "ending.music_mood"
+                    if not requested_mood:
+                        requested_mood = self._infer_ending_mood(
+                            " ".join((str(metadata.get("ending_type") or ""), str(metadata.get("description") or ""), scene_file))
+                        )
+                        source = "ending.semantic_fallback"
+                    asset, resolved_mood = self._select_mood_bgm(ending_assets, "ending", requested_mood, "normal")
                 role = "ending"
             elif not seen_story_scene:
-                asset = opening_assets[0] if opening_assets else (dialog_assets[0] if dialog_assets else "")
+                metadata = scene_metadata.get(scene_file.lower(), {})
+                requested_mood = str(metadata.get("music_mood") or "").strip().lower()
+                source = "scene.music_mood"
+                if not requested_mood:
+                    requested_mood = self._infer_opening_mood(
+                        " ".join((str(metadata.get("node_name") or ""), str(metadata.get("summary") or ""), script_text))
+                    )
+                    source = "scene.semantic_fallback"
+                asset, resolved_mood = self._select_mood_bgm(opening_assets, "opening", requested_mood, "ordinary")
+                asset = asset or (dialog_assets[0] if dialog_assets else "")
                 role = "opening"
                 seen_story_scene = True
             else:
@@ -949,6 +1046,9 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                 else:
                     asset = opening_assets[0] if opening_assets else ""
                 role = "dialog"
+                requested_mood = ""
+                resolved_mood = ""
+                source = "dialog.rotation"
             if asset:
                 plan.append(
                     {
@@ -956,9 +1056,63 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                         "asset": asset,
                         "role": role,
                         "scene_file": scene_file,
+                        "requested_mood": requested_mood,
+                        "resolved_mood": resolved_mood,
+                        "source": source,
+                        "fallback": bool(requested_mood and resolved_mood and requested_mood != resolved_mood),
                     }
                 )
         return plan
+
+    def _select_mood_bgm(
+        self,
+        assets: list[str],
+        role: str,
+        requested_mood: str,
+        fallback_mood: str,
+    ) -> tuple[str, str]:
+        if not assets:
+            return "", ""
+        by_lower = {asset.lower(): asset for asset in assets}
+        requested_name = f"bgm_{role}_{requested_mood}.mp3"
+        if requested_mood and requested_name in by_lower:
+            return by_lower[requested_name], requested_mood
+        fallback_name = f"bgm_{role}_{fallback_mood}.mp3"
+        if fallback_name in by_lower:
+            return by_lower[fallback_name], fallback_mood
+        asset = assets[0]
+        prefix = f"bgm_{role}_"
+        lower = asset.lower()
+        resolved = lower[len(prefix):-4] if lower.startswith(prefix) and lower.endswith(".mp3") else ""
+        return asset, resolved
+
+    def _bgm_asset_mood(self, asset: str, role: str) -> str:
+        lower = asset.lower()
+        prefix = f"bgm_{role}_"
+        return lower[len(prefix):-4] if lower.startswith(prefix) and lower.endswith(".mp3") else ""
+
+    def _infer_opening_mood(self, text: str) -> str:
+        lower = text.lower()
+        mood_keywords = (
+            ("tense", ("危机", "紧张", "追逐", "战争", "大败", "危险", "conflict", "crisis", "tense")),
+            ("warm", ("温暖", "治愈", "重逢", "陪伴", "warm", "healing")),
+            ("peace", ("宁静", "平静", "安宁", "peace", "calm")),
+            ("slow", ("低沉", "沉重", "缓慢", "压抑", "slow", "somber")),
+            ("soft", ("柔和", "细腻", "温柔", "soft", "gentle")),
+        )
+        return next((mood for mood, words in mood_keywords if any(word in lower for word in words)), "ordinary")
+
+    def _infer_ending_mood(self, text: str) -> str:
+        lower = text.lower()
+        if any(word in lower for word in ("毁灭", "全灭", "死亡", "灾难", "绝望", "最糟", "terrible", "devastat")):
+            return "terrible"
+        if any(word in lower for word in ("幸福", "圆满", "希望", "成功", "happy", "good", "true ending")):
+            return "happy"
+        if any(word in lower for word in ("失败", "背叛", "恶化", "bad", "failure")):
+            return "bad"
+        if any(word in lower for word in ("悲伤", "遗憾", "离散", "失去", "sad", "sorrow")):
+            return "sad"
+        return "normal"
 
     def _select_ending_bgm(self, scene_file: str, ending_assets: list[str]) -> str:
         import re
@@ -979,13 +1133,17 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             preferred = by_lower.get("bgm_ending_normal.mp3")
             if preferred:
                 return preferred
+        if any(token in lower_scene for token in ("terrible", "worst", "disaster")):
+            preferred = by_lower.get("bgm_ending_terrible.mp3")
+            if preferred:
+                return preferred
         if any(token in lower_scene for token in ("bad", "sad", "failure", "fail")):
             for filename in ("bgm_ending_bad.mp3", "bgm_ending_sad.mp3"):
                 preferred = by_lower.get(filename)
                 if preferred:
                     return preferred
 
-        for filename in ("bgm_ending_normal.mp3", "bgm_ending_bad.mp3", "bgm_ending_sad.mp3"):
+        for filename in ("bgm_ending_normal.mp3", "bgm_ending_bad.mp3", "bgm_ending_sad.mp3", "bgm_ending_terrible.mp3"):
             preferred = by_lower.get(filename)
             if preferred:
                 return preferred
@@ -1857,10 +2015,17 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         ]
         bg_files = list((game_dir / "background").glob("*.webp")) if (game_dir / "background").exists() else []
         if bg_files:
-            lines[3] = f"Title_img:{bg_files[0].name};"
+            lines[2] = f"Title_img:{bg_files[0].name};"
         bgm_files = list((game_dir / "bgm").glob("*.mp3")) if (game_dir / "bgm").exists() else []
         if bgm_files:
-            lines[4] = f"Title_bgm:{bgm_files[0].name};"
+            bgm_plan_path = job_dir / "state" / "bgm_plan.json"
+            bgm_plan = read_json(bgm_plan_path) if bgm_plan_path.exists() else []
+            opening_bgm = next(
+                (str(item.get("asset")) for item in bgm_plan if isinstance(item, dict) and item.get("role") == "opening"),
+                "",
+            )
+            available = {path.name for path in bgm_files}
+            lines[3] = f"Title_bgm:{opening_bgm if opening_bgm in available else bgm_files[0].name};"
         (game_dir / "config.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _copy_engine_skeleton(self, job_dir: Path) -> None:
