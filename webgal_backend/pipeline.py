@@ -17,7 +17,11 @@ from .job_options import validate_generation_options
 from .contract_context import build_phase_context
 from .generation_limits import generation_limits
 from .llm import LLMError, OpenAIFunctionClient
-from .narrative_structure import NarrativeStructureError, repair_narrative_structure_if_needed
+from .narrative_structure import (
+    NarrativeStructureError,
+    build_synced_narrative_structure,
+    repair_narrative_structure_if_needed,
+)
 from .prompts import (
     SYSTEM_PROMPT,
     asset_prompt,
@@ -273,6 +277,10 @@ class WebGALPipeline:
                 )
             except NarrativeStructureError as exc:
                 raise PipelineError(str(exc)) from exc
+            # narrative_structure is presentation data.  Do not let a free-form
+            # Mermaid string from the model make an otherwise valid outline
+            # unreadable: always rebuild it from the validated outline nodes.
+            design["narrative_structure"] = build_synced_narrative_structure(design)
             validate_schema("narrative_plan.schema.json", design)
             write_json(job_dir / "state" / "narrative_plan.json", design)
             self.store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")

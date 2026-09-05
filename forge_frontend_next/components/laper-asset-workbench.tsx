@@ -59,6 +59,8 @@ type LaperAssetWorkbenchProps = {
   busy: boolean;
   readonly: boolean;
   published?: boolean;
+  buildState?: string;
+  hasDraftChanges?: boolean;
   activeAsset: AssetReviewItem | null;
   assetPrompt: string;
   setAssetPrompt: (value: string) => void;
@@ -275,6 +277,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
 
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [section, setSection] = useState<AssetSection>("figures");
+  const [expandedSection, setExpandedSection] = useState<AssetSection | null>("figures");
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
   const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
@@ -396,29 +399,45 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <span>Asset Review</span>
         </div>
         <nav className="laper-rail-nav">
-          <button className={section === "figures" ? "active" : ""} type="button" onClick={() => setSection("figures")}>
-            角色卡
-            <em>{figures.length}</em>
-          </button>
-          <button className={section === "backgrounds" ? "active" : ""} type="button" onClick={() => setSection("backgrounds")}>
-            场景卡
-            <em>{backgrounds.length}</em>
-          </button>
-        </nav>
-        <ol className="laper-rail-list">
-          {currentList.map((asset) => (
-            <li key={`${asset.subdir}-${asset.filename}`}>
+          {([
+            ["figures", "角色卡", figures],
+            ["backgrounds", "场景卡", backgrounds]
+          ] as const).map(([sectionId, label, assets]) => (
+            <div className="laper-rail-tree-group" key={sectionId}>
               <button
-                className={active?.filename === asset.filename ? "active" : ""}
+                aria-expanded={expandedSection === sectionId}
+                className={section === sectionId ? "active" : ""}
                 type="button"
-                onClick={() => props.openAsset(asset)}
+                onClick={() => {
+                  setSection(sectionId);
+                  setExpandedSection((current) => current === sectionId ? null : sectionId);
+                }}
               >
-                <span>{asset.exists ? "✓" : "·"}</span>
-                {props.displayName(asset)}
+                <span>{label}</span>
+                <span className="laper-rail-tree-meta"><em>{assets.length}</em><b aria-hidden="true">{expandedSection === sectionId ? "⌄" : "›"}</b></span>
               </button>
-            </li>
+              {expandedSection === sectionId && (
+                <ol className="laper-rail-list laper-rail-tree-list">
+                  {assets.map((asset) => (
+                    <li key={`${asset.subdir}-${asset.filename}`}>
+                      <button
+                        className={active?.filename === asset.filename ? "active" : ""}
+                        type="button"
+                        onClick={() => {
+                          setSection(sectionId);
+                          props.openAsset(asset);
+                        }}
+                      >
+                        <span>{asset.exists ? "✓" : "·"}</span>
+                        {props.displayName(asset)}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           ))}
-        </ol>
+        </nav>
       </aside>
 
       <section className="laper-canvas-wrap">
@@ -577,15 +596,28 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 {props.published ? "完成态默认只读" : "游戏自动生成中"}
               </span>
             ) : (
-              <button
-                className="btn primary"
-                type="button"
-                disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection}
-                title={hasUnappliedVoiceSelection ? "已选择新音色，请先生成试听或恢复原选择" : undefined}
-                onClick={() => void props.buildGame()}
-              >
-                {props.published ? "使用草稿素材重新构建" : "确认素材并生成游戏"}
-              </button>
+              <div className="asset-build-actions">
+                {props.published && props.buildState === "FAILED" && (
+                  <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.buildGame()}>
+                    重试上次构建
+                  </button>
+                )}
+                <button
+                  className="btn primary"
+                  type="button"
+                  disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection || (Boolean(props.published) && !props.hasDraftChanges)}
+                  title={
+                    hasUnappliedVoiceSelection
+                      ? "已选择新音色，请先生成试听或恢复原选择"
+                      : props.published && !props.hasDraftChanges
+                        ? "草稿没有新的已保存改动，无需同步"
+                        : undefined
+                  }
+                  onClick={() => void props.buildGame()}
+                >
+                  {props.published ? "同步草稿改动到游戏" : "确认素材并生成游戏"}
+                </button>
+              </div>
             )
           }
         />

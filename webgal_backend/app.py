@@ -877,9 +877,45 @@ def run_pipeline_background(job_id: str) -> None:
 
 def run_phase_background(job_id: str, phase: str) -> None:
     try:
-        pipeline.run_phase(job_id, phase)
+        job = store.get(job_id)
+        advanced_mode = job.get("options", {}).get("generation_mode") == "advanced"
     except Exception:
-        logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+        advanced_mode = False
+
+    retries = settings.max_advanced_phase_retries if advanced_mode else 0
+    for attempt in range(retries + 1):
+        try:
+            pipeline.run_phase(job_id, phase)
+            return
+        except PipelineError as exc:
+            if attempt < retries:
+                logger.warning(
+                    "Retrying Advanced phase after generation failure: job_id=%s phase=%s attempt=%s/%s error=%s",
+                    job_id,
+                    phase,
+                    attempt + 1,
+                    retries,
+                    exc,
+                )
+                # The phase runner sets FAILED on every attempt. Move it back
+                # to QUEUED so polling clients do not expose a transient error.
+                try:
+                    store.transition(store.get(job_id), "QUEUED", phase.upper())
+                except Exception:
+                    logger.exception("Could not queue Advanced retry for job_id=%s phase=%s", job_id, phase)
+                    return
+                continue
+            if retries:
+                message = f"{exc}\n\nAdvanced 模式已自动重试 {retries} 次，仍未完成；你可以手动重试此阶段。"
+                try:
+                    store.set_error(store.get(job_id), message)
+                except Exception:
+                    logger.exception("Could not save exhausted retry message for job_id=%s phase=%s", job_id, phase)
+            logger.exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            return
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            return
 
 
 def run_asset_regeneration_background(job_id: str, filename: str, prompt: str | None) -> None:

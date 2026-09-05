@@ -2031,6 +2031,15 @@ a {
 .completion-revisions dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
 .completion-actions { position: relative; z-index: 1; display: grid; gap: 10px; }
 
+.asset-build-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-build-actions .btn {
+  width: 100%;
+}
+
 .scene-music-editor {
   display: grid;
   gap: 10px;
@@ -3110,6 +3119,11 @@ a {
   gap: 4px;
 }
 
+.laper-rail-tree-group {
+  display: grid;
+  gap: 3px;
+}
+
 .laper-rail-nav button {
   display: flex;
   align-items: center;
@@ -3124,6 +3138,28 @@ a {
   font-size: 13px;
   font-weight: 600;
   text-align: left;
+}
+
+.laper-rail-nav button > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.laper-rail-tree-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.laper-rail-tree-meta b {
+  width: 12px;
+  color: #8a847b;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  text-align: center;
 }
 
 .laper-rail-nav button.active {
@@ -3151,6 +3187,17 @@ a {
   padding: 0;
   overflow: auto;
   list-style: none;
+}
+
+.laper-rail-tree-list {
+  margin: 0 0 5px 8px;
+  padding: 3px 0 3px 8px;
+  border-left: 1px solid rgba(155, 35, 53, 0.2);
+  max-height: 250px;
+}
+
+.laper-rail-tree-list button {
+  padding: 7px 8px;
 }
 
 .laper-rail-list button {
@@ -3188,6 +3235,10 @@ a {
 }
 
 .laper-toolbar {
+  position: sticky;
+  top: 86px;
+  z-index: 3;
+  align-self: start;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -3305,6 +3356,7 @@ a {
 }
 
 .laper-block {
+  position: relative;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 10px;
@@ -3313,7 +3365,7 @@ a {
   background: #fff;
   border: 1px solid transparent;
   border-radius: 10px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
 .laper-block:hover,
@@ -3325,6 +3377,41 @@ a {
 
 .laper-block.dragging {
   opacity: 0.55;
+}
+
+.laper-block.drop-before,
+.laper-block.drop-after {
+  border-color: rgba(155, 35, 53, 0.35);
+  background: #fffaf4;
+  box-shadow: 0 9px 22px rgba(155, 35, 53, 0.1);
+}
+
+.laper-block.drop-before {
+  transform: translateY(6px);
+}
+
+.laper-block.drop-after {
+  transform: translateY(-6px);
+}
+
+.laper-block.drop-before::before,
+.laper-block.drop-after::after {
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  height: 3px;
+  content: "";
+  background: #a82038;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(168, 32, 56, 0.1);
+}
+
+.laper-block.drop-before::before {
+  top: -9px;
+}
+
+.laper-block.drop-after::after {
+  bottom: -9px;
 }
 
 .laper-drag-handle {
@@ -3345,6 +3432,11 @@ a {
 
 .laper-drag-handle:active {
   cursor: grabbing;
+}
+
+.laper-drag-handle {
+  touch-action: none;
+  user-select: none;
 }
 
 .laper-block-content {
@@ -3625,6 +3717,16 @@ a {
 
 .laper-scene-shell .laper-line-stack {
   gap: 12px;
+}
+
+.laper-choice-hint {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  color: #766751;
+  background: rgba(255, 248, 239, 0.78);
+  border-left: 2px solid #b5935d;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .laper-scene-title-block h2,
@@ -4854,6 +4956,10 @@ a {
     max-height: none;
     border-right: 0;
     border-bottom: 1px solid #ddd8d0;
+  }
+
+  .laper-toolbar {
+    position: static;
   }
 
   .laper-rail-list {

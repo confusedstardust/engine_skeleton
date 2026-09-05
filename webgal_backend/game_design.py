@@ -92,6 +92,10 @@ def parse_line(line: str, line_id: str) -> dict[str, Any] | None:
             "rawPrefix": "choose",
             "choices": parse_choice_options(body),
         }
+    label_match = re.match(r"^label\s*:\s*(?P<label>[A-Za-z_][A-Za-z0-9_-]*)\s*;?$", original)
+    if label_match:
+        label = label_match.group("label")
+        return {"id": line_id, "kind": "branch", "speaker": "分支", "text": label, "rawPrefix": "branch", "branchLabel": label}
     if original.startswith(":") and len(original) > 1 and is_branch_label(original[1:].strip().rstrip(";")):
         label = original[1:].strip().rstrip(";")
         return {"id": line_id, "kind": "branch", "speaker": "分支", "text": label, "rawPrefix": "branch", "branchLabel": label}
@@ -153,7 +157,7 @@ def render_scene_line(line: dict[str, Any]) -> str:
     if kind == "branch":
         label = str(line.get("branchLabel") or line.get("text") or "").strip()
         if is_branch_label(label):
-            return f":{label}"
+            return f"label:{label};"
         text = clean_line_text(label)
         return f"旁白:{text};" if text else ""
     text = str(line.get("text") or "").strip().rstrip(";")

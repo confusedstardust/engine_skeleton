@@ -137,9 +137,8 @@ def _repair_scene_lines(
     fixes: list[AppliedFix] = []
     repaired: list[str] = []
     stage_positions: dict[str, str | None] = {"left": None, "center": None, "right": None}
-    lines, prelude_cleanup_fixes = _remove_expanded_scene_prelude_clears(lines, relative_file)
-    fixes.extend(prelude_cleanup_fixes)
-
+    lines, unreachable_content_fixes = _remove_unreachable_scene_tail(lines, relative_file)
+    fixes.extend(unreachable_content_fixes)
     for line_index, original_line in enumerate(lines):
         original_index = line_index + 1
         line, content_fixes = _sanitize_generated_content_line(original_line)
@@ -257,10 +256,10 @@ def _repair_scene_lines(
 
     repaired, terminal_cleanup_fixes = _move_post_terminal_cleanup_before_terminal(repaired, relative_file)
     fixes.extend(terminal_cleanup_fixes)
-    repaired, ending_fixes = _ensure_scene_ending_clears(repaired, relative_file)
-    fixes.extend(ending_fixes)
     repaired, ending_terminal_fixes = _ensure_ending_scene_has_end(repaired, relative_file)
     fixes.extend(ending_terminal_fixes)
+    repaired, opening_clear_fixes = _ensure_scene_opening_clears(repaired, relative_file)
+    fixes.extend(opening_clear_fixes)
     return repaired, issues, fixes
 
 
@@ -543,6 +542,43 @@ def _previous_effective_line_is(lines: list[str], expected: str) -> bool:
     return False
 
 
+def _remove_unreachable_scene_tail(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    """Remove content after a command that always transfers to another scene.
+
+    This deliberately excludes `callScene` and label-based choices: those may
+    return or continue in the same file. Only fully parsed `.txt` destinations
+    are provably terminal for the current scene.
+    """
+    for index, line in enumerate(lines):
+        if not _is_external_scene_terminal(line):
+            continue
+        removed = [item for item in lines[index + 1 :] if item.strip()]
+        if not removed:
+            return lines, []
+        terminal_kind = "choose" if line.strip().startswith("choose:") else "changeScene"
+        return lines[: index + 1], [
+            AppliedFix(
+                code="remove_unreachable_after_external_jump",
+                file=relative_file,
+                line=index + 2,
+                message=f"Removed {len(removed)} unreachable line(s) after terminal {terminal_kind} scene jump.",
+            )
+        ]
+    return lines, []
+
+
+def _is_external_scene_terminal(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith("choose:"):
+        match = re.match(r"^choose\s*:\s*(?P<body>.*?);?\s*$", stripped)
+        if not match:
+            return False
+        raw_options = _split_unescaped(match.group("body"), "|")
+        options = _parse_choose_options(stripped)
+        return bool(options) and len(options) == len(raw_options) and all(target.endswith(".txt") for _, target in options)
+    return bool(re.match(r"^changeScene\s*:\s*[^;\s]+\.txt(?:\s*;)?\s*$", stripped))
+
+
 def _ensure_scene_ending_clears(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
     if not lines:
         return lines, []
@@ -562,6 +598,30 @@ def _ensure_scene_ending_clears(lines: list[str], relative_file: str) -> tuple[l
             file=relative_file,
             line=insertion_index + 1,
             message="Inserted scene-ending figure clears for center, left, and right positions.",
+        )
+    ]
+
+
+def _ensure_scene_opening_clears(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    """Make every scene self-contained when entered from a direct scene jump.
+
+    A `choose` can change scene without the previous scene reaching its tail, so
+    figure cleanup belongs at the destination scene's entry rather than relying
+    on the source scene's ending.
+    """
+    clear_lines = ["changeFigure:none -next;", "changeFigure:none -left -next;", "changeFigure:none -right -next;"]
+    insertion_index = next((index for index, line in enumerate(lines) if line.strip()), len(lines))
+    existing = [line.strip() for line in lines[insertion_index : insertion_index + len(clear_lines)]]
+    if existing == clear_lines:
+        return lines, []
+
+    repaired = [*lines[:insertion_index], *clear_lines, *lines[insertion_index:]]
+    return repaired, [
+        AppliedFix(
+            code="scene_opening_clear_figures",
+            file=relative_file,
+            line=insertion_index + 1,
+            message="Inserted figure clears at scene entry so prior-scene figures cannot persist after a jump.",
         )
     ]
 
@@ -919,7 +979,10 @@ def _validate_story_quality(relative_file: str, lines: list[str]) -> list[Valida
                     )
 
             for target, texts in targets.items():
-                if len(texts) > 1:
+                # The editor's "互动后继续" branch deliberately merges all
+                # choices at a generated local label. It is a lightweight
+                # participation beat, not a missing consequence.
+                if len(texts) > 1 and not target.startswith("continue_choice_"):
                     issues.append(
                         ValidationIssue(
                             code="shared_choice_target",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type SceneLine = {
   id: string;
@@ -64,6 +64,10 @@ function choiceTargetValue(choice: SceneChoice) {
   return choice.target_scene_file || choice.targetSceneFile || choice.target || "";
 }
 
+function isLocalContinuationTarget(target: string) {
+  return /^continue_choice_[A-Za-z0-9_]+$/.test(target);
+}
+
 function lineKindLabel(line: SceneLine) {
   if (line.kind === "choice") return "分支";
   if (line.kind === "branch") return "分支";
@@ -74,11 +78,25 @@ function lineKindLabel(line: SceneLine) {
 export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   const [speakerMenu, setSpeakerMenu] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropHint, setDropHint] = useState<{ index: number; placement: "before" | "after" } | null>(null);
+  const pointerDragIdRef = useRef<number | null>(null);
+  const sourceIndexRef = useRef<number | null>(null);
+  const dropHintRef = useRef<{ index: number; placement: "before" | "after" } | null>(null);
+  const pointerYRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const disabled = props.readonly || props.busy;
   const activeIndex = Math.min(props.activeScene, Math.max(props.scenes.length - 1, 0));
   const scene = props.scenes[activeIndex];
   const speakers = useMemo(() => ["旁白", ...(props.plan?.characters.map((c) => c.name).filter(Boolean) || [])], [props.plan]);
   const defaultChoiceTarget = props.targetOptions?.[0]?.file || "new_branch";
+  const sceneEntries = useMemo(
+    () => props.scenes.map((item, index) => ({ item, index })).filter(({ item }) => item.marker !== "Ending"),
+    [props.scenes]
+  );
+  const endingEntries = useMemo(
+    () => props.scenes.map((item, index) => ({ item, index })).filter(({ item }) => item.marker === "Ending"),
+    [props.scenes]
+  );
 
   useEffect(() => {
     if (props.activeScene > Math.max(props.scenes.length - 1, 0)) {
@@ -116,6 +134,131 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
       rawPrefix: kind === "dialogue" ? "" : "旁白"
     };
     patchScene({ ...scene, lines: [...scene.lines, nextLine] });
+  }
+
+  function stopLineAutoScroll() {
+    pointerDragIdRef.current = null;
+    sourceIndexRef.current = null;
+    dropHintRef.current = null;
+    pointerYRef.current = null;
+    setDropHint(null);
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+  }
+
+  function updateLineAutoScroll(pointerY: number) {
+    pointerYRef.current = pointerY;
+    if (scrollFrameRef.current !== null) return;
+    const scroll = () => {
+      const y = pointerYRef.current;
+      if (y === null) {
+        scrollFrameRef.current = null;
+        return;
+      }
+      const height = window.visualViewport?.height || window.innerHeight;
+      const top = window.visualViewport?.offsetTop || 0;
+      const edge = Math.min(179, Math.round(height * 0.192));
+      const topDistance = y - top;
+      const bottomDistance = top + height - y;
+      const delta = topDistance < edge
+        ? -Math.max(6, Math.round(((edge - topDistance) / edge) * 27))
+        : bottomDistance < edge
+          ? Math.max(6, Math.round(((edge - bottomDistance) / edge) * 27))
+          : 0;
+      if (!delta) {
+        scrollFrameRef.current = null;
+        return;
+      }
+      window.scrollBy({ top: delta, behavior: "auto" });
+      scrollFrameRef.current = window.requestAnimationFrame(scroll);
+    };
+    scrollFrameRef.current = window.requestAnimationFrame(scroll);
+  }
+
+  function startLineDrag(index: number, pointerId: number, pointerY: number) {
+    if (disabled) return;
+    pointerDragIdRef.current = pointerId;
+    sourceIndexRef.current = index;
+    setDragIndex(index);
+    updateLineAutoScroll(pointerY);
+  }
+
+  function moveLineDrag(pointerId: number, pointerX: number, pointerY: number) {
+    if (pointerDragIdRef.current !== pointerId) return;
+    updateLineAutoScroll(pointerY);
+    const card = document.elementFromPoint(pointerX, pointerY)?.closest<HTMLElement>("[data-laper-scene-line-index]");
+    const targetIndex = Number(card?.dataset.laperSceneLineIndex);
+    if (sourceIndexRef.current === null || Number.isNaN(targetIndex) || targetIndex === sourceIndexRef.current) return;
+    const bounds = card?.getBoundingClientRect();
+    const nextHint = { index: targetIndex, placement: bounds && pointerY > bounds.top + bounds.height / 2 ? "after" : "before" } as const;
+    if (dropHintRef.current?.index !== nextHint.index || dropHintRef.current.placement !== nextHint.placement) {
+      dropHintRef.current = nextHint;
+      setDropHint(nextHint);
+    }
+  }
+
+  function finishLineDrag(pointerId: number) {
+    if (pointerDragIdRef.current !== pointerId) return;
+    const from = sourceIndexRef.current;
+    const target = dropHintRef.current;
+    if (from !== null && target && from !== target.index) {
+      let insertionIndex = target.index + (target.placement === "after" ? 1 : 0);
+      if (from < insertionIndex) insertionIndex -= 1;
+      reorderLines(from, insertionIndex);
+    }
+    setDragIndex(null);
+    stopLineAutoScroll();
+  }
+
+  useEffect(() => () => stopLineAutoScroll(), []);
+
+  function addInteractiveChoice() {
+    if (!scene || disabled || scene.marker === "Ending") return;
+    const token = `continue_choice_${Date.now().toString(36)}`;
+    const choiceLine: SceneLine = {
+      id: `${scene.header}-${token}-choose`,
+      kind: "choice",
+      speaker: "分支",
+      text: "",
+      rawPrefix: "choose",
+      choices: [
+        { text: "继续靠近真相", target: token },
+        { text: "先停下来想一想", target: token }
+      ]
+    };
+    const continuationLabel: SceneLine = {
+      id: `${scene.header}-${token}-label`,
+      kind: "branch",
+      speaker: "分支",
+      text: token,
+      rawPrefix: "branch",
+      branchLabel: token
+    };
+    const continuation: SceneLine = {
+      id: `${scene.header}-${token}-continue`,
+      kind: "narration",
+      speaker: "旁白",
+      text: "无论作何选择，故事仍向前展开。",
+      rawPrefix: "旁白"
+    };
+    patchScene({ ...scene, lines: [...scene.lines, choiceLine, continuationLabel, continuation] });
+  }
+
+  function removeChoiceGroup(lineIndex: number) {
+    if (!scene || disabled) return;
+    const choiceLine = scene.lines[lineIndex];
+    const continuationTargets = new Set(
+      (choiceLine.choices || []).map(choiceTargetValue).filter(isLocalContinuationTarget)
+    );
+    const nextLines = scene.lines.filter((line, index) => {
+      if (index === lineIndex) return false;
+      const label = line.branchLabel || line.text;
+      if (line.kind === "branch" && continuationTargets.has(label)) return false;
+      return !Array.from(continuationTargets).some((target) => line.id === `${scene.header}-${target}-continue`);
+    });
+    patchScene({ ...scene, lines: nextLines });
   }
 
   function switchSpeaker(lineIndex: number, speaker: string) {
@@ -157,22 +300,41 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
           <strong>{props.title}</strong>
           <span>{props.mode === "draft" ? "场景设计稿" : "详细场景"}</span>
         </div>
-        <nav className="laper-rail-nav">
-          <button className="active" type="button">
-            场次
-            <em>{props.scenes.length}</em>
-          </button>
-        </nav>
-        <ol className="laper-rail-list">
-          {props.scenes.map((item, index) => (
-            <li key={`${item.header}-${index}`}>
-              <button className={activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
-                <span>{index + 1}</span>
-                {item.title}
+        {props.mode === "complete" ? (
+          <nav className="laper-rail-nav laper-scene-rail-nav" aria-label="详细场景分类">
+            <SceneRailGroup
+              label="场景"
+              entries={sceneEntries}
+              activeIndex={activeIndex}
+              setActiveScene={props.setActiveScene}
+            />
+            <SceneRailGroup
+              label="结局"
+              entries={endingEntries}
+              activeIndex={activeIndex}
+              setActiveScene={props.setActiveScene}
+            />
+          </nav>
+        ) : (
+          <>
+            <nav className="laper-rail-nav">
+              <button className="active" type="button">
+                场次
+                <em>{props.scenes.length}</em>
               </button>
-            </li>
-          ))}
-        </ol>
+            </nav>
+            <ol className="laper-rail-list">
+              {props.scenes.map((item, index) => (
+                <li key={`${item.header}-${index}`}>
+                  <button className={activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
+                    <span>{index + 1}</span>
+                    {item.title}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
       </aside>
 
       <section className="laper-canvas-wrap">
@@ -187,6 +349,17 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
           <button className="laper-tool" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
             对话
           </button>
+          {props.mode === "complete" && (
+            <button
+              className="laper-tool"
+              type="button"
+              disabled={disabled || scene.marker === "Ending"}
+              onClick={addInteractiveChoice}
+              title={scene.marker === "Ending" ? "结局场景不能再添加分支" : "添加互动选择，默认会在当前场景汇合"}
+            >
+              + 互动分支
+            </button>
+          )}
           <span className="laper-toolbar-divider" />
           <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
             + 添加行
@@ -224,34 +397,58 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
             {scene.lines.map((line, lineIndex) => {
               if (line.kind === "choice") {
                 return (
-                  <article className="laper-block laper-branch-block" key={line.id}>
-                    <div className="laper-branch-marker" aria-hidden="true">
+                  <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} key={line.id} data-laper-scene-line-index={lineIndex}>
+                    <button
+                      className="laper-branch-marker laper-drag-handle"
+                      type="button"
+                      aria-label="拖动排序"
+                      disabled={disabled}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        startLineDrag(lineIndex, event.pointerId, event.clientY);
+                      }}
+                      onPointerMove={(event) => moveLineDrag(event.pointerId, event.clientX, event.clientY)}
+                      onPointerUp={(event) => {
+                        finishLineDrag(event.pointerId);
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }}
+                      onPointerCancel={(event) => finishLineDrag(event.pointerId)}
+                    >
                       △
-                    </div>
+                    </button>
                     <div className="laper-block-content">
                       <div className="laper-block-head">
                         <span>分支选项</span>
                         <em>分支</em>
                         {!disabled && (
-                          <button
-                            className="laper-block-delete"
-                            type="button"
-                            onClick={() =>
-                              updateLine(lineIndex, {
-                                ...line,
-                                choices: [
-                                  ...(line.choices || []),
-                                  {
-                                    text: "新的选择",
-                                    target: defaultChoiceTarget,
-                                    target_scene_file: /\.txt$/i.test(defaultChoiceTarget) ? defaultChoiceTarget : undefined
-                                  }
-                                ]
-                              })
-                            }
-                          >
-                            添加选项
-                          </button>
+                          <>
+                            <button
+                              className="laper-block-delete"
+                              type="button"
+                              onClick={() => {
+                                const existingContinuation = (line.choices || []).map(choiceTargetValue).find(isLocalContinuationTarget);
+                                const target = existingContinuation || defaultChoiceTarget;
+                                updateLine(lineIndex, {
+                                  ...line,
+                                  choices: [
+                                    ...(line.choices || []),
+                                    {
+                                      text: "新的选择",
+                                      target,
+                                      target_scene_file: /\.txt$/i.test(target) ? target : undefined
+                                    }
+                                  ]
+                                });
+                              }}
+                            >
+                              添加选项
+                            </button>
+                            <button className="laper-block-delete" type="button" onClick={() => removeChoiceGroup(lineIndex)}>
+                              删除分支
+                            </button>
+                          </>
                         )}
                       </div>
                       <div className="laper-choice-list">
@@ -269,8 +466,13 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                               aria-label="跳转场景"
                               disabled={disabled}
                             >
+                              {isLocalContinuationTarget(choiceTargetValue(choice)) && (
+                                <option value={choiceTargetValue(choice)}>留在当前场景（互动后继续）</option>
+                              )}
                               {!props.targetOptions?.some((option) => option.file === choiceTargetValue(choice)) && (
-                                <option value={choiceTargetValue(choice)}>{choiceTargetValue(choice) || "未设置目标"}</option>
+                                !isLocalContinuationTarget(choiceTargetValue(choice)) && (
+                                  <option value={choiceTargetValue(choice)}>{choiceTargetValue(choice) || "未设置目标"}</option>
+                                )
                               )}
                               {props.targetOptions?.map((option) => (
                                 <option key={option.file} value={option.file}>
@@ -286,6 +488,9 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                           </div>
                         ))}
                       </div>
+                      {(line.choices || []).some((choice) => isLocalContinuationTarget(choiceTargetValue(choice))) && (
+                        <p className="laper-choice-hint">“留在当前场景”适合增强互动感；若要影响剧情，可将任一选项改为跳转至具体场景。</p>
+                      )}
                     </div>
                   </article>
                 );
@@ -293,10 +498,27 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
 
               if (line.kind === "branch") {
                 return (
-                  <article className="laper-block laper-branch-block" key={line.id}>
-                    <div className="laper-branch-marker" aria-hidden="true">
+                  <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} key={line.id} data-laper-scene-line-index={lineIndex}>
+                    <button
+                      className="laper-branch-marker laper-drag-handle"
+                      type="button"
+                      aria-label="拖动排序"
+                      disabled={disabled}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        startLineDrag(lineIndex, event.pointerId, event.clientY);
+                      }}
+                      onPointerMove={(event) => moveLineDrag(event.pointerId, event.clientX, event.clientY)}
+                      onPointerUp={(event) => {
+                        finishLineDrag(event.pointerId);
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }}
+                      onPointerCancel={(event) => finishLineDrag(event.pointerId)}
+                    >
                       △
-                    </div>
+                    </button>
                     <div className="laper-block-content">
                       <div className="laper-block-head">
                         <span>分支内容</span>
@@ -322,8 +544,9 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               const menuKey = `${activeIndex}-${lineIndex}`;
               return (
                 <article
-                  className={`laper-block laper-line-block ${dragIndex === lineIndex ? "dragging" : ""}`}
+                  className={`laper-block laper-line-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`}
                   key={line.id}
+                  data-laper-scene-line-index={lineIndex}
                   onDragOver={(event) => {
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "move";
@@ -340,13 +563,18 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                     type="button"
                     aria-label="拖动排序"
                     disabled={disabled}
-                    draggable={!disabled}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData("text/plain", String(lineIndex));
-                      event.dataTransfer.effectAllowed = "move";
-                      setDragIndex(lineIndex);
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      startLineDrag(lineIndex, event.pointerId, event.clientY);
                     }}
-                    onDragEnd={() => setDragIndex(null)}
+                    onPointerMove={(event) => moveLineDrag(event.pointerId, event.clientX, event.clientY)}
+                    onPointerUp={(event) => {
+                      finishLineDrag(event.pointerId);
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }}
+                    onPointerCancel={(event) => finishLineDrag(event.pointerId)}
                   >
                     ⋮⋮
                   </button>
@@ -406,5 +634,37 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
         <button className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />
       )}
     </section>
+  );
+}
+
+function SceneRailGroup(props: {
+  label: "场景" | "结局";
+  entries: { item: EditableScene; index: number }[];
+  activeIndex: number;
+  setActiveScene: (index: number) => void;
+}) {
+  const active = props.entries.some(({ index }) => index === props.activeIndex);
+  return (
+    <div className="laper-rail-tree-group">
+      <button
+        className={active ? "active" : ""}
+        type="button"
+        disabled={props.entries.length === 0}
+        onClick={() => props.setActiveScene(props.entries[0]?.index ?? 0)}
+      >
+        <span>{props.label}</span>
+        <em>{props.entries.length}</em>
+      </button>
+      <ol className="laper-rail-list laper-rail-tree-list">
+        {props.entries.map(({ item, index }) => (
+          <li key={`${item.header}-${index}`}>
+            <button className={props.activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
+              <span>{index + 1}</span>
+              {item.title}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
