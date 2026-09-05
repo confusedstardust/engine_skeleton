@@ -75,6 +75,7 @@ type LaperAssetWorkbenchProps = {
   musicAssets: string[];
   sceneMusicEnabled: boolean;
   saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
+  previewSceneMusic: (asset: string) => Promise<Blob>;
 };
 
 type AssetSection = "figures" | "backgrounds";
@@ -279,7 +280,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
   const [musicSceneFile, setMusicSceneFile] = useState("");
   const [musicAsset, setMusicAsset] = useState("");
+  const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
+  const [musicPreviewError, setMusicPreviewError] = useState("");
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicPreviewUrlRef = useRef<string | null>(null);
+  const musicFormHydratedRef = useRef("");
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
@@ -291,8 +297,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
 
   useEffect(() => {
     if (!selectedMusicScene) return;
-    if (musicSceneFile !== selectedMusicScene.scene_file) setMusicSceneFile(selectedMusicScene.scene_file);
-    setMusicAsset(selectedMusicScene.selected_asset || "");
+    const persistedKey = `${selectedMusicScene.scene_file}|${selectedMusicScene.selected_asset || ""}`;
+    if (musicSceneFile !== selectedMusicScene.scene_file || musicFormHydratedRef.current !== persistedKey) {
+      setMusicSceneFile(selectedMusicScene.scene_file);
+      setMusicAsset(selectedMusicScene.selected_asset || "");
+      musicFormHydratedRef.current = persistedKey;
+    }
   }, [musicSceneFile, selectedMusicScene]);
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
@@ -322,12 +332,46 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     }
   }
 
+  function stopMusicPreview() {
+    const audio = musicPreviewAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    musicPreviewAudioRef.current = null;
+    if (musicPreviewUrlRef.current) URL.revokeObjectURL(musicPreviewUrlRef.current);
+    musicPreviewUrlRef.current = null;
+    setMusicPreviewingAsset(null);
+  }
+
+  async function playMusicPreview() {
+    const asset = musicAsset || selectedMusicScene?.system_asset || "";
+    if (!asset) return;
+    stopMusicPreview();
+    setMusicPreviewError("");
+    try {
+      const blob = await props.previewSceneMusic(asset);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      musicPreviewUrlRef.current = url;
+      musicPreviewAudioRef.current = audio;
+      audio.onended = stopMusicPreview;
+      setMusicPreviewingAsset(asset);
+      await audio.play();
+    } catch (error) {
+      stopMusicPreview();
+      setMusicPreviewError(error instanceof Error ? error.message : "音乐试听加载失败。");
+    }
+  }
+
   useEffect(() => {
     if (!props.voiceGeneratingSpeaker || !activeAudioRef.current) return;
     activeAudioRef.current.pause();
     activeAudioRef.current = null;
     setActiveVoiceSpeaker(null);
   }, [props.voiceGeneratingSpeaker]);
+
+  useEffect(() => () => stopMusicPreview(), []);
 
   return (
     <section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
@@ -555,7 +599,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               <select
                 value={selectedMusicScene?.scene_file || ""}
                 disabled={props.readonly || props.busy}
-                onChange={(event) => setMusicSceneFile(event.target.value)}
+                onChange={(event) => {
+                  stopMusicPreview();
+                  setMusicSceneFile(event.target.value);
+                }}
               >
                 {props.sceneMusic.map((item) => (
                   <option key={item.scene_file} value={item.scene_file}>{item.kind === "ending" ? "结局 · " : "场景 · "}{item.label}</option>
@@ -567,12 +614,27 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               <select
                 value={musicAsset}
                 disabled={props.readonly || props.busy}
-                onChange={(event) => setMusicAsset(event.target.value)}
+                onChange={(event) => {
+                  stopMusicPreview();
+                  setMusicAsset(event.target.value);
+                }}
               >
                 <option value="">系统自动{selectedMusicScene?.system_asset ? `（${selectedMusicScene.system_asset}）` : ""}</option>
                 {props.musicAssets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}
               </select>
             </label>
+            <div className="scene-music-preview">
+              <button
+                className="btn outline"
+                type="button"
+                disabled={props.busy || !(musicAsset || selectedMusicScene?.system_asset)}
+                onClick={() => void playMusicPreview()}
+              >
+                {musicPreviewingAsset ? "重新试听" : "试听所选音乐"}
+              </button>
+              {musicPreviewingAsset ? <button className="btn outline" type="button" onClick={stopMusicPreview}>停止</button> : null}
+            </div>
+            {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
             <button
               className="btn outline"
               type="button"

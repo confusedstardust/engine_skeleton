@@ -1146,6 +1146,15 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function previewSceneMusic(asset: string): Promise<Blob> {
+    const response = await fetch(
+      withBasePath(`/api/forge/jobs/${jobId}/music-library/${encodeURIComponent(asset)}`),
+      { headers: jsonInviteHeaders() }
+    );
+    if (!response.ok) throw new Error("音乐试听加载失败。");
+    return response.blob();
+  }
+
   async function previewCharacterVoice(speaker: string, voice: string) {
     setVoiceGeneratingSpeaker(speaker);
     setBusy(true);
@@ -1395,6 +1404,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             musicAssets={assetReview?.music_assets || []}
             sceneMusicEnabled={!autoMode}
             saveSceneMusic={saveSceneMusic}
+            previewSceneMusic={previewSceneMusic}
             gameReady={hasPublishedBuild}
             assetsGenerating={isAssetGenerationRunning}
             gameBuilding={isGameBuildRunning}
@@ -1502,6 +1512,7 @@ function AssetReviewPanel(props: {
   musicAssets: string[];
   sceneMusicEnabled: boolean;
   saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
+  previewSceneMusic: (asset: string) => Promise<Blob>;
   gameReady: boolean;
   assetsGenerating: boolean;
   gameBuilding: boolean;
@@ -1577,6 +1588,7 @@ function AssetReviewPanel(props: {
       musicAssets={props.musicAssets}
       sceneMusicEnabled={props.sceneMusicEnabled}
       saveSceneMusic={props.saveSceneMusic}
+      previewSceneMusic={props.previewSceneMusic}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}

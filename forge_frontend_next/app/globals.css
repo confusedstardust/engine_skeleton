@@ -2046,6 +2046,9 @@ a {
 .scene-music-kicker { color: var(--cinnabar); font-size: 10px; font-weight: 800; letter-spacing: 0.16em; }
 .scene-music-editor label { display: grid; gap: 5px; color: var(--ink-muted); font-size: 12px; }
 .scene-music-editor select { width: 100%; min-height: 36px; padding: 0 8px; color: var(--ink); background: var(--paper); border: 1px solid var(--border); border-radius: 4px; }
+.scene-music-preview { display: flex; gap: 8px; }
+.scene-music-preview .btn { flex: 1; }
+.scene-music-error { color: var(--cinnabar); line-height: 1.5; }
 
 .workspace-hero p,
 .workspace-status span,

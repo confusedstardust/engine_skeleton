@@ -599,6 +599,22 @@ def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_req
     return {"job": _get_owned_job_or_404(job_id, http_request), "scene_file": scene_file, "asset": asset or None}
 
 
+@app.get("/jobs/{job_id}/music-library/{asset_name}")
+def preview_music_library_asset(job_id: str, asset_name: str, request: Request) -> FileResponse:
+    _get_owned_job_or_404(job_id, request)
+    clean_name = Path(asset_name).name
+    if clean_name != asset_name or clean_name.startswith("."):
+        raise HTTPException(status_code=404, detail="music asset not found")
+    available_assets = {asset for group in pipeline._load_bgm_assets().values() for asset in group}
+    if clean_name not in available_assets:
+        raise HTTPException(status_code=404, detail="music asset not found")
+    return _file_response_under_root(
+        root=settings.sound_effects_dir,
+        file_path=clean_name,
+        missing_detail="music asset not found",
+    )
+
+
 @app.post("/jobs/{job_id}/voices/preview")
 def regenerate_voice_preview(job_id: str, request: TTSPreviewRequest, http_request: Request) -> dict[str, Any]:
     try:
