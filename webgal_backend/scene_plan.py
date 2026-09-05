@@ -21,6 +21,7 @@ def build_scene_plan(narrative_plan: dict[str, Any]) -> dict[str, Any]:
                 "strtype": str(node.get("strtype") or "").strip(),
                 "purpose": str(node.get("narrative_target") or "").strip(),
                 "summary": str(node.get("content") or "").strip(),
+                "music_mood": str(node.get("music_mood") or "").strip().lower(),
             }
         )
 
@@ -35,6 +36,7 @@ def build_scene_plan(narrative_plan: dict[str, Any]) -> dict[str, Any]:
                 "ending_type": ending_type,
                 "source_index": index - 1,
                 "description": str(ending.get("description") or "").strip(),
+                "music_mood": str(ending.get("music_mood") or "").strip().lower(),
             }
         )
 

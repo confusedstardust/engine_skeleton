@@ -49,6 +49,10 @@ def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
         strtype为main时,表示该阶段所有玩家都应经历的核心故事阶段
         strtype为branch时,表示该阶段可以作为分支路径存在,可作为未来分支内容扩展的阶段,用于深化角色关系、展示不同观点或丰富体验
         branch类型占比30%,main类型占比70%
+    每个story_progression节点必须填写music_mood,且只能使用ordinary/peace/slow/soft/tense/warm之一:
+        ordinary用于日常或中性推进;peace用于平静安宁;slow用于低沉舒缓;soft用于细腻柔和;tense用于危机紧张;warm用于温暖治愈
+    每个endings节点必须填写music_mood,且只能使用happy/normal/sad/bad/terrible之一:
+        terrible只用于灾难性、毁灭性或最糟结局,不要与一般遗憾或失败混用
     围绕材料,发挥想象、积累创意
     对于narrative_structure节点,组织story_progression节点的各个事件,分析出主干情节和旁路分支,并且用Mermaid绘制出结构图:
         情节使用story_progression.id,结局使用endings.ending_type,绝对禁止捏造创造新的场景

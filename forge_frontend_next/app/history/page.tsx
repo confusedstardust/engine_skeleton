@@ -10,6 +10,8 @@ type Job = {
   status: string;
   phase?: string | null;
   error?: string | null;
+  build_state?: string;
+  has_published_build?: boolean;
   source_material?: string;
   created_at?: string;
   updated_at?: string;
@@ -195,7 +197,7 @@ export default function HistoryPage() {
                 <div className="history-title-line">
                   <h2>{jobTitle(job)}</h2>
                   <span className={`history-status ${statusClass(job.status)}`}>
-                    {statusLabels[job.status] || job.status}
+                    {job.build_state === "STALE" ? "有未发布修改" : job.build_state === "FAILED" && job.has_published_build ? "新版本失败" : statusLabels[job.status] || job.status}
                   </span>
                 </div>
                 <div className="history-meta">
@@ -206,8 +208,8 @@ export default function HistoryPage() {
                 {job.error ? <p className="history-error">{job.error}</p> : null}
               </div>
               <div className="history-actions">
-                <Link className="btn outline" href={`/jobs/${job.id}`}>继续编辑</Link>
-                {job.status === "DONE" ? (
+                <Link className="btn outline" href={`/jobs/${job.id}`}>{job.has_published_build === true || (job.has_published_build === undefined && job.status === "DONE") ? "管理作品" : job.status === "RUNNING" || job.status === "QUEUED" ? "查看进度" : "继续编辑"}</Link>
+                {job.has_published_build === true || (job.has_published_build === undefined && job.status === "DONE") ? (
                   <a className="btn primary" href={withBasePath(`/play/${job.id}/`)} target="_blank" rel="noreferrer">
                     打开游戏
                   </a>

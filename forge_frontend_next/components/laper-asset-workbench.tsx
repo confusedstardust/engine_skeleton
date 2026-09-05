@@ -40,6 +40,15 @@ export type TTSVoiceReviewItem = {
   preview_url: string | null;
 };
 
+export type SceneMusicItem = {
+  scene_file: string;
+  label: string;
+  kind: "scene" | "ending";
+  system_asset: string | null;
+  selected_asset: string | null;
+  active_asset: string | null;
+};
+
 type LaperAssetWorkbenchProps = {
   imageEnabled: boolean;
   assets: AssetReviewItem[];
@@ -49,6 +58,7 @@ type LaperAssetWorkbenchProps = {
   voiceGeneratingSpeaker: string | null;
   busy: boolean;
   readonly: boolean;
+  published?: boolean;
   activeAsset: AssetReviewItem | null;
   assetPrompt: string;
   setAssetPrompt: (value: string) => void;
@@ -61,6 +71,11 @@ type LaperAssetWorkbenchProps = {
   retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
   sceneDisplayName: (asset: AssetReviewItem) => string;
+  sceneMusic: SceneMusicItem[];
+  musicAssets: string[];
+  sceneMusicEnabled: boolean;
+  saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
+  previewSceneMusic: (asset: string) => Promise<Blob>;
 };
 
 type AssetSection = "figures" | "backgrounds";
@@ -263,13 +278,32 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
   const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
+  const [musicSceneFile, setMusicSceneFile] = useState("");
+  const [musicAsset, setMusicAsset] = useState("");
+  const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
+  const [musicPreviewError, setMusicPreviewError] = useState("");
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicPreviewUrlRef = useRef<string | null>(null);
+  const musicFormHydratedRef = useRef("");
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
   const hasUnappliedVoiceSelection = props.voices.some(
     (item) => (voiceSelections[item.speaker] || item.voice) !== item.voice
   );
+
+  const selectedMusicScene = props.sceneMusic.find((item) => item.scene_file === musicSceneFile) || props.sceneMusic[0] || null;
+
+  useEffect(() => {
+    if (!selectedMusicScene) return;
+    const persistedKey = `${selectedMusicScene.scene_file}|${selectedMusicScene.selected_asset || ""}`;
+    if (musicSceneFile !== selectedMusicScene.scene_file || musicFormHydratedRef.current !== persistedKey) {
+      setMusicSceneFile(selectedMusicScene.scene_file);
+      setMusicAsset(selectedMusicScene.selected_asset || "");
+      musicFormHydratedRef.current = persistedKey;
+    }
+  }, [musicSceneFile, selectedMusicScene]);
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
 
@@ -298,12 +332,46 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     }
   }
 
+  function stopMusicPreview() {
+    const audio = musicPreviewAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    musicPreviewAudioRef.current = null;
+    if (musicPreviewUrlRef.current) URL.revokeObjectURL(musicPreviewUrlRef.current);
+    musicPreviewUrlRef.current = null;
+    setMusicPreviewingAsset(null);
+  }
+
+  async function playMusicPreview() {
+    const asset = musicAsset || selectedMusicScene?.system_asset || "";
+    if (!asset) return;
+    stopMusicPreview();
+    setMusicPreviewError("");
+    try {
+      const blob = await props.previewSceneMusic(asset);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      musicPreviewUrlRef.current = url;
+      musicPreviewAudioRef.current = audio;
+      audio.onended = stopMusicPreview;
+      setMusicPreviewingAsset(asset);
+      await audio.play();
+    } catch (error) {
+      stopMusicPreview();
+      setMusicPreviewError(error instanceof Error ? error.message : "音乐试听加载失败。");
+    }
+  }
+
   useEffect(() => {
     if (!props.voiceGeneratingSpeaker || !activeAudioRef.current) return;
     activeAudioRef.current.pause();
     activeAudioRef.current = null;
     setActiveVoiceSpeaker(null);
   }, [props.voiceGeneratingSpeaker]);
+
+  useEffect(() => () => stopMusicPreview(), []);
 
   return (
     <section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
@@ -491,7 +559,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             { label: "状态", value: hasGeneratedImages ? "有图" : "待图" },
             ...(props.voiceEnabled ? [{ label: "语音", value: `${props.voices.length} 条试听` }] : [])
           ]}
-          note={props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
+          note={props.published ? "新素材会先进入草稿，重新构建成功后才会更新当前游戏。" : props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
           footer={
             props.retryAction ? (
               <button
@@ -506,7 +574,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             ) : props.readonly ? (
               <span className="readonly-status">
                 <span className="inline-spinner" aria-hidden="true" />
-                游戏自动生成中
+                {props.published ? "完成态默认只读" : "游戏自动生成中"}
               </span>
             ) : (
               <button
@@ -516,11 +584,77 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 title={hasUnappliedVoiceSelection ? "已选择新音色，请先生成试听或恢复原选择" : undefined}
                 onClick={() => void props.buildGame()}
               >
-                确认素材并生成游戏
+                {props.published ? "使用草稿素材重新构建" : "确认素材并生成游戏"}
               </button>
             )
           }
         />
+        {props.sceneMusicEnabled && props.sceneMusic.length > 0 ? (
+          <section className="scene-music-editor" aria-label="场景音乐">
+            <span className="scene-music-kicker">SCENE MUSIC</span>
+            <h3>场景音乐</h3>
+            <p>不设置时保持系统自动选择；保存后会作为草稿，在下一次构建时生效。</p>
+            <label>
+              <span>场景</span>
+              <select
+                value={selectedMusicScene?.scene_file || ""}
+                disabled={props.readonly || props.busy}
+                onChange={(event) => {
+                  stopMusicPreview();
+                  setMusicSceneFile(event.target.value);
+                }}
+              >
+                {props.sceneMusic.map((item) => (
+                  <option key={item.scene_file} value={item.scene_file}>{item.kind === "ending" ? "结局 · " : "场景 · "}{item.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>音乐</span>
+              <select
+                value={musicAsset}
+                disabled={props.readonly || props.busy}
+                onChange={(event) => {
+                  stopMusicPreview();
+                  setMusicAsset(event.target.value);
+                }}
+              >
+                <option value="">系统自动{selectedMusicScene?.system_asset ? `（${selectedMusicScene.system_asset}）` : ""}</option>
+                {props.musicAssets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}
+              </select>
+            </label>
+            <div className="scene-music-preview">
+              <button
+                className={`scene-music-play ${musicPreviewingAsset ? "is-playing" : ""}`}
+                type="button"
+                disabled={props.busy || !(musicAsset || selectedMusicScene?.system_asset)}
+                aria-label={musicPreviewingAsset ? "停止音乐试听" : "试听所选音乐"}
+                aria-pressed={Boolean(musicPreviewingAsset)}
+                title={musicPreviewingAsset ? "停止试听" : "试听所选音乐"}
+                onClick={() => musicPreviewingAsset ? stopMusicPreview() : void playMusicPreview()}
+              >
+                {musicPreviewingAsset ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="6" width="3.5" height="12" rx="1" /><rect x="13.5" y="6" width="3.5" height="12" rx="1" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4a1.1 1.1 0 0 0 1.7.94l9.2-6.2a1.12 1.12 0 0 0 0-1.86l-9.2-6.2A1.1 1.1 0 0 0 8 5.8Z" /></svg>
+                )}
+              </button>
+              <div className="scene-music-preview-copy">
+                <strong>{musicPreviewingAsset ? "正在试听" : "试听当前选择"}</strong>
+                <span>{musicPreviewingAsset || musicAsset || selectedMusicScene?.system_asset || "暂无可试听音乐"}</span>
+              </div>
+            </div>
+            {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
+            <button
+              className="btn outline"
+              type="button"
+              disabled={props.readonly || props.busy || !selectedMusicScene || musicAsset === (selectedMusicScene.selected_asset || "")}
+              onClick={() => selectedMusicScene && void props.saveSceneMusic(selectedMusicScene.scene_file, musicAsset || null)}
+            >
+              {musicAsset ? "保存场景音乐" : "恢复系统选择"}
+            </button>
+          </section>
+        ) : null}
       </aside>
     </section>
   );

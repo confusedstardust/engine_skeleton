@@ -166,6 +166,7 @@ class RunJobRequest(BaseModel):
 class ArtifactUpdateRequest(BaseModel):
     path: str = Field(min_length=1)
     content: str
+    base_revision: int | None = Field(default=None, ge=0)
 
 
 class TTSPreviewRequest(BaseModel):
@@ -181,12 +182,38 @@ class GenerateNarrativeNodeRequest(BaseModel):
 
 class SyncNarrativeStructureRequest(BaseModel):
     narrative_plan: dict[str, Any]
+    base_revision: int | None = Field(default=None, ge=0)
 
 
 class AssetRegenerateRequest(BaseModel):
     filename: str = Field(min_length=1)
     prompt: str | None = None
     background: bool = True
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class SceneMusicOverrideRequest(BaseModel):
+    scene_file: str = Field(min_length=1)
+    asset: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+def _require_job_editable(job: dict[str, Any], base_revision: int | None = None) -> None:
+    if job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is running; wait for it to finish before editing")
+    current_revision = int(job.get("draft_revision", 0))
+    if base_revision is not None and base_revision != current_revision:
+        raise HTTPException(status_code=409, detail=f"draft revision changed: expected {base_revision}, current {current_revision}")
+
+
+def _artifact_edit_scope(relative: str) -> str:
+    if relative == "state/narrative_plan.json":
+        return "outline"
+    if relative == "assets_manifest.json":
+        return "assets"
+    if relative == "state/game_design_completed.json" or relative.startswith("public/game/scene/"):
+        return "scenes"
+    return "design"
 
 
 @app.get("/health")
@@ -252,6 +279,7 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
     relative = artifacts.normalize_artifact_path(request.path)
     if not artifacts.is_editable_artifact(relative):
         raise HTTPException(status_code=400, detail=f"artifact is not editable: {relative}")
+    _require_job_editable(job, request.base_revision)
 
     try:
         if relative.endswith(".json"):
@@ -263,6 +291,7 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
         raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}") from exc
 
     store.record_artifact(job, artifacts.artifact_key_for_path(relative), relative)
+    store.mark_draft_changed(job, _artifact_edit_scope(relative))
     return {"job": _get_owned_job_or_404(job_id, http_request), "path": relative, "saved": True}
 
 
@@ -289,11 +318,13 @@ def generate_narrative_node(job_id: str, request: GenerateNarrativeNodeRequest, 
 def sync_narrative_structure(job_id: str, request: SyncNarrativeStructureRequest, http_request: Request) -> dict[str, Any]:
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         plan = dict(request.narrative_plan)
         plan["narrative_structure"] = build_synced_narrative_structure(plan)
         path = store.artifact_path(job_id, "state/narrative_plan.json")
         write_json(path, plan)
         store.record_artifact(job, "narrative_plan", "state/narrative_plan.json")
+        store.mark_draft_changed(job, "outline")
         return {
             "job": _get_owned_job_or_404(job_id, http_request),
             "narrative_plan": plan,
@@ -355,6 +386,44 @@ def _asset_review_label_maps(job_dir: Path) -> tuple[dict[str, str], dict[str, s
     return character_labels, scene_labels
 
 
+def _scene_music_review(job_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    narrative_plan = _read_json_file(job_dir / "state" / "narrative_plan.json")
+    scene_plan = _read_json_file(job_dir / "state" / "scene_plan.json")
+    if not scene_plan and narrative_plan:
+        scene_plan = build_scene_plan(narrative_plan)
+    overrides_payload = _read_json_file(job_dir / "state" / "scene_music_overrides.json")
+    overrides = overrides_payload.get("scene_overrides", {})
+    overrides = overrides if isinstance(overrides, dict) else {}
+    bgm_assets = pipeline._load_bgm_assets()
+    music_assets = sorted({asset for group in bgm_assets.values() for asset in group}, key=str.lower)
+    script_lines = [
+        *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
+        *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
+    ]
+    plan = pipeline._build_bgm_plan("\n".join(script_lines), bgm_assets, scene_plan, overrides)
+    planned_by_scene = {str(item.get("scene_file", "")): item for item in plan}
+    entries: list[dict[str, Any]] = []
+    for collection, kind in ((scene_plan.get("scenes", []), "scene"), (scene_plan.get("endings", []), "ending")):
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            scene_file = str(item.get("scene_file", "")).strip()
+            if not scene_file:
+                continue
+            planned = planned_by_scene.get(scene_file, {})
+            label = str(item.get("node_name") or item.get("ending_type") or item.get("source_node") or scene_file).strip()
+            selected_asset = str(overrides.get(scene_file, "")).strip() or None
+            entries.append({
+                "scene_file": scene_file,
+                "label": label,
+                "kind": kind,
+                "system_asset": planned.get("system_asset") or planned.get("asset") or None,
+                "selected_asset": selected_asset,
+                "active_asset": planned.get("asset") or None,
+            })
+    return entries, music_assets
+
+
 def _character_display_name(filename: str, character_labels: dict[str, str]) -> str | None:
     stem = filename.removesuffix(".webp").removeprefix("figure_")
     parts = stem.split("_")
@@ -392,7 +461,9 @@ def _asset_review_item(
     filename = str(image.get("filename", "")).removesuffix(".webp")
     subdir = str(image.get("subdir", "")).strip()
     asset_relative = f"{subdir}/{filename}.webp"
-    asset_path = job_dir / "public" / "game" / asset_relative
+    draft_asset_path = job_dir / "draft" / "game" / asset_relative
+    asset_path = draft_asset_path if draft_asset_path.exists() else job_dir / "public" / "game" / asset_relative
+    asset_url_kind = "draft-game" if draft_asset_path.exists() else "game"
     kind = "\u89d2\u8272\u7acb\u7ed8" if subdir == "figure" or filename.startswith("figure_") else "\u573a\u666f\u80cc\u666f"
     available_scene = str(image.get("available_scene", "")).strip()
     scene_display_name = scene_labels.get(available_scene, "")
@@ -405,14 +476,16 @@ def _asset_review_item(
     if kind == "\u89d2\u8272\u7acb\u7ed8":
         avatar_name = f"miniavatar_{filename.removeprefix('figure_')}.webp"
         avatar_relative = f"figure/{avatar_name}"
-        avatar_path = job_dir / "public" / "game" / avatar_relative
+        draft_avatar_path = job_dir / "draft" / "game" / avatar_relative
+        avatar_path = draft_avatar_path if draft_avatar_path.exists() else job_dir / "public" / "game" / avatar_relative
+        avatar_url_kind = "draft-game" if draft_avatar_path.exists() else "game"
         avatar_exists = avatar_path.exists()
         avatar_url = _versioned_file_url(
-            _public_app_path(f"/play/{job_id}/game/{avatar_relative}"),
+            _public_app_path(f"/play/{job_id}/{avatar_url_kind}/{avatar_relative}"),
             avatar_path,
         )
     asset_url = _versioned_file_url(
-        _public_app_path(f"/play/{job_id}/game/{asset_relative}"),
+        _public_app_path(f"/play/{job_id}/{asset_url_kind}/{asset_relative}"),
         asset_path,
     )
     return {
@@ -469,10 +542,13 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     voice_review = _tts_voice_review_payload(job_id, job_dir, voice_enabled)
     manifest_path = job_dir / "assets_manifest.json"
     if not manifest_path.exists():
+        scene_music, music_assets = _scene_music_review(job_dir)
         return {
             "job": job,
             "assets": [],
             "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+            "scene_music": scene_music,
+            "music_assets": music_assets,
             **voice_review,
         }
     try:
@@ -483,12 +559,60 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     if not isinstance(images, list):
         raise HTTPException(status_code=422, detail="assets_manifest.json images must be an array")
     character_labels, scene_labels = _asset_review_label_maps(job_dir)
+    scene_music, music_assets = _scene_music_review(job_dir)
     return {
         "job": job,
         "assets": [_asset_review_item(job_id, job_dir, image, character_labels, scene_labels) for image in images if isinstance(image, dict)],
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+        "scene_music": scene_music,
+        "music_assets": music_assets,
         **voice_review,
     }
+
+
+@app.put("/jobs/{job_id}/scene-music")
+def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, http_request)
+    if job.get("options", {}).get("generation_mode", "advanced") != "advanced":
+        raise HTTPException(status_code=403, detail="scene music selection is available in advanced mode only")
+    _require_job_editable(job, request.base_revision)
+    job_dir = _job_dir_or_404(job_id)
+    scene_music, music_assets = _scene_music_review(job_dir)
+    valid_scenes = {str(item["scene_file"]) for item in scene_music}
+    scene_file = request.scene_file.replace("\\", "/").split("/")[-1]
+    if scene_file not in valid_scenes:
+        raise HTTPException(status_code=422, detail="unknown scene file")
+    asset = (request.asset or "").strip()
+    if asset and asset not in set(music_assets):
+        raise HTTPException(status_code=422, detail="music asset is not available in the library")
+    path = job_dir / "state" / "scene_music_overrides.json"
+    payload = _read_json_file(path)
+    overrides = payload.get("scene_overrides", {})
+    overrides = dict(overrides) if isinstance(overrides, dict) else {}
+    if asset:
+        overrides[scene_file] = asset
+    else:
+        overrides.pop(scene_file, None)
+    write_json(path, {"version": 1, "scene_overrides": overrides})
+    store.record_artifact(job, "scene_music_overrides", "state/scene_music_overrides.json")
+    store.mark_draft_changed(job, "music")
+    return {"job": _get_owned_job_or_404(job_id, http_request), "scene_file": scene_file, "asset": asset or None}
+
+
+@app.get("/jobs/{job_id}/music-library/{asset_name}")
+def preview_music_library_asset(job_id: str, asset_name: str, request: Request) -> FileResponse:
+    _get_owned_job_or_404(job_id, request)
+    clean_name = Path(asset_name).name
+    if clean_name != asset_name or clean_name.startswith("."):
+        raise HTTPException(status_code=404, detail="music asset not found")
+    available_assets = {asset for group in pipeline._load_bgm_assets().values() for asset in group}
+    if clean_name not in available_assets:
+        raise HTTPException(status_code=404, detail="music asset not found")
+    return _file_response_under_root(
+        root=settings.sound_effects_dir,
+        file_path=clean_name,
+        missing_detail="music asset not found",
+    )
 
 
 @app.post("/jobs/{job_id}/voices/preview")
@@ -519,11 +643,13 @@ def regenerate_asset(
         raise HTTPException(status_code=400, detail="invalid asset filename")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
         store.transition(job, "QUEUED", "ASSET_GENERATION")
         return {"job": job, "queued": True, "filename": filename}
     try:
         job = _get_owned_job_or_404(job_id, http_request)
+        _require_job_editable(job, request.base_revision)
         image = pipeline.regenerate_asset_image(job, filename, request.prompt)
         return {"job": _get_owned_job_or_404(job_id, http_request), "queued": False, "asset": image}
     except FileNotFoundError as exc:
@@ -534,7 +660,9 @@ def regenerate_asset(
 
 @app.post("/jobs/{job_id}/run")
 def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks, http_request: Request) -> dict[str, Any]:
-    _get_owned_job_or_404(job_id, http_request)
+    current_job = _get_owned_job_or_404(job_id, http_request)
+    if current_job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is already running")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_pipeline_background, job_id)
@@ -558,7 +686,9 @@ def run_phase(
 ) -> dict[str, Any]:
     if phase not in pipeline.phase_names():
         raise HTTPException(status_code=422, detail=f"unknown phase: {phase}")
-    _get_owned_job_or_404(job_id, http_request)
+    current_job = _get_owned_job_or_404(job_id, http_request)
+    if current_job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is already running")
     if request.background:
         job = _get_owned_job_or_404(job_id, http_request)
         background_tasks.add_task(run_phase_background, job_id, phase)
@@ -604,10 +734,24 @@ def play_game_asset(job_id: str, file_path: str) -> FileResponse:
     job_dir = _job_dir_or_404(job_id)
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    backup_root = job_dir / "state" / "published_game_backup"
+    game_root = backup_root if store.get(job_id).get("build_state") == "BUILDING" and backup_root.exists() else job_dir / "public" / "game"
     return _file_response_under_root(
-        root=job_dir / "public" / "game",
+        root=game_root,
         file_path=file_path,
         missing_detail=f"game asset not found: {file_path}",
+    )
+
+
+@app.get("/play/{job_id}/draft-game/{file_path:path}")
+def play_draft_game_asset(job_id: str, file_path: str) -> FileResponse:
+    if contains_hidden_path(file_path):
+        raise HTTPException(status_code=404, detail=f"draft game asset not found: {file_path}")
+    job_dir = _job_dir_or_404(job_id)
+    return _file_response_under_root(
+        root=job_dir / "draft" / "game",
+        file_path=file_path,
+        missing_detail=f"draft game asset not found: {file_path}",
     )
 
 
