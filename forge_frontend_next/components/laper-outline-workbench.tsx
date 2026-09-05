@@ -319,7 +319,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
           </header>
 
           <div className="laper-block-stack">
-            {pendingBrief && <PendingCard title={`正在生成${sectionMeta.label}`} brief={pendingBrief} />}
+            {pendingBrief && <PendingCard title={`AI 正在生成${sectionMeta.label}`} />}
 
             {section === "phases" &&
               props.plan.story_progression.map((step, index) => (
@@ -612,12 +612,11 @@ function LaperBlock(props: {
   );
 }
 
-function PendingCard({ title, brief }: { title: string; brief: string }) {
+function PendingCard({ title }: { title: string }) {
   return (
-    <article className="laper-block pending-card">
+    <article className="laper-block pending-card" aria-live="polite" aria-busy="true">
       <div className="pending-spinner" aria-hidden="true" />
       <strong>{title}</strong>
-      <p>{brief}</p>
     </article>
   );
 }

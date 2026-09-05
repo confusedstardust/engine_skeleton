@@ -219,6 +219,7 @@ type NarrativeNodeKind = "phase" | "ending" | "character";
 type GeneratedNarrativeNodeResponse = {
   kind: NarrativeNodeKind;
   node: StoryStep | NarrativeEnding | NarrativeCharacter;
+  provider: "deepseek" | "mimo";
 };
 
 type SyncNarrativeStructureResponse = {
@@ -303,7 +304,35 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
     const isHtml = /^\s*<(?:!DOCTYPE|html\b)/i.test(body);
-    throw new Error(isHtml ? `请求失败（${response.status}）` : body);
+    if (isHtml) {
+      throw new Error(`请求失败（HTTP ${response.status}）：服务器没有返回可解析的错误详情。`);
+    }
+    try {
+      const payload = JSON.parse(body) as { detail?: unknown };
+      const detail = payload.detail;
+      if (typeof detail === "string") {
+        throw new Error(`请求失败（HTTP ${response.status}）：${detail}`);
+      }
+      if (detail && typeof detail === "object") {
+        const error = detail as {
+          message?: string;
+          operation?: string;
+          provider?: string;
+          diagnostic_id?: string;
+        };
+        const context = [
+          error.operation ? `环节：${error.operation}` : "",
+          error.provider ? `模型：${error.provider === "mimo" ? "MiMo" : error.provider}` : "",
+          error.diagnostic_id ? `诊断编号：${error.diagnostic_id}` : ""
+        ].filter(Boolean);
+        throw new Error(
+          `请求失败（HTTP ${response.status}）：${error.message || body}${context.length ? `（${context.join("；")}）` : ""}`
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("请求失败（HTTP")) throw error;
+    }
+    throw new Error(`请求失败（HTTP ${response.status}）：${body}`);
   }
   return response.json() as Promise<T>;
 }
@@ -1018,32 +1047,49 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   async function generateAndAppendNode(kind: NarrativeNodeKind, prompt: string) {
     if (!plan || outlineLocked) return;
     const brief = prompt.trim() || `新增${kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色"}`;
+    const nodeLabel = kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色";
     setBusy(true);
     if (kind === "phase") setPendingPhaseBrief(brief);
     if (kind === "ending") setPendingEndingBrief(brief);
     if (kind === "character") setPendingCharacterBrief(brief);
     try {
-      const result = await api<GeneratedNarrativeNodeResponse>(`/jobs/${jobId}/narrative-node`, {
-        method: "POST",
-        body: JSON.stringify({ kind, prompt: brief, narrative_plan: plan })
-      });
+      let result: GeneratedNarrativeNodeResponse;
+      try {
+        result = await api<GeneratedNarrativeNodeResponse>(`/jobs/${jobId}/narrative-node`, {
+          method: "POST",
+          body: JSON.stringify({ kind, prompt: brief, narrative_plan: plan })
+        });
+      } catch (error) {
+        throw new Error(`AI 生成${nodeLabel}失败：${error instanceof Error ? error.message : "未知错误"}`);
+      }
       const nextPlan: NarrativePlan =
         result.kind === "phase"
           ? { ...plan, story_progression: [...plan.story_progression, result.node as StoryStep] }
           : result.kind === "ending"
             ? { ...plan, endings: [...plan.endings, result.node as NarrativeEnding] }
             : { ...plan, characters: [...plan.characters, result.node as NarrativeCharacter] };
-      const synced = await api<SyncNarrativeStructureResponse>(`/jobs/${jobId}/narrative-structure/sync`, {
-        method: "POST",
-        body: JSON.stringify({ narrative_plan: nextPlan })
-      });
+      let synced: SyncNarrativeStructureResponse;
+      try {
+        synced = await api<SyncNarrativeStructureResponse>(`/jobs/${jobId}/narrative-structure/sync`, {
+          method: "POST",
+          body: JSON.stringify({ narrative_plan: nextPlan })
+        });
+      } catch (error) {
+        // Preserve successful AI output locally so the user can retry without regenerating it.
+        setPlan(nextPlan);
+        planRef.current = nextPlan;
+        setPlanDirty(true);
+        throw new Error(
+          `AI 已生成${nodeLabel}，但同步故事结构失败；新内容暂存在当前编辑器中，请点击“保存大纲”重试。${error instanceof Error ? ` 详情：${error.message}` : ""}`
+        );
+      }
       setPlan(synced.narrative_plan);
       planRef.current = synced.narrative_plan;
       setPlanDirty(false);
       if (kind === "phase") setPhaseBrief("");
       if (kind === "ending") setEndingBrief("");
       if (kind === "character") setCharacterBrief("");
-      setMessage(`新增${kind === "phase" ? "阶段" : kind === "ending" ? "结局" : "角色"}已保存，流程图已同步。`);
+      setMessage(`已使用 ${result.provider === "mimo" ? "MiMo" : "DeepSeek"} 新增${nodeLabel}并同步流程图。`);
       await refresh(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "新增节点失败。");

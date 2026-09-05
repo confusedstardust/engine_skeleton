@@ -4329,20 +4329,20 @@ a {
 }
 
 .pending-card {
+  grid-template-columns: 1fr;
+  justify-items: center;
   place-items: center;
-  min-height: 180px;
+  min-height: 124px;
+  gap: 12px;
+  padding: 24px;
   text-align: center;
   color: var(--ink-muted);
   border-style: dashed;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(251, 243, 232, 0.78));
 }
 
 .pending-card strong {
   color: var(--ink);
-}
-
-.pending-card p {
-  margin: 0;
-  line-height: 1.7;
 }
 
 .pending-spinner {
