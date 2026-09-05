@@ -40,6 +40,15 @@ export type TTSVoiceReviewItem = {
   preview_url: string | null;
 };
 
+export type SceneMusicItem = {
+  scene_file: string;
+  label: string;
+  kind: "scene" | "ending";
+  system_asset: string | null;
+  selected_asset: string | null;
+  active_asset: string | null;
+};
+
 type LaperAssetWorkbenchProps = {
   imageEnabled: boolean;
   assets: AssetReviewItem[];
@@ -62,6 +71,10 @@ type LaperAssetWorkbenchProps = {
   retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
   sceneDisplayName: (asset: AssetReviewItem) => string;
+  sceneMusic: SceneMusicItem[];
+  musicAssets: string[];
+  sceneMusicEnabled: boolean;
+  saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
 };
 
 type AssetSection = "figures" | "backgrounds";
@@ -264,6 +277,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
   const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
+  const [musicSceneFile, setMusicSceneFile] = useState("");
+  const [musicAsset, setMusicAsset] = useState("");
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
@@ -271,6 +286,14 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const hasUnappliedVoiceSelection = props.voices.some(
     (item) => (voiceSelections[item.speaker] || item.voice) !== item.voice
   );
+
+  const selectedMusicScene = props.sceneMusic.find((item) => item.scene_file === musicSceneFile) || props.sceneMusic[0] || null;
+
+  useEffect(() => {
+    if (!selectedMusicScene) return;
+    if (musicSceneFile !== selectedMusicScene.scene_file) setMusicSceneFile(selectedMusicScene.scene_file);
+    setMusicAsset(selectedMusicScene.selected_asset || "");
+  }, [musicSceneFile, selectedMusicScene]);
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
 
@@ -522,6 +545,44 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             )
           }
         />
+        {props.sceneMusicEnabled && props.sceneMusic.length > 0 ? (
+          <section className="scene-music-editor" aria-label="场景音乐">
+            <span className="scene-music-kicker">SCENE MUSIC</span>
+            <h3>场景音乐</h3>
+            <p>不设置时保持系统自动选择；保存后会作为草稿，在下一次构建时生效。</p>
+            <label>
+              <span>场景</span>
+              <select
+                value={selectedMusicScene?.scene_file || ""}
+                disabled={props.readonly || props.busy}
+                onChange={(event) => setMusicSceneFile(event.target.value)}
+              >
+                {props.sceneMusic.map((item) => (
+                  <option key={item.scene_file} value={item.scene_file}>{item.kind === "ending" ? "结局 · " : "场景 · "}{item.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>音乐</span>
+              <select
+                value={musicAsset}
+                disabled={props.readonly || props.busy}
+                onChange={(event) => setMusicAsset(event.target.value)}
+              >
+                <option value="">系统自动{selectedMusicScene?.system_asset ? `（${selectedMusicScene.system_asset}）` : ""}</option>
+                {props.musicAssets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}
+              </select>
+            </label>
+            <button
+              className="btn outline"
+              type="button"
+              disabled={props.readonly || props.busy || !selectedMusicScene || musicAsset === (selectedMusicScene.selected_asset || "")}
+              onClick={() => selectedMusicScene && void props.saveSceneMusic(selectedMusicScene.scene_file, musicAsset || null)}
+            >
+              {musicAsset ? "保存场景音乐" : "恢复系统选择"}
+            </button>
+          </section>
+        ) : null}
       </aside>
     </section>
   );

@@ -175,6 +175,17 @@ type AssetReviewResponse = {
   voice_enabled: boolean;
   voices: TTSVoiceReviewItem[];
   available_voices: TTSVoiceOption[];
+  scene_music: SceneMusicItem[];
+  music_assets: string[];
+};
+
+type SceneMusicItem = {
+  scene_file: string;
+  label: string;
+  kind: "scene" | "ending";
+  system_asset: string | null;
+  selected_asset: string | null;
+  active_asset: string | null;
 };
 
 type StoryStep = {
@@ -1118,6 +1129,23 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function saveSceneMusic(sceneFile: string, asset: string | null) {
+    setBusy(true);
+    setMessage(asset ? `正在为 ${sceneFile} 保存场景音乐...` : `正在恢复 ${sceneFile} 的系统场景音乐...`);
+    try {
+      await api(`/jobs/${jobId}/scene-music`, {
+        method: "PUT",
+        body: JSON.stringify({ scene_file: sceneFile, asset, base_revision: data?.job.draft_revision ?? 0 })
+      });
+      setMessage(asset ? "场景音乐已保存为草稿；重新构建后会生效。" : "已恢复系统自动选择的场景音乐。")
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存场景音乐失败。")
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function previewCharacterVoice(speaker: string, voice: string) {
     setVoiceGeneratingSpeaker(speaker);
     setBusy(true);
@@ -1363,6 +1391,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             previewVoice={previewCharacterVoice}
             voiceGeneratingSpeaker={voiceGeneratingSpeaker}
             buildGame={buildGameFromAssets}
+            sceneMusic={assetReview?.scene_music || []}
+            musicAssets={assetReview?.music_assets || []}
+            sceneMusicEnabled={!autoMode}
+            saveSceneMusic={saveSceneMusic}
             gameReady={hasPublishedBuild}
             assetsGenerating={isAssetGenerationRunning}
             gameBuilding={isGameBuildRunning}
@@ -1466,6 +1498,10 @@ function AssetReviewPanel(props: {
   previewVoice: (speaker: string, voice: string) => Promise<void>;
   voiceGeneratingSpeaker: string | null;
   buildGame: () => Promise<void>;
+  sceneMusic: SceneMusicItem[];
+  musicAssets: string[];
+  sceneMusicEnabled: boolean;
+  saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   gameReady: boolean;
   assetsGenerating: boolean;
   gameBuilding: boolean;
@@ -1537,6 +1573,10 @@ function AssetReviewPanel(props: {
       regenerateAsset={props.regenerateAsset}
       previewVoice={props.previewVoice}
       voiceGeneratingSpeaker={props.voiceGeneratingSpeaker}
+      sceneMusic={props.sceneMusic}
+      musicAssets={props.musicAssets}
+      sceneMusicEnabled={props.sceneMusicEnabled}
+      saveSceneMusic={props.saveSceneMusic}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}

@@ -2031,6 +2031,22 @@ a {
 .completion-revisions dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
 .completion-actions { position: relative; z-index: 1; display: grid; gap: 10px; }
 
+.scene-music-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(247, 243, 236, 0.78);
+  border: 1px solid var(--border-light);
+  border-top: 3px solid var(--cinnabar);
+}
+
+.scene-music-editor h3 { margin: 0; font-family: "Noto Serif SC", "STSong", serif; font-size: 18px; }
+.scene-music-editor p { margin: 0; color: var(--ink-muted); font-size: 12px; line-height: 1.65; }
+.scene-music-kicker { color: var(--cinnabar); font-size: 10px; font-weight: 800; letter-spacing: 0.16em; }
+.scene-music-editor label { display: grid; gap: 5px; color: var(--ink-muted); font-size: 12px; }
+.scene-music-editor select { width: 100%; min-height: 36px; padding: 0 8px; color: var(--ink); background: var(--paper); border: 1px solid var(--border); border-radius: 4px; }
+
 .workspace-hero p,
 .workspace-status span,
 .node-detail-head p,

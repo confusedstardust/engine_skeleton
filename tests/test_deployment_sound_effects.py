@@ -123,6 +123,28 @@ def test_bgm_plan_uses_explicit_music_moods_and_semantic_fallbacks():
     assert plan[2]["source"] == "ending.semantic_fallback"
 
 
+def test_bgm_plan_uses_user_scene_override_only_when_selected_asset_is_available():
+    pipeline = WebGALPipeline()
+    plan = pipeline._build_bgm_plan(
+        "Scene:start.txt\n:opening;",
+        {"opening": ["Bgm_Opening_ordinary.mp3"], "dialog": ["Bgm_Dialog001.mp3"], "ending": []},
+        {"scenes": [{"scene_file": "start.txt", "music_mood": "ordinary"}], "endings": []},
+        {"start.txt": "Bgm_Dialog001.mp3"},
+    )
+    assert plan[0]["system_asset"] == "Bgm_Opening_ordinary.mp3"
+    assert plan[0]["asset"] == "Bgm_Dialog001.mp3"
+    assert plan[0]["source"] == "user.scene_override"
+
+    ignored = pipeline._build_bgm_plan(
+        "Scene:start.txt\n:opening;",
+        {"opening": ["Bgm_Opening_ordinary.mp3"], "dialog": [], "ending": []},
+        {"scenes": [{"scene_file": "start.txt", "music_mood": "ordinary"}], "endings": []},
+        {"start.txt": "not-in-library.mp3"},
+    )
+    assert ignored[0]["asset"] == "Bgm_Opening_ordinary.mp3"
+    assert ignored[0]["override"] is False
+
+
 def test_generate_config_uses_planned_opening_bgm_and_preserves_all_keys(tmp_path):
     pipeline = WebGALPipeline()
     job_dir = tmp_path / "job"

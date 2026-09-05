@@ -695,7 +695,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             script_text = webgal_path.read_text(encoding="utf-8")
             scene_plan_path = job_dir / "state" / "scene_plan.json"
             scene_plan = read_json(scene_plan_path) if scene_plan_path.exists() else {}
-            bgm_plan = self._build_bgm_plan(script_text, bgm_assets, scene_plan)
+            overrides_path = job_dir / "state" / "scene_music_overrides.json"
+            overrides_payload = read_json(overrides_path) if overrides_path.exists() else {}
+            overrides = overrides_payload.get("scene_overrides", {}) if isinstance(overrides_payload, dict) else {}
+            bgm_plan = self._build_bgm_plan(script_text, bgm_assets, scene_plan, overrides)
             write_json(job_dir / "state" / "bgm_plan.json", bgm_plan)
             self.store.record_artifact(job, "bgm_plan", "state/bgm_plan.json")
 
@@ -957,6 +960,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         script_text: str,
         bgm_assets: dict[str, list[str]],
         scene_plan: dict[str, Any] | None = None,
+        scene_overrides: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         opening_assets = bgm_assets.get("opening", [])
         dialog_assets = bgm_assets.get("dialog", [])
@@ -1062,6 +1066,17 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                         "fallback": bool(requested_mood and resolved_mood and requested_mood != resolved_mood),
                     }
                 )
+        overrides = scene_overrides if isinstance(scene_overrides, dict) else {}
+        available_assets = {asset for group in bgm_assets.values() for asset in group}
+        for item in plan:
+            override = str(overrides.get(str(item.get("scene_file", "")), "")).strip()
+            if override and override in available_assets:
+                item["system_asset"] = item["asset"]
+                item["asset"] = override
+                item["source"] = "user.scene_override"
+                item["override"] = True
+            else:
+                item["override"] = False
         return plan
 
     def _select_mood_bgm(

@@ -192,6 +192,12 @@ class AssetRegenerateRequest(BaseModel):
     base_revision: int | None = Field(default=None, ge=0)
 
 
+class SceneMusicOverrideRequest(BaseModel):
+    scene_file: str = Field(min_length=1)
+    asset: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+
+
 def _require_job_editable(job: dict[str, Any], base_revision: int | None = None) -> None:
     if job.get("status") in {"RUNNING", "QUEUED"}:
         raise HTTPException(status_code=409, detail="job is running; wait for it to finish before editing")
@@ -380,6 +386,44 @@ def _asset_review_label_maps(job_dir: Path) -> tuple[dict[str, str], dict[str, s
     return character_labels, scene_labels
 
 
+def _scene_music_review(job_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    narrative_plan = _read_json_file(job_dir / "state" / "narrative_plan.json")
+    scene_plan = _read_json_file(job_dir / "state" / "scene_plan.json")
+    if not scene_plan and narrative_plan:
+        scene_plan = build_scene_plan(narrative_plan)
+    overrides_payload = _read_json_file(job_dir / "state" / "scene_music_overrides.json")
+    overrides = overrides_payload.get("scene_overrides", {})
+    overrides = overrides if isinstance(overrides, dict) else {}
+    bgm_assets = pipeline._load_bgm_assets()
+    music_assets = sorted({asset for group in bgm_assets.values() for asset in group}, key=str.lower)
+    script_lines = [
+        *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
+        *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
+    ]
+    plan = pipeline._build_bgm_plan("\n".join(script_lines), bgm_assets, scene_plan, overrides)
+    planned_by_scene = {str(item.get("scene_file", "")): item for item in plan}
+    entries: list[dict[str, Any]] = []
+    for collection, kind in ((scene_plan.get("scenes", []), "scene"), (scene_plan.get("endings", []), "ending")):
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            scene_file = str(item.get("scene_file", "")).strip()
+            if not scene_file:
+                continue
+            planned = planned_by_scene.get(scene_file, {})
+            label = str(item.get("node_name") or item.get("ending_type") or item.get("source_node") or scene_file).strip()
+            selected_asset = str(overrides.get(scene_file, "")).strip() or None
+            entries.append({
+                "scene_file": scene_file,
+                "label": label,
+                "kind": kind,
+                "system_asset": planned.get("system_asset") or planned.get("asset") or None,
+                "selected_asset": selected_asset,
+                "active_asset": planned.get("asset") or None,
+            })
+    return entries, music_assets
+
+
 def _character_display_name(filename: str, character_labels: dict[str, str]) -> str | None:
     stem = filename.removesuffix(".webp").removeprefix("figure_")
     parts = stem.split("_")
@@ -498,10 +542,13 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     voice_review = _tts_voice_review_payload(job_id, job_dir, voice_enabled)
     manifest_path = job_dir / "assets_manifest.json"
     if not manifest_path.exists():
+        scene_music, music_assets = _scene_music_review(job_dir)
         return {
             "job": job,
             "assets": [],
             "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+            "scene_music": scene_music,
+            "music_assets": music_assets,
             **voice_review,
         }
     try:
@@ -512,12 +559,44 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     if not isinstance(images, list):
         raise HTTPException(status_code=422, detail="assets_manifest.json images must be an array")
     character_labels, scene_labels = _asset_review_label_maps(job_dir)
+    scene_music, music_assets = _scene_music_review(job_dir)
     return {
         "job": job,
         "assets": [_asset_review_item(job_id, job_dir, image, character_labels, scene_labels) for image in images if isinstance(image, dict)],
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
+        "scene_music": scene_music,
+        "music_assets": music_assets,
         **voice_review,
     }
+
+
+@app.put("/jobs/{job_id}/scene-music")
+def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, http_request)
+    if job.get("options", {}).get("generation_mode", "advanced") != "advanced":
+        raise HTTPException(status_code=403, detail="scene music selection is available in advanced mode only")
+    _require_job_editable(job, request.base_revision)
+    job_dir = _job_dir_or_404(job_id)
+    scene_music, music_assets = _scene_music_review(job_dir)
+    valid_scenes = {str(item["scene_file"]) for item in scene_music}
+    scene_file = request.scene_file.replace("\\", "/").split("/")[-1]
+    if scene_file not in valid_scenes:
+        raise HTTPException(status_code=422, detail="unknown scene file")
+    asset = (request.asset or "").strip()
+    if asset and asset not in set(music_assets):
+        raise HTTPException(status_code=422, detail="music asset is not available in the library")
+    path = job_dir / "state" / "scene_music_overrides.json"
+    payload = _read_json_file(path)
+    overrides = payload.get("scene_overrides", {})
+    overrides = dict(overrides) if isinstance(overrides, dict) else {}
+    if asset:
+        overrides[scene_file] = asset
+    else:
+        overrides.pop(scene_file, None)
+    write_json(path, {"version": 1, "scene_overrides": overrides})
+    store.record_artifact(job, "scene_music_overrides", "state/scene_music_overrides.json")
+    store.mark_draft_changed(job, "music")
+    return {"job": _get_owned_job_or_404(job_id, http_request), "scene_file": scene_file, "asset": asset or None}
 
 
 @app.post("/jobs/{job_id}/voices/preview")
