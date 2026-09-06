@@ -177,6 +177,7 @@ type AssetReviewResponse = {
   available_voices: TTSVoiceOption[];
   scene_music: SceneMusicItem[];
   music_assets: string[];
+  particle_effects: ParticleEffectReview;
 };
 
 type SceneMusicItem = {
@@ -186,6 +187,38 @@ type SceneMusicItem = {
   system_asset: string | null;
   selected_asset: string | null;
   active_asset: string | null;
+};
+
+type ParticleEffectPreset = {
+  id: string;
+  label: string;
+  description: string;
+  asset: string;
+  preview_url: string;
+  count: number;
+  speed: number;
+  scale: number;
+  angle: number;
+  opacity: number;
+  drift: number;
+  gravity: number;
+  rotation_speed: number;
+  layer: "foreground" | "background";
+  blend_mode: "normal" | "add" | "screen";
+};
+
+type SceneEffectAssignment = Omit<ParticleEffectPreset, "id" | "label" | "description" | "preview_url"> & {
+  effect_id: string;
+};
+
+type ParticleEffectReview = {
+  effects: ParticleEffectPreset[];
+  scenes: Array<{
+    scene_file: string;
+    label: string;
+    kind: "scene" | "ending";
+    assignment: SceneEffectAssignment | null;
+  }>;
 };
 
 type StoryStep = {
@@ -932,8 +965,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
 
   function beginCompletedEdit() {
     setEditScope("draft");
-    setStage("scenes");
-    setMessage("已进入草稿编辑；可在场景与素材页修改，当前可玩版本不会立即改变。");
+    setStage("assets");
+    setMessage("已进入草稿编辑；可在素材审阅页调整素材、音乐、语音和特效，也可切换到场景页修改内容。当前可玩版本不会立即改变。");
   }
 
   function exitCompletedEdit() {
@@ -1117,9 +1150,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     void generateAndAppendNode("character", characterBrief);
   }
 
-  async function saveScenes(rebuild = false) {
+  async function saveScenes(applyChanges = false) {
     setBusy(true);
-    setMessage(scenesDirty ? "正在保存场景内容..." : hasPublishedBuild ? "正在启动重新构建..." : "正在启动素材阶段...");
+    setMessage(scenesDirty ? "正在保存场景内容..." : hasPublishedBuild ? "正在应用已保存的修改..." : "正在启动素材阶段...");
     try {
       if (scenesDirty) {
         await api(`/jobs/${jobId}/artifacts`, {
@@ -1133,14 +1166,14 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         setScenesDirty(false);
       }
       if (hasPublishedBuild) {
-        if (rebuild) {
-          await api<Job>(`/jobs/${jobId}/phases/game_build`, {
+        if (applyChanges) {
+          await api<Job>(`/jobs/${jobId}/apply-draft`, {
             method: "POST",
             body: JSON.stringify({ background: true })
           });
           setEditScope("none");
           setStage("complete");
-          setMessage("正在从已保存的草稿重新构建；完成前仍可打开上一版本。");
+          setMessage("正在把已保存的场景修改应用到当前游戏；未修改内容会保持原样。");
         } else {
           setMessage("场景草稿已保存；当前游戏仍是上一次发布版本。");
         }
@@ -1187,7 +1220,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         method: "PUT",
         body: JSON.stringify({ scene_file: sceneFile, asset, base_revision: data?.job.draft_revision ?? 0 })
       });
-      setMessage(asset ? "场景音乐已保存为草稿；重新构建后会生效。" : "已恢复系统自动选择的场景音乐。")
+      setMessage(asset ? "场景音乐已保存；点击“应用修改到游戏”后会更新对应场景。" : "已恢复系统自动选择的场景音乐；应用修改后生效。")
       await refresh(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存场景音乐失败。")
@@ -1203,6 +1236,23 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     );
     if (!response.ok) throw new Error("音乐试听加载失败。");
     return response.blob();
+  }
+
+  async function saveSceneEffect(sceneFile: string, assignment: SceneEffectAssignment | null) {
+    setBusy(true);
+    setMessage(assignment ? `正在保存 ${sceneFile} 的场景特效...` : `正在移除 ${sceneFile} 的场景特效...`);
+    try {
+      await api(`/jobs/${jobId}/scene-effect`, {
+        method: "PUT",
+        body: JSON.stringify({ scene_file: sceneFile, ...(assignment || {}), base_revision: data?.job.draft_revision ?? 0 })
+      });
+      setMessage(assignment ? "场景特效已保存；应用修改后只更新对应场景。" : "场景特效已移除；应用修改后生效。");
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存场景特效失败。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function previewCharacterVoice(speaker: string, voice: string) {
@@ -1226,9 +1276,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
 
   async function buildGameFromAssets() {
     setBusy(true);
-    setMessage("正在改写 WebGAL 脚本并生成游戏...");
+    setMessage(hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
     try {
-      await api<Job>(`/jobs/${jobId}/phases/game_build`, {
+      await api<Job>(hasPublishedBuild ? `/jobs/${jobId}/apply-draft` : `/jobs/${jobId}/phases/game_build`, {
         method: "POST",
         body: JSON.stringify({ background: true })
       });
@@ -1236,7 +1286,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         setEditScope("none");
         setStage("complete");
       }
-      setMessage("游戏生成已启动，完成后可以点击右上角打开游戏。");
+      setMessage(hasPublishedBuild ? "修改同步已启动；未修改的场景和素材会保持原样。" : "游戏生成已启动，完成后可以点击右上角打开游戏。");
       await refresh(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "生成游戏失败。");
@@ -1375,7 +1425,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
 
         {editScope !== "none" ? (
           <div className="draft-edit-banner">
-            <div><strong>草稿编辑中</strong><span>当前可玩版本不会立即改变，重新构建成功后才会更新。</span></div>
+            <div><strong>草稿编辑中</strong><span>当前可玩版本不会立即改变；点击应用后，只同步实际修改过的内容。</span></div>
             <button className="btn outline" type="button" onClick={exitCompletedEdit}>退出编辑</button>
           </div>
         ) : null}
@@ -1383,7 +1433,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         <div className={`workspace-status workflow-status ${failedRetry ? "failed" : ""}`} role="status" aria-live="polite">
           <strong>
             {isGenerating ? <span className="inline-spinner" aria-hidden="true" /> : null}
-            {failedRetry ? "生成失败 · 可重试" : data.job.phase || (hasPublishedBuild ? data.job.build_state === "STALE" ? "草稿待构建" : "发布版本可用" : "等待中")}
+            {failedRetry ? "生成失败 · 可重试" : data.job.phase || (hasPublishedBuild ? data.job.build_state === "STALE" ? "修改待应用" : "发布版本可用" : "等待中")}
           </strong>
           <span>{data.job.error || message}</span>
         </div>
@@ -1451,6 +1501,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             sceneMusicEnabled={!autoMode}
             saveSceneMusic={saveSceneMusic}
             previewSceneMusic={previewSceneMusic}
+            particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
+            saveSceneEffect={saveSceneEffect}
             gameReady={hasPublishedBuild}
             buildState={data.job.build_state || "CURRENT"}
             hasDraftChanges={(data.job.draft_revision ?? 0) > (data.job.published_revision ?? 0) || data.job.build_state === "STALE"}
@@ -1514,20 +1566,20 @@ function CompletionPanel(props: {
       <div className="completion-seal" aria-hidden="true">成</div>
       <div className="completion-copy">
         <span className="completion-kicker">PUBLISHED BUILD</span>
-        <h2 id="completion-title">{building ? "正在构建新版本" : failed ? "新版本构建失败" : stale ? "已有草稿修改" : "当前游戏已发布"}</h2>
+        <h2 id="completion-title">{building ? "正在应用修改" : failed ? "修改应用失败" : stale ? "已有草稿修改" : "当前游戏已发布"}</h2>
         <p>
           {building
-            ? "构建完成前，打开游戏仍会进入上一次成功版本。"
+            ? "修改应用完成前，打开游戏仍会进入上一次成功版本。"
             : failed
-              ? `上一版游戏仍可正常打开。${props.job.error ? `失败原因：${props.job.error}` : "可以检查草稿后重新构建。"}`
+              ? `上一版游戏仍可正常打开。${props.job.error ? `失败原因：${props.job.error}` : "可以检查草稿后重新应用修改。"}`
               : stale
-                ? "当前可玩版本仍然安全保留。进入对应编辑区，可以继续修改或重新构建。"
+                ? "当前可玩版本仍然安全保留。进入对应编辑区，可以继续修改并局部应用。"
                 : "成品默认保持只读，只有明确进入编辑模式后才会建立草稿。"}
         </p>
         <dl className="completion-revisions">
           <div><dt>当前发布</dt><dd>R{props.job.published_revision ?? 0}</dd></div>
           <div><dt>编辑草稿</dt><dd>R{props.job.draft_revision ?? 0}</dd></div>
-          <div><dt>构建状态</dt><dd>{state}</dd></div>
+          <div><dt>同步状态</dt><dd>{state}</dd></div>
         </dl>
       </div>
       <div className="completion-actions">
@@ -1555,6 +1607,8 @@ function AssetReviewPanel(props: {
   sceneMusicEnabled: boolean;
   saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   previewSceneMusic: (asset: string) => Promise<Blob>;
+  particleEffects: ParticleEffectReview;
+  saveSceneEffect: (sceneFile: string, assignment: SceneEffectAssignment | null) => Promise<void>;
   gameReady: boolean;
   buildState: string;
   hasDraftChanges: boolean;
@@ -1635,6 +1689,8 @@ function AssetReviewPanel(props: {
       sceneMusicEnabled={props.sceneMusicEnabled}
       saveSceneMusic={props.saveSceneMusic}
       previewSceneMusic={props.previewSceneMusic}
+      particleEffects={props.particleEffects}
+      saveSceneEffect={props.saveSceneEffect}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}
@@ -2083,13 +2139,13 @@ function SceneEditor(props: {
             { label: "当前行数", value: scene.lines.length },
             { label: "状态", value: props.scenesDirty ? "未保存" : "已同步" }
           ]}
-          note={props.published ? "修改会先保存为草稿；重新构建成功后才会更新当前游戏。" : "按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"}
+          note={props.published ? "修改会先保存为草稿；应用时只更新发生变化的场景。" : "按场景审阅旁白、对白和分支内容，保存后进入素材阶段。"}
           footer={
             !props.readonly ? (
               props.published ? (
                 <>
                   <button className="btn outline" type="button" disabled={props.busy || !props.scenesDirty} onClick={() => props.saveScenes(false)}>仅保存草稿</button>
-                  <button className="btn primary" type="button" disabled={props.busy} onClick={() => props.saveScenes(true)}>保存并重新构建</button>
+                  <button className="btn primary" type="button" disabled={props.busy} onClick={() => props.saveScenes(true)}>保存并应用到游戏</button>
                 </>
               ) : (
                 <button className="btn primary" type="button" disabled={props.busy} onClick={() => props.saveScenes(false)}>保存并生成素材</button>

@@ -139,6 +139,7 @@ def _repair_scene_lines(
     stage_positions: dict[str, str | None] = {"left": None, "center": None, "right": None}
     lines, unreachable_content_fixes = _remove_unreachable_scene_tail(lines, relative_file)
     fixes.extend(unreachable_content_fixes)
+    figure_positions = _scene_figure_position_plan(lines)
     for line_index, original_line in enumerate(lines):
         original_index = line_index + 1
         line, content_fixes = _sanitize_generated_content_line(original_line)
@@ -165,6 +166,36 @@ def _repair_scene_lines(
                     message="Normalized center figure clear to changeFigure:none;.",
                 )
             )
+
+        figure_change = _parse_change_figure(line)
+        if figure_change:
+            figure, _position = figure_change
+            if _is_figure_clear(figure):
+                line_with_next = _ensure_next_arg(line)
+                if line_with_next != line:
+                    line = line_with_next
+                    fixes.append(
+                        AppliedFix(
+                            code="add_next_to_figure_clear",
+                            file=relative_file,
+                            line=original_index,
+                            message="Added -next to figure clear command.",
+                        )
+                    )
+            elif not _has_figure_id_arg(line) and figure in figure_positions:
+                assigned_position = figure_positions[figure]
+                positioned_line = _set_change_figure_position(line, assigned_position)
+                positioned_line = _ensure_next_arg(positioned_line)
+                if positioned_line != line:
+                    line = positioned_line
+                    fixes.append(
+                        AppliedFix(
+                            code="normalize_scene_figure_position",
+                            file=relative_file,
+                            line=original_index,
+                            message=f"Assigned {figure} to the scene's {assigned_position} figure slot and ensured -next.",
+                        )
+                    )
 
         normalized_dialogue = correct_inline_dialogue_direction(line)
         if normalized_dialogue != line:
@@ -466,6 +497,53 @@ def _parse_change_figure(line: str) -> tuple[str, str] | None:
     return match.group("figure").strip(), position
 
 
+def _scene_figure_position_plan(lines: list[str]) -> dict[str, str]:
+    """Assign stable standard slots from first appearance for two/three-character scenes."""
+    figures: list[str] = []
+    for line in lines:
+        parsed = _parse_change_figure(line)
+        if not parsed or _has_figure_id_arg(line):
+            continue
+        figure, _position = parsed
+        if _is_figure_clear(figure) or figure in figures:
+            continue
+        figures.append(figure)
+
+    if len(figures) == 2:
+        positions = ("left", "right")
+    elif len(figures) == 3:
+        positions = ("center", "left", "right")
+    else:
+        return {}
+    return dict(zip(figures, positions))
+
+
+def _has_figure_id_arg(line: str) -> bool:
+    return bool(re.search(r"(^|\s)-id(?:=|\s)", line))
+
+
+def _set_change_figure_position(line: str, position: str) -> str:
+    match = re.match(r"^(?P<prefix>\s*changeFigure\s*:\s*[^;\s]+)(?P<args>[^;]*)(?P<suffix>;?\s*)$", line)
+    if not match:
+        return line
+    args = re.sub(r"(^|\s)-(?:left|right|center)(?=\s|=|$)", " ", match.group("args"))
+    args = re.sub(r"\s+", " ", args).strip()
+    position_arg = "" if position == "center" else f"-{position}"
+    normalized_args = " ".join(part for part in (position_arg, args) if part)
+    separator = " " if normalized_args else ""
+    suffix = match.group("suffix") or ";"
+    return f"{match.group('prefix')}{separator}{normalized_args}{suffix}"
+
+
+def _ensure_next_arg(line: str) -> str:
+    if re.search(r"(^|\s)-next(?=\s|;|$)", line):
+        return line
+    semicolon_index = line.rfind(";")
+    if semicolon_index >= 0:
+        return f"{line[:semicolon_index].rstrip()} -next{line[semicolon_index:]}"
+    return f"{line.rstrip()} -next;"
+
+
 def _transition_line_for_change_figure(line: str, position: str, following_lines: list[str]) -> str | None:
     if _has_inline_transition_arg(line):
         return None
@@ -526,8 +604,8 @@ def _remove_position_arg(args: str, position: str) -> str:
 
 def _clear_figure_line(position: str) -> str:
     if position == "center":
-        return "changeFigure:none;"
-    return f"changeFigure:none -{position};"
+        return "changeFigure:none -next;"
+    return f"changeFigure:none -{position} -next;"
 
 
 def _is_figure_clear(figure: str) -> bool:
@@ -583,7 +661,7 @@ def _ensure_scene_ending_clears(lines: list[str], relative_file: str) -> tuple[l
     if not lines:
         return lines, []
 
-    clear_lines = ["changeFigure:none;", "changeFigure:none -left;", "changeFigure:none -right;"]
+    clear_lines = ["changeFigure:none -next;", "changeFigure:none -left -next;", "changeFigure:none -right -next;"]
     insertion_index = _ending_clear_insertion_index(lines)
     existing_window_start = max(0, insertion_index - len(clear_lines))
     existing_window = [line.strip() for line in lines[existing_window_start:insertion_index]]
@@ -750,7 +828,8 @@ def _is_end_line(line: str) -> bool:
 
 
 def _is_ending_cleanup_line(line: str) -> bool:
-    return line in {"changeFigure:none;", "changeFigure:none -left;", "changeFigure:none -right;"} or line.startswith("playEffect:none")
+    parsed = _parse_change_figure(line)
+    return bool(parsed and _is_figure_clear(parsed[0])) or line.startswith("playEffect:none")
 
 
 def _character_avatar_map(job_dir: Path) -> dict[str, str]:

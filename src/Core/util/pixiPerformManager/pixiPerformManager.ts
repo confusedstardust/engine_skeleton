@@ -1,4 +1,5 @@
 import type { Container } from 'pixi.js';
+import type { ISentence } from '@/Core/controller/scene/sceneInterface';
 import { logger } from '../logger';
 
 export interface ILayerResult {
@@ -6,7 +7,7 @@ export interface ILayerResult {
   tickerKey: string;
 }
 
-export type ILayerGenerator = () => ILayerResult;
+export type ILayerGenerator = (sentence: ISentence) => ILayerResult;
 
 /**
  * 特效执行返回的结果
@@ -26,7 +27,7 @@ export interface IPerformDefinition {
 
 type IName = string | (() => string);
 
-type IPerformCallback = () => IResult;
+type IPerformCallback = (sentence: ISentence) => IResult;
 
 const performs = new Map<string, IPerformCallback>();
 
@@ -79,12 +80,12 @@ export function registerPerform(name: IName, definition: IPerformDefinition): vo
     throw new Error(`Perform definition for "${effectKey}" must have at least an 'fg' or 'bg' generator function.`);
   }
 
-  const internalCallback: IPerformCallback = (): IResult => {
+  const internalCallback: IPerformCallback = (sentence: ISentence): IResult => {
     let fgResult: ILayerResult | undefined;
     let bgResult: ILayerResult | undefined;
 
     if (fgGenerator) {
-      fgResult = fgGenerator();
+      fgResult = fgGenerator(sentence);
       if (!fgResult || typeof fgResult.container === 'undefined' || typeof fgResult.tickerKey === 'undefined') {
         logger.error(`The 'fg' generator for perform "${effectKey}" did not return a valid ILayerResult.`);
         throw new Error(`Invalid result from 'fg' generator for perform "${effectKey}".`);
@@ -92,7 +93,7 @@ export function registerPerform(name: IName, definition: IPerformDefinition): vo
     }
 
     if (bgGenerator) {
-      bgResult = bgGenerator();
+      bgResult = bgGenerator(sentence);
       if (!bgResult || typeof bgResult.container === 'undefined' || typeof bgResult.tickerKey === 'undefined') {
         logger.error(`The 'bg' generator for perform "${effectKey}" did not return a valid ILayerResult.`);
         throw new Error(`Invalid result from 'bg' generator for perform "${effectKey}".`);
@@ -118,7 +119,7 @@ export function registerPerform(name: IName, definition: IPerformDefinition): vo
  * @param name 特效名
  * @returns {IResult}
  */
-export function call(name: IName): IResult {
+export function call(name: IName, sentence: ISentence): IResult {
   const callback = performs.get(getKey(name));
 
   if (!callback || typeof callback !== 'function') {
@@ -129,7 +130,7 @@ export function call(name: IName): IResult {
       `Perform "${nameStr}" does not have a valid callback. Available performs: ${getPerforms().join(', ')}`,
     );
   }
-  return callback();
+  return callback(sentence);
 }
 
 /**

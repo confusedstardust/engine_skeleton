@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import * as Popover from "@radix-ui/react-popover";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import { LaperInspectorShell } from "./laper-inspector-shell";
+import { FormSelect, FormSlider } from "./ui/form-controls";
 
 export type AssetReviewItem = {
   filename: string;
@@ -49,6 +54,34 @@ export type SceneMusicItem = {
   active_asset: string | null;
 };
 
+export type ParticleEffectPreset = {
+  id: string;
+  label: string;
+  description: string;
+  asset: string;
+  preview_url: string;
+  count: number;
+  speed: number;
+  scale: number;
+  angle: number;
+  opacity: number;
+  drift: number;
+  gravity: number;
+  rotation_speed: number;
+  layer: "foreground" | "background";
+  blend_mode: "normal" | "add" | "screen";
+  sheet?: { frame_width: number; frame_height: number; frame_count: number; columns: number };
+};
+
+export type SceneEffectAssignment = Omit<ParticleEffectPreset, "id" | "label" | "description" | "preview_url"> & {
+  effect_id: string;
+};
+
+export type ParticleEffectReview = {
+  effects: ParticleEffectPreset[];
+  scenes: Array<{ scene_file: string; label: string; kind: "scene" | "ending"; assignment: SceneEffectAssignment | null }>;
+};
+
 type LaperAssetWorkbenchProps = {
   imageEnabled: boolean;
   assets: AssetReviewItem[];
@@ -78,9 +111,11 @@ type LaperAssetWorkbenchProps = {
   sceneMusicEnabled: boolean;
   saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   previewSceneMusic: (asset: string) => Promise<Blob>;
+  particleEffects: ParticleEffectReview;
+  saveSceneEffect: (sceneFile: string, assignment: SceneEffectAssignment | null) => Promise<void>;
 };
 
-type AssetSection = "figures" | "backgrounds";
+type AssetSection = "figures" | "backgrounds" | "effects";
 
 function assetPreviewClass(asset: AssetReviewItem) {
   const isFigure = asset.kind === "角色立绘";
@@ -192,9 +227,10 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
     setPlaying(false);
   }, [props.item.preview_url]);
 
-  const voiceOptions = eligibleVoices.map((voice, index) => (
-    <option key={voice.name} value={voice.name}>{voice.description || `${genderLabel} ${index + 1}`}</option>
-  ));
+  const voiceOptions = eligibleVoices.map((voice, index) => ({
+    value: voice.name,
+    label: voice.description || `${genderLabel} ${index + 1}`
+  }));
 
   function togglePlayback() {
     const audio = audioRef.current;
@@ -251,13 +287,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
           <div className="character-voice-picker">
             <label>
               <span>候选音色</span>
-              <select
-                value={selectedVoice}
-                disabled={props.busy}
-                onChange={(event) => props.selectVoice(event.target.value)}
-              >
-                <optgroup label={genderLabel}>{voiceOptions}</optgroup>
-              </select>
+              <FormSelect ariaLabel={`选择${genderLabel}`} value={selectedVoice} disabled={props.busy} options={voiceOptions} onValueChange={props.selectVoice} />
             </label>
             <small>{selectedOption?.description || "选择适合角色的声音描述"}</small>
             <button
@@ -275,6 +305,200 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
   );
 }
 
+type ScenePickerOption = { value: string; label: string; kind: "scene" | "ending"; configured?: boolean };
+
+function ScenePicker(props: { value: string; options: ScenePickerOption[]; disabled?: boolean; onChange: (value: string) => void }) {
+  const [query, setQuery] = useState("");
+  const selected = props.options.find((item) => item.value === props.value) || props.options[0];
+  const filtered = props.options.filter((item) => `${item.label} ${item.value}`.toLowerCase().includes(query.trim().toLowerCase()));
+  return (
+    <Popover.Root onOpenChange={(open) => { if (!open) setQuery(""); }}>
+      <Popover.Trigger className="scene-picker-trigger" disabled={props.disabled} aria-label="选择场景">
+        <span><small>{selected?.kind === "ending" ? "结局" : "场景"}</small><strong>{selected?.label || "选择场景"}</strong></span>
+        <em>{selected?.value || ""}</em><b aria-hidden="true">›</b>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className="scene-picker-popover" side="left" align="start" sideOffset={10} collisionPadding={16}>
+          <div className="scene-picker-head"><strong>切换场景</strong><span>{props.options.length} 个场景</span></div>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索场景名称或文件…" aria-label="搜索场景" autoFocus />
+          <ScrollArea.Root className="scene-picker-scroll"><ScrollArea.Viewport>
+            <div className="scene-picker-list">
+              {filtered.map((item) => (
+                <Popover.Close asChild key={item.value}>
+                  <button type="button" className={item.value === props.value ? "active" : ""} onClick={() => props.onChange(item.value)}>
+                    <span><small>{item.kind === "ending" ? "结局" : "场景"}</small><strong>{item.label}</strong><em>{item.value}</em></span>
+                    {item.configured ? <i>已配置</i> : null}
+                  </button>
+                </Popover.Close>
+              ))}
+              {filtered.length === 0 ? <p>没有匹配的场景</p> : null}
+            </div>
+          </ScrollArea.Viewport><ScrollArea.Scrollbar className="scene-picker-scrollbar" orientation="vertical"><ScrollArea.Thumb /></ScrollArea.Scrollbar></ScrollArea.Root>
+          <Popover.Arrow className="scene-picker-arrow" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function ParticleEffectPreview(props: { preset: ParticleEffectPreset | null; config: SceneEffectAssignment | null }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [playing, setPlaying] = useState(true);
+  const [lightBackdrop, setLightBackdrop] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const preset = props.preset;
+    const config = props.config;
+    if (!canvas || !preset || !config) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const image = new Image();
+    let frameHandle = 0;
+    let disposed = false;
+    let previousTime = performance.now();
+    const sheet = preset.sheet || { frame_width: 128, frame_height: 128, frame_count: 10, columns: 10 };
+    const previewCount = Math.max(1, Math.min(60, Math.round(config.count / 4)));
+    const travelAngle = config.angle * Math.PI / 180;
+    const spriteRotation = (config.angle - preset.angle) * Math.PI / 180;
+    const particles = Array.from({ length: previewCount }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      frame: Math.floor(Math.random() * sheet.frame_count),
+      scale: config.scale * (0.65 + Math.random() * 0.7),
+      velocity: config.speed * (0.75 + Math.random() * 0.5),
+      rotation: spriteRotation,
+      rotationVelocity: config.rotation_speed * (0.6 + Math.random() * 0.8)
+    }));
+
+    const reset = (particle: typeof particles[number]) => {
+      if (Math.abs(Math.cos(travelAngle)) >= Math.abs(Math.sin(travelAngle))) {
+        particle.x = Math.cos(travelAngle) >= 0 ? -70 : canvas.width + 70;
+        particle.y = Math.random() * canvas.height;
+      } else {
+        particle.x = Math.random() * canvas.width;
+        particle.y = Math.sin(travelAngle) >= 0 ? -70 : canvas.height + 70;
+      }
+      particle.velocity = config.speed * (0.75 + Math.random() * 0.5);
+      particle.frame = Math.floor(Math.random() * sheet.frame_count);
+      particle.rotation = spriteRotation;
+    };
+
+    const drawBackdrop = () => {
+      const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+      if (lightBackdrop) {
+        gradient.addColorStop(0, "#f4e6cc");
+        gradient.addColorStop(1, "#b9d7de");
+      } else {
+        gradient.addColorStop(0, "#07101f");
+        gradient.addColorStop(0.58, "#16213b");
+        gradient.addColorStop(1, "#3a2138");
+      }
+      context.globalCompositeOperation = "source-over";
+      context.globalAlpha = 1;
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = lightBackdrop ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.52)";
+      for (let index = 0; index < 24; index++) {
+        const x = (index * 131 + 47) % canvas.width;
+        const y = (index * 67 + 29) % canvas.height;
+        context.fillRect(x, y, index % 4 === 0 ? 2 : 1, index % 4 === 0 ? 2 : 1);
+      }
+    };
+
+    const draw = (time: number) => {
+      if (disposed) return;
+      const delta = Math.min(2.5, (time - previousTime) / 16.67);
+      previousTime = time;
+      drawBackdrop();
+      context.globalCompositeOperation = config.blend_mode === "normal" ? "source-over" : config.blend_mode === "screen" ? "screen" : "lighter";
+      for (const particle of particles) {
+        if (playing) {
+          particle.x += (Math.cos(travelAngle) * particle.velocity + config.drift) * delta * 0.65;
+          particle.y += Math.sin(travelAngle) * particle.velocity * delta * 0.65;
+          particle.y += config.gravity * delta * delta * 0.2;
+          particle.rotation += particle.rotationVelocity * delta;
+          if (particle.x < -100 || particle.x > canvas.width + 100 || particle.y < -100 || particle.y > canvas.height + 100) reset(particle);
+        }
+        const size = 62 * particle.scale;
+        const frameX = (particle.frame % sheet.columns) * sheet.frame_width;
+        const frameY = Math.floor(particle.frame / sheet.columns) * sheet.frame_height;
+        const drawHeight = size * (sheet.frame_height / sheet.frame_width);
+        context.save();
+        context.globalAlpha = config.opacity * (0.72 + (particle.frame % 3) * 0.1);
+        context.translate(particle.x, particle.y);
+        context.rotate(particle.rotation);
+        context.drawImage(image, frameX, frameY, sheet.frame_width, sheet.frame_height, -size / 2, -drawHeight / 2, size, drawHeight);
+        context.restore();
+      }
+      frameHandle = requestAnimationFrame(draw);
+    };
+    image.onload = () => { frameHandle = requestAnimationFrame(draw); };
+    image.src = preset.preview_url;
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frameHandle);
+    };
+  }, [lightBackdrop, playing, props.config, props.preset]);
+
+  return (
+    <div className="particle-live-preview">
+      <canvas ref={canvasRef} width={720} height={405} aria-label="场景特效实时预览" />
+      {!props.config && <div className="particle-live-empty"><span>✦</span><strong>请选择一种特效</strong><small>参数变化会立即显示在这里</small></div>}
+      <div className="particle-preview-toolbar">
+        <button type="button" disabled={!props.config} onClick={() => setPlaying((current) => !current)}>{playing ? "Ⅱ 暂停" : "▶ 播放"}</button>
+        <button type="button" onClick={() => setLightBackdrop((current) => !current)}>{lightBackdrop ? "切换深色背景" : "切换浅色背景"}</button>
+        <span>实时预览 · 游戏内效果以实际画面尺寸为准</span>
+      </div>
+    </div>
+  );
+}
+
+function DirectionDial(props: { value: number; disabled: boolean; onChange: (value: number) => void }) {
+  const dialRef = useRef<HTMLDivElement | null>(null);
+
+  function updateFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
+    if (props.disabled) return;
+    event.preventDefault();
+    const rect = dialRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    props.onChange(Math.round(Math.atan2(event.clientY - rect.top - rect.height / 2, event.clientX - rect.left - rect.width / 2) * 180 / Math.PI));
+  }
+
+  function handleKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (props.disabled || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -5 : 5;
+    let next = props.value + delta;
+    if (next > 180) next -= 360;
+    if (next < -180) next += 360;
+    props.onChange(next);
+  }
+
+  return (
+    <div className="direction-dial-field">
+      <span className="direction-dial-title">运动方向 <small>拖动圆点调整</small></span>
+      <div
+        ref={dialRef}
+        className={`direction-dial ${props.disabled ? "disabled" : ""}`}
+        role="slider"
+        tabIndex={props.disabled ? -1 : 0}
+        aria-label="粒子运动方向"
+        aria-valuemin={-180}
+        aria-valuemax={180}
+        aria-valuenow={props.value}
+        onKeyDown={handleKey}
+        onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); updateFromPointer(event); }}
+        onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) updateFromPointer(event); }}
+      >
+        <span className="direction-cardinal north">上</span><span className="direction-cardinal east">右</span><span className="direction-cardinal south">下</span><span className="direction-cardinal west">左</span>
+        <span className="direction-arrow" style={{ transform: `rotate(${props.value}deg)` }}><i /></span>
+        <b aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [section, setSection] = useState<AssetSection>("figures");
   const [expandedSection, setExpandedSection] = useState<AssetSection | null>("figures");
@@ -285,6 +509,9 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [musicAsset, setMusicAsset] = useState("");
   const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
   const [musicPreviewError, setMusicPreviewError] = useState("");
+  const [effectSceneFile, setEffectSceneFile] = useState("");
+  const [effectDraft, setEffectDraft] = useState<SceneEffectAssignment | null>(null);
+  const [effectDirty, setEffectDirty] = useState(false);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewUrlRef = useRef<string | null>(null);
@@ -297,6 +524,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   );
 
   const selectedMusicScene = props.sceneMusic.find((item) => item.scene_file === musicSceneFile) || props.sceneMusic[0] || null;
+  const selectedEffectScene = props.particleEffects.scenes.find((item) => item.scene_file === effectSceneFile) || props.particleEffects.scenes[0] || null;
 
   useEffect(() => {
     if (!selectedMusicScene) return;
@@ -307,6 +535,40 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       musicFormHydratedRef.current = persistedKey;
     }
   }, [musicSceneFile, selectedMusicScene]);
+
+  useEffect(() => {
+    if (!selectedEffectScene || effectDirty) return;
+    setEffectSceneFile(selectedEffectScene.scene_file);
+    setEffectDraft(selectedEffectScene.assignment ? { ...selectedEffectScene.assignment } : null);
+  }, [effectDirty, selectedEffectScene]);
+
+  function chooseEffect(effectId: string) {
+    const preset = props.particleEffects.effects.find((item) => item.id === effectId);
+    if (!preset) {
+      setEffectDraft(null);
+    } else {
+      setEffectDraft({
+        effect_id: preset.id,
+        asset: preset.asset,
+        count: preset.count,
+        speed: preset.speed,
+        scale: preset.scale,
+        angle: preset.angle,
+        opacity: preset.opacity,
+        drift: preset.drift,
+        gravity: preset.gravity,
+        rotation_speed: preset.rotation_speed,
+        layer: preset.layer,
+        blend_mode: preset.blend_mode
+      });
+    }
+    setEffectDirty(true);
+  }
+
+  function changeEffectNumber(key: keyof SceneEffectAssignment, value: number) {
+    setEffectDraft((current) => current ? { ...current, [key]: value } : current);
+    setEffectDirty(true);
+  }
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
 
@@ -347,8 +609,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     setMusicPreviewingAsset(null);
   }
 
-  async function playMusicPreview() {
-    const asset = musicAsset || selectedMusicScene?.system_asset || "";
+  async function playMusicPreview(assetOverride?: string) {
+    const asset = assetOverride || musicAsset || selectedMusicScene?.system_asset || "";
     if (!asset) return;
     stopMusicPreview();
     setMusicPreviewError("");
@@ -401,7 +663,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         <nav className="laper-rail-nav">
           {([
             ["figures", "角色卡", figures],
-            ["backgrounds", "场景卡", backgrounds]
+            ["backgrounds", "场景卡", backgrounds],
+            ["effects", "特效素材", props.particleEffects.effects]
           ] as const).map(([sectionId, label, assets]) => (
             <div className="laper-rail-tree-group" key={sectionId}>
               <button
@@ -419,17 +682,17 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               {expandedSection === sectionId && (
                 <ol className="laper-rail-list laper-rail-tree-list">
                   {assets.map((asset) => (
-                    <li key={`${asset.subdir}-${asset.filename}`}>
+                    <li key={"id" in asset ? asset.id : `${asset.subdir}-${asset.filename}`}>
                       <button
-                        className={active?.filename === asset.filename ? "active" : ""}
+                        className={"filename" in asset && active?.filename === asset.filename ? "active" : ""}
                         type="button"
                         onClick={() => {
                           setSection(sectionId);
-                          props.openAsset(asset);
+                          if ("filename" in asset) props.openAsset(asset);
                         }}
                       >
-                        <span>{asset.exists ? "✓" : "·"}</span>
-                        {props.displayName(asset)}
+                        <span>{"id" in asset ? "✦" : asset.exists ? "✓" : "·"}</span>
+                        {"id" in asset ? asset.label : props.displayName(asset)}
                       </button>
                     </li>
                   ))}
@@ -448,12 +711,79 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <button className={section === "backgrounds" ? "active" : ""} type="button" onClick={() => setSection("backgrounds")}>
             场景卡
           </button>
+          <button className={section === "effects" ? "active" : ""} type="button" onClick={() => setSection("effects")}>
+            特效素材
+          </button>
           <span className="laper-toolbar-divider" />
           <span className="laper-toolbar-note">{props.imageEnabled ? "点击图片可编辑 Prompt" : "当前未开启图片生成"}</span>
         </div>
 
         <div className="laper-canvas laper-asset-canvas">
-          {active ? (
+          {section === "effects" ? (
+            <div className="particle-effect-workbench">
+              <header className="laper-canvas-head">
+                <div>
+                  <h2>场景特效</h2>
+                  <p>为单独场景选择粒子贴图并调整运动参数；未设置的场景不会额外添加特效。</p>
+                </div>
+                <span>{props.particleEffects.effects.length} 组素材</span>
+              </header>
+              <div className="particle-effect-layout">
+                <div className="particle-preview-column">
+                  <ParticleEffectPreview
+                    config={effectDraft}
+                    preset={props.particleEffects.effects.find((item) => item.id === effectDraft?.effect_id) || null}
+                  />
+                  <p>
+                    {props.particleEffects.effects.find((item) => item.id === effectDraft?.effect_id)?.description
+                      || "从右侧选择特效后，可在这里实时查看呈现方式。"}
+                  </p>
+                </div>
+                <section className="particle-effect-controls">
+                  <div className="ui-form-field"><span>场景</span>
+                    <ScenePicker value={selectedEffectScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.particleEffects.scenes.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.assignment) }))} onChange={(value) => {
+                      setEffectSceneFile(value);
+                      const next = props.particleEffects.scenes.find((item) => item.scene_file === value);
+                      setEffectDraft(next?.assignment ? { ...next.assignment } : null);
+                      setEffectDirty(false);
+                    }} />
+                  </div>
+                  <div className="ui-form-field"><span>特效</span>
+                    <ToggleGroup.Root className="effect-toggle-group" type="single" value={effectDraft?.effect_id || "none"} disabled={props.readonly || props.busy} onValueChange={(value) => { if (value) chooseEffect(value === "none" ? "" : value); }} aria-label="选择特效">
+                      <ToggleGroup.Item value="none"><b>×</b><span>无</span></ToggleGroup.Item>
+                      {props.particleEffects.effects.map((effect) => <ToggleGroup.Item key={effect.id} value={effect.id}><b>✦</b><span>{effect.label}</span></ToggleGroup.Item>)}
+                    </ToggleGroup.Root>
+                  </div>
+                  {effectDraft && (
+                    <div className="particle-sliders">
+                      {([
+                        ["count", "密度", 1, 300, 1], ["speed", "速度", 0.2, 40, 0.2], ["scale", "大小", 0.05, 2, 0.05],
+                        ["opacity", "透明度", 0.05, 1, 0.05]
+                      ] as const).map(([key, label, min, max, step]) => (
+                        <FormSlider key={key} label={label} min={min} max={max} step={step} value={effectDraft[key]} disabled={props.readonly || props.busy} onValueChange={(value) => changeEffectNumber(key, value)} />
+                      ))}
+                      <DirectionDial value={effectDraft.angle} disabled={props.readonly || props.busy} onChange={(value) => changeEffectNumber("angle", value)} />
+                      <div className="ui-form-field"><span>图层</span><ToggleGroup.Root className="segment-toggle" type="single" value={effectDraft.layer} disabled={props.readonly || props.busy} onValueChange={(value) => { if (!value) return; setEffectDraft({ ...effectDraft, layer: value as "foreground" | "background" }); setEffectDirty(true); }} aria-label="选择图层"><ToggleGroup.Item value="foreground">前景</ToggleGroup.Item><ToggleGroup.Item value="background">背景</ToggleGroup.Item></ToggleGroup.Root></div>
+                      <details className="particle-advanced-controls">
+                        <summary>高级运动参数</summary>
+                        {([
+                          ["drift", "横向漂移", -8, 8, 0.1], ["gravity", "重力", -3, 3, 0.1], ["rotation_speed", "旋转速度", -0.1, 0.1, 0.002]
+                        ] as const).map(([key, label, min, max, step]) => (
+                          <FormSlider key={key} label={label} min={min} max={max} step={step} value={effectDraft[key]} disabled={props.readonly || props.busy} onValueChange={(value) => changeEffectNumber(key, value)} />
+                        ))}
+                        <div className="ui-form-field"><span>混合模式</span><ToggleGroup.Root className="blend-mode-group" type="single" value={effectDraft.blend_mode} disabled={props.readonly || props.busy} onValueChange={(value) => { if (!value) return; setEffectDraft({ ...effectDraft, blend_mode: value as "normal" | "add" | "screen" }); setEffectDirty(true); }} aria-label="选择混合模式"><ToggleGroup.Item value="normal"><b>普通</b><small>保留原色</small></ToggleGroup.Item><ToggleGroup.Item value="add"><b>发光</b><small>亮部相加</small></ToggleGroup.Item><ToggleGroup.Item value="screen"><b>滤色</b><small>柔和提亮</small></ToggleGroup.Item></ToggleGroup.Root></div>
+                      </details>
+                    </div>
+                  )}
+                  <button className="btn primary" type="button" disabled={props.readonly || props.busy || !selectedEffectScene || !effectDirty} onClick={async () => {
+                    if (!selectedEffectScene) return;
+                    await props.saveSceneEffect(selectedEffectScene.scene_file, effectDraft);
+                    setEffectDirty(false);
+                  }}>{effectDraft ? "保存场景特效" : "移除场景特效"}</button>
+                </section>
+              </div>
+            </div>
+          ) : active ? (
             <div className="laper-asset-detail">
               <header className="laper-canvas-head">
                 <div>
@@ -578,7 +908,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             { label: "状态", value: hasGeneratedImages ? "有图" : "待图" },
             ...(props.voiceEnabled ? [{ label: "语音", value: `${props.voices.length} 条试听` }] : [])
           ]}
-          note={props.published ? "新素材会先进入草稿，重新构建成功后才会更新当前游戏。" : props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
+          note={props.published ? "新素材会先进入草稿；应用修改时只替换实际改过的素材。" : props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
           footer={
             props.retryAction ? (
               <button
@@ -599,7 +929,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               <div className="asset-build-actions">
                 {props.published && props.buildState === "FAILED" && (
                   <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.buildGame()}>
-                    重试上次构建
+                    重试应用修改
                   </button>
                 )}
                 <button
@@ -615,7 +945,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   }
                   onClick={() => void props.buildGame()}
                 >
-                  {props.published ? "同步草稿改动到游戏" : "确认素材并生成游戏"}
+                  {props.published ? "应用修改到游戏" : "确认素材并生成游戏"}
                 </button>
               </div>
             )
@@ -625,55 +955,18 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <section className="scene-music-editor" aria-label="场景音乐">
             <span className="scene-music-kicker">SCENE MUSIC</span>
             <h3>场景音乐</h3>
-            <p>不设置时保持系统自动选择；保存后会作为草稿，在下一次构建时生效。</p>
-            <label>
-              <span>场景</span>
-              <select
-                value={selectedMusicScene?.scene_file || ""}
-                disabled={props.readonly || props.busy}
-                onChange={(event) => {
-                  stopMusicPreview();
-                  setMusicSceneFile(event.target.value);
-                }}
-              >
-                {props.sceneMusic.map((item) => (
-                  <option key={item.scene_file} value={item.scene_file}>{item.kind === "ending" ? "结局 · " : "场景 · "}{item.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>音乐</span>
-              <select
-                value={musicAsset}
-                disabled={props.readonly || props.busy}
-                onChange={(event) => {
-                  stopMusicPreview();
-                  setMusicAsset(event.target.value);
-                }}
-              >
-                <option value="">系统自动{selectedMusicScene?.system_asset ? `（${selectedMusicScene.system_asset}）` : ""}</option>
-                {props.musicAssets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}
-              </select>
-            </label>
-            <div className="scene-music-preview">
-              <button
-                className={`scene-music-play ${musicPreviewingAsset ? "is-playing" : ""}`}
-                type="button"
-                disabled={props.busy || !(musicAsset || selectedMusicScene?.system_asset)}
-                aria-label={musicPreviewingAsset ? "停止音乐试听" : "试听所选音乐"}
-                aria-pressed={Boolean(musicPreviewingAsset)}
-                title={musicPreviewingAsset ? "停止试听" : "试听所选音乐"}
-                onClick={() => musicPreviewingAsset ? stopMusicPreview() : void playMusicPreview()}
-              >
-                {musicPreviewingAsset ? (
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="6" width="3.5" height="12" rx="1" /><rect x="13.5" y="6" width="3.5" height="12" rx="1" /></svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4a1.1 1.1 0 0 0 1.7.94l9.2-6.2a1.12 1.12 0 0 0 0-1.86l-9.2-6.2A1.1 1.1 0 0 0 8 5.8Z" /></svg>
-                )}
-              </button>
-              <div className="scene-music-preview-copy">
-                <strong>{musicPreviewingAsset ? "正在试听" : "试听当前选择"}</strong>
-                <span>{musicPreviewingAsset || musicAsset || selectedMusicScene?.system_asset || "暂无可试听音乐"}</span>
+            <p>不设置时保持系统自动选择；保存后点击“应用修改到游戏”，只更新当前场景的音乐。</p>
+            <div className="ui-form-field"><span>场景</span><ScenePicker value={selectedMusicScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.sceneMusic.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.selected_asset) }))} onChange={(value) => { stopMusicPreview(); setMusicSceneFile(value); }} /></div>
+            <div className="ui-form-field"><span>音乐</span>
+              <div className="music-choice-list" role="radiogroup" aria-label="选择场景音乐">
+                {[{ asset: "", label: "系统自动", hint: selectedMusicScene?.system_asset || "由系统根据场景选择" }, ...props.musicAssets.map((asset) => ({ asset, label: asset.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "), hint: asset }))].map((item) => {
+                  const previewAsset = item.asset || selectedMusicScene?.system_asset || "";
+                  const playing = Boolean(previewAsset && musicPreviewingAsset === previewAsset);
+                  return <div className={`music-choice ${musicAsset === item.asset ? "active" : ""}`} key={item.asset || "system"}>
+                    <button className="music-choice-select" type="button" role="radio" aria-checked={musicAsset === item.asset} disabled={props.readonly || props.busy} onClick={() => { stopMusicPreview(); setMusicAsset(item.asset); }}><i /><span><strong>{item.label}</strong><small>{item.hint}</small></span>{!item.asset ? <em>推荐</em> : null}</button>
+                    <button className={`music-choice-play ${playing ? "is-playing" : ""}`} type="button" disabled={props.busy || !previewAsset} aria-label={playing ? `停止试听 ${previewAsset}` : `试听 ${previewAsset}`} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(previewAsset)}>{playing ? "Ⅱ" : "▶"}</button>
+                  </div>;
+                })}
               </div>
             </div>
             {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
