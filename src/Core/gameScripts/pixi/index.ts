@@ -19,7 +19,7 @@ export const pixi = (sentence: ISentence): IPerform => {
     duration: 0,
     isHoldOn: true,
     startFunction: () => {
-      const res: IResult = call(sentence.content);
+      const res: IResult = call(sentence.content, sentence);
       fg = res.fg;
       bg = res.bg;
     },

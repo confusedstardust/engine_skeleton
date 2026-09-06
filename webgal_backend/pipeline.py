@@ -34,6 +34,7 @@ from .prompts import (
 from .raw_correction import correct_generated_raw_file
 from .scene_plan import build_scene_plan, expected_scene_files
 from .storage import JobStore, read_json, utc_now, write_json
+from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
 from .scene_validation import validate_and_repair_scenes, validation_report
 from .tts_pipeline import (
     build_tts_manifest,
@@ -436,6 +437,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             self.run_sound_effects(job)
             self.run_tts_generation(job)
             self.run_scenes(job)
+            self._apply_particle_effect_changes(job_dir)
             self.run_validation(job)
         except Exception:
             if had_published_build and backup_dir.exists():
@@ -448,11 +450,241 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             raise
         self.store.transition(job, "DONE", None)
         self.store.mark_build_complete(job)
+        self._snapshot_published_edit_state(job_dir)
         if backup_dir.exists():
             shutil.rmtree(backup_dir)
         draft_game_dir = job_dir / "draft" / "game"
         if draft_game_dir.exists():
             shutil.rmtree(draft_game_dir)
+
+    def apply_draft_changes(self, job: dict[str, Any]) -> None:
+        """Publish only the saved draft scopes onto an existing playable game."""
+        job_dir = self.store.job_dir(job["id"])
+        game_dir = job_dir / "public" / "game"
+        if not bool(job.get("has_published_build")) or not (game_dir / "config.txt").exists():
+            raise PipelineError("draft changes can only be applied after the first game build")
+
+        dirty_scopes = {str(scope) for scope in job.get("dirty_scopes", []) if str(scope)}
+        supported_scopes = {"scenes", "assets", "music", "voices", "effects"}
+        unsupported_scopes = sorted(dirty_scopes - supported_scopes)
+        if unsupported_scopes:
+            raise PipelineError(f"draft scopes require a full generation flow: {unsupported_scopes}")
+        if not dirty_scopes:
+            return
+
+        backup_dir = job_dir / "state" / "published_game_backup"
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.copytree(game_dir, backup_dir)
+        self.store.mark_build_started(job)
+        try:
+            changed_scene_files = self._changed_scene_files(job_dir) if "scenes" in dirty_scopes else set()
+            if changed_scene_files:
+                self.run_script_rewrite(job)
+                self.run_sound_effects(job)
+                script_path = job_dir / "state" / "game_design_webgal.txt"
+                self._write_selected_scene_files(job_dir, script_path.read_text(encoding="utf-8"), changed_scene_files)
+                self.run_tts_generation(job)
+            elif "voices" in dirty_scopes:
+                self.run_tts_generation(job)
+
+            if "assets" in dirty_scopes:
+                self._copy_draft_game_assets(job_dir)
+
+            if "music" in dirty_scopes:
+                self._apply_scene_music_changes(job_dir, self._changed_music_scene_files(job_dir))
+
+            if "effects" in dirty_scopes:
+                self._apply_particle_effect_changes(job_dir, self._changed_effect_scene_files(job_dir))
+
+            self.run_validation(job)
+        except Exception:
+            if game_dir.exists():
+                shutil.rmtree(game_dir)
+            shutil.copytree(backup_dir, game_dir)
+            self.store.mark_build_failed(job)
+            if backup_dir.exists():
+                shutil.rmtree(backup_dir)
+            raise
+
+        self.store.transition(job, "DONE", None)
+        self.store.mark_build_complete(job)
+        self._snapshot_published_edit_state(job_dir)
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        draft_game_dir = job_dir / "draft" / "game"
+        if draft_game_dir.exists():
+            shutil.rmtree(draft_game_dir)
+
+    def _snapshot_published_edit_state(self, job_dir: Path) -> None:
+        snapshots = (
+            ("game_design_completed.json", "published_game_design_completed.json", {"version": 1, "scenes": []}),
+            ("scene_music_overrides.json", "published_scene_music_overrides.json", {"version": 1, "scene_overrides": {}}),
+            (STATE_FILE, PUBLISHED_STATE_FILE, {"version": 1, "scene_effects": {}}),
+        )
+        state_dir = job_dir / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        for source_name, snapshot_name, empty_payload in snapshots:
+            source = state_dir / source_name
+            snapshot = state_dir / snapshot_name
+            if source.exists():
+                shutil.copy2(source, snapshot)
+            else:
+                write_json(snapshot, empty_payload)
+
+    def _changed_scene_files(self, job_dir: Path) -> set[str]:
+        draft_path = job_dir / "state" / "game_design_completed.json"
+        published_path = job_dir / "state" / "published_game_design_completed.json"
+        draft = self._read_required(draft_path)
+        if not published_path.exists():
+            return {
+                str(scene.get("scene_file") or scene.get("header") or "").strip()
+                for scene in draft.get("scenes", [])
+                if isinstance(scene, dict) and str(scene.get("scene_file") or scene.get("header") or "").strip()
+            }
+        published = self._read_required(published_path)
+
+        def by_file(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+            return {
+                str(scene.get("scene_file") or scene.get("header") or "").strip(): scene
+                for scene in payload.get("scenes", [])
+                if isinstance(scene, dict) and str(scene.get("scene_file") or scene.get("header") or "").strip()
+            }
+
+        draft_by_file = by_file(draft)
+        published_by_file = by_file(published)
+        return {
+            scene_file
+            for scene_file in set(draft_by_file) | set(published_by_file)
+            if draft_by_file.get(scene_file) != published_by_file.get(scene_file)
+        }
+
+    def _write_selected_scene_files(self, job_dir: Path, text: str, selected_files: set[str]) -> list[str]:
+        import re
+
+        matches = self._scene_header_matches(text)
+        sections: dict[str, str] = {}
+        for index, match in enumerate(matches):
+            body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            file_name = match.group("filename").replace("\\", "/").split("/")[-1]
+            sections[file_name] = text[match.end():body_end].strip().rstrip() + "\n"
+
+        missing = sorted(selected_files - set(sections))
+        if missing:
+            raise PipelineError(f"rewritten script is missing changed scene files: {missing}")
+
+        scene_dir = job_dir / "public" / "game" / "scene"
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        written: list[str] = []
+        for file_name in sorted(selected_files):
+            if not re.match(r"^[A-Za-z0-9_-]+\.txt$", file_name):
+                raise PipelineError(f"invalid changed scene filename: {file_name}")
+            (scene_dir / file_name).write_text(sections[file_name], encoding="utf-8")
+            written.append(f"public/game/scene/{file_name}")
+        return written
+
+    def _changed_music_scene_files(self, job_dir: Path) -> set[str]:
+        current_path = job_dir / "state" / "scene_music_overrides.json"
+        published_path = job_dir / "state" / "published_scene_music_overrides.json"
+        current_payload = read_json(current_path) if current_path.exists() else {}
+        published_payload = read_json(published_path) if published_path.exists() else {}
+        current = current_payload.get("scene_overrides", {}) if isinstance(current_payload, dict) else {}
+        published = published_payload.get("scene_overrides", {}) if isinstance(published_payload, dict) else {}
+        current = current if isinstance(current, dict) else {}
+        published = published if isinstance(published, dict) else {}
+        changed = {key for key in set(current) | set(published) if current.get(key) != published.get(key)}
+        if changed or published_path.exists():
+            return {str(item) for item in changed}
+
+        scene_plan_path = job_dir / "state" / "scene_plan.json"
+        scene_plan = read_json(scene_plan_path) if scene_plan_path.exists() else {}
+        return {
+            str(item.get("scene_file") or "").strip()
+            for collection in (scene_plan.get("scenes", []), scene_plan.get("endings", []))
+            for item in collection
+            if isinstance(item, dict) and str(item.get("scene_file") or "").strip()
+        }
+
+    def _apply_scene_music_changes(self, job_dir: Path, scene_files: set[str]) -> None:
+        if not scene_files:
+            return
+        scene_plan_path = job_dir / "state" / "scene_plan.json"
+        scene_plan = read_json(scene_plan_path) if scene_plan_path.exists() else {}
+        overrides_path = job_dir / "state" / "scene_music_overrides.json"
+        overrides_payload = read_json(overrides_path) if overrides_path.exists() else {}
+        overrides = overrides_payload.get("scene_overrides", {}) if isinstance(overrides_payload, dict) else {}
+        headers = [
+            *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
+            *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
+        ]
+        plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(), scene_plan, overrides)
+        asset_by_scene = {str(item.get("scene_file") or ""): str(item.get("asset") or "") for item in plan}
+        copied: list[dict[str, Any]] = []
+        for scene_file in sorted(scene_files):
+            asset = asset_by_scene.get(scene_file, "").strip()
+            if not asset:
+                raise PipelineError(f"no BGM is available for changed scene: {scene_file}")
+            scene_path = job_dir / "public" / "game" / "scene" / Path(scene_file).name
+            if not scene_path.exists():
+                raise PipelineError(f"published scene file is missing: {scene_file}")
+            lines = scene_path.read_text(encoding="utf-8").splitlines()
+            command = self._bgm_command(asset)
+            bgm_index = next((index for index, line in enumerate(lines) if line.strip().startswith("bgm:")), None)
+            if bgm_index is None:
+                lines.insert(0, command)
+            else:
+                lines[bgm_index] = command
+            scene_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+            copied.append({"asset": asset})
+        self._copy_bgm_files(job_dir, {"inserted": copied})
+
+    def _changed_effect_scene_files(self, job_dir: Path) -> set[str]:
+        current = load_particle_effect_state(job_dir).get("scene_effects", {})
+        published_path = job_dir / "state" / PUBLISHED_STATE_FILE
+        published_payload = read_json(published_path) if published_path.exists() else {}
+        published = published_payload.get("scene_effects", {}) if isinstance(published_payload, dict) else {}
+        published = published if isinstance(published, dict) else {}
+        return {str(key) for key in set(current) | set(published) if current.get(key) != published.get(key)}
+
+    def _apply_particle_effect_changes(self, job_dir: Path, scene_files: set[str] | None = None) -> None:
+        state = load_particle_effect_state(job_dir)
+        assignments = state.get("scene_effects", {})
+        assignments = assignments if isinstance(assignments, dict) else {}
+        source_dir = settings.workspace_root / "public" / "game" / "tex" / "effects"
+        target_dir = job_dir / "public" / "game" / "tex" / "effects"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for preset in EFFECT_PRESETS.values():
+            source = source_dir / str(preset["asset"])
+            if not source.exists():
+                raise PipelineError(f"bundled particle effect asset is missing: {source.name}")
+            shutil.copy2(source, target_dir / source.name)
+        write_json(job_dir / "public" / "game" / "effects.json", runtime_config(job_dir))
+
+        selected = set(assignments) if scene_files is None else set(scene_files)
+        for scene_file in sorted(selected):
+            scene_path = job_dir / "public" / "game" / "scene" / Path(scene_file).name
+            if not scene_path.exists():
+                if scene_files is None:
+                    continue
+                raise PipelineError(f"published scene file is missing: {scene_file}")
+            lines = [
+                line
+                for line in scene_path.read_text(encoding="utf-8").splitlines()
+                if not line.strip().startswith("pixiPerform:particle ")
+            ]
+            assignment = assignments.get(scene_file)
+            if isinstance(assignment, dict) and assignment.get("effect_id"):
+                arguments = [f"-id={assignment['effect_id']}"]
+                for key in ("count", "speed", "scale", "angle", "opacity", "drift", "gravity"):
+                    if key in assignment:
+                        arguments.append(f"-{key}={assignment[key]}")
+                if "rotation_speed" in assignment:
+                    arguments.append(f"-rotation={assignment['rotation_speed']}")
+                for key in ("layer", "blend_mode"):
+                    if key in assignment:
+                        arguments.append(f"-{key}={assignment[key]}")
+                lines.insert(0, f"pixiPerform:particle {' '.join(arguments)};")
+            scene_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
     def _copy_draft_game_assets(self, job_dir: Path) -> None:
         draft_game_dir = job_dir / "draft" / "game"
@@ -774,6 +1006,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.record_artifact(job, "tts_voice_review", "state/tts_voice_review.json")
         if item.get("status") == "failed":
             raise PipelineError(f"TTS preview generation failed for {speaker}: {item.get('error')}")
+        if job.get("has_published_build"):
+            self.store.mark_draft_changed(job, "voices")
         return item
 
     def _generate_tts_artifacts(self, job: dict[str, Any], job_dir: Path) -> None:

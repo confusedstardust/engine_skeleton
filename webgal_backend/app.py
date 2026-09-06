@@ -6,6 +6,7 @@ import hashlib
 import mimetypes
 import os
 import re
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,13 @@ from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
 from .narrative_structure import build_synced_narrative_structure, narrative_structure_issues
 from .pipeline import PipelineError, WebGALPipeline
+from .particle_effects import (
+    EFFECT_PRESETS,
+    ParticleEffectError,
+    available_effects,
+    load_state as load_particle_effect_state,
+    save_scene_assignment,
+)
 from .scene_plan import build_scene_plan
 from .storage import JobStore, write_json
 
@@ -202,6 +210,22 @@ class SceneMusicOverrideRequest(BaseModel):
     base_revision: int | None = Field(default=None, ge=0)
 
 
+class SceneEffectRequest(BaseModel):
+    scene_file: str = Field(min_length=1)
+    effect_id: str | None = None
+    count: int | None = None
+    speed: float | None = None
+    scale: float | None = None
+    angle: float | None = None
+    opacity: float | None = None
+    drift: float | None = None
+    gravity: float | None = None
+    rotation_speed: float | None = None
+    layer: str | None = None
+    blend_mode: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+
+
 def _internal_operation_error(operation: str, job_id: str, exc: Exception) -> HTTPException:
     """Log the traceback and give the UI a safe identifier for correlating it."""
     diagnostic_id = uuid.uuid4().hex[:12]
@@ -304,6 +328,12 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
     if not artifacts.is_editable_artifact(relative):
         raise HTTPException(status_code=400, detail=f"artifact is not editable: {relative}")
     _require_job_editable(job, request.base_revision)
+
+    if job.get("has_published_build") and relative == "state/game_design_completed.json" and path.exists():
+        published_snapshot = store.artifact_path(job_id, "state/published_game_design_completed.json")
+        if not published_snapshot.exists():
+            published_snapshot.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, published_snapshot)
 
     try:
         if relative.endswith(".json"):
@@ -465,6 +495,34 @@ def _scene_music_review(job_dir: Path) -> tuple[list[dict[str, Any]], list[str]]
     return entries, music_assets
 
 
+def _particle_effect_review(job_id: str, job_dir: Path) -> dict[str, Any]:
+    scene_music, _ = _scene_music_review(job_dir)
+    state = load_particle_effect_state(job_dir)
+    assignments = state["scene_effects"]
+    effects = available_effects(job_dir)
+    effect_items: list[dict[str, Any]] = []
+    for effect_id, effect in effects.items():
+        asset = str(effect.get("asset") or "")
+        draft_asset = job_dir / "draft" / "game" / "tex" / "effects" / asset
+        if effect_id in EFFECT_PRESETS:
+            preview_url = _public_app_path(f"/play/effect-library/{asset}")
+        else:
+            preview_url = _public_app_path(f"/play/{job_id}/draft-game/tex/effects/{asset}")
+        effect_items.append({**effect, "preview_url": _versioned_file_url(preview_url, draft_asset) if draft_asset.exists() else preview_url})
+    return {
+        "effects": effect_items,
+        "scenes": [
+            {
+                "scene_file": item["scene_file"],
+                "label": item["label"],
+                "kind": item["kind"],
+                "assignment": assignments.get(item["scene_file"]),
+            }
+            for item in scene_music
+        ],
+    }
+
+
 def _character_display_name(filename: str, character_labels: dict[str, str]) -> str | None:
     stem = filename.removesuffix(".webp").removeprefix("figure_")
     parts = stem.split("_")
@@ -581,6 +639,7 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     job_dir = _job_dir_or_404(job_id)
     voice_enabled = bool(job.get("options", {}).get("generate_tts", job.get("options", {}).get("voice_enabled", False)))
     voice_review = _tts_voice_review_payload(job_id, job_dir, voice_enabled)
+    particle_effects = _particle_effect_review(job_id, job_dir)
     manifest_path = job_dir / "assets_manifest.json"
     if not manifest_path.exists():
         scene_music, music_assets = _scene_music_review(job_dir)
@@ -590,6 +649,7 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
             "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
             "scene_music": scene_music,
             "music_assets": music_assets,
+            "particle_effects": particle_effects,
             **voice_review,
         }
     try:
@@ -607,6 +667,7 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
         "scene_music": scene_music,
         "music_assets": music_assets,
+        "particle_effects": particle_effects,
         **voice_review,
     }
 
@@ -628,6 +689,10 @@ def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_req
         raise HTTPException(status_code=422, detail="music asset is not available in the library")
     path = job_dir / "state" / "scene_music_overrides.json"
     payload = _read_json_file(path)
+    if job.get("has_published_build"):
+        published_snapshot = job_dir / "state" / "published_scene_music_overrides.json"
+        if not published_snapshot.exists():
+            write_json(published_snapshot, payload if payload else {"version": 1, "scene_overrides": {}})
     overrides = payload.get("scene_overrides", {})
     overrides = dict(overrides) if isinstance(overrides, dict) else {}
     if asset:
@@ -654,6 +719,46 @@ def preview_music_library_asset(job_id: str, asset_name: str, request: Request) 
         file_path=clean_name,
         missing_detail="music asset not found",
     )
+
+
+@app.get("/effect-library/{asset_name}")
+@app.get("/play/effect-library/{asset_name}")
+def preview_particle_effect_asset(asset_name: str) -> FileResponse:
+    clean_name = Path(asset_name).name
+    allowed = {str(item["asset"]) for item in EFFECT_PRESETS.values()}
+    if clean_name != asset_name or clean_name not in allowed:
+        raise HTTPException(status_code=404, detail="particle effect asset not found")
+    return _file_response_under_root(
+        root=settings.workspace_root / "public" / "game" / "tex" / "effects",
+        file_path=clean_name,
+        missing_detail="particle effect asset not found",
+    )
+
+
+@app.put("/jobs/{job_id}/scene-effect")
+def update_scene_effect(job_id: str, request: SceneEffectRequest, http_request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, http_request)
+    if job.get("options", {}).get("generation_mode", "advanced") != "advanced":
+        raise HTTPException(status_code=403, detail="scene effect editing is available in advanced mode only")
+    _require_job_editable(job, request.base_revision)
+    job_dir = _job_dir_or_404(job_id)
+    valid_scenes = {str(item["scene_file"]) for item in _particle_effect_review(job_id, job_dir)["scenes"]}
+    scene_file = Path(request.scene_file.replace("\\", "/")).name
+    if scene_file not in valid_scenes:
+        raise HTTPException(status_code=422, detail="unknown scene file")
+    payload = request.model_dump(exclude={"scene_file", "base_revision"}, exclude_none=True)
+    try:
+        assignment = save_scene_assignment(job_dir, scene_file, payload)
+    except ParticleEffectError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    store.record_artifact(job, "particle_effects", "state/particle_effects.json")
+    store.mark_draft_changed(job, "effects")
+    return {
+        "job": _get_owned_job_or_404(job_id, http_request),
+        "scene_file": scene_file,
+        "assignment": assignment or None,
+        "particle_effects": _particle_effect_review(job_id, job_dir),
+    }
 
 
 @app.post("/jobs/{job_id}/voices/preview")
@@ -713,6 +818,29 @@ def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTas
         return pipeline.run_all(job_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/apply-draft")
+def apply_draft(
+    job_id: str,
+    request: RunJobRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, http_request)
+    if job.get("status") in {"RUNNING", "QUEUED"}:
+        raise HTTPException(status_code=409, detail="job is already running")
+    if not job.get("has_published_build"):
+        raise HTTPException(status_code=409, detail="game must be built before draft changes can be applied")
+    if request.background:
+        background_tasks.add_task(run_apply_draft_background, job_id)
+        store.transition(job, "QUEUED", "DRAFT_APPLY")
+        return job
+    try:
+        pipeline.apply_draft_changes(job)
+        return store.get(job_id)
     except PipelineError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -873,6 +1001,17 @@ def run_pipeline_background(job_id: str) -> None:
         pipeline.run_all(job_id)
     except Exception:
         logging.getLogger("uvicorn.error").exception("Forge pipeline failed for job_id=%s", job_id)
+
+
+def run_apply_draft_background(job_id: str) -> None:
+    try:
+        pipeline.apply_draft_changes(store.get(job_id))
+    except Exception as exc:
+        try:
+            store.set_error(store.get(job_id), str(exc))
+        except Exception:
+            pass
+        logging.getLogger("uvicorn.error").exception("Forge draft apply failed for job_id=%s", job_id)
 
 
 def run_phase_background(job_id: str, phase: str) -> None:
