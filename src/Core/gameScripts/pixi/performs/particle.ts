@@ -21,6 +21,7 @@ type ParticlePreset = {
   rotation_speed: number;
   layer: LayerName;
   blend_mode: 'normal' | 'add' | 'screen';
+  sheet?: { frame_width: number; frame_height: number; frame_count: number; columns: number };
 };
 
 type ParticleConfig = {
@@ -92,7 +93,7 @@ function createLayer(sentence: ISentence, layer: LayerName) {
     });
     root.addChild(particleContainer);
 
-    const sheet = config.sheet;
+    const sheet = preset.sheet ?? config.sheet;
     const baseTexture = PIXI.BaseTexture.from(`./game/${preset.asset}`);
     const setup = () => {
       if (root.destroyed || !baseTexture.valid) return;
@@ -116,8 +117,16 @@ function createLayer(sentence: ISentence, layer: LayerName) {
         sprite.alpha = opacity * (0.7 + Math.random() * 0.3);
         const selectedBlend = getStringArgByKey(sentence, 'blend_mode');
         sprite.blendMode = blendMode(selectedBlend === 'add' || selectedBlend === 'screen' ? selectedBlend : preset.blend_mode);
-        sprite.x = initial ? Math.random() * width : (Math.cos(angle) >= 0 ? -sprite.width : width + sprite.width);
-        sprite.y = Math.random() * height;
+        if (initial) {
+          sprite.x = Math.random() * width;
+          sprite.y = Math.random() * height;
+        } else if (Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle))) {
+          sprite.x = Math.cos(angle) >= 0 ? -sprite.width : width + sprite.width;
+          sprite.y = Math.random() * height;
+        } else {
+          sprite.x = Math.random() * width;
+          sprite.y = Math.sin(angle) >= 0 ? -sprite.height : height + sprite.height;
+        }
         const variedSpeed = speed * (0.75 + Math.random() * 0.5);
         sprite.vx = Math.cos(angle) * variedSpeed + drift;
         sprite.vy = Math.sin(angle) * variedSpeed;

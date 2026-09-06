@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from webgal_backend.pipeline import WebGALPipeline
-from webgal_backend.storage import JobStore
+from webgal_backend.storage import JobStore, write_json
 
 
 def test_load_sound_effect_assets_marks_missing_directory_unavailable(tmp_path, monkeypatch):
@@ -249,3 +249,134 @@ def test_failed_rebuild_restores_previous_published_game(tmp_path, monkeypatch):
         pipeline.run_game_build(store.get(job["id"]))
     assert marker.read_text(encoding="utf-8") == "published scene\n"
     assert store.get(job["id"])["build_state"] == "FAILED"
+
+
+def test_apply_music_draft_updates_only_selected_scene_without_script_rewrite(tmp_path, monkeypatch):
+    sound_dir = tmp_path / "sound-effects"
+    sound_dir.mkdir()
+    (sound_dir / "Bgm_Opening_ordinary.mp3").write_bytes(b"system")
+    (sound_dir / "Bgm_ending_bad.mp3").write_bytes(b"selected")
+    monkeypatch.setattr(
+        "webgal_backend.pipeline.settings",
+        SimpleNamespace(sound_effects_dir=sound_dir, workspace_root=tmp_path),
+    )
+
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    game_dir = job_dir / "public" / "game"
+    (game_dir / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+    scene_dir = game_dir / "scene"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    start = scene_dir / "start.txt"
+    other = scene_dir / "phase2.txt"
+    start.write_text("bgm:Bgm_Opening_ordinary.mp3 -volume=45 -enter=1500;\n主角:开始;\n", encoding="utf-8")
+    other.write_text("bgm:Bgm_Dialog001.mp3 -volume=45 -enter=1500;\n主角:继续;\n", encoding="utf-8")
+    write_json(job_dir / "state" / "scene_plan.json", {"scenes": [{"scene_file": "start.txt"}, {"scene_file": "phase2.txt"}], "endings": []})
+    write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {}})
+    store.mark_build_complete(job)
+
+    pipeline = WebGALPipeline(store)
+    pipeline._snapshot_published_edit_state(job_dir)
+    write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {"start.txt": "Bgm_ending_bad.mp3"}})
+    store.mark_draft_changed(job, "music")
+    monkeypatch.setattr(pipeline, "run_script_rewrite", lambda _job: pytest.fail("music-only sync must not rewrite scripts"))
+    monkeypatch.setattr(pipeline, "run_validation", lambda _job: None)
+
+    pipeline.apply_draft_changes(store.get(job["id"]))
+
+    assert start.read_text(encoding="utf-8").splitlines()[0] == "bgm:Bgm_ending_bad.mp3 -volume=45 -enter=1500;"
+    assert other.read_text(encoding="utf-8") == "bgm:Bgm_Dialog001.mp3 -volume=45 -enter=1500;\n主角:继续;\n"
+    assert (game_dir / "bgm" / "Bgm_ending_bad.mp3").read_bytes() == b"selected"
+    assert store.get(job["id"])["build_state"] == "CURRENT"
+
+
+def test_apply_scene_draft_writes_only_changed_scene_file(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    game_dir = job_dir / "public" / "game"
+    (game_dir / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+    scene_dir = game_dir / "scene"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    start = scene_dir / "start.txt"
+    other = scene_dir / "phase2.txt"
+    start.write_text("主角:旧开场;\n", encoding="utf-8")
+    other.write_text("主角:未修改;\n", encoding="utf-8")
+    original_design = {
+        "version": 1,
+        "scenes": [
+            {"scene_file": "start.txt", "lines": [{"kind": "dialogue", "speaker": "主角", "text": "旧开场"}]},
+            {"scene_file": "phase2.txt", "lines": [{"kind": "dialogue", "speaker": "主角", "text": "未修改"}]},
+        ],
+    }
+    write_json(job_dir / "state" / "game_design_completed.json", original_design)
+    write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {}})
+    store.mark_build_complete(job)
+
+    pipeline = WebGALPipeline(store)
+    pipeline._snapshot_published_edit_state(job_dir)
+    changed_design = json.loads(json.dumps(original_design, ensure_ascii=False))
+    changed_design["scenes"][0]["lines"][0]["text"] = "新开场"
+    write_json(job_dir / "state" / "game_design_completed.json", changed_design)
+    store.mark_draft_changed(job, "scenes")
+
+    def fake_rewrite(_job):
+        (job_dir / "state" / "game_design_webgal.txt").write_text(
+            "Scene:start.txt\n主角:新开场;\n\nScene:phase2.txt\n主角:模型不应覆盖这一场;\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(pipeline, "run_script_rewrite", fake_rewrite)
+    monkeypatch.setattr(pipeline, "run_sound_effects", lambda _job: None)
+    monkeypatch.setattr(pipeline, "run_tts_generation", lambda _job: None)
+    monkeypatch.setattr(pipeline, "run_validation", lambda _job: None)
+
+    pipeline.apply_draft_changes(store.get(job["id"]))
+
+    assert start.read_text(encoding="utf-8") == "主角:新开场;\n"
+    assert other.read_text(encoding="utf-8") == "主角:未修改;\n"
+    assert store.get(job["id"])["dirty_scopes"] == []
+
+
+def test_failed_draft_apply_restores_current_playable_game(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    game_dir = job_dir / "public" / "game"
+    (game_dir / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+    published_asset = game_dir / "background" / "room.webp"
+    published_asset.parent.mkdir(parents=True, exist_ok=True)
+    published_asset.write_bytes(b"published")
+    draft_asset = job_dir / "draft" / "game" / "background" / "room.webp"
+    draft_asset.parent.mkdir(parents=True, exist_ok=True)
+    draft_asset.write_bytes(b"draft")
+    store.mark_build_complete(job)
+    store.mark_draft_changed(job, "assets")
+    pipeline = WebGALPipeline(store)
+    monkeypatch.setattr(pipeline, "run_validation", lambda _job: (_ for _ in ()).throw(RuntimeError("validation failed")))
+
+    with pytest.raises(RuntimeError, match="validation failed"):
+        pipeline.apply_draft_changes(store.get(job["id"]))
+
+    assert published_asset.read_bytes() == b"published"
+    assert store.get(job["id"])["build_state"] == "FAILED"
+
+
+def test_apply_voice_draft_regenerates_audio_without_rewriting_scenes(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    (job_dir / "public" / "game" / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+    store.mark_build_complete(job)
+    store.mark_draft_changed(job, "voices")
+    pipeline = WebGALPipeline(store)
+    calls: list[str] = []
+    monkeypatch.setattr(pipeline, "run_script_rewrite", lambda _job: pytest.fail("voice-only sync must not rewrite scenes"))
+    monkeypatch.setattr(pipeline, "run_tts_generation", lambda _job: calls.append("tts"))
+    monkeypatch.setattr(pipeline, "run_validation", lambda _job: None)
+
+    pipeline.apply_draft_changes(store.get(job["id"]))
+
+    assert calls == ["tts"]
+    assert store.get(job["id"])["build_state"] == "CURRENT"

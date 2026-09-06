@@ -938,6 +938,58 @@ class BackendContractTests(unittest.TestCase):
         self.assertEqual(repaired_again, repaired)
         self.assertFalse(any(fix.code == "scene_opening_clear_figures" for fix in repeated_fixes))
 
+    def test_scene_validation_assigns_two_figures_left_then_right_with_next(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            [
+                "changeFigure:figure_first.webp;",
+                "changeFigure:figure_second.webp -left -next;",
+                "changeFigure:figure_first.webp -right -next;",
+            ],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+
+        self.assertIn("changeFigure:figure_first.webp -left -next;", repaired)
+        self.assertIn("changeFigure:figure_second.webp -right -next;", repaired)
+        self.assertEqual(repaired.count("changeFigure:figure_first.webp -left -next;"), 2)
+        self.assertFalse(any("-next -next" in line for line in repaired))
+        self.assertTrue(any(fix.code == "normalize_scene_figure_position" for fix in fixes))
+
+    def test_scene_validation_assigns_three_figures_center_left_right(self) -> None:
+        repaired, _issues, _fixes = _repair_scene_lines(
+            [
+                "changeFigure:figure_first.webp -right;",
+                "changeFigure:figure_second.webp;",
+                "changeFigure:figure_third.webp -left;",
+            ],
+            "public/game/scene/phase3.txt",
+            {},
+            {},
+        )
+
+        self.assertIn("changeFigure:figure_first.webp -next;", repaired)
+        self.assertIn("changeFigure:figure_second.webp -left -next;", repaired)
+        self.assertIn("changeFigure:figure_third.webp -right -next;", repaired)
+
+    def test_scene_validation_adds_next_to_all_figure_clears(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            [
+                "changeFigure:none;",
+                "changeFigure:none -left;",
+                "changeFigure:none -right -next;",
+                "Hero: The stage is clear;",
+            ],
+            "public/game/scene/phase2.txt",
+            {},
+            {},
+        )
+
+        self.assertNotIn("changeFigure:none;", repaired)
+        self.assertNotIn("changeFigure:none -left;", repaired)
+        self.assertTrue(all("-next" in line for line in repaired if line.startswith("changeFigure:none")))
+        self.assertEqual(sum(fix.code == "add_next_to_figure_clear" for fix in fixes), 2)
+
     def test_scene_validation_sanitizes_generated_comments_and_leaked_scene_filenames(self) -> None:
         repaired, _issues, fixes = _repair_scene_lines(
             [

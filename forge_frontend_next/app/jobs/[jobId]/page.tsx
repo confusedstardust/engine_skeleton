@@ -965,8 +965,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
 
   function beginCompletedEdit() {
     setEditScope("draft");
-    setStage("scenes");
-    setMessage("已进入草稿编辑；可在场景与素材页修改，当前可玩版本不会立即改变。");
+    setStage("assets");
+    setMessage("已进入草稿编辑；可在素材审阅页调整素材、音乐、语音和特效，也可切换到场景页修改内容。当前可玩版本不会立即改变。");
   }
 
   function exitCompletedEdit() {

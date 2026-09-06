@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const backend = process.env.FORGE_BACKEND_URL || "http://127.0.0.1:8010";
-const safeAssetName = /^[A-Za-z0-9_-]+\.png$/;
+const safeAssetName = /^[A-Za-z0-9_-]+\.(?:png|webp)$/i;
 
 export async function GET(_request: Request, context: { params: Promise<{ assetName: string }> }) {
   const { assetName } = await context.params;
@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: { params: Promise<{ assetN
   }
   return new NextResponse(await response.arrayBuffer(), {
     headers: {
-      "Content-Type": "image/png",
+      "Content-Type": assetName.toLowerCase().endsWith(".webp") ? "image/webp" : "image/png",
       "Cache-Control": "public, max-age=3600"
     }
   });
