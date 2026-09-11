@@ -7,9 +7,10 @@ services:
     environment:
       WEBGAL_BACKEND_ROOT: /app
       WEBGAL_JOBS_DIR: /data/jobs
-      WEBGAL_FRONTEND_URL: ${WEBGAL_FRONTEND_URL:?set WEBGAL_FRONTEND_URL}
+      # Keep production deploys self-contained while allowing a server .env override.
+      WEBGAL_FRONTEND_URL: ${WEBGAL_FRONTEND_URL:-https://www.narrativeos.cn/narrativeos/}
       WEBGAL_AUTH_MODE: ${WEBGAL_AUTH_MODE:-sso}
-      WEBGAL_SSO_USERINFO_URL: ${WEBGAL_SSO_USERINFO_URL:?set WEBGAL_SSO_USERINFO_URL}
+      WEBGAL_SSO_USERINFO_URL: ${WEBGAL_SSO_USERINFO_URL:-https://www.narrativeos.cn/api/auth/me}
       WEBGAL_SSO_COOKIE_NAME: ${WEBGAL_SSO_COOKIE_NAME:-nos_session}
       WEBGAL_SOUND_EFFECTS_DIR: ${WEBGAL_SOUND_EFFECTS_DIR:-/opt/forge/sound-effects}
       WEBGAL_INVITE_CODES_FILE: /data/jobs/invite-codes.txt
