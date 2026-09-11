@@ -21,8 +21,8 @@ const steps: TourStep[] = [
   {
     target: "invite",
     eyebrow: "先解锁创作权限",
-    title: "输入你的邀请码",
-    body: "从右上角进入邀请码页面，解锁临场创作之旅。移动端请先展开菜单。"
+    title: "登录你的账号",
+    body: "从右上角进入账户页面，使用 NarrativeOS 统一登录。移动端请先展开菜单。"
   },
   {
     target: "topic",

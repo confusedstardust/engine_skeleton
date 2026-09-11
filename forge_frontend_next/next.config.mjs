@@ -9,6 +9,7 @@ const nextConfig = {
   async rewrites() {
     return [
       { source: "/api/forge/health", destination: `${backend}/health` },
+      { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
       { source: "/api/forge/jobs", destination: `${backend}/jobs` },
       { source: "/api/forge/jobs/:path*", destination: `${backend}/jobs/:path*` },
       { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },

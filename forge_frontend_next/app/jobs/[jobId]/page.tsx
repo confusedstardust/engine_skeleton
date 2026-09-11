@@ -7,7 +7,7 @@ import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 import { withBasePath } from "../../base-path";
-import { jsonInviteHeaders } from "../../invite-identity";
+import { jsonAuthHeaders } from "../../invite-identity";
 
 type Job = {
   id: string;
@@ -332,7 +332,8 @@ type SceneChoice = {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge${path}`), {
     ...init,
-    headers: jsonInviteHeaders(init?.headers)
+    credentials: "include",
+    headers: jsonAuthHeaders(init?.headers)
   });
   if (!response.ok) {
     const body = await response.text();
@@ -1232,7 +1233,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   async function previewSceneMusic(asset: string): Promise<Blob> {
     const response = await fetch(
       withBasePath(`/api/forge/jobs/${jobId}/music-library/${encodeURIComponent(asset)}`),
-      { headers: jsonInviteHeaders() }
+      { credentials: "include", headers: jsonAuthHeaders() }
     );
     if (!response.ok) throw new Error("音乐试听加载失败。");
     return response.blob();

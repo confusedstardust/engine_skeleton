@@ -203,6 +203,75 @@ class BackendContractTests(unittest.TestCase):
             else:
                 os.environ["WEBGAL_INVITE_CODES"] = original_codes
 
+    def test_job_apis_accept_and_scope_frontend_sso_sessions(self) -> None:
+        import webgal_backend.app as backend_app
+
+        class FakeUserInfoResponse:
+            def __init__(self, payload: dict) -> None:
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(self.payload).encode("utf-8")
+
+        def fake_userinfo(request, timeout):
+            self.assertLessEqual(timeout, 30)
+            cookie = request.get_header("Cookie")
+            user_id = "user-alpha" if cookie == "nos_session=alpha-token" else "user-beta"
+            return FakeUserInfoResponse(
+                {
+                    "id": user_id,
+                    "email": f"{user_id}@example.com",
+                    "nickname": user_id,
+                    "avatarUrl": None,
+                    "providers": ["email"],
+                }
+            )
+
+        original_store = backend_app.store
+        try:
+            with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                os.environ,
+                {
+                    "WEBGAL_AUTH_MODE": "sso",
+                    "WEBGAL_SSO_USERINFO_URL": "https://website.example/api/auth/me",
+                    "WEBGAL_SSO_COOKIE_NAME": "nos_session",
+                },
+            ), patch("webgal_backend.auth.urlopen", side_effect=fake_userinfo):
+                backend_app.store = JobStore(Path(tmp) / "jobs")
+                client = TestClient(backend_app.app)
+                payload = {"source_material": "lesson", "options": VALID_OPTIONS}
+
+                alpha_cookie = {"Cookie": "nos_session=alpha-token"}
+                beta_cookie = {"Cookie": "nos_session=beta-token"}
+                alpha_created = client.post("/jobs", json=payload, headers=alpha_cookie)
+                beta_created = client.post("/jobs", json=payload, headers=beta_cookie)
+
+                self.assertEqual(alpha_created.status_code, 200)
+                self.assertEqual(beta_created.status_code, 200)
+                self.assertEqual(alpha_created.json()["identity"], {"type": "sso", "user_id": "user-alpha"})
+
+                alpha_jobs = client.get("/jobs", headers=alpha_cookie)
+                self.assertEqual(alpha_jobs.status_code, 200)
+                self.assertEqual([job["id"] for job in alpha_jobs.json()["jobs"]], [alpha_created.json()["id"]])
+                self.assertEqual(
+                    client.get(f"/jobs/{beta_created.json()['id']}", headers=alpha_cookie).status_code,
+                    404,
+                )
+
+                current_user = client.get("/auth/me", headers=alpha_cookie)
+                self.assertEqual(current_user.status_code, 200)
+                self.assertEqual(current_user.json()["id"], "user-alpha")
+                self.assertEqual(current_user.json()["auth_type"], "sso")
+                self.assertEqual(client.get("/jobs").status_code, 401)
+        finally:
+            backend_app.store = original_store
+
     def test_pipeline_phase_registry_keeps_aliases_available(self) -> None:
         pipeline = WebGALPipeline()
         phases = pipeline.phase_names()

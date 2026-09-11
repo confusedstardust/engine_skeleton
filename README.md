@@ -1142,6 +1142,9 @@ npm install
 ```text
 DEEPSEEK_API_KEY=...
 ARK_API_KEY=...
+WEBGAL_AUTH_MODE=sso
+WEBGAL_SSO_USERINFO_URL=http://127.0.0.1:3000/api/auth/me
+WEBGAL_SSO_COOKIE_NAME=nos_session
 ```
 
 说明：
@@ -1150,6 +1153,14 @@ ARK_API_KEY=...
   LLM 流水线必须
 - `ARK_API_KEY`
   只在图片生成开启时必须
+- `WEBGAL_AUTH_MODE`
+  生产环境使用 `sso`，后端只接受 NarrativeOS 官网登录会话；兼容旧邀请码时可显式设为 `sso_or_invite`
+- `WEBGAL_SSO_USERINFO_URL`
+  官网会话校验接口。后端会转发请求中的 `nos_session` Cookie，并使用接口返回的稳定 `user.id` 隔离任务
+- `WEBGAL_SSO_COOKIE_NAME`
+  官网登录 Cookie 名，必须与官网一致，当前为 `nos_session`
+
+SSO 请求链路为：浏览器携带官网 Cookie访问工作台 -> Next.js 将 Cookie 代理给 FastAPI -> FastAPI 调用官网 `/api/auth/me` 校验会话 -> 以官网 `user.id` 读取或创建任务。后端不接收密码，也不自行复制用户表。生产环境中官网与工作台应位于同一站点，使 `Path=/` 的 Cookie 可以同时发送到 `/` 和 `/narrativeos/`。
 
 ## 13.3 构建引擎
 

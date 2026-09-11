@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { withBasePath } from "./base-path";
-import { getStoredInviteCode, jsonInviteHeaders } from "./invite-identity";
+import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
 
 type Choice = {
@@ -56,7 +56,8 @@ const defaultVoicePreset = "多角色配音";
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge${path}`), {
     ...init,
-    headers: jsonInviteHeaders(init?.headers)
+    credentials: "include",
+    headers: jsonAuthHeaders(init?.headers)
   });
   if (!response.ok) {
     throw new Error(await response.text());
@@ -135,8 +136,8 @@ export default function ClassroomGeneratorPage() {
       setMessage(generateBlockReason);
       return;
     }
-    if (!getStoredInviteCode()) {
-      setMessage("请先输入邀请码，生成任务会绑定到这个邀请码身份下。");
+    if (!(await getCurrentUser())) {
+      setMessage("请先登录 NarrativeOS 账号，生成任务会绑定到你的账号。");
       router.push("/login");
       return;
     }
@@ -227,7 +228,7 @@ export default function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <Link className="nav-login" href="/login" data-tour="invite">邀请码</Link>
+          <Link className="nav-login" href="/login" data-tour="invite">账户</Link>
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
@@ -241,7 +242,7 @@ export default function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <Link className="mobile-login" href="/login" data-tour="invite">邀请码</Link>
+          <Link className="mobile-login" href="/login" data-tour="invite">账户</Link>
         </nav>
       )}
 

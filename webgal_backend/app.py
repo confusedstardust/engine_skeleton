@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import hashlib
 import mimetypes
 import os
 import re
@@ -11,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -20,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import artifacts
 from .artifacts import contains_hidden_path
+from .auth import identity_from_request, job_belongs_to_identity, user_from_request
 from .config import settings
 from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
@@ -55,9 +55,6 @@ pipeline = WebGALPipeline(store)
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
-INVITE_HEADER_NAME = "X-WebGAL-Invite-Code"
-INVITE_CODES_ENV = "WEBGAL_INVITE_CODES"
-INVITE_CODES_FILE_ENV = "WEBGAL_INVITE_CODES_FILE"
 
 
 def _contains_hidden_path(file_path: str) -> bool:
@@ -88,63 +85,12 @@ def _get_job_or_404(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def _invite_hash(code: str) -> str:
-    return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
-
-
-def _invite_hash_from_entry(entry: str) -> str | None:
-    value = entry.strip()
-    if not value or value.startswith("#"):
-        return None
-    if value.startswith("sha256:"):
-        digest = value.removeprefix("sha256:").strip().lower()
-        return digest if re.fullmatch(r"[a-f0-9]{64}", digest) else None
-    return _invite_hash(value)
-
-
-def _configured_invite_hashes() -> tuple[set[str], bool]:
-    configured = False
-    hashes: set[str] = set()
-
-    raw = os.getenv(INVITE_CODES_ENV, "").strip()
-    if raw:
-        configured = True
-        for item in re.split(r"[\s,;]+", raw):
-            digest = _invite_hash_from_entry(item)
-            if digest:
-                hashes.add(digest)
-
-    file_value = os.getenv(INVITE_CODES_FILE_ENV, "").strip()
-    if file_value:
-        configured = True
-        path = Path(file_value)
-        if not path.is_absolute():
-            path = (settings.workspace_root / path).resolve()
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                digest = _invite_hash_from_entry(line)
-                if digest:
-                    hashes.add(digest)
-
-    return hashes, configured
-
-
 def _identity_from_request(request: Request) -> dict[str, str]:
-    code = unquote(request.headers.get(INVITE_HEADER_NAME) or "").strip()
-    if not code:
-        raise HTTPException(status_code=401, detail="invite code is required")
-    invite_hash = _invite_hash(code)
-    allowed, configured = _configured_invite_hashes()
-    if configured and invite_hash not in allowed:
-        raise HTTPException(status_code=403, detail="invalid invite code")
-    return {"type": "invite", "invite_hash": invite_hash}
+    return identity_from_request(request, settings.workspace_root)
 
 
 def _job_belongs_to_identity(job: dict[str, Any], identity: dict[str, str]) -> bool:
-    stored = job.get("identity")
-    if not isinstance(stored, dict):
-        return False
-    return stored.get("type") == identity.get("type") and stored.get("invite_hash") == identity.get("invite_hash")
+    return job_belongs_to_identity(job, identity)
 
 
 def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
@@ -272,6 +218,11 @@ def health() -> dict[str, str]:
 @app.get("/generation-options/schema")
 def generation_options_schema() -> dict[str, Any]:
     return GenerationOptions.model_json_schema()
+
+
+@app.get("/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    return user_from_request(request, settings.workspace_root)
 
 
 @app.get("/")

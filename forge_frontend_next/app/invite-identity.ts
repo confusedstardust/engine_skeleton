@@ -1,30 +1,40 @@
 "use client";
 
-export const inviteStorageKey = "webgal_invite_code";
-export const inviteHeaderName = "X-WebGAL-Invite-Code";
+import { withBasePath } from "./base-path";
 
-export function getStoredInviteCode() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(inviteStorageKey)?.trim() || "";
+export type AuthUser = {
+  id: string;
+  email: string | null;
+  nickname: string | null;
+  avatar_url: string | null;
+  providers: string[];
+  auth_type: "sso" | "invite";
+};
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const response = await fetch(withBasePath("/api/forge/auth/me"), {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as AuthUser;
+  } catch {
+    return null;
+  }
 }
 
-export function setStoredInviteCode(code: string) {
-  window.localStorage.setItem(inviteStorageKey, code.trim());
+export function ssoLoginUrl(returnPath = "/") {
+  if (typeof window === "undefined") return "/login/";
+  const configuredOrigin = (process.env.NEXT_PUBLIC_SSO_ORIGIN || "").replace(/\/$/, "");
+  const localWebsiteOrigin = `${window.location.protocol}//${window.location.hostname}:3000`;
+  const origin = configuredOrigin || (window.location.port === "3001" ? localWebsiteOrigin : window.location.origin);
+  const returnUrl = new URL(withBasePath(returnPath), window.location.origin).toString();
+  return `${origin}/login/?next=${encodeURIComponent(returnUrl)}`;
 }
 
-export function clearStoredInviteCode() {
-  window.localStorage.removeItem(inviteStorageKey);
-}
-
-export function inviteHeaders() {
-  const code = getStoredInviteCode();
-  return code ? { [inviteHeaderName]: encodeURIComponent(code) } : {};
-}
-
-export function jsonInviteHeaders(base?: HeadersInit) {
+export function jsonAuthHeaders(base?: HeadersInit) {
   const headers = new Headers(base);
   headers.set("Content-Type", "application/json");
-  const code = getStoredInviteCode();
-  if (code) headers.set(inviteHeaderName, encodeURIComponent(code));
   return headers;
 }
