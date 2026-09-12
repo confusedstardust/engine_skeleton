@@ -22,17 +22,69 @@ env:
   FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
 
 jobs:
-  build-backend:
+  detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      version_tag: ${{ steps.vars.outputs.version_tag }}
+      backend: ${{ steps.selection.outputs.backend }}
+      frontend: ${{ steps.selection.outputs.frontend }}
+      version_tag: ${{ steps.selection.outputs.version_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute image tag
-        id: vars
-        run: echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - name: Detect changed application paths
+        id: paths
+        if: ${{ github.event_name == 'push' }}
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'webgal_backend/**'
+              - 'asset_scripts/**'
+              - 'src/**'
+              - 'public/**'
+              - 'scripts/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'tsconfig.node.json'
+              - 'vite.config.ts'
+              - 'index.html'
+              - 'requirements.txt'
+              - 'docker/backend.Dockerfile'
+              - '.dockerignore'
+              - 'docker-compose.prod.yml'
+              - '.github/workflows/docker-publish-deploy.yml'
+            frontend:
+              - 'forge_frontend_next/**'
+              - 'docker/frontend.Dockerfile'
+              - '.dockerignore'
+              - 'docker-compose.prod.yml'
+              - '.github/workflows/docker-publish-deploy.yml'
+
+      - name: Select services
+        id: selection
+        shell: bash
+        env:
+          BACKEND_CHANGED: ${{ steps.paths.outputs.backend }}
+          FRONTEND_CHANGED: ${{ steps.paths.outputs.frontend }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=${BACKEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
+            echo "frontend=${FRONTEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+  build-backend:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,7 +103,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.vars.outputs.version_tag }}
+            type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
 
       - name: Build and push backend image
         uses: docker/build-push-action@v6
@@ -65,16 +117,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   build-frontend:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
-    outputs:
-      version_tag: ${{ steps.vars.outputs.version_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Compute image tag
-        id: vars
-        run: echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -93,7 +141,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.vars.outputs.version_tag }}
+            type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
@@ -110,10 +158,18 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+    if: >-
+      ${{
+        always() &&
+        (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)) &&
+        (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true') &&
+        (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
+        (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     needs:
+      - detect-changes
       - build-backend
       - build-frontend
     steps:
@@ -132,7 +188,9 @@ jobs:
       - name: Deploy on remote host
         uses: appleboy/ssh-action@v1.0.3
         env:
-          VERSION_TAG: ${{ needs.build-backend.outputs.version_tag }}
+          VERSION_TAG: ${{ needs.detect-changes.outputs.version_tag }}
+          DEPLOY_BACKEND: ${{ needs.detect-changes.outputs.backend }}
+          DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
           REGISTRY: ${{ env.REGISTRY }}
           REPOSITORY: ${{ github.repository }}
           GHCR_USERNAME: ${{ github.actor }}
@@ -141,7 +199,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
+          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
           command_timeout: 240m
           script: |
             set -e
@@ -149,8 +207,27 @@ jobs:
             cd "${{ secrets.DEPLOY_PATH }}"
             echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
             REPOSITORY_LC="$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-            export BACKEND_IMAGE="$REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
-            export FRONTEND_IMAGE="$REGISTRY/$REPOSITORY_LC-frontend:$VERSION_TAG"
+            IMAGE_STATE_FILE=".deploy-images.env"
+            touch "$IMAGE_STATE_FILE"
+            update_image_state() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" "$IMAGE_STATE_FILE"; then
+                sed -i "s|^${key}=.*|${key}=${value}|" "$IMAGE_STATE_FILE"
+              else
+                printf '%s=%s\n' "$key" "$value" >> "$IMAGE_STATE_FILE"
+              fi
+            }
+            if [ "$DEPLOY_BACKEND" = "true" ]; then
+              update_image_state BACKEND_IMAGE "$REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
+            fi
+            if [ "$DEPLOY_FRONTEND" = "true" ]; then
+              update_image_state FRONTEND_IMAGE "$REGISTRY/$REPOSITORY_LC-frontend:$VERSION_TAG"
+            fi
+            if ! grep -q '^BACKEND_IMAGE=' "$IMAGE_STATE_FILE" || ! grep -q '^FRONTEND_IMAGE=' "$IMAGE_STATE_FILE"; then
+              echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
+              exit 1
+            fi
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD="docker compose"
             elif command -v docker-compose >/dev/null 2>&1; then
@@ -174,10 +251,17 @@ jobs:
               echo "[$(date -Is)] $name failed after retries"
               return 1
             }
-            timed_retry "pull backend image" $COMPOSE_CMD -f docker-compose.prod.yml pull backend
-            timed_retry "pull frontend image" $COMPOSE_CMD -f docker-compose.prod.yml pull frontend
+            SERVICES=""
+            if [ "$DEPLOY_BACKEND" = "true" ]; then
+              timed_retry "pull backend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull backend
+              SERVICES="$SERVICES backend"
+            fi
+            if [ "$DEPLOY_FRONTEND" = "true" ]; then
+              timed_retry "pull frontend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull frontend
+              SERVICES="$SERVICES frontend"
+            fi
             echo "[$(date -Is)] Starting docker compose up"
-            $COMPOSE_CMD -f docker-compose.prod.yml up -d
+            $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml up -d --no-deps $SERVICES
             echo "[$(date -Is)] Finished docker compose up"
             echo "[$(date -Is)] Docker disk usage before image prune"
             docker system df || true

@@ -30,6 +30,7 @@ from .particle_effects import (
     ParticleEffectError,
     available_effects,
     load_state as load_particle_effect_state,
+    normalize_assignment,
     save_scene_assignment,
 )
 from .scene_plan import build_scene_plan
@@ -223,6 +224,12 @@ class SceneEffectRequest(BaseModel):
     rotation_speed: float | None = None
     layer: str | None = None
     blend_mode: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class ScenePresentationDraftRequest(BaseModel):
+    music: dict[str, str | None] = Field(default_factory=dict)
+    effects: dict[str, dict[str, Any] | None] = Field(default_factory=dict)
     base_revision: int | None = Field(default=None, ge=0)
 
 
@@ -703,6 +710,61 @@ def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_req
     store.record_artifact(job, "scene_music_overrides", "state/scene_music_overrides.json")
     store.mark_draft_changed(job, "music")
     return {"job": _get_owned_job_or_404(job_id, http_request), "scene_file": scene_file, "asset": asset or None}
+
+
+@app.put("/jobs/{job_id}/scene-presentation-draft")
+def update_scene_presentation_draft(
+    job_id: str,
+    request: ScenePresentationDraftRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    """Persist all locally staged scene music/effect edits in one revision."""
+    job = _get_owned_job_or_404(job_id, http_request)
+    if job.get("options", {}).get("generation_mode", "advanced") != "advanced":
+        raise HTTPException(status_code=403, detail="scene presentation editing is available in advanced mode only")
+    _require_job_editable(job, request.base_revision)
+    job_dir = _job_dir_or_404(job_id)
+    scene_music, music_assets = _scene_music_review(job_dir)
+    valid_scenes = {str(item["scene_file"]) for item in scene_music}
+    normalized_music = {Path(scene.replace("\\", "/")).name: (asset or "").strip() for scene, asset in request.music.items()}
+    normalized_effects = {Path(scene.replace("\\", "/")).name: raw for scene, raw in request.effects.items()}
+    if any(scene not in valid_scenes for scene in [*normalized_music, *normalized_effects]):
+        raise HTTPException(status_code=422, detail="unknown scene file")
+    if any(asset and asset not in set(music_assets) for asset in normalized_music.values()):
+        raise HTTPException(status_code=422, detail="music asset is not available in the library")
+    for raw in normalized_effects.values():
+        if raw:
+            try:
+                normalize_assignment(raw, available_effects(job_dir))
+            except ParticleEffectError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if job.get("has_published_build"):
+        for path, fallback in (
+            (job_dir / "state" / "published_scene_music_overrides.json", {"version": 1, "scene_overrides": {}}),
+            (job_dir / "state" / "published_particle_effects.json", {"version": 1, "scene_effects": {}}),
+        ):
+            if not path.exists():
+                source = _read_json_file(job_dir / "state" / path.name.removeprefix("published_"))
+                write_json(path, source if source else fallback)
+    if normalized_music:
+        path = job_dir / "state" / "scene_music_overrides.json"
+        payload = _read_json_file(path)
+        overrides = dict(payload.get("scene_overrides", {})) if isinstance(payload.get("scene_overrides"), dict) else {}
+        for scene, asset in normalized_music.items():
+            if asset: overrides[scene] = asset
+            else: overrides.pop(scene, None)
+        write_json(path, {"version": 1, "scene_overrides": overrides})
+        store.record_artifact(job, "scene_music_overrides", "state/scene_music_overrides.json")
+    for scene, raw in normalized_effects.items():
+        try:
+            save_scene_assignment(job_dir, scene, raw)
+        except ParticleEffectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if normalized_effects:
+        store.record_artifact(job, "particle_effects", "state/particle_effects.json")
+    if normalized_music: store.mark_draft_changed(job, "music")
+    if normalized_effects: store.mark_draft_changed(job, "effects")
+    return {"job": _get_owned_job_or_404(job_id, http_request)}
 
 
 @app.get("/jobs/{job_id}/music-library/{asset_name}")

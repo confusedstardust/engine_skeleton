@@ -82,6 +82,11 @@ export type ParticleEffectReview = {
   scenes: Array<{ scene_file: string; label: string; kind: "scene" | "ending"; assignment: SceneEffectAssignment | null }>;
 };
 
+export type StagedScenePresentation = {
+  music: Record<string, string | null>;
+  effects: Record<string, SceneEffectAssignment | null>;
+};
+
 type LaperAssetWorkbenchProps = {
   imageEnabled: boolean;
   assets: AssetReviewItem[];
@@ -101,7 +106,7 @@ type LaperAssetWorkbenchProps = {
   closeAsset: () => void;
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
-  buildGame: () => Promise<void>;
+  buildGame: (staged?: StagedScenePresentation) => Promise<void>;
   retryAction?: () => void;
   retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
@@ -109,10 +114,8 @@ type LaperAssetWorkbenchProps = {
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
   sceneMusicEnabled: boolean;
-  saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
-  saveSceneEffect: (sceneFile: string, assignment: SceneEffectAssignment | null) => Promise<void>;
 };
 
 type AssetSection = "figures" | "backgrounds" | "effects";
@@ -506,16 +509,14 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
   const [musicSceneFile, setMusicSceneFile] = useState("");
-  const [musicAsset, setMusicAsset] = useState("");
+  const [musicDrafts, setMusicDrafts] = useState<Record<string, string | null>>({});
   const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
   const [musicPreviewError, setMusicPreviewError] = useState("");
   const [effectSceneFile, setEffectSceneFile] = useState("");
-  const [effectDraft, setEffectDraft] = useState<SceneEffectAssignment | null>(null);
-  const [effectDirty, setEffectDirty] = useState(false);
+  const [effectDrafts, setEffectDrafts] = useState<Record<string, SceneEffectAssignment | null>>({});
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewUrlRef = useRef<string | null>(null);
-  const musicFormHydratedRef = useRef("");
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
@@ -525,29 +526,38 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
 
   const selectedMusicScene = props.sceneMusic.find((item) => item.scene_file === musicSceneFile) || props.sceneMusic[0] || null;
   const selectedEffectScene = props.particleEffects.scenes.find((item) => item.scene_file === effectSceneFile) || props.particleEffects.scenes[0] || null;
+  const musicAsset = selectedMusicScene && Object.hasOwn(musicDrafts, selectedMusicScene.scene_file)
+    ? musicDrafts[selectedMusicScene.scene_file] || ""
+    : selectedMusicScene?.selected_asset || "";
+  const effectDraft = selectedEffectScene && Object.hasOwn(effectDrafts, selectedEffectScene.scene_file)
+    ? effectDrafts[selectedEffectScene.scene_file]
+    : selectedEffectScene?.assignment || null;
+  const hasStagedPresentation = Object.entries(musicDrafts).some(([scene, asset]) => (props.sceneMusic.find((item) => item.scene_file === scene)?.selected_asset || "") !== (asset || ""))
+    || Object.entries(effectDrafts).some(([scene, assignment]) => JSON.stringify(props.particleEffects.scenes.find((item) => item.scene_file === scene)?.assignment || null) !== JSON.stringify(assignment));
 
   useEffect(() => {
     if (!selectedMusicScene) return;
-    const persistedKey = `${selectedMusicScene.scene_file}|${selectedMusicScene.selected_asset || ""}`;
-    if (musicSceneFile !== selectedMusicScene.scene_file || musicFormHydratedRef.current !== persistedKey) {
+    if (!musicSceneFile) {
       setMusicSceneFile(selectedMusicScene.scene_file);
-      setMusicAsset(selectedMusicScene.selected_asset || "");
-      musicFormHydratedRef.current = persistedKey;
     }
   }, [musicSceneFile, selectedMusicScene]);
 
   useEffect(() => {
-    if (!selectedEffectScene || effectDirty) return;
+    if (!selectedEffectScene || effectSceneFile) return;
     setEffectSceneFile(selectedEffectScene.scene_file);
-    setEffectDraft(selectedEffectScene.assignment ? { ...selectedEffectScene.assignment } : null);
-  }, [effectDirty, selectedEffectScene]);
+  }, [effectSceneFile, selectedEffectScene]);
+
+  function setCurrentEffectDraft(value: SceneEffectAssignment | null) {
+    if (!selectedEffectScene) return;
+    setEffectDrafts((current) => ({ ...current, [selectedEffectScene.scene_file]: value }));
+  }
 
   function chooseEffect(effectId: string) {
     const preset = props.particleEffects.effects.find((item) => item.id === effectId);
     if (!preset) {
-      setEffectDraft(null);
+      setCurrentEffectDraft(null);
     } else {
-      setEffectDraft({
+      setCurrentEffectDraft({
         effect_id: preset.id,
         asset: preset.asset,
         count: preset.count,
@@ -562,12 +572,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         blend_mode: preset.blend_mode
       });
     }
-    setEffectDirty(true);
   }
 
   function changeEffectNumber(key: keyof SceneEffectAssignment, value: number) {
-    setEffectDraft((current) => current ? { ...current, [key]: value } : current);
-    setEffectDirty(true);
+    if (effectDraft) setCurrentEffectDraft({ ...effectDraft, [key]: value });
   }
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
@@ -743,9 +751,6 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   <div className="ui-form-field"><span>场景</span>
                     <ScenePicker value={selectedEffectScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.particleEffects.scenes.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.assignment) }))} onChange={(value) => {
                       setEffectSceneFile(value);
-                      const next = props.particleEffects.scenes.find((item) => item.scene_file === value);
-                      setEffectDraft(next?.assignment ? { ...next.assignment } : null);
-                      setEffectDirty(false);
                     }} />
                   </div>
                   <div className="ui-form-field"><span>特效</span>
@@ -763,7 +768,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                         <FormSlider key={key} label={label} min={min} max={max} step={step} value={effectDraft[key]} disabled={props.readonly || props.busy} onValueChange={(value) => changeEffectNumber(key, value)} />
                       ))}
                       <DirectionDial value={effectDraft.angle} disabled={props.readonly || props.busy} onChange={(value) => changeEffectNumber("angle", value)} />
-                      <div className="ui-form-field"><span>图层</span><ToggleGroup.Root className="segment-toggle" type="single" value={effectDraft.layer} disabled={props.readonly || props.busy} onValueChange={(value) => { if (!value) return; setEffectDraft({ ...effectDraft, layer: value as "foreground" | "background" }); setEffectDirty(true); }} aria-label="选择图层"><ToggleGroup.Item value="foreground">前景</ToggleGroup.Item><ToggleGroup.Item value="background">背景</ToggleGroup.Item></ToggleGroup.Root></div>
+                      <div className="ui-form-field"><span>图层</span><ToggleGroup.Root className="segment-toggle" type="single" value={effectDraft.layer} disabled={props.readonly || props.busy} onValueChange={(value) => { if (value) setCurrentEffectDraft({ ...effectDraft, layer: value as "foreground" | "background" }); }} aria-label="选择图层"><ToggleGroup.Item value="foreground">前景</ToggleGroup.Item><ToggleGroup.Item value="background">背景</ToggleGroup.Item></ToggleGroup.Root></div>
                       <details className="particle-advanced-controls">
                         <summary>高级运动参数</summary>
                         {([
@@ -771,15 +776,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                         ] as const).map(([key, label, min, max, step]) => (
                           <FormSlider key={key} label={label} min={min} max={max} step={step} value={effectDraft[key]} disabled={props.readonly || props.busy} onValueChange={(value) => changeEffectNumber(key, value)} />
                         ))}
-                        <div className="ui-form-field"><span>混合模式</span><ToggleGroup.Root className="blend-mode-group" type="single" value={effectDraft.blend_mode} disabled={props.readonly || props.busy} onValueChange={(value) => { if (!value) return; setEffectDraft({ ...effectDraft, blend_mode: value as "normal" | "add" | "screen" }); setEffectDirty(true); }} aria-label="选择混合模式"><ToggleGroup.Item value="normal"><b>普通</b><small>保留原色</small></ToggleGroup.Item><ToggleGroup.Item value="add"><b>发光</b><small>亮部相加</small></ToggleGroup.Item><ToggleGroup.Item value="screen"><b>滤色</b><small>柔和提亮</small></ToggleGroup.Item></ToggleGroup.Root></div>
+                        <div className="ui-form-field"><span>混合模式</span><ToggleGroup.Root className="blend-mode-group" type="single" value={effectDraft.blend_mode} disabled={props.readonly || props.busy} onValueChange={(value) => { if (value) setCurrentEffectDraft({ ...effectDraft, blend_mode: value as "normal" | "add" | "screen" }); }} aria-label="选择混合模式"><ToggleGroup.Item value="normal"><b>普通</b><small>保留原色</small></ToggleGroup.Item><ToggleGroup.Item value="add"><b>发光</b><small>亮部相加</small></ToggleGroup.Item><ToggleGroup.Item value="screen"><b>滤色</b><small>柔和提亮</small></ToggleGroup.Item></ToggleGroup.Root></div>
                       </details>
                     </div>
                   )}
-                  <button className="btn primary" type="button" disabled={props.readonly || props.busy || !selectedEffectScene || !effectDirty} onClick={async () => {
-                    if (!selectedEffectScene) return;
-                    await props.saveSceneEffect(selectedEffectScene.scene_file, effectDraft);
-                    setEffectDirty(false);
-                  }}>{effectDraft ? "保存场景特效" : "移除场景特效"}</button>
                 </section>
               </div>
             </div>
@@ -935,15 +935,15 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 <button
                   className="btn primary"
                   type="button"
-                  disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection || (Boolean(props.published) && !props.hasDraftChanges)}
+                  disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection || (Boolean(props.published) && !props.hasDraftChanges && !hasStagedPresentation)}
                   title={
                     hasUnappliedVoiceSelection
                       ? "已选择新音色，请先生成试听或恢复原选择"
-                      : props.published && !props.hasDraftChanges
+                      : props.published && !props.hasDraftChanges && !hasStagedPresentation
                         ? "草稿没有新的已保存改动，无需同步"
                         : undefined
                   }
-                  onClick={() => void props.buildGame()}
+                  onClick={() => void props.buildGame(hasStagedPresentation ? { music: musicDrafts, effects: effectDrafts } : undefined)}
                 >
                   {props.published ? "应用修改到游戏" : "确认素材并生成游戏"}
                 </button>
@@ -955,7 +955,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <section className="scene-music-editor" aria-label="场景音乐">
             <span className="scene-music-kicker">SCENE MUSIC</span>
             <h3>场景音乐</h3>
-            <p>不设置时保持系统自动选择；保存后点击“应用修改到游戏”，只更新当前场景的音乐。</p>
+            <p>选择只在当前编辑中暂存；点击“应用修改到游戏”时统一写入并生效。</p>
             <div className="ui-form-field"><span>场景</span><ScenePicker value={selectedMusicScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.sceneMusic.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.selected_asset) }))} onChange={(value) => { stopMusicPreview(); setMusicSceneFile(value); }} /></div>
             <div className="ui-form-field"><span>音乐</span>
               <div className="music-choice-list" role="radiogroup" aria-label="选择场景音乐">
@@ -963,21 +963,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   const previewAsset = item.asset || selectedMusicScene?.system_asset || "";
                   const playing = Boolean(previewAsset && musicPreviewingAsset === previewAsset);
                   return <div className={`music-choice ${musicAsset === item.asset ? "active" : ""}`} key={item.asset || "system"}>
-                    <button className="music-choice-select" type="button" role="radio" aria-checked={musicAsset === item.asset} disabled={props.readonly || props.busy} onClick={() => { stopMusicPreview(); setMusicAsset(item.asset); }}><i /><span><strong>{item.label}</strong><small>{item.hint}</small></span>{!item.asset ? <em>推荐</em> : null}</button>
+                  <button className="music-choice-select" type="button" role="radio" aria-checked={musicAsset === item.asset} disabled={props.readonly || props.busy} onClick={() => { stopMusicPreview(); if (selectedMusicScene) setMusicDrafts((current) => ({ ...current, [selectedMusicScene.scene_file]: item.asset || null })); }}><i /><span><strong>{item.label}</strong><small>{item.hint}</small></span>{!item.asset ? <em>推荐</em> : null}</button>
                     <button className={`music-choice-play ${playing ? "is-playing" : ""}`} type="button" disabled={props.busy || !previewAsset} aria-label={playing ? `停止试听 ${previewAsset}` : `试听 ${previewAsset}`} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(previewAsset)}>{playing ? "Ⅱ" : "▶"}</button>
                   </div>;
                 })}
               </div>
             </div>
             {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
-            <button
-              className="btn outline"
-              type="button"
-              disabled={props.readonly || props.busy || !selectedMusicScene || musicAsset === (selectedMusicScene.selected_asset || "")}
-              onClick={() => selectedMusicScene && void props.saveSceneMusic(selectedMusicScene.scene_file, musicAsset || null)}
-            >
-              {musicAsset ? "保存场景音乐" : "恢复系统选择"}
-            </button>
           </section>
         ) : null}
       </aside>

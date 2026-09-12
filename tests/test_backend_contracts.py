@@ -31,7 +31,7 @@ from webgal_backend.pipeline import PipelineError, WebGALPipeline
 from webgal_backend.prompts import game_design_completion_prompt
 from webgal_backend.raw_correction import correct_generated_raw_file, correct_inline_dialogue_direction
 from webgal_backend.scene_plan import build_scene_plan, expected_ending_types, expected_scene_files, expected_source_nodes
-from webgal_backend.scene_validation import _repair_scene_lines
+from webgal_backend.scene_validation import _character_name_set, _repair_scene_lines
 from webgal_backend.scene_validation import _parse_choose_options, _scene_targets
 from webgal_backend.storage import JobStore, read_json, write_json
 from webgal_backend.tts_pipeline import (
@@ -757,6 +757,109 @@ class BackendContractTests(unittest.TestCase):
         self.assertEqual(choice_line["choices"][0]["target"], "phase1.txt")
         self.assertFalse(any(line.get("kind") == "branch" for line in lines))
 
+    def test_choice_content_normalizes_embedded_webgal_prefixes(self) -> None:
+        lines = game_design.choice_group_to_scene_lines(
+            {
+                "id": "phase6_to_phase7",
+                "content": "intro:飞机引擎发动了。;\n玫瑰的声音:你到底还要站多久？;",
+                "choices": [{"text": "继续", "target_scene_file": "phase7.txt"}],
+            }
+        )
+
+        self.assertEqual(
+            lines[:2],
+            [
+                {
+                    "id": "phase6_to_phase7_content_1",
+                    "kind": "narration",
+                    "speaker": "旁白",
+                    "text": "飞机引擎发动了。",
+                    "rawPrefix": "intro",
+                },
+                {
+                    "id": "phase6_to_phase7_content_2",
+                    "kind": "dialogue",
+                    "speaker": "玫瑰的声音",
+                    "text": "你到底还要站多久？",
+                    "rawPrefix": "",
+                },
+            ],
+        )
+        self.assertEqual(game_design.render_scene_line(lines[0]), "intro:飞机引擎发动了。;")
+        self.assertEqual(game_design.render_scene_line(lines[1]), "玫瑰的声音:你到底还要站多久？;")
+
+    def test_apply_choices_to_json_deduplicates_existing_transition_content(self) -> None:
+        design = {
+            "version": 1,
+            "scenes": [
+                {
+                    "scene_file": "phase6.txt",
+                    "lines": [
+                        {
+                            "id": "phase6.txt-10",
+                            "kind": "narration",
+                            "speaker": "旁白",
+                            "text": "飞机引擎发动了。",
+                            "rawPrefix": "intro",
+                        }
+                    ],
+                }
+            ],
+        }
+        completed = game_design.apply_choices_to_json(
+            design,
+            {
+                "choices_group": [
+                    {
+                        "id": "phase6_to_phase7",
+                        "scene_file": "phase6.txt",
+                        "insert_index": 0,
+                        "content": "intro:飞机引擎发动了。;",
+                        "choices": [{"text": "继续", "target_scene_file": "phase7.txt"}],
+                    }
+                ]
+            },
+        )
+
+        lines = completed["scenes"][0]["lines"]
+        self.assertEqual(sum(line.get("text") == "飞机引擎发动了。" for line in lines), 1)
+        self.assertEqual(sum(line.get("kind") == "choice" for line in lines), 1)
+
+    def test_completed_design_reader_normalizes_legacy_choice_content(self) -> None:
+        completed = {
+            "version": 1,
+            "scenes": [
+                {
+                    "scene_file": "phase6.txt",
+                    "lines": [
+                        {
+                            "id": "phase6_to_phase7_content",
+                            "kind": "narration",
+                            "speaker": "旁白",
+                            "text": "intro:飞机引擎发动了。;\n玫瑰的声音:快来。",
+                            "rawPrefix": "旁白",
+                        },
+                        {
+                            "id": "phase6.txt-10",
+                            "kind": "narration",
+                            "speaker": "旁白",
+                            "text": "飞机引擎发动了。",
+                            "rawPrefix": "intro",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        normalized = game_design.normalize_completed_json(completed)
+        lines = normalized["scenes"][0]["lines"]
+
+        self.assertFalse(any(line.get("text", "").startswith("intro:") for line in lines))
+        self.assertEqual(sum(line.get("text") == "飞机引擎发动了。" for line in lines), 1)
+        rose = next(line for line in lines if line.get("speaker") == "玫瑰的声音")
+        self.assertEqual(rose["kind"], "dialogue")
+        self.assertEqual(game_design.render_scene_line(rose), "玫瑰的声音:快来。;")
+
     def test_game_design_json_reader_no_longer_accepts_legacy_text_artifact(self) -> None:
         pipeline = WebGALPipeline()
         with tempfile.TemporaryDirectory() as tmp:
@@ -849,6 +952,133 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn(lines[0], repaired)
         self.assertEqual(repaired.count(lines[0]), 1)
         self.assertFalse(any(fix.code == "missing_vocal_arg" for fix in fixes))
+
+    def test_scene_validation_clears_avatar_when_next_speaker_has_no_mapping(self) -> None:
+        repaired, issues, fixes = _repair_scene_lines(
+            ["角色A:第一句;", "角色B:第二句;"],
+            "public/game/scene/start.txt",
+            {"角色A": "miniavatar_a.webp"},
+            {},
+        )
+
+        self.assertEqual(
+            repaired[-4:],
+            [
+                "miniAvatar:miniavatar_a.webp;",
+                "角色A:第一句;",
+                "miniAvatar:none;",
+                "角色B:第二句;",
+            ],
+        )
+        self.assertTrue(any(fix.code == "clear_stale_mini_avatar" for fix in fixes))
+        self.assertTrue(any(issue.code == "unknown_speaker_avatar" for issue in issues))
+
+    def test_scene_validation_tracks_avatar_state_without_duplicate_commands(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            ["角色A:第一句;", "角色A:第二句;", "角色B:第三句;"],
+            "public/game/scene/start.txt",
+            {
+                "角色A": "miniavatar_a.webp",
+                "角色B": "miniavatar_b.webp",
+            },
+            {},
+        )
+
+        self.assertEqual(repaired.count("miniAvatar:miniavatar_a.webp;"), 1)
+        self.assertEqual(repaired.count("miniAvatar:miniavatar_b.webp;"), 1)
+        self.assertEqual(sum(fix.code == "missing_mini_avatar" for fix in fixes), 2)
+
+        repaired_again, _issues, repeated_fixes = _repair_scene_lines(
+            repaired,
+            "public/game/scene/start.txt",
+            {
+                "角色A": "miniavatar_a.webp",
+                "角色B": "miniavatar_b.webp",
+            },
+            {},
+        )
+        self.assertEqual(repaired_again, repaired)
+        self.assertFalse(any(fix.code in {"missing_mini_avatar", "clear_stale_mini_avatar"} for fix in repeated_fixes))
+
+    def test_scene_validation_converts_non_character_speaker_to_intro(self) -> None:
+        repaired, issues, fixes = _repair_scene_lines(
+            ["角色A:第一句;", "额外问题:旁白:intro:飞机引擎发动了。;", "角色B:第二句;"],
+            "public/game/scene/start.txt",
+            {"角色A": "miniavatar_a.webp"},
+            {},
+            {"角色A", "角色B"},
+        )
+
+        self.assertIn("intro:飞机引擎发动了。;", repaired)
+        self.assertNotIn("额外问题:旁白:intro:飞机引擎发动了。;", repaired)
+        intro_index = repaired.index("intro:飞机引擎发动了。;")
+        self.assertEqual(repaired[intro_index - 1], "miniAvatar:none;")
+        self.assertIn("角色B:第二句;", repaired)
+        self.assertTrue(any(fix.code == "normalize_non_character_dialogue" for fix in fixes))
+        self.assertTrue(any(issue.code == "unknown_speaker_avatar" and "角色B" in issue.message for issue in issues))
+
+    def test_scene_validation_preserves_character_alias_as_dialogue(self) -> None:
+        repaired, _issues, fixes = _repair_scene_lines(
+            ["（小王子 内心 os）:我该回去了。;", "玫瑰的声音:你终于回来了。;"],
+            "public/game/scene/start.txt",
+            {
+                "小王子": "miniavatar_prince.webp",
+                "玫瑰": "miniavatar_rose.webp",
+            },
+            {},
+            {"小王子", "玫瑰"},
+        )
+
+        self.assertIn("（小王子 内心 os）:我该回去了。;", repaired)
+        self.assertIn("玫瑰的声音:你终于回来了。;", repaired)
+        self.assertIn("miniAvatar:miniavatar_prince.webp;", repaired)
+        self.assertIn("miniAvatar:miniavatar_rose.webp;", repaired)
+        self.assertFalse(any(fix.code == "normalize_non_character_dialogue" for fix in fixes))
+
+    def test_scene_validation_never_converts_webgal_control_commands_to_intro(self) -> None:
+        commands = [
+            "setTransition: -target=fig-left -enter=enter-from-left -exit=exit;",
+            "changeBg:bg_room.webp -next;",
+            "playEffect:./game/vocal/door.mp3 -next;",
+            "setVar:trust=1;",
+        ]
+
+        repaired, _issues, fixes = _repair_scene_lines(
+            commands,
+            "public/game/scene/start.txt",
+            {},
+            {},
+            {"角色A"},
+        )
+
+        for command in commands:
+            self.assertIn(command, repaired)
+        self.assertFalse(any(fix.code == "normalize_non_character_dialogue" for fix in fixes))
+
+    def test_character_names_include_structured_offscreen_dialogue_speakers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            state_dir = job_dir / "state"
+            state_dir.mkdir(parents=True)
+            write_json(state_dir / "narrative_plan.json", {"characters": [{"id": "hero", "name": "主角"}]})
+            write_json(
+                state_dir / "game_design_completed.json",
+                {
+                    "scenes": [
+                        {
+                            "scene_file": "start.txt",
+                            "lines": [
+                                {"kind": "dialogue", "speaker": "玫瑰的声音", "text": "快来。"},
+                                {"kind": "narration", "speaker": "旁白", "text": "天黑了。"},
+                            ],
+                        }
+                    ]
+                },
+            )
+
+            names = _character_name_set(job_dir)
+
+        self.assertEqual(names, {"主角", "玫瑰的声音"})
 
     def test_choose_parser_respects_escaped_separators(self) -> None:
         line = r"choose:说出\:留下来:branch_1.txt|沉默\|点头:branch_2.txt;"
