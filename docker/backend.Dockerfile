@@ -8,7 +8,7 @@ COPY public ./public
 COPY scripts ./scripts
 COPY src ./src
 
-RUN npm ci --legacy-peer-deps
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 RUN npm run build
 
 
@@ -26,7 +26,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+RUN pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
 
 COPY webgal_backend ./webgal_backend
 COPY asset_scripts ./asset_scripts
@@ -43,4 +43,3 @@ USER appuser
 EXPOSE 8010
 
 CMD ["uvicorn", "webgal_backend.app:app", "--host", "0.0.0.0", "--port", "8010"]
-

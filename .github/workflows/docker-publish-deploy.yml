@@ -14,12 +14,16 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 env:
-  REGISTRY: ghcr.io
-  BACKEND_IMAGE_NAME: ${{ github.repository }}-backend
-  FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
+  REGISTRY: crpi-tuqzw1uka36vt7nh.cn-hangzhou.personal.cr.aliyuncs.com
+  BACKEND_IMAGE_NAME: acr_namespace_narrativeos/narrativeos-engine-backend
+  FRONTEND_IMAGE_NAME: acr_namespace_narrativeos/narrativeos-engine-frontend
+
+# Only the newest main-branch deployment is useful; cancel stale builds/deploys.
+concurrency:
+  group: engine-skeleton-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-backend:
@@ -37,12 +41,12 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Log in to Alibaba Cloud Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Docker metadata
         id: meta
@@ -59,10 +63,13 @@ jobs:
           context: .
           file: ./docker/backend.Dockerfile
           push: true
+          # Alibaba Cloud Personal ACR does not accept Buildx attestation manifests.
+          provenance: false
+          sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=engine-skeleton-backend
+          cache-to: type=gha,mode=max,scope=engine-skeleton-backend
 
   build-frontend:
     runs-on: ubuntu-latest
@@ -79,12 +86,12 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Log in to Alibaba Cloud Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Docker metadata
         id: meta
@@ -104,10 +111,13 @@ jobs:
           build-args: |
             FORGE_BACKEND_URL=http://backend:8010
             NEXT_PUBLIC_BASE_PATH=/narrativeos
+          # Alibaba Cloud Personal ACR does not accept Buildx attestation manifests.
+          provenance: false
+          sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=engine-skeleton-frontend
+          cache-to: type=gha,mode=max,scope=engine-skeleton-frontend
 
   deploy:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
@@ -134,23 +144,23 @@ jobs:
         env:
           VERSION_TAG: ${{ needs.build-backend.outputs.version_tag }}
           REGISTRY: ${{ env.REGISTRY }}
-          REPOSITORY: ${{ github.repository }}
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          BACKEND_IMAGE_NAME: ${{ env.BACKEND_IMAGE_NAME }}
+          FRONTEND_IMAGE_NAME: ${{ env.FRONTEND_IMAGE_NAME }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
+          envs: VERSION_TAG,REGISTRY,BACKEND_IMAGE_NAME,FRONTEND_IMAGE_NAME,ACR_USERNAME,ACR_PASSWORD
           command_timeout: 240m
           script: |
             set -e
             mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
             cd "${{ secrets.DEPLOY_PATH }}"
-            echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
-            REPOSITORY_LC="$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-            export BACKEND_IMAGE="$REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
-            export FRONTEND_IMAGE="$REGISTRY/$REPOSITORY_LC-frontend:$VERSION_TAG"
+            echo "$ACR_PASSWORD" | docker login "$REGISTRY" -u "$ACR_USERNAME" --password-stdin
+            export BACKEND_IMAGE="$REGISTRY/$BACKEND_IMAGE_NAME:$VERSION_TAG"
+            export FRONTEND_IMAGE="$REGISTRY/$FRONTEND_IMAGE_NAME:$VERSION_TAG"
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD="docker compose"
             elif command -v docker-compose >/dev/null 2>&1; then
@@ -179,9 +189,5 @@ jobs:
             echo "[$(date -Is)] Starting docker compose up"
             $COMPOSE_CMD -f docker-compose.prod.yml up -d
             echo "[$(date -Is)] Finished docker compose up"
-            echo "[$(date -Is)] Docker disk usage before image prune"
-            docker system df || true
-            echo "[$(date -Is)] Pruning unused Docker images older than 24h"
-            docker image prune -a -f --filter "until=24h" || true
-            echo "[$(date -Is)] Docker disk usage after image prune"
-            docker system df || true
+            # Keep cleanup out of the deployment critical path; run it separately
+            # during maintenance so a deploy is not delayed by Docker disk scans.
