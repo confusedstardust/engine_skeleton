@@ -10,6 +10,42 @@ from .raw_correction import correct_inline_dialogue_direction
 from .storage import read_json
 
 
+_WEBGAL_CONTROL_COMMANDS = {
+    "applystyle",
+    "bgm",
+    "callscene",
+    "callsteam",
+    "changebg",
+    "changefigure",
+    "changescene",
+    "choose",
+    "end",
+    "filmmode",
+    "getuserinput",
+    "intro",
+    "jumplabel",
+    "label",
+    "miniavatar",
+    "pixiinit",
+    "pixiperform",
+    "playeffect",
+    "playvideo",
+    "say",
+    "setanimation",
+    "setcomplexanimation",
+    "setfilter",
+    "settempanimation",
+    "settextbox",
+    "settransform",
+    "settransition",
+    "setvar",
+    "showvars",
+    "unlockbgm",
+    "unlockcg",
+    "wait",
+}
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     code: str
@@ -73,6 +109,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
         return SceneValidationResult(issues=issues, fixes=fixes, total_scenes=0, total_lines=0)
 
     character_avatars = _character_avatar_map(job_dir)
+    character_names = _character_name_set(job_dir)
     vocal_map = _tts_vocal_map(job_dir)
     for scene_path in scene_files:
         relative_file = _relative_scene_file(job_dir, scene_path)
@@ -82,6 +119,7 @@ def validate_and_repair_scenes(job_dir: Path) -> SceneValidationResult:
             relative_file,
             character_avatars,
             vocal_map,
+            character_names,
         )
         issues.extend(file_issues)
         fixes.extend(file_fixes)
@@ -132,11 +170,13 @@ def _repair_scene_lines(
     relative_file: str,
     character_avatars: dict[str, str],
     vocal_map: dict[str, Any],
+    character_names: set[str] | None = None,
 ) -> tuple[list[str], list[ValidationIssue], list[AppliedFix]]:
     issues: list[ValidationIssue] = []
     fixes: list[AppliedFix] = []
     repaired: list[str] = []
     stage_positions: dict[str, str | None] = {"left": None, "center": None, "right": None}
+    active_mini_avatar: str | None = None
     lines, unreachable_content_fixes = _remove_unreachable_scene_tail(lines, relative_file)
     fixes.extend(unreachable_content_fixes)
     figure_positions = _scene_figure_position_plan(lines)
@@ -235,6 +275,33 @@ def _repair_scene_lines(
                 stage_positions[position] = figure
                 transition_line = _transition_line_for_change_figure(line, position, lines[line_index + 1 :])
 
+        explicit_mini_avatar = _mini_avatar_value(line)
+        if explicit_mini_avatar is not None:
+            active_mini_avatar = explicit_mini_avatar
+
+        speaker = _dialogue_speaker(line)
+        if speaker and character_names is not None and not _is_character_speaker(speaker, character_names):
+            line = _non_character_dialogue_to_intro(line)
+            if active_mini_avatar != "":
+                repaired.append("miniAvatar:none;")
+                active_mini_avatar = ""
+                fixes.append(
+                    AppliedFix(
+                        code="clear_stale_mini_avatar",
+                        file=relative_file,
+                        line=original_index,
+                        message=f"Cleared the previous mini avatar before narration from {speaker}.",
+                    )
+                )
+            fixes.append(
+                AppliedFix(
+                    code="normalize_non_character_dialogue",
+                    file=relative_file,
+                    line=original_index,
+                    message=f"Converted non-character speaker {speaker} to intro narration.",
+                )
+            )
+
         scene_name = relative_file.replace("public/game/scene/", "")
         dialogue = _dialogue_identity(line)
         vocal_filename = _match_vocal_filename(vocal_map, scene_name, original_index, dialogue)
@@ -250,10 +317,12 @@ def _repair_scene_lines(
             )
 
         speaker = _dialogue_speaker(line)
-        if speaker and speaker in character_avatars:
-            avatar_line = f"miniAvatar:{character_avatars[speaker]};"
-            if not _previous_effective_line_is(repaired, avatar_line):
+        avatar = _speaker_avatar(speaker, character_avatars) if speaker else None
+        if speaker and avatar:
+            avatar_line = f"miniAvatar:{avatar};"
+            if active_mini_avatar != avatar:
                 repaired.append(avatar_line)
+                active_mini_avatar = avatar
                 fixes.append(
                     AppliedFix(
                         code="missing_mini_avatar",
@@ -263,6 +332,17 @@ def _repair_scene_lines(
                     )
                 )
         elif speaker and speaker not in character_avatars:
+            if active_mini_avatar != "":
+                repaired.append("miniAvatar:none;")
+                active_mini_avatar = ""
+                fixes.append(
+                    AppliedFix(
+                        code="clear_stale_mini_avatar",
+                        file=relative_file,
+                        line=original_index,
+                        message=f"Cleared the previous mini avatar before unmapped speaker {speaker}.",
+                    )
+                )
             issues.append(
                 ValidationIssue(
                     code="unknown_speaker_avatar",
@@ -398,7 +478,7 @@ def _dialogue_speaker(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith(";") or stripped.startswith("//"):
         return None
-    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "playEffect:", "end")):
+    if stripped.startswith(":") or _is_webgal_control_command(stripped):
         return None
     match = re.match(r"^(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]*?)\s*[\uFF1A:]", stripped)
     if not match:
@@ -409,11 +489,44 @@ def _dialogue_speaker(line: str) -> str | None:
     return speaker or None
 
 
+def _mini_avatar_value(line: str) -> str | None:
+    match = re.match(r"^\s*miniAvatar\s*[:：]\s*(.*?)\s*;?\s*$", line, flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = match.group(1).strip().rstrip(";").strip()
+    return "" if not value or value.lower() == "none" else value
+
+
+def _is_character_speaker(speaker: str, character_names: set[str]) -> bool:
+    return speaker in character_names or any(name and name in speaker for name in character_names)
+
+
+def _speaker_avatar(speaker: str, character_avatars: dict[str, str]) -> str | None:
+    if speaker in character_avatars:
+        return character_avatars[speaker]
+    matches = [name for name in character_avatars if name and name in speaker]
+    return character_avatars[max(matches, key=len)] if matches else None
+
+
+def _non_character_dialogue_to_intro(line: str) -> str:
+    match = re.match(r"^\s*[^:：;]+\s*[:：]\s*(?P<body>.*?)\s*;?\s*$", line)
+    if not match:
+        return line
+    body = _strip_dialogue_args(match.group("body").strip()).strip()
+    while True:
+        nested = re.match(r"^(?:旁白|intro)\s*[:：]\s*(?P<body>.*)$", body, flags=re.IGNORECASE)
+        if not nested:
+            break
+        body = nested.group("body").strip()
+    body = body.replace("&#x20;", " ").strip().rstrip(";").strip()
+    return f"intro:{body};" if body else ""
+
+
 def _dialogue_identity(line: str) -> tuple[str, str] | None:
     stripped = line.strip()
     if not stripped or stripped.startswith(";") or stripped.startswith("//"):
         return None
-    if stripped.startswith((":", "intro:", "choose:", "change", "miniAvatar:", "setVar:", "unlock", "pixi", "bgm:", "playEffect:", "end")):
+    if stripped.startswith(":") or _is_webgal_control_command(stripped):
         return None
     match = re.match(r"^(?P<speaker>[^:\uFF1A;\s][^:\uFF1A;]*?)\s*[\uFF1A:]\s*(?P<body>.+?)\s*;?\s*$", stripped)
     if not match:
@@ -425,6 +538,11 @@ def _dialogue_identity(line: str) -> tuple[str, str] | None:
     if not speaker or not text:
         return None
     return speaker, text
+
+
+def _is_webgal_control_command(line: str) -> bool:
+    match = re.match(r"^\s*(?P<command>[A-Za-z_][A-Za-z0-9_]*)\s*[:：]", line)
+    return bool(match and match.group("command").lower() in _WEBGAL_CONTROL_COMMANDS)
 
 
 def _strip_dialogue_args(text: str) -> str:
@@ -610,14 +728,6 @@ def _clear_figure_line(position: str) -> str:
 
 def _is_figure_clear(figure: str) -> bool:
     return figure in {"", "none"}
-
-
-def _previous_effective_line_is(lines: list[str], expected: str) -> bool:
-    for line in reversed(lines):
-        if not line.strip():
-            continue
-        return line.strip() == expected
-    return False
 
 
 def _remove_unreachable_scene_tail(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
@@ -851,6 +961,33 @@ def _character_avatar_map(job_dir: Path) -> dict[str, str]:
         if avatar and character_name:
             mapping[character_name] = avatar
     return mapping
+
+
+def _character_name_set(job_dir: Path) -> set[str]:
+    plan_path = job_dir / "state" / "narrative_plan.json"
+    names: set[str] = set()
+    if plan_path.exists():
+        plan = read_json(plan_path)
+        names.update(
+            str(character.get("name") or "").strip()
+            for character in plan.get("characters", [])
+            if isinstance(character, dict) and str(character.get("name") or "").strip()
+        )
+
+    completed_path = job_dir / "state" / "game_design_completed.json"
+    if completed_path.exists():
+        completed = read_json(completed_path)
+        for scene in completed.get("scenes", []):
+            if not isinstance(scene, dict):
+                continue
+            names.update(
+                str(line.get("speaker") or "").strip()
+                for line in scene.get("lines", [])
+                if isinstance(line, dict)
+                and str(line.get("kind") or "") == "dialogue"
+                and str(line.get("speaker") or "").strip()
+            )
+    return names
 
 
 def _tts_vocal_map(job_dir: Path) -> dict[str, Any]:

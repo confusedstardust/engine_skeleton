@@ -29,10 +29,10 @@ from .prompts import (
     game_design_prompt,
     narrative_prompt,
     sound_effect_prompt,
-    webgal_script_rewrite_prompt,
 )
 from .raw_correction import correct_generated_raw_file
 from .scene_plan import build_scene_plan, expected_scene_files
+from .script_compiler import ScriptCompileError, compile_webgal_script
 from .storage import JobStore, read_json, utc_now, write_json
 from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
 from .scene_validation import validate_and_repair_scenes, validation_report
@@ -368,11 +368,14 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         raise PipelineError("game_design.json is required before design completion")
 
     def _read_game_design_completed_text(self, job_dir: Path) -> str:
+        return game_design.render_json(self._read_game_design_completed_json(job_dir))
+
+    def _read_game_design_completed_json(self, job_dir: Path) -> dict[str, Any]:
         json_path = job_dir / "state" / "game_design_completed.json"
         if json_path.exists():
             data = read_json(json_path)
             if isinstance(data, dict):
-                return game_design.render_json(data)
+                return game_design.normalize_completed_json(data)
             raise PipelineError("game_design_completed.json must be a JSON object")
         raise PipelineError("game_design_completed.json is required before this phase")
 
@@ -703,11 +706,19 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         job_dir = self.store.job_dir(job["id"])
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         scene_plan = build_scene_plan(narrative_plan)
-        game_design_text = game_design.render_json(self._read_game_design_json(job_dir))
+        completed_json = self._read_game_design_completed_json(job_dir)
+        game_design_text = game_design.render_json(completed_json)
         asset_context = self._asset_context_from_narrative_and_game_design(narrative_plan, game_design_text)
         base_dir = str((job_dir / "public" / "game").resolve())
         with self._trace_stage(job, 4, "素材准备", "asset_manifest", "assets_manifest.json"):
-            prompt = asset_prompt(asset_context, base_dir, job["options"], game_design_text=game_design_text, narrative_plan=narrative_plan)
+            prompt = asset_prompt(
+                asset_context,
+                base_dir,
+                job["options"],
+                game_design_text=game_design_text,
+                game_design_json=completed_json,
+                narrative_plan=narrative_plan,
+            )
             manifest = self._call_with_validation(
                 job=job,
                 job_dir=job_dir,
@@ -846,34 +857,19 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         self.store.transition(job, "RUNNING", "SCRIPT_REWRITE")
         job_dir = self.store.job_dir(job["id"])
         manifest = self._read_required(job_dir / "assets_manifest.json")
-        completed_text = self._read_game_design_completed_text(job_dir)
-
-        syntax_path = settings.contracts_dir / "syntax.md"
-        if not syntax_path.exists():
-            raise PipelineError("webgal_backend/contracts/syntax.md is required for WebGAL script rewriting")
-
         assets = self._script_asset_lists(manifest)
         write_json(job_dir / "state" / "script_assets.json", assets)
 
         with self._trace_stage(job, 5, "插入素材", "webgal_script_rewrite", "state/game_design_webgal.txt"):
-            llm = self._make_llm(job, job_dir)
-
-            system_prompt = f"""{SYSTEM_PROMPT}
-
-Current phase: webgal_script_rewrite
-Return plain text only. Do not call tools. Do not wrap the result in Markdown fences."""
-            prompt = webgal_script_rewrite_prompt(
-                syntax_md=syntax_path.read_text(encoding="utf-8"),
-                game_design_completed_text=completed_text,
-                background_assets=assets["background_assets"],
-                figure_assets=assets["figure_assets"],
-            )
-            rewritten_text = llm.call_text("webgal_script_rewrite", system_prompt, prompt)
-            rewritten_text = self._format_check_scene_headers(
-                rewritten_text,
-                completed_text,
-                "game_design_webgal.txt",
-            )
+            completed_json = self._read_game_design_completed_json(job_dir)
+            narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+            try:
+                compilation = compile_webgal_script(completed_json, narrative_plan, manifest)
+            except ScriptCompileError as exc:
+                raise PipelineError(f"deterministic WebGAL compilation failed: {exc}") from exc
+            rewritten_text = compilation.script
+            write_json(job_dir / "state" / "script_compile_plan.json", compilation.plan)
+            self.store.record_artifact(job, "script_compile_plan", "state/script_compile_plan.json")
             (job_dir / "state" / "game_design_webgal.txt").write_text(rewritten_text.rstrip() + "\n", encoding="utf-8")
             self.store.record_artifact(job, "script_assets", "state/script_assets.json")
             self.store.record_artifact(job, "game_design_webgal", "state/game_design_webgal.txt")

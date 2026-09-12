@@ -12,7 +12,6 @@ from .contract import (
     generation_contract,
     narrative_source_context,
 )
-from .rules import WEBGAL_REWRITE_RULES
 
 
 def narrative_prompt(source_material: str, options: dict[str, Any]) -> str:
@@ -73,6 +72,7 @@ def asset_prompt(
     base_dir: str,
     options: dict[str, Any],
     game_design_text: str | None = None,
+    game_design_json: dict[str, Any] | None = None,
     narrative_plan: dict[str, Any] | None = None,
     ) -> str:
         limits = generation_limits()
@@ -94,6 +94,9 @@ def asset_prompt(
         game_design.json 渲染文本:
         {game_design_block}
 
+        game_design_completed.json（line.id 可用于精确放置事件 CG）:
+        {json.dumps(game_design_json or {}, ensure_ascii=False, indent=2)}
+
         可参考的角色与场景信息:
         {json.dumps(asset_context, ensure_ascii=False, indent=2)}
 
@@ -108,7 +111,10 @@ def asset_prompt(
                 "subdir": "background",
                 "size": "2560x1440",
                 "prompt": "Chinese ink wash painting style, warm sepia tones, a lone figure standing on ancient Chinese city wall looking out at misty horizon, the city behind him and open road ahead, melancholic and philosophical atmosphere, 1930s Shanghai aesthetic, no text, no watermark",
-                "available_scene": "act1_office.txt"
+                "available_scene": "act1_office.txt",
+                "usage": "scene_background",
+                "character_id": "",
+                "insert_before_line_id": ""
             }}
             ]
         }}
@@ -123,12 +129,17 @@ def asset_prompt(
             - 角色立绘 必须为彩色。
             - asset为立绘时,available_scene为可空
             - 角色立绘使用 subdir "{limits['assets']['figure_subdir']}",size "{limits['assets']['figure_size']}",filename 使用 figure_ 前缀。
+            - 角色立绘 usage 必须为 figure，character_id 必须引用 narrative_plan.characters.id。
+            - 角色立绘 insert_before_line_id 留空；角色首次发言时由确定性编译器自动出场。
             - 每个 characters 节点中的角色必须有一张立绘。
             样例:1. 清朝末期中国乡村少年,13岁,被阳光晒得黝黑的皮肤,健康有活力的神态,朴素的农民装束,中国传统乡村服饰,明亮的眼睛,自信的微笑,手持钢制叉子,中国教科书插画风格,教育类书籍插画,写实画风
                 2. 女性角色,18岁,一头乌黑笔直的长发,浅棕色眼睛,白皙的皮肤,苗条的身材,美丽的容颜,日本夏季校服,白色短袖衬衫,藏青色百褶裙,红色蝴蝶结,温柔的微笑,温暖的眼神,脸颊微红,自然站立,一手提着书包,动漫风格,线条干净利落,眼神细腻,柔和的赛璐珞渲染
         背景要求:
             - 背景提示:描述时间+场景+空间结构+材质细节+关键物品+风格+光照+主要景观元素及氛围。
             - 背景图使用 subdir "{limits['assets']['background_subdir']}",size "{limits['assets']['background_size']}",filename 使用 bg_ 或 title_ 前缀。
+            - 每个场景必须且只能有一个 usage=scene_background 的主背景。
+            - 事件 CG 使用 usage=event_cg，并用 insert_before_line_id 指向该场景现有的 line.id。
+            - 背景和 CG 的 character_id 留空，available_scene 必须引用现有 scene_file。
             - CG 提示:描述场景构图、情感基调、光照。
             - CG 和背景图中可以出现路人,但严禁出现 characters 节点中的角色。
             - 背景和 CG prompt 必须包含 "no text"。
@@ -277,49 +288,6 @@ def game_design_completion_prompt(
                 outline_json=json.dumps(game_design_outline, ensure_ascii=False, indent=2),
                 contract_text=contract_text(options),
             )
-
-def webgal_script_rewrite_prompt(
-    syntax_md: str,
-    game_design_completed_text: str,
-    background_assets: list[str],
-    figure_assets: list[str],
-) -> str:
-    return f"""你是一个资深 WebGAL 剧本编辑助手,请根据以下语法规则,把游戏脚本改写为可执行的 WebGAL 脚本,并把可用背景和立绘资源以合适的形式自然加入整个剧本。
-
-        语法规则:
-        -----
-        {syntax_md}
-        -----
-
-        可用背景资源 background_assets:
-        {json.dumps(background_assets, ensure_ascii=False, indent=2)}
-
-        可用立绘资源 figure_assets:
-        {json.dumps(figure_assets, ensure_ascii=False, indent=2)}
-
-        改写要求:
-        - 只能使用上方列出的资源文件名,不要编造其他图片文件名
-        - 背景资源只能通过 changeBg 引用
-        - 立绘资源只能通过 changeFigure 引用
-        - 根据每个场景的时间、地点、情绪,把 background_assets 分配到合适场景中;尽量让每个背景资源至少出现一次
-        - 根据角色出场和对话上下文,把 figure_assets 分配到合适位置;如果资源数量允许,尽量让每个立绘资源至少出现一次
-        - 场景开始处优先设置合适背景;角色进入、离开、情绪变化或对话焦点变化时,可以切换立绘
-        - 切换背景和立绘时优先使用 -next,避免打断剧情节奏
-        - 禁止执行任何以下操作:新增、删除、修改、合并或拆分 Scene:xxx.txt / Ending:xxx.txt 段落
-        - Scene:xxx.txt / Ending:xxx.txt 被视为不可变场景标题
-        - 必须保留原有剧情含义、角色关系、变量、choose 目标文件名和结局走向
-        - 角色台词行必须稳定使用 `角色名:台词正文`,如果看到 `角色名:(动作/语气)台词`,必须删除括号动作并保留台词正文
-        - 可以把非 WebGAL 变量变化整理成 syntax.md 中的合法形式
-        - 每条 WebGAL 语句单独一行,并以英文分号 ; 结尾
-        - 输出完整改写后的脚本
-
-        游戏脚本:
-        -----
-        {game_design_completed_text}
-        -----
-
-        {WEBGAL_REWRITE_RULES}"""
-
 
 def sound_effect_prompt(game_design_completed_text: str, sound_effect_assets: list[dict[str, Any]]) -> str:
     return f"""你是一名游戏音频编排师。对于文本中的场景、环境变化、重大事件、动作节点、情绪转折点:

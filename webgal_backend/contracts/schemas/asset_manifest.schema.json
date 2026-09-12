@@ -20,7 +20,10 @@
           "subdir": { "type": "string", "minLength": 1 },
           "size": { "type": "string", "minLength": 1 },
           "prompt": { "type": "string", "minLength": 20 },
-          "available_scene": { "type": "string", "minLength": 0 }
+          "available_scene": { "type": "string", "minLength": 0 },
+          "usage": { "type": "string", "enum": ["figure", "scene_background", "event_cg"] },
+          "character_id": { "type": "string", "minLength": 0 },
+          "insert_before_line_id": { "type": "string", "minLength": 0 }
         }
       }
     }

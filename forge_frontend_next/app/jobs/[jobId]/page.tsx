@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { LaperAssetWorkbench } from "../../../components/laper-asset-workbench";
+import { LaperAssetWorkbench, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
@@ -1213,23 +1213,6 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
-  async function saveSceneMusic(sceneFile: string, asset: string | null) {
-    setBusy(true);
-    setMessage(asset ? `正在为 ${sceneFile} 保存场景音乐...` : `正在恢复 ${sceneFile} 的系统场景音乐...`);
-    try {
-      await api(`/jobs/${jobId}/scene-music`, {
-        method: "PUT",
-        body: JSON.stringify({ scene_file: sceneFile, asset, base_revision: data?.job.draft_revision ?? 0 })
-      });
-      setMessage(asset ? "场景音乐已保存；点击“应用修改到游戏”后会更新对应场景。" : "已恢复系统自动选择的场景音乐；应用修改后生效。")
-      await refresh(true);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存场景音乐失败。")
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function previewSceneMusic(asset: string): Promise<Blob> {
     const response = await fetch(
       withBasePath(`/api/forge/jobs/${jobId}/music-library/${encodeURIComponent(asset)}`),
@@ -1237,23 +1220,6 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     );
     if (!response.ok) throw new Error("音乐试听加载失败。");
     return response.blob();
-  }
-
-  async function saveSceneEffect(sceneFile: string, assignment: SceneEffectAssignment | null) {
-    setBusy(true);
-    setMessage(assignment ? `正在保存 ${sceneFile} 的场景特效...` : `正在移除 ${sceneFile} 的场景特效...`);
-    try {
-      await api(`/jobs/${jobId}/scene-effect`, {
-        method: "PUT",
-        body: JSON.stringify({ scene_file: sceneFile, ...(assignment || {}), base_revision: data?.job.draft_revision ?? 0 })
-      });
-      setMessage(assignment ? "场景特效已保存；应用修改后只更新对应场景。" : "场景特效已移除；应用修改后生效。");
-      await refresh(true);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存场景特效失败。");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function previewCharacterVoice(speaker: string, voice: string) {
@@ -1275,10 +1241,16 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
-  async function buildGameFromAssets() {
+  async function buildGameFromAssets(staged?: StagedScenePresentation) {
     setBusy(true);
-    setMessage(hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
+    setMessage(staged ? "正在保存场景音乐与特效，并应用到游戏..." : hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
     try {
+      if (staged && (Object.keys(staged.music).length || Object.keys(staged.effects).length)) {
+        await api(`/jobs/${jobId}/scene-presentation-draft`, {
+          method: "PUT",
+          body: JSON.stringify({ ...staged, base_revision: data?.job.draft_revision ?? 0 })
+        });
+      }
       await api<Job>(hasPublishedBuild ? `/jobs/${jobId}/apply-draft` : `/jobs/${jobId}/phases/game_build`, {
         method: "POST",
         body: JSON.stringify({ background: true })
@@ -1500,10 +1472,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             sceneMusic={assetReview?.scene_music || []}
             musicAssets={assetReview?.music_assets || []}
             sceneMusicEnabled={!autoMode}
-            saveSceneMusic={saveSceneMusic}
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
-            saveSceneEffect={saveSceneEffect}
             gameReady={hasPublishedBuild}
             buildState={data.job.build_state || "CURRENT"}
             hasDraftChanges={(data.job.draft_revision ?? 0) > (data.job.published_revision ?? 0) || data.job.build_state === "STALE"}
@@ -1602,14 +1572,12 @@ function AssetReviewPanel(props: {
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
   voiceGeneratingSpeaker: string | null;
-  buildGame: () => Promise<void>;
+  buildGame: (staged?: StagedScenePresentation) => Promise<void>;
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
   sceneMusicEnabled: boolean;
-  saveSceneMusic: (sceneFile: string, asset: string | null) => Promise<void>;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
-  saveSceneEffect: (sceneFile: string, assignment: SceneEffectAssignment | null) => Promise<void>;
   gameReady: boolean;
   buildState: string;
   hasDraftChanges: boolean;
@@ -1688,10 +1656,8 @@ function AssetReviewPanel(props: {
       sceneMusic={props.sceneMusic}
       musicAssets={props.musicAssets}
       sceneMusicEnabled={props.sceneMusicEnabled}
-      saveSceneMusic={props.saveSceneMusic}
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}
-      saveSceneEffect={props.saveSceneEffect}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}
