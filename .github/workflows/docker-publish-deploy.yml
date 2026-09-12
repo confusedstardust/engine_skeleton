@@ -17,7 +17,9 @@ permissions:
   packages: write
 
 env:
-  REGISTRY: ghcr.io
+  GHCR_REGISTRY: ghcr.io
+  CN_REGISTRY: ${{ vars.CN_REGISTRY }}
+  CN_REGISTRY_NAMESPACE: ${{ vars.CN_REGISTRY_NAMESPACE }}
   BACKEND_IMAGE_NAME: ${{ github.repository }}-backend
   FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
 
@@ -78,6 +80,24 @@ jobs:
           fi
           echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
+      - name: Validate domestic registry configuration
+        if: ${{ steps.selection.outputs.backend == 'true' || steps.selection.outputs.frontend == 'true' }}
+        shell: bash
+        env:
+          CN_REGISTRY_USERNAME: ${{ secrets.CN_REGISTRY_USERNAME }}
+          CN_REGISTRY_PASSWORD: ${{ secrets.CN_REGISTRY_PASSWORD }}
+        run: |
+          missing=()
+          [ -n "$CN_REGISTRY" ] || missing+=("Actions variable CN_REGISTRY")
+          [ -n "$CN_REGISTRY_NAMESPACE" ] || missing+=("Actions variable CN_REGISTRY_NAMESPACE")
+          [ -n "$CN_REGISTRY_USERNAME" ] || missing+=("Actions secret CN_REGISTRY_USERNAME")
+          [ -n "$CN_REGISTRY_PASSWORD" ] || missing+=("Actions secret CN_REGISTRY_PASSWORD")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required domestic registry configuration:\n'
+            printf ' - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
   build-backend:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
@@ -92,15 +112,24 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to domestic registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CN_REGISTRY }}
+          username: ${{ secrets.CN_REGISTRY_USERNAME }}
+          password: ${{ secrets.CN_REGISTRY_PASSWORD }}
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+            ${{ env.CN_REGISTRY }}/${{ env.CN_REGISTRY_NAMESPACE }}/${{ github.event.repository.name }}-backend
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
@@ -130,15 +159,24 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to domestic registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CN_REGISTRY }}
+          username: ${{ secrets.CN_REGISTRY_USERNAME }}
+          password: ${{ secrets.CN_REGISTRY_PASSWORD }}
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+            ${{ env.CN_REGISTRY }}/${{ env.CN_REGISTRY_NAMESPACE }}/${{ github.event.repository.name }}-frontend
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
@@ -191,22 +229,32 @@ jobs:
           VERSION_TAG: ${{ needs.detect-changes.outputs.version_tag }}
           DEPLOY_BACKEND: ${{ needs.detect-changes.outputs.backend }}
           DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
-          REGISTRY: ${{ env.REGISTRY }}
+          GHCR_REGISTRY: ${{ env.GHCR_REGISTRY }}
+          CN_REGISTRY: ${{ env.CN_REGISTRY }}
+          CN_REGISTRY_NAMESPACE: ${{ env.CN_REGISTRY_NAMESPACE }}
           REPOSITORY: ${{ github.repository }}
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CN_REGISTRY_USERNAME: ${{ secrets.CN_REGISTRY_USERNAME }}
+          CN_REGISTRY_PASSWORD: ${{ secrets.CN_REGISTRY_PASSWORD }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,REGISTRY,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD
+          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,GHCR_REGISTRY,CN_REGISTRY,CN_REGISTRY_NAMESPACE,REPOSITORY,GHCR_USERNAME,GHCR_PASSWORD,CN_REGISTRY_USERNAME,CN_REGISTRY_PASSWORD
           command_timeout: 240m
           script: |
             set -e
             mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
             cd "${{ secrets.DEPLOY_PATH }}"
-            echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+            echo "$GHCR_PASSWORD" | docker login "$GHCR_REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+            CN_REGISTRY_LOGIN_OK=true
+            if ! echo "$CN_REGISTRY_PASSWORD" | docker login "$CN_REGISTRY" -u "$CN_REGISTRY_USERNAME" --password-stdin; then
+              echo "Domestic registry login failed; deployment will fall back to GHCR."
+              CN_REGISTRY_LOGIN_OK=false
+            fi
             REPOSITORY_LC="$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+            REPOSITORY_NAME="${REPOSITORY_LC##*/}"
             IMAGE_STATE_FILE=".deploy-images.env"
             touch "$IMAGE_STATE_FILE"
             update_image_state() {
@@ -219,10 +267,10 @@ jobs:
               fi
             }
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              update_image_state BACKEND_IMAGE "$REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
+              update_image_state BACKEND_IMAGE "$CN_REGISTRY/$CN_REGISTRY_NAMESPACE/$REPOSITORY_NAME-backend:$VERSION_TAG"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              update_image_state FRONTEND_IMAGE "$REGISTRY/$REPOSITORY_LC-frontend:$VERSION_TAG"
+              update_image_state FRONTEND_IMAGE "$CN_REGISTRY/$CN_REGISTRY_NAMESPACE/$REPOSITORY_NAME-frontend:$VERSION_TAG"
             fi
             if ! grep -q '^BACKEND_IMAGE=' "$IMAGE_STATE_FILE" || ! grep -q '^FRONTEND_IMAGE=' "$IMAGE_STATE_FILE"; then
               echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
@@ -241,7 +289,7 @@ jobs:
               shift
               echo "[$(date -Is)] Starting $name"
               for attempt in 1 2 3 4 5; do
-                if "$@"; then
+                if run_with_timeout "$@"; then
                   echo "[$(date -Is)] Finished $name"
                   return 0
                 fi
@@ -251,13 +299,47 @@ jobs:
               echo "[$(date -Is)] $name failed after retries"
               return 1
             }
+            run_with_timeout() {
+              if command -v timeout >/dev/null 2>&1; then
+                timeout --foreground 20m "$@"
+              else
+                "$@"
+              fi
+            }
+            pull_with_fallback() {
+              service="$1"
+              image_key="$2"
+              domestic_image="$3"
+              ghcr_image="$4"
+              update_image_state "$image_key" "$domestic_image"
+              if [ "$CN_REGISTRY_LOGIN_OK" = "true" ]; then
+                echo "[$(date -Is)] Starting pull $service image from domestic registry"
+                if run_with_timeout $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull "$service"; then
+                  echo "[$(date -Is)] Finished pull $service image from domestic registry"
+                  return 0
+                fi
+                echo "[$(date -Is)] Domestic pull failed; falling back to GHCR for $service"
+              else
+                echo "[$(date -Is)] Domestic registry is unavailable; using GHCR for $service"
+              fi
+              update_image_state "$image_key" "$ghcr_image"
+              timed_retry "pull $service image from GHCR" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull "$service"
+            }
             SERVICES=""
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              timed_retry "pull backend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull backend
+              pull_with_fallback \
+                backend \
+                BACKEND_IMAGE \
+                "$CN_REGISTRY/$CN_REGISTRY_NAMESPACE/$REPOSITORY_NAME-backend:$VERSION_TAG" \
+                "$GHCR_REGISTRY/$REPOSITORY_LC-backend:$VERSION_TAG"
               SERVICES="$SERVICES backend"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              timed_retry "pull frontend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull frontend
+              pull_with_fallback \
+                frontend \
+                FRONTEND_IMAGE \
+                "$CN_REGISTRY/$CN_REGISTRY_NAMESPACE/$REPOSITORY_NAME-frontend:$VERSION_TAG" \
+                "$GHCR_REGISTRY/$REPOSITORY_LC-frontend:$VERSION_TAG"
               SERVICES="$SERVICES frontend"
             fi
             echo "[$(date -Is)] Starting docker compose up"
