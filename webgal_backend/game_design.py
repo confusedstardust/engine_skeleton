@@ -142,6 +142,42 @@ def render_json(game_design_json: dict[str, Any]) -> str:
     return "\n\n".join(chunks)
 
 
+def normalize_completed_json(game_design_json: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy synthetic choice content in completed design artifacts.
+
+    This compatibility pass is intentionally narrow: only lines generated from
+    a choice group's ``*_content`` field are reparsed. Authored narration that
+    happens to contain a colon remains untouched.
+    """
+
+    result = json.loads(json.dumps(game_design_json, ensure_ascii=False))
+    for scene in result.get("scenes", []):
+        if not isinstance(scene, dict) or not isinstance(scene.get("lines"), list):
+            continue
+        raw_lines = [line for line in scene["lines"] if isinstance(line, dict)]
+        authored_signatures = {
+            scene_line_signature(line)
+            for line in raw_lines
+            if not is_synthetic_choice_content(line) and scene_line_signature(line)
+        }
+        normalized_lines: list[dict[str, Any]] = []
+        synthetic_signatures: set[tuple[str, str, str, str]] = set()
+        for line in raw_lines:
+            if not is_synthetic_choice_content(line):
+                normalized_lines.append(line)
+                continue
+            parsed_lines = parse_legacy_choice_content_line(line)
+            for parsed in parsed_lines:
+                signature = scene_line_signature(parsed)
+                if signature and (signature in authored_signatures or signature in synthetic_signatures):
+                    continue
+                normalized_lines.append(parsed)
+                if signature:
+                    synthetic_signatures.add(signature)
+        scene["lines"] = normalized_lines
+    return result
+
+
 def render_scene_line(line: dict[str, Any]) -> str:
     kind = str(line.get("kind") or "narration")
     if kind == "choice":
@@ -366,6 +402,11 @@ def apply_choices_to_json(game_design_json: dict[str, Any], choices_payload: dic
         if not groups:
             continue
         lines = list(scene.get("lines", []))
+        existing_signatures = {
+            scene_line_signature(line)
+            for line in lines
+            if isinstance(line, dict) and scene_line_signature(line)
+        }
         for group in sorted(groups, key=lambda item: int(item.get("insert_index", 0) or 0), reverse=True):
             try:
                 insert_index = int(group.get("insert_index", 0))
@@ -373,6 +414,15 @@ def apply_choices_to_json(game_design_json: dict[str, Any], choices_payload: dic
                 insert_index = 0
             insert_index = max(0, min(insert_index, len(lines)))
             rendered = choice_group_to_scene_lines(group)
+            normalized = []
+            for line in rendered:
+                signature = scene_line_signature(line)
+                if line.get("kind") not in {"choice", "branch"} and signature in existing_signatures:
+                    continue
+                normalized.append(line)
+                if signature:
+                    existing_signatures.add(signature)
+            rendered = normalized
             if rendered:
                 lines[insert_index:insert_index] = rendered
         scene["lines"] = lines
@@ -384,7 +434,7 @@ def choice_group_to_scene_lines(group: dict[str, Any]) -> list[dict[str, Any]]:
     group_id = safe_branch_label(str(group.get("id") or "choice"))
     content = str(group.get("content") or "").strip()
     if content:
-        lines.append({"id": f"{group_id}_content", "kind": "narration", "speaker": "旁白", "text": content, "rawPrefix": "旁白"})
+        lines.extend(parse_choice_content_lines(content, group_id))
 
     choices = []
     for choice_index, choice in enumerate(group.get("choices", []), start=1):
@@ -411,6 +461,60 @@ def choice_group_to_scene_lines(group: dict[str, Any]) -> list[dict[str, Any]]:
         lines.append({"id": f"{target}_label", "kind": "branch", "speaker": "分支", "text": target, "rawPrefix": "branch", "branchLabel": target})
         lines.append({"id": f"{target}_body", "kind": "narration", "speaker": "旁白", "text": choice["text"], "rawPrefix": "旁白"})
     return lines
+
+
+def parse_choice_content_lines(content: str, group_id: str) -> list[dict[str, Any]]:
+    """Normalize legacy choice content before it enters the reviewed scene model.
+
+    Older LLM payloads put rendered WebGAL such as ``intro:text;`` or
+    ``角色:text;`` inside the free-form ``content`` string. Treating that whole
+    value as narration produced output like ``旁白:intro:text;``. Split legacy
+    statements and reuse the canonical scene-line parser instead.
+    """
+
+    statements = [item.strip() for item in re.split(r";\s*|\r?\n+", content) if item.strip()]
+    result: list[dict[str, Any]] = []
+    for index, statement in enumerate(statements, start=1):
+        suffix = "content" if len(statements) == 1 else f"content_{index}"
+        parsed = parse_line(statement, f"{group_id}_{suffix}")
+        if parsed:
+            result.append(parsed)
+    return result
+
+
+def is_synthetic_choice_content(line: dict[str, Any]) -> bool:
+    line_id = str(line.get("id") or "").strip()
+    return bool(re.search(r"_content(?:_\d+)?$", line_id)) and str(line.get("kind") or "") in {
+        "narration",
+        "dialogue",
+    }
+
+
+def parse_legacy_choice_content_line(line: dict[str, Any]) -> list[dict[str, Any]]:
+    content = str(line.get("text") or "").strip()
+    line_id = str(line.get("id") or "choice_content").strip()
+    statements = [item.strip() for item in re.split(r";\s*|\r?\n+", content) if item.strip()]
+    result: list[dict[str, Any]] = []
+    for index, statement in enumerate(statements):
+        parsed_id = line_id if index == 0 else f"{line_id}_{index + 1}"
+        parsed = parse_line(statement, parsed_id)
+        if parsed:
+            result.append(parsed)
+    return result
+
+
+def scene_line_signature(line: dict[str, Any]) -> tuple[str, str, str, str] | None:
+    """Return the semantic identity used to avoid re-inserting transition text."""
+
+    kind = str(line.get("kind") or "").strip()
+    if kind not in {"narration", "dialogue"}:
+        return None
+    text = " ".join(str(line.get("text") or "").split()).strip()
+    if not text:
+        return None
+    speaker = str(line.get("speaker") or "").strip() if kind == "dialogue" else "旁白"
+    raw_prefix = str(line.get("rawPrefix") or "").strip() if kind == "narration" else ""
+    return kind, speaker, text, raw_prefix
 
 
 def apply_choices_to_text(game_design_text: str, choices_payload: dict[str, Any]) -> str:

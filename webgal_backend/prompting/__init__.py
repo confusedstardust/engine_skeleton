@@ -6,7 +6,6 @@ from .builders import (
     game_design_prompt,
     narrative_prompt,
     sound_effect_prompt,
-    webgal_script_rewrite_prompt,
 )
 from .rules import SYSTEM_PROMPT
 
@@ -17,5 +16,4 @@ __all__ = [
     "game_design_prompt",
     "narrative_prompt",
     "sound_effect_prompt",
-    "webgal_script_rewrite_prompt",
 ]
