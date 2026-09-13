@@ -180,6 +180,11 @@ def normalize_completed_json(game_design_json: dict[str, Any]) -> dict[str, Any]
 
 def render_scene_line(line: dict[str, Any]) -> str:
     kind = str(line.get("kind") or "narration")
+    if kind == "interaction":
+        interaction_id = str(line.get("interactionId") or "").strip()
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", interaction_id):
+            return f"interaction:{interaction_id} -config=interactions/{interaction_id}.json;"
+        return ""
     if kind == "choice":
         choices = []
         for choice in line.get("choices", []):

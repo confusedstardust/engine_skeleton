@@ -17,6 +17,7 @@ import { IGuiState } from '@/store/guiInterface';
 import { IStageState } from '@/Core/Modules/stage/stageInterface';
 import { useStageState } from '@/hooks/useStageState';
 import { HotspotLayer } from '@/Stage/HotspotLayer/HotspotLayer';
+import { InteractionHost } from '@/Stage/InteractionHost/InteractionHost';
 // import OldStage from '@/Components/Stage/OldStage/OldStage';
 
 let timeoutEventHandle: ReturnType<typeof setTimeout> | null = null;
@@ -88,6 +89,7 @@ export const Stage: FC = () => {
       {/* <OldStage /> */}
       <div id="pixiContianer" className={styles.pixiContainer} style={{ zIndex: isIOS ? '-5' : undefined }} />
       <div id="chooseContainer" className={styles.chooseContainer} />
+      <InteractionHost />
       {GUIState.showTextBox && stageState.enableFilm === '' && !stageState.isDisableTextbox && <TextBox />}
       {GUIState.showTextBox && stageState.enableFilm !== '' && <TextBoxFilm />}
       <AudioContainer />

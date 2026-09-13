@@ -1626,6 +1626,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         command_prefixes = (
             "change",
             "miniAvatar:",
+            "interaction:",
             "setVar:",
             "unlock",
             "pixi",

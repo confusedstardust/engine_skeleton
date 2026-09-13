@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WebGAL interaction-v1",
+  "type": "object",
+  "required": ["schemaVersion", "id", "type", "sceneFile", "title", "resumePolicy", "resultBindings", "payload"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "type": {"enum": ["investigation", "qte", "movement"]},
+    "sceneFile": {"type": "string", "pattern": "^[^/\\\\]+\\.txt$"},
+    "title": {"type": "string", "minLength": 1},
+    "resumePolicy": {"enum": ["resume", "restart"]},
+    "resultBindings": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}}
+  },
+  "additionalProperties": true
+}

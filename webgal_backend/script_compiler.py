@@ -340,6 +340,11 @@ def _clean_text(value: Any) -> str:
 def _render_line(line: dict[str, Any], scene_file: str) -> str:
     kind = str(line.get("kind") or "narration")
     normalized = dict(line)
+    if kind == "interaction":
+        interaction_id = str(line.get("interactionId") or "").strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", interaction_id):
+            raise ScriptCompileError(f"{scene_file} contains invalid interaction ID: {interaction_id or '<empty>'}")
+        return game_design.render_scene_line(normalized)
     normalized["text"] = _clean_text(line.get("text"))
     if kind == "dialogue":
         speaker = _clean_text(line.get("speaker") or "角色").replace(":", "：")

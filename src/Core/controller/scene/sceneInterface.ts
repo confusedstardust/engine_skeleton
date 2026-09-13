@@ -40,6 +40,7 @@ export enum commandType {
   applyStyle,
   wait,
   callSteam, // 调用Steam功能
+  interaction, // 统一互动玩法入口；必须追加，不能改变旧数值
 }
 
 /**

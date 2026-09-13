@@ -1,5 +1,6 @@
 import { ISentence } from '@/Core/controller/scene/sceneInterface';
 import { BlinkParam, FocusParam } from '@/Core/live2DCore';
+import type { InteractionSaveState } from '@/Core/Modules/interaction/types';
 
 /**
  * 游戏内变量
@@ -251,6 +252,8 @@ export interface IStageState {
   isDisableTextbox: boolean;
   replacedUIlable: Record<string, string>;
   figureMetaData: figureMetaData;
+  /** Optional so pre-interaction save files remain readable. */
+  interactionState?: InteractionSaveState;
 }
 
 /**

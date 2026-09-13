@@ -9,6 +9,7 @@ import { WebGAL } from '@/Core/WebGAL';
 import { saveActions } from '@/store/savesReducer';
 import { dumpSavesToStorage } from '@/Core/controller/storage/savesController';
 import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+import { interactionManager } from '@/Core/Modules/interaction/InteractionManager';
 
 /**
  * 保存游戏
@@ -25,6 +26,7 @@ export const saveGame = (index: number) => {
  * @param index 游戏的档位
  */
 export function generateCurrentStageData(index: number, isSavePreviewImage = true) {
+  interactionManager.flushToStageState();
   const stageState = stageStateManager.getCalculationStageState();
   const saveBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
 

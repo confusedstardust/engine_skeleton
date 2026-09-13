@@ -9,6 +9,8 @@ export interface IPerform {
   performName: string;
   // 持续时间，单位为ms，持续时间到后自动回收演出
   duration: number;
+  // Old performs keep the duration cleanup behavior. Blocking interactions opt out explicitly.
+  autoRemove?: boolean;
   // 演出是不是一个保持类型的演出
   isHoldOn: boolean;
   // 启动演出的函数；只在状态 commit 后调用

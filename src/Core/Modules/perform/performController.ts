@@ -150,15 +150,17 @@ export class PerformController {
     perform.startFunction?.();
 
     // 时间到后自动清理演出
-    const stopTimeout = setTimeout(() => {
+    if (perform.autoRemove !== false) {
+      const stopTimeout = setTimeout(() => {
       // perform.stopFunction();
       // perform.isOver = true;
       if (!perform.isHoldOn) {
         // 如果不是保持演出，清除
         this.softUnmountPerformObject(perform);
       }
-    }, perform.duration);
-    this.stopTimeoutMap.set(perform, stopTimeout);
+      }, perform.duration);
+      this.stopTimeoutMap.set(perform, stopTimeout);
+    }
 
     const hasContinue = getBooleanArgByKey(script, 'continue') ?? false;
     if (hasContinue) perform.goNextWhenOver = true;

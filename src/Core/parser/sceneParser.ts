@@ -37,6 +37,7 @@ import { showVars } from '../gameScripts/showVars';
 import { defineScripts, IConfigInterface, ScriptConfig, ScriptFunction, scriptRegistry } from './utils';
 import { applyStyle } from '@/Core/gameScripts/applyStyle';
 import { wait } from '@/Core/gameScripts/wait';
+import { interaction } from '@/Core/gameScripts/interaction';
 
 export const SCRIPT_TAG_MAP = defineScripts({
   say: ScriptConfig(commandType.say, say),
@@ -74,6 +75,7 @@ export const SCRIPT_TAG_MAP = defineScripts({
   applyStyle: ScriptConfig(commandType.applyStyle, applyStyle, { next: true }),
   wait: ScriptConfig(commandType.wait, wait),
   callSteam: ScriptConfig(commandType.callSteam, callSteam, { next: true }),
+  interaction: ScriptConfig(commandType.interaction, interaction),
 });
 
 export const SCRIPT_CONFIG: IConfigInterface[] = Object.values(SCRIPT_TAG_MAP);
@@ -87,7 +89,8 @@ export const ADD_NEXT_ARG_LIST = SCRIPT_CONFIG.filter((config) => config.next).m
  * @param sceneUrl 场景url
  * @return {IScene} 解析后的场景
  */
-export const WebgalParser = new SceneParser(assetsPrefetcher, assetSetter, ADD_NEXT_ARG_LIST, SCRIPT_CONFIG);
+// webgal-parser's published enum cannot know local extension values; parser only consumes numeric tags.
+export const WebgalParser = new SceneParser(assetsPrefetcher, assetSetter, ADD_NEXT_ARG_LIST, SCRIPT_CONFIG as any);
 
 export const sceneParser = (rawScene: string, sceneName: string, sceneUrl: string): IScene => {
   const parsedScene = WebgalParser.parse(rawScene, sceneName, sceneUrl);

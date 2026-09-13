@@ -4,6 +4,7 @@ import { webgalStore } from '@/store/store';
 
 import { WebGAL } from '@/Core/WebGAL';
 import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+import { interactionManager } from '@/Core/Modules/interaction/InteractionManager';
 
 /**
  * 步进前工作：检查阻塞，并在当前演出未完成时提前结束普通演出。
@@ -67,6 +68,7 @@ export const commitForward = () => {
  * 用户操作步进。
  */
 export const nextSentence = () => {
+  if (!interactionManager.canAdvanceStory()) return;
   WebGAL.events.userInteractNext.emit();
 
   const GUIState = webgalStore.getState().GUI;
