@@ -69,7 +69,7 @@ def _configured_invite_hashes(workspace_root: Path) -> tuple[set[str], bool]:
     return hashes, configured
 
 
-def _auth_mode() -> str:
+def auth_mode() -> str:
     configured = os.getenv(AUTH_MODE_ENV, "").strip().lower()
     if not configured:
         return AUTH_MODE_SSO if os.getenv(SSO_USERINFO_URL_ENV, "").strip() else AUTH_MODE_INVITE
@@ -166,7 +166,7 @@ def _invite_principal(request: Request, workspace_root: Path) -> dict[str, Any]:
 
 
 def principal_from_request(request: Request, workspace_root: Path) -> dict[str, Any]:
-    mode = _auth_mode()
+    mode = auth_mode()
     if mode in {AUTH_MODE_SSO, AUTH_MODE_HYBRID}:
         cookie_name = _sso_cookie_name()
         if request.cookies.get(cookie_name):

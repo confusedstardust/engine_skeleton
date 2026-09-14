@@ -272,6 +272,19 @@ class BackendContractTests(unittest.TestCase):
         finally:
             backend_app.store = original_store
 
+    def test_auth_config_reports_the_runtime_auth_mode(self) -> None:
+        import webgal_backend.app as backend_app
+
+        with patch.dict(os.environ, {"WEBGAL_AUTH_MODE": "invite"}):
+            response = TestClient(backend_app.app).get("/auth/config")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"mode": "invite"})
+
+        with patch.dict(os.environ, {"WEBGAL_AUTH_MODE": "sso"}):
+            response = TestClient(backend_app.app).get("/auth/config")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"mode": "sso"})
+
     def test_pipeline_phase_registry_keeps_aliases_available(self) -> None:
         pipeline = WebGALPipeline()
         phases = pipeline.phase_names()

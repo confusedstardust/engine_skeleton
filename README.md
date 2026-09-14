@@ -1154,7 +1154,7 @@ WEBGAL_SSO_COOKIE_NAME=nos_session
 - `ARK_API_KEY`
   只在图片生成开启时必须
 - `WEBGAL_AUTH_MODE`
-  生产环境使用 `sso`，后端只接受 NarrativeOS 官网登录会话；兼容旧邀请码时可显式设为 `sso_or_invite`
+  设为 `sso` 时前端只跳 NarrativeOS 登录/注册，后端只接受官网登录会话；设为 `invite` 时前端只显示邀请码输入，后端只接受邀请码。`sso_or_invite` 为可选的同时兼容模式。
 - `WEBGAL_SSO_USERINFO_URL`
   官网会话校验接口。后端会转发请求中的 `nos_session` Cookie，并使用接口返回的稳定 `user.id` 隔离任务
 - `WEBGAL_SSO_COOKIE_NAME`

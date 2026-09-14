@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import artifacts
 from .artifacts import contains_hidden_path
-from .auth import identity_from_request, job_belongs_to_identity, user_from_request
+from .auth import auth_mode, identity_from_request, job_belongs_to_identity, user_from_request
 from .config import settings
 from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
@@ -230,6 +230,12 @@ def generation_options_schema() -> dict[str, Any]:
 @app.get("/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
     return user_from_request(request, settings.workspace_root)
+
+
+@app.get("/auth/config")
+def auth_config() -> dict[str, str]:
+    """Expose only the active login mechanism so the frontend can render its entry."""
+    return {"mode": auth_mode()}
 
 
 @app.get("/")
