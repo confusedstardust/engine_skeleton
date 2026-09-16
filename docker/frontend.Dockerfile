@@ -37,6 +37,7 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/app ./app
+COPY --from=builder /app/public ./public
 
 EXPOSE 3001
 
