@@ -69,6 +69,7 @@ button {
   cursor: pointer;
 }
 
+
 /* First-visit guided tour */
 .onboarding-veil {
   position: fixed;

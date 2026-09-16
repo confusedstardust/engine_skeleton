@@ -475,6 +475,9 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         if unsupported_scopes:
             raise PipelineError(f"draft scopes require a full generation flow: {unsupported_scopes}")
         if not dirty_scopes:
+            # A background apply is queued before this method checks for changes.
+            # Always settle that no-op request, otherwise it remains QUEUED/DRAFT_APPLY forever.
+            self.store.transition(job, "DONE", None)
             return
 
         backup_dir = job_dir / "state" / "published_game_backup"
@@ -623,6 +626,10 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
         ]
         plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(), scene_plan, overrides)
+        # Incremental music edits bypass run_sound_effects(), which normally
+        # writes this plan. Keep the persisted scene configuration aligned with
+        # the rewritten WebGAL scene files.
+        write_json(job_dir / "state" / "bgm_plan.json", plan)
         asset_by_scene = {str(item.get("scene_file") or ""): str(item.get("asset") or "") for item in plan}
         copied: list[dict[str, Any]] = []
         for scene_file in sorted(scene_files):
