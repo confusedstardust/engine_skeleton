@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
@@ -85,7 +85,7 @@ function getGenerationReadiness(topic: string, sourceText: string) {
   return { canGenerate: true, reason: "" };
 }
 
-export default function ClassroomGeneratorPage() {
+function ClassroomGeneratorPage() {
   const router = useRouter();
   const imageModelPickerRef = useRef<HTMLDetailsElement>(null);
   const textModelPickerRef = useRef<HTMLDetailsElement>(null);
@@ -225,6 +225,7 @@ export default function ClassroomGeneratorPage() {
           </div>
         </div>
         <nav className="nav-links" aria-label="主导航">
+          <Link className="nav-back" href="/">← 返回创作入口</Link>
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
@@ -239,6 +240,7 @@ export default function ClassroomGeneratorPage() {
 
       {mobileOpen && (
         <nav className="mobile-menu" aria-label="移动端导航">
+          <Link href="/">← 返回创作入口</Link>
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
@@ -477,6 +479,58 @@ export default function ClassroomGeneratorPage() {
       <OnboardingTour />
     </>
   );
+}
+
+type NarrativeScene = { id: string; title: string; description: string; icon: string; ready?: boolean; tone: string; image: string };
+
+const narrativeScenes: NarrativeScene[] = [
+  { id: "classroom", title: "互动课堂", description: "完整生成适用于任何学科的互动游戏课堂", icon: "✦", ready: true, tone: "sun", image: "interactive-classroom.png" },
+  { id: "practice", title: "讲练工具", description: "课堂辅助讲评练工具", icon: "⌁", tone: "violet", image: "practice-tools.png" },
+  { id: "visual", title: "画面设计", description: "一句提示词生成恰当的图片、人物与场景设计稿", icon: "◐", tone: "blue", image: "visual-design.png" },
+  { id: "outline", title: "创意大纲", description: "用一句话帮你确定想写的故事大纲", icon: "✎", tone: "rose", image: "creative-outline.png" },
+  { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: "ip-narrative.png" },
+  { id: "culture", title: "文旅体验", description: "把场所、文化和记忆变成可探索的旅程", icon: "⌂", ready: true, tone: "orange", image: "culture-experience.png" },
+  { id: "science", title: "科普解谜", description: "在任务和线索中理解科学知识", icon: "⟡", ready: true, tone: "sky", image: "science-mystery.png" },
+  { id: "assets", title: "素材仓库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", tone: "ink", image: "asset-library.png" }
+];
+
+function NarrativeRouterPage() {
+  const router = useRouter();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(""), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+  function selectScene(scene: NarrativeScene) {
+    if (scene.ready) { router.push("/?workspace=1"); return; }
+    setNotice(`「${scene.title}」正在准备中，敬请期待。`);
+  }
+  return <main className="narrative-router">
+    <section className="router-hero" aria-labelledby="router-title">
+      <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
+      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="账户导航"><Link href="/history">我的作品</Link><Link href="/login">账户</Link></nav></header>
+      <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><button className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></button></div>
+      <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+    </section>
+    <section className="router-solutions" aria-labelledby="solutions-title"><div className="solutions-heading"><p>CHOOSE YOUR PATH</p><h2 id="solutions-title">选择最符合你需求的 NarrativeOS 解决方案</h2></div><div className="solution-grid">
+      <article className="solution-card one"><img className="solution-cover" src={withBasePath("/router-solutions/narrativeos-one.png")} alt="" /><span className="solution-shade" /><span>01</span><h3>NarrativeOS <b>One</b></h3><p>适合学生、教师、家长和个人创作者的一站式互动叙事创作平台</p><button type="button" onClick={() => setPickerOpen(true)}>开始创作 <i>→</i></button></article>
+      <article className="solution-card plus"><img className="solution-cover" src={withBasePath("/router-solutions/narrativeos-plus.png")} alt="" /><span className="solution-shade" /><span>02</span><h3>NarrativeOS <b>Plus</b></h3><p>适合企业、学校、IP 和专业人士的互动叙事解决方案</p><button type="button" onClick={() => setNotice("NarrativeOS Plus 的专属方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
+      <article className="solution-card go"><img className="solution-cover" src={withBasePath("/router-solutions/narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><button type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
+    </div></section>
+    {pickerOpen && <div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={withBasePath(`/router-scenes/${scene.image}`)} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></div>}
+    {notice && <div className="router-toast" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="关闭提示">×</button></div>}
+  </main>;
+}
+
+function PageContent() {
+  const params = useSearchParams();
+  return params.get("workspace") === "1" ? <ClassroomGeneratorPage /> : <NarrativeRouterPage />;
+}
+
+export default function Page() {
+  return <Suspense fallback={<main className="narrative-router" aria-busy="true" />}><PageContent /></Suspense>;
 }
 
 function FormSection({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
