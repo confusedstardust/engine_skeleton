@@ -99,6 +99,7 @@ function failedPhaseRetry(job: Job): FailedPhaseRetry | null {
       "SOUND_EFFECT_PLANNING",
       "TTS_GENERATION",
       "SCENE_WRITING",
+      "SCENE_CONNECTION_CHECK",
       "VALIDATING"
     ].includes(phase)
   ) {
@@ -129,6 +130,15 @@ type NodesResponse = {
   job: Job;
   nodes: NodeArtifact[];
   scenes: NodeArtifact[];
+};
+
+type SceneConnectionReport = {
+  status: "passed" | "failed" | "skipped";
+  reason?: string;
+  expected_scene_count?: number;
+  reachable: string[];
+  fixes: Array<{ code: string; scene_file: string; target?: string }>;
+  errors: Array<{ code: string; scene_file?: string; message: string }>;
 };
 
 type AssetReviewItem = {
@@ -373,6 +383,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 function compactId(id: string) {
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+function parseSceneConnectionReport(content: string | null): SceneConnectionReport | null {
+  if (!content) return null;
+  try {
+    const report = JSON.parse(content) as SceneConnectionReport;
+    return Array.isArray(report.reachable) && Array.isArray(report.fixes) && Array.isArray(report.errors) ? report : null;
+  } catch {
+    return null;
+  }
 }
 
 function parsePlan(content: string | null): NarrativePlan | null {
@@ -850,6 +870,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const scenePlanNode = data?.nodes.find((node) => node.key === "scene_plan");
   const designNode = data?.nodes.find((node) => node.key === "game_design_completed");
   const assetManifestNode = data?.nodes.find((node) => node.key === "asset_manifest");
+  const sceneConnectionNode = data?.nodes.find((node) => node.key === "scene_connection_report");
+  const sceneConnectionReport = useMemo(() => parseSceneConnectionReport(sceneConnectionNode?.content || null), [sceneConnectionNode?.content]);
   const scenePlanContent = scenePlanNode?.content || null;
   const scenePlan = useMemo(() => parseScenePlan(scenePlanContent), [scenePlanContent]);
   const isGenerating = data?.job.status === "RUNNING" || data?.job.status === "QUEUED";
@@ -865,6 +887,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     "SOUND_EFFECT_PLANNING",
     "TTS_GENERATION",
     "SCENE_WRITING",
+    "SCENE_CONNECTION_CHECK",
     "VALIDATING"
   ]);
   const isGameBuildRunning = isGenerating && gameBuildPhases.has(activePhase);
@@ -880,6 +903,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     "SOUND_EFFECT_PLANNING",
     "TTS_GENERATION",
     "SCENE_WRITING",
+    "SCENE_CONNECTION_CHECK",
     "VALIDATING"
   ]);
   const inAssetOrBuildStage = Boolean(assetManifestNode?.exists) || Boolean(assetReview?.assets.length) || assetPhases.has(activePhase) || hasPublishedBuild;
@@ -1410,6 +1434,21 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           </strong>
           <span>{data.job.error || message}</span>
         </div>
+
+        {sceneConnectionReport ? (
+          <details className={`connection-check-panel ${sceneConnectionReport.status}`} open={sceneConnectionReport.status === "failed"}>
+            <summary>
+              <strong>最近一次场景连接检查 · {sceneConnectionReport.status === "passed" ? "通过" : sceneConnectionReport.status === "failed" ? "需要处理" : "未执行"}</strong>
+              <span>{sceneConnectionReport.status === "passed"
+                ? `从 start.txt 可到达 ${sceneConnectionReport.reachable.length}/${sceneConnectionReport.expected_scene_count || sceneConnectionReport.reachable.length} 个场景，自动补写 ${sceneConnectionReport.fixes.filter((fix) => fix.code === "append_change_scene").length} 处`
+                : sceneConnectionReport.status === "failed"
+                  ? `发现 ${sceneConnectionReport.errors.length} 处连接问题`
+                  : sceneConnectionReport.reason || "缺少流程图或场景计划"}</span>
+            </summary>
+            {sceneConnectionReport.fixes.length > 0 ? <p>已补写：{sceneConnectionReport.fixes.filter((fix) => fix.code === "append_change_scene").map((fix) => `${fix.scene_file} → ${fix.target}`).join("、") || "已清理指令末尾的空格实体"}</p> : null}
+            {sceneConnectionReport.errors.length > 0 ? <ul>{sceneConnectionReport.errors.map((error, index) => <li key={`${error.code}-${error.scene_file}-${index}`}>{error.scene_file ? `${error.scene_file}：` : ""}{error.message}</li>)}</ul> : null}
+          </details>
+        ) : null}
 
         {stage === "complete" ? (
           <CompletionPanel

@@ -32,10 +32,11 @@ from .prompts import (
 )
 from .raw_correction import correct_generated_raw_file
 from .scene_plan import build_scene_plan, expected_scene_files
+from .scene_connections import check_scene_connections
 from .script_compiler import ScriptCompileError, compile_webgal_script
 from .storage import JobStore, read_json, utc_now, write_json
 from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
-from .scene_validation import validate_and_repair_scenes, validation_report
+from .scene_validation import SceneValidationResult, validate_and_repair_scenes, validation_report
 from .tts_pipeline import (
     build_tts_manifest,
     build_tts_voice_review,
@@ -78,6 +79,7 @@ PHASE_SPECS: dict[str, PhaseSpec] = {
     "assets": PhaseSpec("run_assets"),
     "game_build": PhaseSpec("run_game_build"),
     "scenes": PhaseSpec("run_scenes"),
+    "scene_connections": PhaseSpec("run_scene_connections"),
     "validation": PhaseSpec("run_validation"),
 }
 
@@ -1146,7 +1148,28 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 9, "校验阶段", "validation_report", "state/validation_report.json"):
-            result = validate_and_repair_scenes(job_dir)
+            normalized = validate_and_repair_scenes(job_dir)
+            if any(issue.severity == "error" for issue in normalized.issues):
+                report = validation_report(normalized)
+                write_json(job_dir / "state" / "validation_report.json", report)
+                self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+                self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
+                raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
+
+            write_json(job_dir / "state" / "validation_report.json", validation_report(normalized))
+            self.store.record_artifact(job, "validation_report", "state/validation_report.json")
+
+            # The existing validator can rewrite scene tails. Check connections
+            # against those normalized files, then validate any appended jumps.
+            self.run_scene_connections(job)
+            self.store.transition(job, "RUNNING", "VALIDATING")
+            final = validate_and_repair_scenes(job_dir)
+            result = SceneValidationResult(
+                issues=final.issues,
+                fixes=[*normalized.fixes, *final.fixes],
+                total_scenes=final.total_scenes,
+                total_lines=final.total_lines,
+            )
             report = validation_report(result)
             write_json(job_dir / "state" / "validation_report.json", report)
             self.store.record_artifact(job, "validation_report", "state/validation_report.json")
@@ -1154,6 +1177,18 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                 self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
                 raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
         self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
+
+    def run_scene_connections(self, job: dict[str, Any]) -> None:
+        self.store.transition(job, "RUNNING", "SCENE_CONNECTION_CHECK")
+        job_dir = self.store.job_dir(job["id"])
+        with self._trace_stage(job, 10, "场景连接检查", "scene_connection_report", "state/scene_connection_report.json"):
+            report = check_scene_connections(job_dir)
+            write_json(job_dir / "state" / "scene_connection_report.json", report)
+            self.store.record_artifact(job, "scene_connection_report", "state/scene_connection_report.json")
+            if report["errors"]:
+                self.store.transition(job, "SCENE_CONNECTIONS_FAILED", "SCENE_CONNECTION_CHECK")
+                raise PipelineError(f"scene connection check failed with {len(report['errors'])} errors; see scene_connection_report.json")
+        self.store.transition(job, "SCENE_CONNECTIONS_PASSED", "SCENE_CONNECTION_CHECK")
 
     def _load_sound_effect_assets(self) -> list[dict[str, Any]]:
         path = settings.workspace_root / "webgal_backend" / "sound_effect_assets.json"
