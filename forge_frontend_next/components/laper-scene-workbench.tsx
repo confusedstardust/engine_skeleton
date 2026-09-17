@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { insertionIndex, isTerminalLine, jumpTarget, keepContinuationLabelsTogether } from "./scene-connections";
 
 export type SceneLine = {
   id: string;
@@ -46,6 +47,7 @@ type LaperSceneWorkbenchProps = {
   targetOptions?: TargetOption[];
   inspector: React.ReactNode;
   toolbarExtra?: React.ReactNode;
+  connectionErrors?: Record<string, string>;
 };
 
 function reorder<T>(items: T[], from: number, to: number) {
@@ -77,6 +79,10 @@ function lineKindLabel(line: SceneLine) {
 
 export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   const [speakerMenu, setSpeakerMenu] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ header: string; id: string } | null>(null);
+  const [notice, setNotice] = useState<{ header: string; text: string; count: number } | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<{ header: string; id: string; choiceIndex?: number } | null>(null);
+  const lineStackRef = useRef<HTMLDivElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropHint, setDropHint] = useState<{ index: number; placement: "before" | "after" } | null>(null);
   const pointerDragIdRef = useRef<number | null>(null);
@@ -88,7 +94,63 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   const activeIndex = Math.min(props.activeScene, Math.max(props.scenes.length - 1, 0));
   const scene = props.scenes[activeIndex];
   const speakers = useMemo(() => ["旁白", ...(props.plan?.characters.map((c) => c.name).filter(Boolean) || [])], [props.plan]);
-  const defaultChoiceTarget = props.targetOptions?.[0]?.file || "new_branch";
+  const defaultChoiceTarget = props.targetOptions?.[0]?.file || "";
+  const hasTerminal = !!scene?.lines.some(isTerminalLine);
+  const selectedId = selection?.header === scene?.header ? selection?.id ?? null : null;
+
+  useEffect(() => {
+    if (!pendingNavigation || pendingNavigation.header !== scene?.header) return;
+    const index = scene.lines.findIndex(line => line.id === pendingNavigation.id);
+    if (index < 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      const card = lineStackRef.current?.querySelector<HTMLElement>(`[data-laper-scene-line-index="${index}"]`);
+      if (!card) return;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      card.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+      const field = pendingNavigation.choiceIndex !== undefined
+        ? card.querySelectorAll<HTMLInputElement>('input[aria-label="选项文本"]')[pendingNavigation.choiceIndex]
+        : card.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("textarea:not([readonly]), input:not([readonly]), select:not(:disabled)");
+      field?.focus({ preventScroll: true });
+      if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) field.select();
+      setPendingNavigation(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingNavigation, scene]);
+
+  function navigateToLine(id: string, choiceIndex?: number) {
+    if (!scene) return;
+    setSelection({ header: scene.header, id });
+    setPendingNavigation({ header: scene.header, id, choiceIndex });
+  }
+
+  useEffect(() => {
+    if (!notice) return;
+    if (notice.header !== scene?.header) {
+      setNotice(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice, scene?.header]);
+
+  function inform(text: string) {
+    if (scene) setNotice(previous => ({ header: scene.header, text, count: (previous?.count ?? 0) + 1 }));
+  }
+
+  function localChoiceTarget(line: SceneLine) {
+    return (line.choices || []).map(choiceTargetValue).find(isLocalContinuationTarget) ||
+      `continue_choice_${line.id.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  }
+
+  function insertLines(newLines: SceneLine[]) {
+    if (!scene || disabled) return;
+    const index = insertionIndex(scene.lines, selectedId);
+    const lines = [...scene.lines];
+    lines.splice(index, 0, ...newLines);
+    patchScene({ ...scene, lines });
+    setNotice(null);
+    navigateToLine(newLines[0].id);
+  }
   const sceneEntries = useMemo(
     () => props.scenes.map((item, index) => ({ item, index })).filter(({ item }) => item.marker !== "Ending"),
     [props.scenes]
@@ -116,7 +178,18 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
 
   function reorderLines(from: number, to: number) {
     if (!scene || disabled) return;
-    patchScene({ ...scene, lines: reorder(scene.lines, from, to) });
+    if (from < 0 || from >= scene.lines.length) return;
+    if (isTerminalLine(scene.lines[from])) {
+      if (scene.lines[from].kind !== "choice" || to !== scene.lines.length - 1) {
+        inform("场景跳转必须保留在最后；跨场景分支只能移动到末尾。");
+        return;
+      }
+      patchScene({ ...scene, lines: reorder(scene.lines, from, to) });
+      return;
+    }
+    const terminal = scene.lines.findIndex(isTerminalLine);
+    if (terminal >= 0) to = Math.min(to, terminal - 1);
+    patchScene({ ...scene, lines: keepContinuationLabelsTogether(reorder(scene.lines, from, to)) });
   }
 
   function removeLine(lineIndex: number) {
@@ -127,13 +200,13 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   function addLine(kind: "narration" | "dialogue") {
     if (!scene || disabled) return;
     const nextLine: SceneLine = {
-      id: `${scene.header}-${Date.now()}`,
+      id: `${scene.header}-${crypto.randomUUID()}`,
       kind,
       speaker: kind === "dialogue" ? "角色" : "旁白",
       text: kind === "dialogue" ? "新的对话内容" : "新的旁白内容",
       rawPrefix: kind === "dialogue" ? "" : "旁白"
     };
-    patchScene({ ...scene, lines: [...scene.lines, nextLine] });
+    insertLines([nextLine]);
   }
 
   function stopLineAutoScroll() {
@@ -179,6 +252,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
 
   function startLineDrag(index: number, pointerId: number, pointerY: number) {
     if (disabled) return;
+    if (scene && isTerminalLine(scene.lines[index]) && scene.lines[index].kind !== "choice") return;
     pointerDragIdRef.current = pointerId;
     sourceIndexRef.current = index;
     setDragIndex(index);
@@ -215,8 +289,9 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   useEffect(() => () => stopLineAutoScroll(), []);
 
   function addInteractiveChoice() {
-    if (!scene || disabled || scene.marker === "Ending") return;
-    const token = `continue_choice_${Date.now().toString(36)}`;
+    if (!scene || disabled) return;
+    if (scene.marker === "Ending") { inform("结局场景不能新增跨场景分支。"); return; }
+    const token = `continue_choice_${crypto.randomUUID().replace(/-/g, "_")}`;
     const choiceLine: SceneLine = {
       id: `${scene.header}-${token}-choose`,
       kind: "choice",
@@ -224,26 +299,32 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
       text: "",
       rawPrefix: "choose",
       choices: [
-        { text: "继续靠近真相", target: token },
-        { text: "先停下来想一想", target: token }
+        { text: "选择一", target: token },
+        { text: "选择二", target: token }
       ]
     };
-    const continuationLabel: SceneLine = {
-      id: `${scene.header}-${token}-label`,
-      kind: "branch",
-      speaker: "分支",
-      text: token,
-      rawPrefix: "branch",
-      branchLabel: token
+    insertLines([choiceLine, {
+      id: `${choiceLine.id}-label`, kind: "branch", speaker: "分支", rawPrefix: "branch", text: token, branchLabel: token
+    }]);
+  }
+
+  function addSceneJump() {
+    if (!scene || disabled) return;
+    if (hasTerminal) {
+      const existing = scene.lines.find(isTerminalLine)!;
+      navigateToLine(existing.id);
+      inform(jumpTarget(existing) ? "已经添加了场景跳转。请在已有跳转行修改目标；无需重复添加。" : "已有分支选择或结束命令。若要改为直接跳转，请先删除已有结束连接。");
+      return;
+    }
+    if (scene.marker === "Ending") { inform("这是结局场景，会正常结束，无需再添加场景跳转。"); return; }
+    if (!defaultChoiceTarget) { inform("没有可跳转的其他场景，请先创建目标场景。"); return; }
+    const line: SceneLine = {
+      id: `${scene.header}-jump-${crypto.randomUUID()}`, kind: "command", speaker: "", rawPrefix: "changeScene",
+      text: `changeScene:${defaultChoiceTarget};`
     };
-    const continuation: SceneLine = {
-      id: `${scene.header}-${token}-continue`,
-      kind: "narration",
-      speaker: "旁白",
-      text: "无论作何选择，故事仍向前展开。",
-      rawPrefix: "旁白"
-    };
-    patchScene({ ...scene, lines: [...scene.lines, choiceLine, continuationLabel, continuation] });
+    patchScene({ ...scene, lines: [...scene.lines, line] });
+    setNotice(null);
+    navigateToLine(line.id);
   }
 
   function removeChoiceGroup(lineIndex: number) {
@@ -281,12 +362,43 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     updateLine(lineIndex, { ...line, choices });
   }
 
+  function addChoiceOption(lineIndex: number) {
+    if (!scene || disabled) return;
+    const line = scene.lines[lineIndex];
+    const target = (line.choices || []).map(choiceTargetValue).find(isLocalContinuationTarget) ||
+      choiceTargetValue(line.choices?.[0] || { text: "", target: "" }) || localChoiceTarget(line);
+    const lines = scene.lines.map((item, index) => index === lineIndex ? {
+      ...line, choices: [...(line.choices || []), { text: "新的选择", target }]
+    } : item);
+    if (isLocalContinuationTarget(target) && !lines.some(item => item.kind === "branch" && (item.branchLabel || item.text) === target)) {
+      lines.splice(lineIndex + 1, 0, { id: `${line.id}-label-${target}`, kind: "branch", speaker: "分支", rawPrefix: "branch", text: target, branchLabel: target });
+    }
+    patchScene({ ...scene, lines });
+    setNotice(null);
+    navigateToLine(line.id, (line.choices || []).length);
+  }
+
   function updateChoiceTarget(lineIndex: number, choiceIndex: number, choice: SceneChoice, target: string) {
-    updateChoice(lineIndex, choiceIndex, {
+    if (!scene || disabled) return;
+    const line = scene.lines[lineIndex];
+    const choices = [...(line.choices || [])];
+    choices[choiceIndex] = {
       ...choice,
       target,
+      targetSceneFile: undefined,
       target_scene_file: /\.txt$/i.test(target) ? target : undefined
-    });
+    };
+    const lines = scene.lines.map((item, index) => index === lineIndex ? { ...line, choices } : item);
+    if (isLocalContinuationTarget(target) && !lines.some(item => item.kind === "branch" && (item.branchLabel || item.text) === target)) {
+      lines.splice(lineIndex + 1, 0, { id: `${line.id}-label-${target}`, kind: "branch", speaker: "分支", rawPrefix: "branch", text: target, branchLabel: target });
+    }
+    const referenced = new Set(lines.filter(item => item.kind === "choice").flatMap(item => (item.choices || []).map(choiceTargetValue)));
+    const oldLocalTargets = new Set((line.choices || []).map(choiceTargetValue).filter(isLocalContinuationTarget));
+    const nextLines = lines.filter(item => !(item.kind === "branch" && oldLocalTargets.has(item.branchLabel || item.text) && !referenced.has(item.branchLabel || item.text)));
+    patchScene({ ...scene, lines: nextLines });
+    if (choices.every(item => /\.txt$/i.test(choiceTargetValue(item))) && lineIndex < nextLines.length - 1) {
+      inform("该分支已改为跨场景跳转，后续正文不会执行。请将分支拖到末尾，或保留「互动后继续」选项。");
+    }
   }
 
   if (!scene) {
@@ -305,12 +417,14 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
             <SceneRailGroup
               label="场景"
               entries={sceneEntries}
+              connectionErrors={props.connectionErrors}
               activeIndex={activeIndex}
               setActiveScene={props.setActiveScene}
             />
             <SceneRailGroup
               label="结局"
               entries={endingEntries}
+              connectionErrors={props.connectionErrors}
               activeIndex={activeIndex}
               setActiveScene={props.setActiveScene}
             />
@@ -343,29 +457,43 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
         )}
 
         <div className="laper-toolbar" role="toolbar" aria-label="场景编辑工具栏">
-          <button className="laper-tool" type="button" disabled={disabled} onClick={() => addLine("narration")}>
+          <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
             旁白
           </button>
-          <button className="laper-tool" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
+          <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
             对话
           </button>
           {props.mode === "complete" && (
             <button
-              className="laper-tool"
+              className="laper-tool accent"
               type="button"
-              disabled={disabled || scene.marker === "Ending"}
+              disabled={disabled}
               onClick={addInteractiveChoice}
-              title={scene.marker === "Ending" ? "结局场景不能再添加分支" : "添加互动选择，默认会在当前场景汇合"}
+              title="在选中行下方添加互动，默认在互动后继续当前场景"
             >
-              + 互动分支
+              互动分支
             </button>
           )}
-          <span className="laper-toolbar-divider" />
-          <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
-            + 添加行
-          </button>
+          {props.mode === "complete" && (
+            <button className="laper-tool accent" type="button" onClick={addSceneJump}
+              disabled={disabled}
+              title="只能添加在最后一行；已有结束连接时，请先删除旧连接">
+              场景跳转
+            </button>
+          )}
           {props.toolbarExtra}
         </div>
+
+        {notice?.header === scene.header && (
+          <div className="laper-editor-notice" role="status" aria-live="polite" key={notice.count}>
+            <svg className="laper-editor-notice-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M10 5.5v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="10" cy="14" r="1" fill="currentColor" />
+            </svg>
+            <span className="laper-editor-notice-text">{notice.text}</span>
+          </div>
+        )}
 
         <div className="laper-shortcuts" aria-hidden="true">
           <span>拖动 ⋮⋮ 排序</span>
@@ -393,11 +521,44 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
             <span>{scene.lines.length} 行</span>
           </header>
 
-          <div className="laper-block-stack laper-line-stack">
+          <div className="laper-block-stack laper-line-stack"
+            ref={lineStackRef}
+            onClick={event => {
+              const card = (event.target as HTMLElement).closest<HTMLElement>("[data-laper-scene-line-index]");
+              if (card) {
+                const line = scene.lines[Number(card.dataset.laperSceneLineIndex)];
+                if (line) setSelection({ header: scene.header, id: line.id });
+              }
+            }}
+            onFocusCapture={event => {
+              const card = (event.target as HTMLElement).closest<HTMLElement>("[data-laper-scene-line-index]");
+              if (card) {
+                const line = scene.lines[Number(card.dataset.laperSceneLineIndex)];
+                if (line) setSelection({ header: scene.header, id: line.id });
+              }
+            }}>
             {scene.lines.map((line, lineIndex) => {
+              const errorStyle = props.connectionErrors?.[scene.header] && lineIndex === scene.lines.length - 1
+                ? { outline: "1px solid #c73545", background: "#fff0f1" } : undefined;
+              const target = jumpTarget(line);
+              if (target !== null) return (
+                <article className="laper-block laper-branch-block" data-selected={selectedId === line.id} style={errorStyle} key={line.id} data-laper-scene-line-index={lineIndex}>
+                  <span className="laper-branch-marker">↗</span>
+                  <div className="laper-block-content">
+                    <div className="laper-block-head"><span>场景跳转 · 最后一行</span>
+                      {!disabled && <button className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>删除跳转</button>}
+                    </div>
+                    <select aria-label="场景跳转目标" value={target} disabled={disabled}
+                      onChange={event => updateLine(lineIndex, { ...line, text: `changeScene:${event.target.value};` })}>
+                      {!props.targetOptions?.some(option => option.file === target) && <option value={target}>{target}</option>}
+                      {props.targetOptions?.map(option => <option key={option.file} value={option.file}>{option.label}</option>)}
+                    </select>
+                  </div>
+                </article>
+              );
               if (line.kind === "choice") {
                 return (
-                  <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} key={line.id} data-laper-scene-line-index={lineIndex}>
+                  <article className={`laper-block laper-branch-block laper-choice-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} data-selected={selectedId === line.id} style={errorStyle} key={line.id} data-laper-scene-line-index={lineIndex}>
                     <button
                       className="laper-branch-marker laper-drag-handle"
                       type="button"
@@ -425,23 +586,9 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                         {!disabled && (
                           <>
                             <button
-                              className="laper-block-delete"
+                              className="laper-block-add"
                               type="button"
-                              onClick={() => {
-                                const existingContinuation = (line.choices || []).map(choiceTargetValue).find(isLocalContinuationTarget);
-                                const target = existingContinuation || defaultChoiceTarget;
-                                updateLine(lineIndex, {
-                                  ...line,
-                                  choices: [
-                                    ...(line.choices || []),
-                                    {
-                                      text: "新的选择",
-                                      target,
-                                      target_scene_file: /\.txt$/i.test(target) ? target : undefined
-                                    }
-                                  ]
-                                });
-                              }}
+                              onClick={() => addChoiceOption(lineIndex)}
                             >
                               添加选项
                             </button>
@@ -466,9 +613,10 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                               aria-label="跳转场景"
                               disabled={disabled}
                             >
-                              {isLocalContinuationTarget(choiceTargetValue(choice)) && (
-                                <option value={choiceTargetValue(choice)}>留在当前场景（互动后继续）</option>
-                              )}
+                              <option value={isLocalContinuationTarget(choiceTargetValue(choice)) ? choiceTargetValue(choice) : localChoiceTarget(line)}>留在当前场景（互动后继续）</option>
+                              {scene.lines.filter(item => item.kind === "branch" && !isLocalContinuationTarget(item.branchLabel || item.text)).map(item => (
+                                <option key={item.id} value={item.branchLabel || item.text}>当前场景标签：{item.branchLabel || item.text}</option>
+                              ))}
                               {!props.targetOptions?.some((option) => option.file === choiceTargetValue(choice)) && (
                                 !isLocalContinuationTarget(choiceTargetValue(choice)) && (
                                   <option value={choiceTargetValue(choice)}>{choiceTargetValue(choice) || "未设置目标"}</option>
@@ -488,17 +636,17 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                           </div>
                         ))}
                       </div>
-                      {(line.choices || []).some((choice) => isLocalContinuationTarget(choiceTargetValue(choice))) && (
-                        <p className="laper-choice-hint">“留在当前场景”适合增强互动感；若要影响剧情，可将任一选项改为跳转至具体场景。</p>
-                      )}
                     </div>
                   </article>
                 );
               }
 
               if (line.kind === "branch") {
+                // Continuation labels are implementation details, not editable story rows.
+                if (isLocalContinuationTarget(line.branchLabel || line.text) && scene.lines.some(item => item.kind === "choice" &&
+                  item.choices?.some(choice => choiceTargetValue(choice) === (line.branchLabel || line.text)))) return null;
                 return (
-                  <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} key={line.id} data-laper-scene-line-index={lineIndex}>
+                  <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} data-selected={selectedId === line.id} style={errorStyle} key={line.id} data-laper-scene-line-index={lineIndex}>
                     <button
                       className="laper-branch-marker laper-drag-handle"
                       type="button"
@@ -544,6 +692,8 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               const menuKey = `${activeIndex}-${lineIndex}`;
               return (
                 <article
+                  data-selected={selectedId === line.id}
+                  style={errorStyle}
                   className={`laper-block laper-line-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`}
                   key={line.id}
                   data-laper-scene-line-index={lineIndex}
@@ -619,6 +769,11 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                 </article>
               );
             })}
+            {props.connectionErrors?.[scene.header] && (
+              <div role="alert" style={{ border: "1px solid #c73545", background: "#fff0f1", color: "#a61f30", padding: 16, borderRadius: 8 }}>
+                {props.connectionErrors[scene.header]}
+              </div>
+            )}
 
             {scene.lines.length === 0 && (
               <div className="laper-empty">
@@ -638,6 +793,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
 }
 
 function SceneRailGroup(props: {
+  connectionErrors?: Record<string, string>;
   label: "场景" | "结局";
   entries: { item: EditableScene; index: number }[];
   activeIndex: number;
@@ -658,9 +814,10 @@ function SceneRailGroup(props: {
       <ol className="laper-rail-list laper-rail-tree-list">
         {props.entries.map(({ item, index }) => (
           <li key={`${item.header}-${index}`}>
-            <button className={props.activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
+            <button className={props.activeIndex === index ? "active" : ""} style={props.connectionErrors?.[item.header] ? { color: "#b32436", background: "#fff0f1", outline: "1px solid #c73545" } : undefined} type="button" onClick={() => props.setActiveScene(index)}>
               <span>{index + 1}</span>
               {item.title}
+              {props.connectionErrors?.[item.header] && <em aria-label="衔接错误">!</em>}
             </button>
           </li>
         ))}

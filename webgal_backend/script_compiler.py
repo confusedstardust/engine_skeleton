@@ -46,6 +46,7 @@ def compile_webgal_script(
     warnings: list[str] = []
     plan_scenes: list[dict[str, Any]] = []
     script_sections: list[str] = []
+    scene_files = {str(scene.get("scene_file") or scene.get("header") or "").strip() for scene in scenes if isinstance(scene, dict)}
 
     for scene in scenes:
         if not isinstance(scene, dict):
@@ -58,6 +59,15 @@ def compile_webgal_script(
         if not isinstance(raw_lines, list):
             raise ScriptCompileError(f"{scene_file} lines must be a list")
         lines = [line for line in raw_lines if isinstance(line, dict)]
+        for index, line in enumerate(lines):
+            if line.get("kind") != "command":
+                continue
+            jump = re.fullmatch(r"changeScene\s*:\s*([A-Za-z0-9_-]+\.txt)\s*;?", str(line.get("text") or "").strip(), re.I)
+            if jump:
+                if jump.group(1) not in scene_files:
+                    raise ScriptCompileError(f"{scene_file} contains missing jump target: {jump.group(1)}")
+                if any(tail.get("kind") == "choice" or str(tail.get("text") or "").strip() for tail in lines[index + 1:]):
+                    raise ScriptCompileError(f"{scene_file} scene jump must be the final line")
         participant_ids = _scene_participants(lines, characters, figures)
         visible_ids = participant_ids[:3]
         if len(participant_ids) > 3:
@@ -285,7 +295,7 @@ def _is_cross_scene_choice(line: dict[str, Any]) -> bool:
     if str(line.get("kind") or "") != "choice":
         return False
     targets = [
-        str(choice.get("target_scene_file") or choice.get("target") or "").strip()
+        str(choice.get("target_scene_file") or choice.get("targetSceneFile") or choice.get("target") or "").strip()
         for choice in line.get("choices", [])
         if isinstance(choice, dict)
     ]
@@ -312,7 +322,7 @@ def _merge_cross_scene_choices(
         for choice in line.get("choices", []):
             if not isinstance(choice, dict):
                 continue
-            target = str(choice.get("target_scene_file") or choice.get("target") or "").strip()
+            target = str(choice.get("target_scene_file") or choice.get("targetSceneFile") or choice.get("target") or "").strip()
             text = str(choice.get("text") or "").strip()
             if not target or not text:
                 continue
@@ -340,7 +350,7 @@ def _clean_text(value: Any) -> str:
 def _render_line(line: dict[str, Any], scene_file: str) -> str:
     kind = str(line.get("kind") or "narration")
     normalized = dict(line)
-    normalized["text"] = _clean_text(line.get("text"))
+    normalized["text"] = str(line.get("text") or "").strip() if kind == "command" else _clean_text(line.get("text"))
     if kind == "dialogue":
         speaker = _clean_text(line.get("speaker") or "角色").replace(":", "：")
         normalized["speaker"] = speaker
@@ -349,12 +359,15 @@ def _render_line(line: dict[str, Any], scene_file: str) -> str:
         for choice in line.get("choices", []):
             if not isinstance(choice, dict):
                 continue
-            target = str(choice.get("target_scene_file") or choice.get("target") or "").strip()
+            target = str(choice.get("target_scene_file") or choice.get("targetSceneFile") or choice.get("target") or "").strip()
             if not _TARGET_RE.fullmatch(target):
                 raise ScriptCompileError(f"{scene_file} contains invalid choice target: {target or '<empty>'}")
             choices.append({"text": _clean_text(choice.get("text")).replace("|", " ").replace(":", "："), "target": target})
         normalized["choices"] = choices
-    rendered = game_design.render_scene_line(normalized)
+    try:
+        rendered = game_design.render_scene_line(normalized)
+    except ValueError as exc:
+        raise ScriptCompileError(f"{scene_file}: {exc}") from exc
     if kind == "choice" and not rendered:
         raise ScriptCompileError(f"{scene_file} contains an empty choice")
     return rendered

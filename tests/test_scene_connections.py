@@ -154,7 +154,7 @@ def test_pipeline_validation_persists_connection_node_after_scene_repair(tmp_pat
     write_json(job_dir / "state" / "narrative_plan.json", narrative)
     write_json(job_dir / "state" / "scene_plan.json", build_scene_plan(narrative))
     scene_dir = job_dir / "public" / "game" / "scene"
-    (scene_dir / "start.txt").write_text("主角:开场;\n", encoding="utf-8")
+    (scene_dir / "start.txt").write_text("主角:开场;\nchangeScene:phase1.txt;\n", encoding="utf-8")
     (scene_dir / "phase1.txt").write_text("changeScene:ending_1.txt;\n", encoding="utf-8")
     (scene_dir / "ending_1.txt").write_text("end;\n", encoding="utf-8")
 
@@ -191,7 +191,7 @@ def test_failed_connection_check_blocks_publish_and_keeps_published_scene(tmp_pa
     monkeypatch.setattr(pipeline, "run_sound_effects", lambda _job: None)
     monkeypatch.setattr(pipeline, "run_tts_generation", lambda _job: None)
     (job_dir / "state" / "game_design_webgal.txt").write_text(
-        "Scene:start.txt\n主角:新开场;\nchangeScene:ending_1.txt;\n", encoding="utf-8"
+        "Scene:start.txt\n主角:新开场;\n", encoding="utf-8"
     )
 
     with pytest.raises(RuntimeError, match="scene connection check failed"):
@@ -200,3 +200,29 @@ def test_failed_connection_check_blocks_publish_and_keeps_published_scene(tmp_pa
     assert (scene_dir / "start.txt").read_text(encoding="utf-8") == published_start
     assert read_json(job_dir / "state" / "scene_connection_report.json")["status"] == "failed"
     assert store.get(job["id"])["build_state"] == "FAILED"
+
+
+def test_current_routes_check_all_scenes_without_auto_repair(tmp_path):
+    job_dir, scene_dir = prepare_scenes(tmp_path, "flowchart TD\n start_node --> phase1", ["start_node", "phase1", "phase2"], [])
+    (scene_dir / "start.txt").write_text("changeScene:phase2.txt;\n", encoding="utf-8")
+    (scene_dir / "phase1.txt").write_text("旁白:未衔接一;\n", encoding="utf-8")
+    (scene_dir / "phase2.txt").write_text("旁白:未衔接二;\n", encoding="utf-8")
+    report = check_scene_connections(job_dir, current_routes=True)
+    assert {error["scene_file"] for error in report["errors"]} == {"phase1.txt", "phase2.txt"}
+    assert report["fixes"] == []
+    assert (scene_dir / "phase1.txt").read_text(encoding="utf-8") == "旁白:未衔接一;\n"
+
+
+def test_current_routes_accept_changed_links_and_choices(tmp_path):
+    job_dir, scene_dir = prepare_scenes(tmp_path, "flowchart TD\n start_node --> phase1", ["start_node", "phase1", "phase2"], [])
+    (scene_dir / "start.txt").write_text("choose:改走第二幕:phase2.txt|结束:phase1.txt;\n", encoding="utf-8")
+    (scene_dir / "phase1.txt").write_text("end;\n", encoding="utf-8")
+    (scene_dir / "phase2.txt").write_text("changeScene:phase1.txt;\n", encoding="utf-8")
+    assert check_scene_connections(job_dir, current_routes=True)["status"] == "passed"
+
+
+def test_current_routes_reject_missing_choice_target(tmp_path):
+    job_dir, scene_dir = prepare_scenes(tmp_path, "flowchart TD\n start_node --> phase1", ["start_node", "phase1"], [])
+    (scene_dir / "start.txt").write_text("choose:继续:missing.txt;\n", encoding="utf-8")
+    report = check_scene_connections(job_dir, current_routes=True)
+    assert any(error["code"] == "missing_target" for error in report["errors"])

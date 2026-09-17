@@ -82,6 +82,8 @@ def parse_line(line: str, line_id: str) -> dict[str, Any] | None:
     original = line.strip()
     if not original:
         return None
+    if re.fullmatch(r"changeScene\s*:\s*[A-Za-z0-9_-]+\.txt\s*;?", original, re.I) or re.fullmatch(r"end\s*;?", original, re.I):
+        return {"id": line_id, "kind": "command", "speaker": "", "text": original, "rawPrefix": original.split(":", 1)[0].rstrip(";")}
     if original.lower().startswith("choose:") or original.startswith("choose："):
         body = original.split(":", 1)[1] if ":" in original else original.split("：", 1)[1]
         return {
@@ -142,6 +144,32 @@ def render_json(game_design_json: dict[str, Any]) -> str:
     return "\n\n".join(chunks)
 
 
+def repair_continuation_labels(game_design_json: dict[str, Any]) -> dict[str, Any]:
+    """Restore only missing editor-owned local continuation labels, never user routes."""
+    result = json.loads(json.dumps(game_design_json, ensure_ascii=False))
+    for scene in result.get("scenes", []):
+        if not isinstance(scene, dict) or not isinstance(scene.get("lines"), list):
+            continue
+        raw_lines = scene["lines"]
+        labels = {str(line.get("branchLabel") or line.get("text") or "") for line in raw_lines if isinstance(line, dict) and line.get("kind") == "branch"}
+        lines = []
+        for index, line in enumerate(raw_lines):
+            lines.append(line)
+            if not isinstance(line, dict) or line.get("kind") != "choice":
+                continue
+            for choice in line.get("choices", []):
+                if not isinstance(choice, dict):
+                    continue
+                target = str(choice.get("target_scene_file") or choice.get("targetSceneFile") or choice.get("target") or "")
+                if not re.fullmatch(r"continue_choice_[A-Za-z0-9_]+", target) or target in labels:
+                    continue
+                labels.add(target)
+                line_id = str(line.get("id") or f"continuation_{index}")
+                lines.append({"id": f"{line_id}-label-{target}", "kind": "branch", "speaker": "分支", "text": target, "rawPrefix": "branch", "branchLabel": target})
+        scene["lines"] = lines
+    return result
+
+
 def normalize_completed_json(game_design_json: dict[str, Any]) -> dict[str, Any]:
     """Normalize legacy synthetic choice content in completed design artifacts.
 
@@ -175,7 +203,7 @@ def normalize_completed_json(game_design_json: dict[str, Any]) -> dict[str, Any]
                 if signature:
                     synthetic_signatures.add(signature)
         scene["lines"] = normalized_lines
-    return result
+    return repair_continuation_labels(result)
 
 
 def render_scene_line(line: dict[str, Any]) -> str:
@@ -186,7 +214,7 @@ def render_scene_line(line: dict[str, Any]) -> str:
             if not isinstance(choice, dict):
                 continue
             text = str(choice.get("text") or "").strip().replace("|", " ")
-            target = str(choice.get("target") or "").strip().replace("|", "_")
+            target = str(choice.get("target_scene_file") or choice.get("targetSceneFile") or choice.get("target") or "").strip().replace("|", "_")
             if text and target:
                 choices.append(f"{text}:{target}")
         return f"choose:{'|'.join(choices)};" if choices else ""
@@ -197,6 +225,13 @@ def render_scene_line(line: dict[str, Any]) -> str:
         text = clean_line_text(label)
         return f"旁白:{text};" if text else ""
     text = str(line.get("text") or "").strip().rstrip(";")
+    if kind == "command":
+        jump = re.fullmatch(r"changeScene\s*:\s*([A-Za-z0-9_-]+\.txt)\s*", text, re.I)
+        if jump:
+            return f"changeScene:{jump.group(1)};"
+        if text.lower() == "end":
+            return "end;"
+        raise ValueError(f"Unsupported scene command: {text}")
     if not text:
         return ""
     if kind == "dialogue":

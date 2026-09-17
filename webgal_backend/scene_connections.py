@@ -16,8 +16,59 @@ from .scene_validation import _parse_choose_options, _split_unescaped
 from .storage import read_json
 
 
-def check_scene_connections(job_dir: Path) -> dict[str, Any]:
+def _check_current_routes(job_dir: Path) -> dict[str, Any]:
+    """Read every current script without repairing routes from an obsolete plan."""
+    paths = {path.name: path for path in (job_dir / "public" / "game" / "scene").glob("*.txt")}
+    errors: list[dict[str, Any]] = []
+    checks: list[dict[str, Any]] = []
+    outgoing: dict[str, set[str]] = {}
+    if "start.txt" not in paths:
+        errors.append(_error("missing_start", "start.txt", "入口场景 start.txt 不存在。"))
+    for name, path in sorted(paths.items()):
+        lines = [line.strip() for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip() and not line.strip().startswith("//")]
+        targets: set[str] = set()
+        labels = {match.group(1) for line in lines if (match := re.fullmatch(r"label\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)\s*;", line))}
+        for index, line in enumerate(lines):
+            jump = re.fullmatch(r"changeScene\s*:\s*([A-Za-z0-9_-]+\.txt)\s*;", line, re.I)
+            terminal = bool(jump) or line.lower() == "end;"
+            if jump:
+                targets.add(jump.group(1))
+            if line.startswith("choose:"):
+                options = _parse_choose_options(line)
+                if not line.endswith(";") or not options or len(options) != len(_split_unescaped(line[7:-1], "|")):
+                    errors.append(_error("invalid_choice", name, "分支选项格式无效，请检查文本和目标。"))
+                for text, target in options:
+                    if target.endswith(".txt"):
+                        targets.add(target)
+                    elif target not in labels:
+                        errors.append(_error("missing_label", name, f"分支目标 {target} 不存在。"))
+                terminal = bool(options) and all(target.endswith(".txt") for _, target in options)
+            if terminal and index != len(lines) - 1 and not labels:
+                errors.append(_error("content_after_exit", name, "结束跳转之后还有内容，请把结束连接放在最后一行。"))
+        tail = lines[-1] if lines else ""
+        options = _parse_choose_options(tail) if tail.startswith("choose:") else []
+        closed = tail.lower() == "end;" or bool(re.fullmatch(r"changeScene\s*:\s*[A-Za-z0-9_-]+\.txt\s*;", tail, re.I)) or (tail.endswith(";") and bool(options) and all(target.endswith(".txt") for _, target in options))
+        if not closed:
+            errors.append(_error("missing_terminal_connection", name, "场景结束时没有衔接，请新增场景跳转行或分支选择行。"))
+        for target in sorted(targets - paths.keys()):
+            errors.append(_error("missing_target", name, f"跳转目标 {target} 不存在。"))
+        checks.append({"scene_file": name, "status": "failed" if any(error.get("scene_file") == name for error in errors) else "passed", "targets": sorted(targets)})
+        outgoing[name] = targets
+    reachable: set[str] = set()
+    queue = deque(["start.txt"] if "start.txt" in paths else [])
+    while queue:
+        name = queue.popleft()
+        if name in reachable or name not in paths:
+            continue
+        reachable.add(name)
+        queue.extend(outgoing.get(name, set()) - reachable)
+    return {"status": "failed" if errors else "passed", "checks": checks, "fixes": [], "suggested_fixes": [], "errors": errors, "reachable": sorted(reachable), "expected_scene_count": len(paths)}
+
+
+def check_scene_connections(job_dir: Path, *, current_routes: bool = False) -> dict[str, Any]:
     """Connect unambiguous scene tails and verify routes from start.txt."""
+    if current_routes:
+        return _check_current_routes(job_dir)
     narrative_path = job_dir / "state" / "narrative_plan.json"
     scene_plan_path = job_dir / "state" / "scene_plan.json"
     if not narrative_path.exists() or not scene_plan_path.exists():

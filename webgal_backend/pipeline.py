@@ -1189,7 +1189,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         self.store.transition(job, "RUNNING", "SCENE_CONNECTION_CHECK")
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 10, "场景连接检查", "scene_connection_report", "state/scene_connection_report.json"):
-            report = check_scene_connections(job_dir)
+            report = check_scene_connections(job_dir, current_routes=True)
             write_json(job_dir / "state" / "scene_connection_report.json", report)
             self.store.record_artifact(job, "scene_connection_report", "state/scene_connection_report.json")
             if report["errors"]:

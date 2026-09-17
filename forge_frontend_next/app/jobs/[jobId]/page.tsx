@@ -1,11 +1,15 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StoryFlowView } from "../../../components/story-flow-view";
+import { planningGraph, type StoryGraph } from "../../../components/story-graph-data";
 import { LaperAssetWorkbench, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
+import { SceneScrollButton } from "../../../components/scene-scroll-button";
+import { repairContinuationLabels, validateSceneConnections } from "../../../components/scene-connections";
 import { withBasePath } from "../../base-path";
 import { jsonAuthHeaders } from "../../invite-identity";
 
@@ -418,47 +422,6 @@ function parsePlan(content: string | null): NarrativePlan | null {
   }
 }
 
-function flowNodeId(value: string) {
-  const normalized = value.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!normalized) return "";
-  return /^[A-Za-z_]/.test(normalized) ? normalized : `node_${normalized}`;
-}
-
-function flowNodeLabel(id: string, plan: NarrativePlan) {
-  const phase = plan.story_progression.find((step) => flowNodeId(step.id) === id || step.id === id || step.name === id);
-  if (phase) return phase.name || phase.id;
-  const ending = plan.endings.find((item) => flowNodeId(item.ending_type) === id || item.ending_type === id);
-  if (ending) return `结局：${ending.ending_type}`;
-  return id.replace(/_/g, " ");
-}
-
-function parseFlowEdges(structure: string, plan: NarrativePlan) {
-  const edgePattern = /([A-Za-z_][A-Za-z0-9_-]*)(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?\s*(?:-->|==>|-\.->)\s*(?:\|[^|]+\|\s*)?([A-Za-z_][A-Za-z0-9_-]*)/g;
-  const edges: { source: string; target: string }[] = [];
-  for (const line of structure.split(/\r?\n/)) {
-    edgePattern.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = edgePattern.exec(line))) {
-      edges.push({ source: flowNodeLabel(match[1], plan), target: flowNodeLabel(match[2], plan) });
-    }
-  }
-  return edges;
-}
-
-function flowNodes(plan: NarrativePlan) {
-  return [
-    ...plan.story_progression.map((step, index) => ({
-      id: flowNodeId(step.id || `phase${index}`),
-      label: step.name || step.id || `阶段 ${index + 1}`,
-      meta: step.strtype === "branch" ? "分支" : "主线"
-    })),
-    ...plan.endings.map((ending, index) => ({
-      id: flowNodeId(ending.ending_type || `ending_${index + 1}`),
-      label: `结局：${ending.ending_type || index + 1}`,
-      meta: "结局"
-    }))
-  ];
-}
 
 function parseScenePlan(content: string | null): ScenePlan | null {
   if (!content) return null;
@@ -572,7 +535,7 @@ function serializeGameDesignJson(scenes: SceneDraft[]) {
   return JSON.stringify(
     {
       version: 1,
-      scenes: scenes.map((scene) => ({
+      scenes: repairContinuationLabels(scenes).map((scene) => ({
         marker: scene.marker || "Scene",
         scene_file: scene.header,
         source_node: scene.sourceNode || "",
@@ -706,7 +669,7 @@ function sceneTargetOptions(scenePlan: ScenePlan | null, plan: NarrativePlan | n
     }
   });
   return Array.from(byHeader.entries())
-    .filter(([file]) => file !== currentHeader)
+    .filter(([file]) => file !== currentHeader && scenes.some(scene => scene.header === file))
     .map(([file, meta]) => ({
       file,
       label: meta.marker === "Ending" ? `结局：${meta.title.replace(/^结局[:：]/, "")}` : meta.title || file
@@ -836,7 +799,16 @@ function parseSceneLine(line: string, id: string): SceneLine {
 export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params);
   const [data, setData] = useState<NodesResponse | null>(null);
-  const [message, setMessage] = useState("正在读取任务...");
+  const [message, setMessageValue] = useState("正在读取任务...");
+  const [operationError, setOperationError] = useState(false);
+  function setMessage(value: string) {
+    setMessageValue(value);
+    setOperationError(false);
+  }
+  function setErrorMessage(value: string) {
+    setMessageValue(value);
+    setOperationError(true);
+  }
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<WorkflowStage>("outline");
   const [editScope, setEditScope] = useState<"none" | "draft">("none");
@@ -854,6 +826,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   const [scenes, setScenes] = useState<SceneDraft[]>([]);
   const [activeScene, setActiveScene] = useState(0);
   const [scenesDirty, setScenesDirty] = useState(false);
+  const [connectionCheckAttempted, setConnectionCheckAttempted] = useState(false);
+  const connectionErrors = useMemo(() => connectionCheckAttempted ? validateSceneConnections(scenes) : {}, [scenes, connectionCheckAttempted]);
   const [designDraft, setDesignDraft] = useState("");
   const [designDraftScenes, setDesignDraftScenes] = useState<GameDesignDraftScene[]>([]);
   const [designDraftDirty, setDesignDraftDirty] = useState(false);
@@ -923,7 +897,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setAssetReview(review);
       if (!silent) setMessage("任务内容已更新。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取任务失败。");
+      setErrorMessage(error instanceof Error ? error.message : "读取任务失败。");
     }
   }, [jobId]);
 
@@ -947,7 +921,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   useEffect(() => {
     if (!scenesDirty && designNode?.content) {
       const parsed = parseScenes(designNode.content, plan, rawDesignNode?.content, scenePlan);
-      setScenes(parsed);
+      const repaired = repairContinuationLabels(parsed);
+      setScenes(repaired);
+      if (repaired.some((scene, index) => scene !== parsed[index])) setScenesDirty(true);
       setActiveScene(0);
     }
   }, [designNode?.content, scenesDirty, plan, rawDesignNode?.content, scenePlan]);
@@ -1037,7 +1013,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       }
     } catch (error) {
       if (!options.quiet) {
-        setMessage(error instanceof Error ? error.message : "同步流程图失败。");
+        setErrorMessage(error instanceof Error ? error.message : "同步流程图失败。");
       }
     } finally {
       if (options.quiet) {
@@ -1071,7 +1047,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage(result.issues.length > 0 ? "大纲已保存，流程图仍有节点需要检查。" : "大纲和流程图已保存。");
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存大纲失败。");
+      setErrorMessage(error instanceof Error ? error.message : "保存大纲失败。");
     } finally {
       setBusy(false);
     }
@@ -1100,7 +1076,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setStage("scenes");
       setMessage("场景设计稿正在生成，完成后可以先审阅 game_design.json。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "进入下一步失败。");
+      setErrorMessage(error instanceof Error ? error.message : "进入下一步失败。");
     } finally {
       setBusy(false);
     }
@@ -1154,7 +1130,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage(`已使用 ${result.provider === "mimo" ? "MiMo" : "DeepSeek"} 新增${nodeLabel}并同步流程图。`);
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "新增节点失败。");
+      setErrorMessage(error instanceof Error ? error.message : "新增节点失败。");
     } finally {
       if (kind === "phase") setPendingPhaseBrief("");
       if (kind === "ending") setPendingEndingBrief("");
@@ -1175,7 +1151,19 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     void generateAndAppendNode("character", characterBrief);
   }
 
+  function checkAllSceneConnections() {
+    setConnectionCheckAttempted(true);
+    const errors = validateSceneConnections(scenes);
+    const first = scenes.findIndex(scene => !!errors[scene.header]);
+    if (first < 0 && scenes.length) return true;
+    if (first >= 0) setActiveScene(first);
+    setStage("scenes");
+    setMessage(scenes.length ? `场景衔接检查未通过：${Object.keys(errors).length} 个场景需要修正。请查看红色标记和场景末尾的错误提示。` : "场景内容尚未加载完成，请稍后重试。");
+    return false;
+  }
+
   async function saveScenes(applyChanges = false) {
+    if ((!hasPublishedBuild || applyChanges) && !checkAllSceneConnections()) return;
     setBusy(true);
     setMessage(scenesDirty ? "正在保存场景内容..." : hasPublishedBuild ? "正在应用已保存的修改..." : "正在启动素材阶段...");
     try {
@@ -1213,7 +1201,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage("素材规划和生成已启动，完成后可以审阅角色卡和场景卡。");
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "启动素材阶段失败。");
+      setErrorMessage(error instanceof Error ? error.message : "启动素材阶段失败。");
     } finally {
       setBusy(false);
     }
@@ -1231,7 +1219,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage("单个素材已加入生成队列。");
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "重新生成素材失败。");
+      setErrorMessage(error instanceof Error ? error.message : "重新生成素材失败。");
     } finally {
       setBusy(false);
     }
@@ -1258,7 +1246,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage(`${speaker} 的新试听已生成，可以直接播放比较。`);
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "语音试听生成失败。");
+      setErrorMessage(error instanceof Error ? error.message : "语音试听生成失败。");
     } finally {
       setVoiceGeneratingSpeaker(null);
       setBusy(false);
@@ -1266,13 +1254,24 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   }
 
   async function buildGameFromAssets(staged?: StagedScenePresentation) {
+    if (!checkAllSceneConnections()) return;
     setBusy(true);
     setMessage(staged ? "正在保存场景音乐与特效，并应用到游戏..." : hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
     try {
+      let revision = data?.job.draft_revision ?? 0;
+      if (scenesDirty) {
+        const saved = await api<{ job: Job }>(`/jobs/${jobId}/artifacts`, {
+          method: "PATCH",
+          body: JSON.stringify({ path: "state/game_design_completed.json", content: serializeGameDesignJson(scenes), base_revision: revision })
+        });
+        revision = saved.job.draft_revision ?? revision;
+        setScenesDirty(false);
+        setData(previous => previous ? { ...previous, job: saved.job } : previous);
+      }
       if (staged && (Object.keys(staged.music).length || Object.keys(staged.effects).length)) {
         await api(`/jobs/${jobId}/scene-presentation-draft`, {
           method: "PUT",
-          body: JSON.stringify({ ...staged, base_revision: data?.job.draft_revision ?? 0 })
+          body: JSON.stringify({ ...staged, base_revision: revision })
         });
       }
       await api<Job>(hasPublishedBuild ? `/jobs/${jobId}/apply-draft` : `/jobs/${jobId}/phases/game_build`, {
@@ -1286,7 +1285,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage(hasPublishedBuild ? "修改同步已启动；未修改的场景和素材会保持原样。" : "游戏生成已启动，完成后可以点击右上角打开游戏。");
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "生成游戏失败。");
+      setErrorMessage(error instanceof Error ? error.message : "生成游戏失败。");
     } finally {
       setBusy(false);
     }
@@ -1304,7 +1303,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       setMessage("场景设计稿已保存。");
       await refresh(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存场景设计稿失败。");
+      setErrorMessage(error instanceof Error ? error.message : "保存场景设计稿失败。");
     } finally {
       setBusy(false);
     }
@@ -1328,7 +1327,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       await refresh(true);
       setMessage("详细场景正在生成，完成后可以逐个场景审阅旁白和对话。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "生成详细场景失败。");
+      setErrorMessage(error instanceof Error ? error.message : "生成详细场景失败。");
     } finally {
       setBusy(false);
     }
@@ -1347,7 +1346,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       await refresh(true);
       setMessage(failedRetry.successMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "重试失败，请稍后再试。");
+      setErrorMessage(error instanceof Error ? error.message : "重试失败，请稍后再试。");
     } finally {
       setBusy(false);
     }
@@ -1427,28 +1426,26 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           </div>
         ) : null}
 
-        <div className={`workspace-status workflow-status ${failedRetry ? "failed" : ""}`} role="status" aria-live="polite">
+        {(failedRetry || data.job.error || operationError || Object.keys(connectionErrors).length > 0) && (
+        <div className="workspace-status workflow-status failed" role="alert">
           <strong>
-            {isGenerating ? <span className="inline-spinner" aria-hidden="true" /> : null}
-            {failedRetry ? "生成失败 · 可重试" : data.job.phase || (hasPublishedBuild ? data.job.build_state === "STALE" ? "修改待应用" : "发布版本可用" : "等待中")}
+            {failedRetry ? "生成失败 · 可重试" : "需要处理"}
           </strong>
-          <span>{data.job.error || message}</span>
+          <span>{data.job.error || (operationError ? message : "部分场景的连接需要修正，请查看红色标记和对应错误提示。")}</span>
         </div>
+        )}
 
-        {sceneConnectionReport ? (
-          <details className={`connection-check-panel ${sceneConnectionReport.status}`} open={sceneConnectionReport.status === "failed"}>
+        {sceneConnectionReport?.status === "failed" && sceneConnectionReport.errors.length > 0 ? (
+          <details className="connection-check-panel failed" open>
             <summary>
-              <strong>最近一次场景连接检查 · {sceneConnectionReport.status === "passed" ? "通过" : sceneConnectionReport.status === "failed" ? "需要处理" : "未执行"}</strong>
-              <span>{sceneConnectionReport.status === "passed"
-                ? `从 start.txt 可到达 ${sceneConnectionReport.reachable.length}/${sceneConnectionReport.expected_scene_count || sceneConnectionReport.reachable.length} 个场景，自动补写 ${sceneConnectionReport.fixes.filter((fix) => fix.code === "append_change_scene").length} 处`
-                : sceneConnectionReport.status === "failed"
-                  ? `发现 ${sceneConnectionReport.errors.length} 处连接问题`
-                  : sceneConnectionReport.reason || "缺少流程图或场景计划"}</span>
+              <strong>场景连接需要处理</strong>
+              <span>发现 {sceneConnectionReport.errors.length} 处连接问题</span>
             </summary>
-            {sceneConnectionReport.fixes.length > 0 ? <p>已补写：{sceneConnectionReport.fixes.filter((fix) => fix.code === "append_change_scene").map((fix) => `${fix.scene_file} → ${fix.target}`).join("、") || "已清理指令末尾的空格实体"}</p> : null}
             {sceneConnectionReport.errors.length > 0 ? <ul>{sceneConnectionReport.errors.map((error, index) => <li key={`${error.code}-${error.scene_file}-${index}`}>{error.scene_file ? `${error.scene_file}：` : ""}{error.message}</li>)}</ul> : null}
           </details>
         ) : null}
+
+        {stage === "scenes" && <SceneScrollButton />}
 
         {stage === "complete" ? (
           <CompletionPanel
@@ -1532,6 +1529,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             busy={busy || isGenerating}
             readonly={scenesLocked}
             scenesDirty={scenesDirty}
+            connectionErrors={connectionErrors}
             setActiveScene={setActiveScene}
             updateScene={updateScene}
             setScenes={setScenes}
@@ -1567,6 +1565,19 @@ function CompletionPanel(props: {
   busy: boolean;
   editDraft: () => void;
 }) {
+  const [flowOpen, setFlowOpen] = useState(false);
+  const [graph, setGraph] = useState<StoryGraph | null>(null);
+  const [flowError, setFlowError] = useState("");
+  useEffect(() => {
+    if (!flowOpen) return;
+    let active = true;
+    setGraph(null);
+    setFlowError("");
+    api<StoryGraph>(`/jobs/${props.job.id}/published-flow`).then(value => { if (active) setGraph(value); }).catch(error => { if (active) setFlowError(error instanceof Error ? error.message : "流程图加载失败"); });
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setFlowOpen(false); };
+    window.addEventListener("keydown", escape);
+    return () => { active = false; window.removeEventListener("keydown", escape); };
+  }, [flowOpen, props.job.id, props.job.published_revision]);
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
   const stale = state === "STALE" || failed;
@@ -1594,8 +1605,16 @@ function CompletionPanel(props: {
       </div>
       <div className="completion-actions">
         <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
+        <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>查看最新流程图</button>
         <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>继续编辑草稿</button>
       </div>
+      {flowOpen && <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="最新流程图">
+        <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={() => setFlowOpen(false)} />
+        <section className="flow-modal">
+          <div className="flow-modal-head"><div><span>已发布版本 · R{graph?.revision ?? props.job.published_revision ?? 0}</span><h3>最新剧情流程图</h3></div><button className="btn outline" autoFocus onClick={() => setFlowOpen(false)}>关闭</button></div>
+          <div className="flow-modal-body">{flowError ? <p className="error">{flowError}</p> : graph ? <StoryFlowView graph={graph} /> : <p>正在加载流程图…</p>}</div>
+        </section>
+      </div>}
     </section>
   );
 }
@@ -1817,125 +1836,9 @@ function OutlineEditor(props: {
   );
 }
 
-function NarrativeFlowPreview(props: {
-  plan: NarrativePlan;
-  syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncNarrativeStructureOptions) => Promise<void>;
-}) {
-  const { plan, syncStructure } = props;
-  const nodes = flowNodes(plan);
-  const edges = parseFlowEdges(plan.narrative_structure || "", plan);
-  const reactId = useId();
-  const renderId = useMemo(() => `narrative-flow-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`, [reactId]);
-  const [svg, setSvg] = useState("");
-  const [renderError, setRenderError] = useState("");
-  const [repairing, setRepairing] = useState(false);
-  const repairedSourcesRef = useRef(new Set<string>());
-  const source = plan.narrative_structure?.trim() || "";
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!source) {
-      setSvg("");
-      setRenderError("");
-      return;
-    }
-
-    async function renderMermaid() {
-      try {
-        const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: "base",
-          themeVariables: {
-            background: "#fffdf8",
-            primaryColor: "#fff8ef",
-            primaryBorderColor: "#d8c8aa",
-            primaryTextColor: "#2d2924",
-            lineColor: "#9b2335",
-            secondaryColor: "#f5eee2",
-            tertiaryColor: "#f9f4ec",
-            fontFamily: "STSong, SimSun, serif"
-          }
-        });
-        const result = await mermaid.render(renderId, source);
-        if (!cancelled) {
-          setSvg(result.svg);
-          setRenderError("");
-        }
-      } catch (error) {
-        if (cancelled) return;
-        setSvg("");
-        // Old jobs can contain Mermaid emitted before the structure was
-        // deterministic. Repair once through the silent sync endpoint, rather
-        // than exposing Mermaid's parser failure to the player.
-        if (!repairedSourcesRef.current.has(source)) {
-          repairedSourcesRef.current.add(source);
-          setRenderError("");
-          setRepairing(true);
-          void syncStructure(plan, { quiet: true, force: true }).finally(() => {
-            if (!cancelled) setRepairing(false);
-          });
-          return;
-        }
-        setRenderError(error instanceof Error ? error.message : "流程图渲染失败。");
-      }
-    }
-
-    void renderMermaid();
-    return () => {
-      cancelled = true;
-    };
-  }, [renderId, source, syncStructure]);
-
-  return (
-    <section className="flow-preview">
-      <div className="flow-preview-head">
-        <span>Mermaid 流程图</span>
-        <strong>{nodes.length} 个节点</strong>
-      </div>
-
-      <div className="flow-mermaid-canvas">
-        {!source ? (
-          <p>暂无流程图内容，点击“同步流程图”生成。</p>
-        ) : svg ? (
-          <div className="flow-mermaid-svg" dangerouslySetInnerHTML={{ __html: svg }} />
-        ) : (
-          <p>{repairing ? "正在自动修复流程图..." : renderError || "正在渲染流程图..."}</p>
-        )}
-      </div>
-
-      {renderError && (
-        <div className="flow-edge-list">
-          {edges.length === 0 ? (
-            <p>当前 Mermaid 文本暂时无法解析，也没有可展示的连线。</p>
-          ) : (
-            edges.map((edge, index) => (
-              <div className="flow-edge" key={`${edge.source}-${edge.target}-${index}`}>
-                <span>{edge.source}</span>
-                <b aria-hidden="true">→</b>
-                <span>{edge.target}</span>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      <div className="flow-node-list">
-        {nodes.map((node) => (
-          <div className="flow-node" key={node.id}>
-            <span>{node.meta}</span>
-            <strong>{node.label}</strong>
-          </div>
-        ))}
-      </div>
-      <div className="flow-character-strip">
-        {plan.characters.map((character) => (
-          <span key={character.id || character.name}>{character.name || character.id}</span>
-        ))}
-      </div>
-    </section>
-  );
+function NarrativeFlowPreview(props: { plan: NarrativePlan; syncStructure: (targetPlan?: NarrativePlan | null, options?: SyncNarrativeStructureOptions) => Promise<void> }) {
+  const graph = useMemo(() => planningGraph(props.plan), [props.plan]);
+  return <StoryFlowView graph={graph} />;
 }
 
 function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
@@ -2087,6 +1990,7 @@ function DesignDraftEditor(props: {
 }
 
 function SceneEditor(props: {
+  connectionErrors: Record<string, string>;
   plan: NarrativePlan | null;
   scenePlan: ScenePlan | null;
   scenes: SceneDraft[];
@@ -2121,6 +2025,7 @@ function SceneEditor(props: {
   return (
     <LaperSceneWorkbench
       mode="complete"
+      connectionErrors={props.connectionErrors}
       title={props.plan?.title || "详细场景"}
       subtitle="按场景审阅旁白、对白和分支内容。"
       plan={props.plan}
