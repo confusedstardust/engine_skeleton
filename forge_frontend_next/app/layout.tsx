@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
+import { withBasePath } from "./base-path";
 
 export const metadata: Metadata = {
   title: "临场 · AI叙事课堂生成平台",
@@ -8,8 +9,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const solutionTitleFontUrl = withBasePath("/fonts/narrativeos-solution-title.ttf");
   return (
     <html lang="zh-CN">
+      <head>
+        <style>{`@font-face { font-family: "NarrativeOS Solution Serif"; src: url("${solutionTitleFontUrl}") format("truetype"); font-display: swap; }`}</style>
+      </head>
       <body>{children}</body>
     </html>
   );
