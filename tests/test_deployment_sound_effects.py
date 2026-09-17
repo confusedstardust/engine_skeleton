@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from webgal_backend.pipeline import WebGALPipeline
-from webgal_backend.storage import JobStore, write_json
+from webgal_backend.storage import JobStore, read_json, write_json
 
 
 def test_load_sound_effect_assets_marks_missing_directory_unavailable(tmp_path, monkeypatch):
@@ -274,6 +274,13 @@ def test_apply_music_draft_updates_only_selected_scene_without_script_rewrite(tm
     other.write_text("bgm:Bgm_Dialog001.mp3 -volume=45 -enter=1500;\n主角:继续;\n", encoding="utf-8")
     write_json(job_dir / "state" / "scene_plan.json", {"scenes": [{"scene_file": "start.txt"}, {"scene_file": "phase2.txt"}], "endings": []})
     write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {}})
+    write_json(
+        job_dir / "state" / "bgm_plan.json",
+        [
+            {"scene_file": "start.txt", "asset": "Bgm_Opening_ordinary.mp3"},
+            {"scene_file": "phase2.txt", "asset": "Bgm_Dialog001.mp3"},
+        ],
+    )
     store.mark_build_complete(job)
 
     pipeline = WebGALPipeline(store)
@@ -288,6 +295,7 @@ def test_apply_music_draft_updates_only_selected_scene_without_script_rewrite(tm
     assert start.read_text(encoding="utf-8").splitlines()[0] == "bgm:Bgm_ending_bad.mp3 -volume=45 -enter=1500;"
     assert other.read_text(encoding="utf-8") == "bgm:Bgm_Dialog001.mp3 -volume=45 -enter=1500;\n主角:继续;\n"
     assert (game_dir / "bgm" / "Bgm_ending_bad.mp3").read_bytes() == b"selected"
+    assert {item["scene_file"]: item["asset"] for item in read_json(job_dir / "state" / "bgm_plan.json")}["start.txt"] == "Bgm_ending_bad.mp3"
     assert store.get(job["id"])["build_state"] == "CURRENT"
 
 
@@ -337,6 +345,23 @@ def test_apply_scene_draft_writes_only_changed_scene_file(tmp_path, monkeypatch)
     assert start.read_text(encoding="utf-8") == "主角:新开场;\n"
     assert other.read_text(encoding="utf-8") == "主角:未修改;\n"
     assert store.get(job["id"])["dirty_scopes"] == []
+
+
+def test_apply_empty_draft_settles_queued_job_as_done(tmp_path):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    (job_dir / "public" / "game" / "config.txt").write_text("Game_name:test;\n", encoding="utf-8")
+    store.mark_build_complete(job)
+    store.transition(job, "QUEUED", "DRAFT_APPLY")
+
+    WebGALPipeline(store).apply_draft_changes(store.get(job["id"]))
+
+    completed = store.get(job["id"])
+    assert completed["status"] == "DONE"
+    assert completed["phase"] is None
+    assert completed["dirty_scopes"] == []
+    assert completed["history"][-1]["status"] == "DONE"
 
 
 def test_failed_draft_apply_restores_current_playable_game(tmp_path, monkeypatch):

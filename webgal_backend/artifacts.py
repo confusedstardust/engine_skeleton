@@ -103,6 +103,15 @@ NODE_ARTIFACTS: tuple[ArtifactDescriptor, ...] = (
         path="state/sound_effect_plan.json",
         content_type="json",
     ),
+    ArtifactDescriptor(
+        key="scene_connection_report",
+        phase="scene_connections",
+        phase_status="SCENE_CONNECTION_CHECK",
+        title="场景连接检查",
+        description="从 start.txt 检查场景跳转、流程图目标及无法抵达的场景，并记录自动补写结果。",
+        path="state/scene_connection_report.json",
+        content_type="json",
+    ),
 )
 
 NODE_ARTIFACTS_BY_PATH = {item.path: item for item in NODE_ARTIFACTS}
@@ -154,6 +163,8 @@ def scene_payloads(job_dir: Path) -> list[dict[str, Any]]:
 
 
 def is_editable_artifact(relative: str) -> bool:
+    if relative == "state/scene_connection_report.json":
+        return False
     if relative in NODE_ARTIFACTS_BY_PATH:
         return True
     return relative.startswith("public/game/scene/") and relative.endswith(".txt")

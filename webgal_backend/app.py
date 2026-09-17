@@ -25,6 +25,7 @@ from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
 from .narrative_structure import build_synced_narrative_structure, narrative_structure_issues
 from .pipeline import PipelineError, WebGALPipeline
+from .published_flow import published_flow
 from .particle_effects import (
     EFFECT_PRESETS,
     ParticleEffectError,
@@ -276,6 +277,14 @@ def get_job_nodes(job_id: str, request: Request) -> dict[str, Any]:
     return {"job": job, "nodes": nodes, "scenes": artifacts.scene_payloads(job_dir)}
 
 
+@app.get("/jobs/{job_id}/published-flow")
+def get_published_flow(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    if not job.get("has_published_build"):
+        raise HTTPException(status_code=409, detail="尚无已发布游戏")
+    return published_flow(_job_dir_or_404(job_id), job.get("published_revision", 0))
+
+
 @app.patch("/jobs/{job_id}/artifacts")
 def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: Request) -> dict[str, Any]:
     if contains_hidden_path(request.path):
@@ -301,7 +310,11 @@ def update_artifact(job_id: str, request: ArtifactUpdateRequest, http_request: R
 
     try:
         if relative.endswith(".json"):
-            write_json(path, json.loads(request.content))
+            content = json.loads(request.content)
+            if relative == "state/game_design_completed.json" and isinstance(content, dict):
+                from .game_design import repair_continuation_labels
+                content = repair_continuation_labels(content)
+            write_json(path, content)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(request.content.rstrip() + "\n", encoding="utf-8")

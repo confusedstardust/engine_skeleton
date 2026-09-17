@@ -20,6 +20,28 @@ def _narrative_plan() -> dict:
     }
 
 
+def test_scene_jump_compiles_as_command_and_round_trips():
+    from webgal_backend.game_design import parse_line, render_scene_line
+    line = parse_line("changeScene:ending_1.txt;", "jump")
+    design = _completed_design()
+    design["scenes"][0]["lines"] = [line]
+    result = compile_webgal_script(design, _narrative_plan(), _manifest())
+    assert "changeScene:ending_1.txt;" in result.script
+    assert "旁白:changeScene" not in result.script
+    assert render_scene_line(line) == "changeScene:ending_1.txt;"
+
+
+def test_scene_jump_must_be_final_and_have_existing_target():
+    design = _completed_design()
+    jump = {"kind": "command", "text": "changeScene:ending_1.txt;"}
+    design["scenes"][0]["lines"] = [jump, {"kind": "narration", "text": "不可达"}]
+    with pytest.raises(ScriptCompileError, match="final line"):
+        compile_webgal_script(design, _narrative_plan(), _manifest())
+    design["scenes"][0]["lines"] = [{**jump, "text": "changeScene:missing.txt;"}]
+    with pytest.raises(ScriptCompileError, match="missing jump target"):
+        compile_webgal_script(design, _narrative_plan(), _manifest())
+
+
 def _completed_design() -> dict:
     return {
         "version": 1,
