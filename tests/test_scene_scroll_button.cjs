@@ -11,7 +11,7 @@ function load(direction = 'bottom') {
   const original = module.require.bind(module);
   let state = 0;
   module.require = name => name === 'react' ? {
-    useEffect() {}, useState: () => [state++ === 0 ? direction : true, () => {}]
+    useEffect() {}, useState: () => [state++ === 0 ? direction : state === 2 ? true : 24, () => {}]
   } : original(name);
   module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX }
@@ -24,6 +24,13 @@ test('direction is down at top, up at bottom, and follows page half in between',
   assert.equal(scrollDirection(1999, 2000), 'top');
   assert.equal(scrollDirection(600, 2000), 'bottom');
   assert.equal(scrollDirection(1500, 2000), 'top');
+});
+test('desktop button aligns inside inspector; compact screens keep edge placement', () => {
+  const { scrollButtonRight } = load();
+  assert.equal(scrollButtonRight(1840, 1249), 527);
+  assert.equal(1840 - 527 - 48, 1249 + 16);
+  assert.equal(scrollButtonRight(1180, 900), 24);
+  assert.equal(scrollButtonRight(1840), 24);
 });
 test('click goes to actual document bottom or top, with accessible labels', () => {
   const savedWindow = global.window;

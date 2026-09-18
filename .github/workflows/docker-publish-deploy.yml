@@ -192,7 +192,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          source: "docker-compose.prod.yml,scripts/deploy_cleanup_images.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy on remote host
@@ -273,5 +273,24 @@ jobs:
             echo "[$(date -Is)] Starting docker compose up"
             $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml up -d --no-deps $SERVICES
             echo "[$(date -Is)] Finished docker compose up"
-            # Keep cleanup out of the deployment critical path; run it separately
-            # during maintenance so a deploy is not delayed by Docker disk scans.
+            # Repeat the server-side backend recreation after deployment, using
+            # the running containers' image references and the server .env.
+            echo "[$(date -Is)] Starting post-deployment backend recreation"
+            cd /var/www/myproject
+            export BACKEND_IMAGE="$(docker inspect --format '{{.Config.Image}}' myproject-backend-1)"
+            export FRONTEND_IMAGE="$(docker inspect --format '{{.Config.Image}}' myproject-frontend-1)"
+            docker-compose -f docker-compose.prod.yml up -d --force-recreate backend
+            echo "[$(date -Is)] Finished post-deployment backend recreation"
+            # Cleanup only after both deployment commands succeeded and both
+            # application containers are running. This is not an HTTP health check.
+            DEPLOY_COMPLETED_AT="$(date +%s)"
+            if [ "$(docker inspect --format '{{.State.Running}}' myproject-backend-1)" = "true" ] && \
+               [ "$(docker inspect --format '{{.State.Running}}' myproject-frontend-1)" = "true" ]; then
+              if ! bash "${{ secrets.DEPLOY_PATH }}/scripts/deploy_cleanup_images.sh" \
+                "$REGISTRY/$BACKEND_IMAGE_NAME" "$REGISTRY/$FRONTEND_IMAGE_NAME" "$DEPLOY_COMPLETED_AT"; then
+                echo "Warning: image cleanup failed; deployment is retained."
+              fi
+            else
+              echo "Application container is not running; skipping image cleanup."
+              exit 1
+            fi
