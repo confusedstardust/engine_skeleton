@@ -6,6 +6,7 @@ const nextConfig = {
   reactStrictMode: true,
   basePath: basePath || undefined,
   trailingSlash: true,
+  skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
       { source: "/api/forge/health", destination: `${backend}/health` },

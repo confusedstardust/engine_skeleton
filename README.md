@@ -1199,6 +1199,18 @@ npm run dev
 - 前端：`http://127.0.0.1:3001`
 - 播放页：`http://127.0.0.1:8010/play/{job_id}/`
 
+## 13.5 Non-Prod IP 开发环境
+
+`feature/*` 分支（同时兼容现有的 `feature-*` 命名）使用 `.github/workflows/docker-publish-deploy-dev.yml` 部署到独立的 Non-Prod 主机；`main` 分支使用生产工作流部署到生产环境。其他分支不会自动部署。GitHub 仓库需要创建名为 `development` 的 Environment，并配置 Secrets：`ACR_USERNAME`、`ACR_PASSWORD`、`DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH`。
+
+在 Non-Prod 服务器的 `DEPLOY_PATH` 中，根据 `deploy/development.env.example` 创建 `.env`，把 `WEBGAL_FRONTEND_URL` 中的占位地址改成实际服务器 IP。默认访问地址为：
+
+- 工作台：`http://服务器IP:3001/narrativeos/`
+- 官网：`http://服务器IP:3002/`
+- 后端：只监听服务器本机的 `127.0.0.1:8010`，由工作台代理访问
+
+官网和工作台通过外部 Docker 网络 `narrativeos-development` 通信，后端使用 `http://website:3000/api/auth/me` 验证 SSO，不依赖服务器公网回环。
+
 ---
 
 ## 14. 典型调试路径

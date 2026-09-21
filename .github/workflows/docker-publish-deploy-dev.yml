@@ -1,13 +1,14 @@
-name: docker-publish-deploy
+name: docker-publish-deploy-development
 
 on:
   push:
     branches:
-      - main
+      - "feature/**"
+      - "feature-*"
   workflow_dispatch:
     inputs:
       deploy:
-        description: "Build, push, and deploy to the remote Docker host"
+        description: "Build, push, and deploy to the Non-Prod Docker host"
         required: true
         default: true
         type: boolean
@@ -20,14 +21,14 @@ env:
   BACKEND_IMAGE_NAME: acr_namespace_narrativeos/narrativeos-engine-backend
   FRONTEND_IMAGE_NAME: acr_namespace_narrativeos/narrativeos-engine-frontend
 
-# Only the newest production deployment is useful; cancel stale builds/deploys.
 concurrency:
-  group: engine-skeleton-${{ github.ref }}
+  group: engine-skeleton-development
   cancel-in-progress: true
 
 jobs:
   detect-changes:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-') }}
+    environment: development
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.selection.outputs.backend }}
@@ -58,14 +59,14 @@ jobs:
               - 'requirements.txt'
               - 'docker/backend.Dockerfile'
               - '.dockerignore'
-              - 'docker-compose.prod.yml'
-              - '.github/workflows/docker-publish-deploy.yml'
+              - 'docker-compose.dev.yml'
+              - '.github/workflows/docker-publish-deploy-dev.yml'
             frontend:
               - 'forge_frontend_next/**'
               - 'docker/frontend.Dockerfile'
               - '.dockerignore'
-              - 'docker-compose.prod.yml'
-              - '.github/workflows/docker-publish-deploy.yml'
+              - 'docker-compose.dev.yml'
+              - '.github/workflows/docker-publish-deploy-dev.yml'
 
       - name: Select services
         id: selection
@@ -81,103 +82,78 @@ jobs:
             echo "backend=${BACKEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
             echo "frontend=${FRONTEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
           fi
-          echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "version_tag=dev-sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
   build-backend:
+    environment: development
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Log in to Alibaba Cloud Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
-
-      - name: Build and push backend image
+      - name: Build and push development backend image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./docker/backend.Dockerfile
           push: true
-          # Alibaba Cloud Personal ACR does not accept Buildx attestation manifests.
           provenance: false
           sbom: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=engine-skeleton-backend
-          cache-to: type=gha,mode=max,scope=engine-skeleton-backend
+          tags: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
+          cache-from: type=gha,scope=engine-skeleton-development-backend
+          cache-to: type=gha,mode=max,scope=engine-skeleton-development-backend
 
   build-frontend:
+    environment: development
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Log in to Alibaba Cloud Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ needs.detect-changes.outputs.version_tag }}
-
-      - name: Build and push frontend image
+      - name: Build and push development frontend image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./docker/frontend.Dockerfile
           push: true
+          provenance: false
+          sbom: false
           build-args: |
             FORGE_BACKEND_URL=http://backend:8010
             NEXT_PUBLIC_BASE_PATH=/narrativeos
-          # Alibaba Cloud Personal ACR does not accept Buildx attestation manifests.
-          provenance: false
-          sbom: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=engine-skeleton-frontend
-          cache-to: type=gha,mode=max,scope=engine-skeleton-frontend
+          tags: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
+          cache-from: type=gha,scope=engine-skeleton-development-frontend
+          cache-to: type=gha,mode=max,scope=engine-skeleton-development-frontend
 
   deploy:
     if: >-
       ${{
         always() &&
-        github.ref == 'refs/heads/main' &&
+        (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) &&
         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)) &&
         (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true') &&
         (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
         (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
       }}
+    environment: development
     runs-on: ubuntu-latest
     timeout-minutes: 240
     needs:
@@ -187,17 +163,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Upload deployment files
+      - name: Prepare development deployment directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            sudo install -d -o "$(id -un)" -g "$(id -gn)" "${{ secrets.DEPLOY_PATH }}"
+      - name: Upload development deployment files
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          source: "docker-compose.dev.yml"
           target: ${{ secrets.DEPLOY_PATH }}
-
-      - name: Deploy on remote host
+      - name: Deploy on Non-Prod host
         uses: appleboy/ssh-action@v1.0.3
         env:
           VERSION_TAG: ${{ needs.detect-changes.outputs.version_tag }}
@@ -218,6 +201,7 @@ jobs:
             set -e
             mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
             cd "${{ secrets.DEPLOY_PATH }}"
+            test -s .env || { echo "Missing development .env in $PWD"; exit 1; }
             echo "$ACR_PASSWORD" | docker login "$REGISTRY" -u "$ACR_USERNAME" --password-stdin
             IMAGE_STATE_FILE=".deploy-images.env"
             touch "$IMAGE_STATE_FILE"
@@ -240,6 +224,9 @@ jobs:
               echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
               exit 1
             fi
+            set -a
+            . "./$IMAGE_STATE_FILE"
+            set +a
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD="docker compose"
             elif command -v docker-compose >/dev/null 2>&1; then
@@ -248,32 +235,14 @@ jobs:
               echo "Neither 'docker compose' nor 'docker-compose' is installed on the remote host."
               exit 1
             fi
-            timed_retry() {
-              name="$1"
-              shift
-              echo "[$(date -Is)] Starting $name"
-              for attempt in 1 2 3 4 5; do
-                if "$@"; then
-                  echo "[$(date -Is)] Finished $name"
-                  return 0
-                fi
-                echo "[$(date -Is)] $name failed, retry $attempt/5..."
-                sleep 20
-              done
-              echo "[$(date -Is)] $name failed after retries"
-              return 1
-            }
+            docker network inspect narrativeos-development >/dev/null 2>&1 || docker network create narrativeos-development
             SERVICES=""
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              timed_retry "pull backend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull backend
+              $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml pull backend
               SERVICES="$SERVICES backend"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              timed_retry "pull frontend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull frontend
+              $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml pull frontend
               SERVICES="$SERVICES frontend"
             fi
-            echo "[$(date -Is)] Starting docker compose up"
-            $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml up -d --no-deps $SERVICES
-            echo "[$(date -Is)] Finished docker compose up"
-            # Keep cleanup out of the deployment critical path; run it separately
-            # during maintenance so a deploy is not delayed by Docker disk scans.
+            $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml up -d --no-deps $SERVICES
