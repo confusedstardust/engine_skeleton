@@ -19,6 +19,7 @@ export type AssetReviewItem = {
   scene_display_name?: string;
   exists: boolean;
   url: string;
+  crop_source_url?: string;
   avatar_exists: boolean;
   avatar_url: string | null;
 };
@@ -85,6 +86,7 @@ export type ParticleEffectReview = {
 export type StagedScenePresentation = {
   music: Record<string, string | null>;
   effects: Record<string, SceneEffectAssignment | null>;
+  avatarCrops: Record<string, { zoom: number; offsetX: number; offsetY: number }>;
 };
 
 type LaperAssetWorkbenchProps = {
@@ -106,7 +108,7 @@ type LaperAssetWorkbenchProps = {
   closeAsset: () => void;
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
-  buildGame: (staged?: StagedScenePresentation) => Promise<void>;
+  buildGame: (staged?: StagedScenePresentation) => Promise<boolean>;
   retryAction?: () => void;
   retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
@@ -116,20 +118,11 @@ type LaperAssetWorkbenchProps = {
   sceneMusicEnabled: boolean;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
+  uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
+  removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
 };
 
-type AssetSection = "figures" | "backgrounds" | "effects";
-
-function assetPreviewClass(asset: AssetReviewItem) {
-  const isFigure = asset.kind === "角色立绘";
-  if (isFigure && asset.avatar_exists && asset.avatar_url) {
-    return "laper-asset-preview poster-duo";
-  }
-  if (isFigure) {
-    return "laper-asset-preview poster-solo";
-  }
-  return "laper-asset-preview poster-still";
-}
+type AssetSection = "figures" | "backgrounds" | "music" | "effects";
 
 type ContainedAssetImageProps = {
   src: string;
@@ -144,33 +137,97 @@ function ContainedAssetImage({ src, alt, objectPosition = "bottom center" }: Con
   );
 }
 
-function AssetPreviewImage({ asset }: { asset: AssetReviewItem }) {
-  const isFigure = asset.kind === "角色立绘";
-  const showAvatarStage = isFigure && asset.avatar_exists && asset.avatar_url;
+function AvatarCropCanvas({ asset, busy, readonly, value, onChange }: {
+  asset: AssetReviewItem;
+  busy: boolean;
+  readonly: boolean;
+  value?: { zoom: number; offsetX: number; offsetY: number };
+  onChange: (crop: { zoom: number; offsetX: number; offsetY: number }) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
+  const initialCrop = value || { zoom: 1, offsetX: 0, offsetY: 0 };
+  const cropRef = useRef(initialCrop);
+  const [zoom, setZoom] = useState(initialCrop.zoom);
+  const [offset, setOffset] = useState({ x: initialCrop.offsetX, y: initialCrop.offsetY });
 
-  if (showAvatarStage) {
-    return (
-      <div className="asset-still-stage">
-        <div className="asset-still-panel">
-          <span className="asset-still-label">头像</span>
-          <div className="asset-still-avatar">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={asset.avatar_url!} alt={`${asset.filename} 头像`} loading="lazy" />
-          </div>
-        </div>
-        <div className="asset-still-panel asset-still-figure-panel">
-          <span className="asset-still-label">立绘</span>
-          <div className="asset-still-figure">
-            <ContainedAssetImage src={asset.url} alt={asset.filename} />
-          </div>
-        </div>
-      </div>
-    );
+  useEffect(() => {
+    const image = new Image();
+    image.onload = () => { imageRef.current = image; setOffset((current) => ({ ...current })); };
+    image.src = asset.crop_source_url || asset.url;
+    return () => { imageRef.current = null; };
+  }, [asset.crop_source_url, asset.url]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const image = imageRef.current;
+    if (!canvas || !image) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const side = canvas.width;
+    context.clearRect(0, 0, side, side);
+    const scale = Math.max(side / image.naturalWidth, side / image.naturalHeight) * zoom;
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    context.drawImage(image, (side - width) / 2 + offset.x * side, (side - height) / 2 + offset.y * side, width, height);
+  }, [zoom, offset, asset.crop_source_url, asset.url]);
+
+  function moveCrop(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const side = event.currentTarget.getBoundingClientRect().width || 1;
+    const nextOffset = {
+      x: Math.max(-1, Math.min(1, drag.offsetX + (event.clientX - drag.x) / side)),
+      y: Math.max(-1, Math.min(1, drag.offsetY + (event.clientY - drag.y) / side))
+    };
+    cropRef.current = { zoom, offsetX: nextOffset.x, offsetY: nextOffset.y };
+    setOffset(nextOffset);
+    onChange(cropRef.current);
   }
 
   return (
-    <div className="asset-still-figure">
-      <ContainedAssetImage src={asset.url} alt={asset.filename} objectPosition={isFigure ? "bottom center" : "center"} />
+    <div className="avatar-crop-editor">
+      <div className="avatar-crop-stage">
+        <canvas
+          ref={canvasRef}
+          className="avatar-crop-canvas"
+          width={360}
+          height={360}
+          aria-label="小头像裁剪画布"
+          onPointerDown={(event) => {
+            if (readonly || busy) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            dragRef.current = { x: event.clientX, y: event.clientY, offsetX: offset.x, offsetY: offset.y };
+          }}
+          onPointerMove={moveCrop}
+          onPointerUp={(event) => {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+            dragRef.current = null;
+          }}
+          onPointerCancel={() => { dragRef.current = null; }}
+          onWheel={(event) => {
+            if (readonly || busy) return;
+            event.preventDefault();
+            const nextZoom = Math.max(1, Math.min(3, zoom + (event.deltaY < 0 ? 0.1 : -0.1)));
+            const nextCrop = { zoom: nextZoom, offsetX: offset.x, offsetY: offset.y };
+            cropRef.current = nextCrop;
+            setZoom(nextZoom);
+            onChange(nextCrop);
+          }}
+        />
+        {!readonly && <button className="avatar-crop-reset" type="button" aria-label="重置小头像取景" title="重置取景" disabled={busy} onClick={() => {
+          const resetCrop = { zoom: 1, offsetX: 0, offsetY: 0 };
+          cropRef.current = resetCrop;
+          setZoom(1);
+          setOffset({ x: 0, y: 0 });
+          onChange(resetCrop);
+        }}>↻</button>}
+      </div>
+      <div className="avatar-crop-controls">
+        <strong>小头像</strong>
+        <span>拖动调整取景，滚轮缩放</span>
+      </div>
     </div>
   );
 }
@@ -503,20 +560,25 @@ function DirectionDial(props: { value: number; disabled: boolean; onChange: (val
 }
 
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
+  const closeAsset = props.closeAsset;
   const [section, setSection] = useState<AssetSection>("figures");
   const [expandedSection, setExpandedSection] = useState<AssetSection | null>("figures");
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
   const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
-  const [musicSceneFile, setMusicSceneFile] = useState("");
   const [musicDrafts, setMusicDrafts] = useState<Record<string, string | null>>({});
   const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
   const [musicPreviewError, setMusicPreviewError] = useState("");
   const [effectSceneFile, setEffectSceneFile] = useState("");
   const [effectDrafts, setEffectDrafts] = useState<Record<string, SceneEffectAssignment | null>>({});
+  const [avatarCropDrafts, setAvatarCropDrafts] = useState<Record<string, { zoom: number; offsetX: number; offsetY: number }>>({});
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewUrlRef = useRef<string | null>(null);
+  const imageUploadRef = useRef<HTMLInputElement | null>(null);
+  const musicUploadRef = useRef<HTMLInputElement | null>(null);
+  const [pendingImageUpload, setPendingImageUpload] = useState<{ role: "figure" | "background"; removeBackground: boolean; replaceFilename?: string }>({ role: "background", removeBackground: false });
+  const [uploadNotice, setUploadNotice] = useState("");
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
@@ -524,23 +586,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     (item) => (voiceSelections[item.speaker] || item.voice) !== item.voice
   );
 
-  const selectedMusicScene = props.sceneMusic.find((item) => item.scene_file === musicSceneFile) || props.sceneMusic[0] || null;
   const selectedEffectScene = props.particleEffects.scenes.find((item) => item.scene_file === effectSceneFile) || props.particleEffects.scenes[0] || null;
-  const musicAsset = selectedMusicScene && Object.hasOwn(musicDrafts, selectedMusicScene.scene_file)
-    ? musicDrafts[selectedMusicScene.scene_file] || ""
-    : selectedMusicScene?.selected_asset || "";
   const effectDraft = selectedEffectScene && Object.hasOwn(effectDrafts, selectedEffectScene.scene_file)
     ? effectDrafts[selectedEffectScene.scene_file]
     : selectedEffectScene?.assignment || null;
   const hasStagedPresentation = Object.entries(musicDrafts).some(([scene, asset]) => (props.sceneMusic.find((item) => item.scene_file === scene)?.selected_asset || "") !== (asset || ""))
-    || Object.entries(effectDrafts).some(([scene, assignment]) => JSON.stringify(props.particleEffects.scenes.find((item) => item.scene_file === scene)?.assignment || null) !== JSON.stringify(assignment));
-
-  useEffect(() => {
-    if (!selectedMusicScene) return;
-    if (!musicSceneFile) {
-      setMusicSceneFile(selectedMusicScene.scene_file);
-    }
-  }, [musicSceneFile, selectedMusicScene]);
+    || Object.entries(effectDrafts).some(([scene, assignment]) => JSON.stringify(props.particleEffects.scenes.find((item) => item.scene_file === scene)?.assignment || null) !== JSON.stringify(assignment))
+    || Object.keys(avatarCropDrafts).length > 0;
 
   useEffect(() => {
     if (!selectedEffectScene || effectSceneFile) return;
@@ -617,8 +669,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     setMusicPreviewingAsset(null);
   }
 
-  async function playMusicPreview(assetOverride?: string) {
-    const asset = assetOverride || musicAsset || selectedMusicScene?.system_asset || "";
+  async function playMusicPreview(asset: string) {
     if (!asset) return;
     stopMusicPreview();
     setMusicPreviewError("");
@@ -637,6 +688,11 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     }
   }
 
+  function showUploadNotice(message: string) {
+    setUploadNotice(message);
+    window.setTimeout(() => setUploadNotice((current) => current === message ? "" : current), 2000);
+  }
+
   useEffect(() => {
     if (!props.voiceGeneratingSpeaker || !activeAudioRef.current) return;
     activeAudioRef.current.pause();
@@ -645,6 +701,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   }, [props.voiceGeneratingSpeaker]);
 
   useEffect(() => () => stopMusicPreview(), []);
+
+  useEffect(() => {
+    if (!active) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") closeAsset(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [active, closeAsset]);
 
   return (
     <section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
@@ -669,6 +732,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <span>Asset Review</span>
         </div>
         <nav className="laper-rail-nav">
+          {props.sceneMusicEnabled && (
+            <div className="laper-rail-tree-group">
+              <button className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>
+                <span>场景音乐</span><span className="laper-rail-tree-meta"><em>{props.sceneMusic.length}</em><b aria-hidden="true">♪</b></span>
+              </button>
+            </div>
+          )}
           {([
             ["figures", "角色卡", figures],
             ["backgrounds", "场景卡", backgrounds],
@@ -712,7 +782,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       </aside>
 
       <section className="laper-canvas-wrap">
+        <input ref={imageUploadRef} className="asset-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename); showUploadNotice(ok ? pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新" : "上传失败，请重试"); } event.currentTarget.value = ""; }} />
+        <input ref={musicUploadRef} className="asset-upload-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "bgm"); showUploadNotice(ok ? "BGM 上传成功" : "BGM 上传失败，请重试"); } event.currentTarget.value = ""; }} />
         <div className="laper-toolbar" role="toolbar" aria-label="素材工具栏">
+          {props.sceneMusicEnabled && <button className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>场景音乐</button>}
           <button className={section === "figures" ? "active" : ""} type="button" onClick={() => setSection("figures")}>
             角色卡
           </button>
@@ -723,7 +796,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             特效素材
           </button>
           <span className="laper-toolbar-divider" />
-          <span className="laper-toolbar-note">{props.imageEnabled ? "点击图片可编辑 Prompt" : "当前未开启图片生成"}</span>
+          {section !== "music" && <span className="laper-toolbar-note">{props.imageEnabled ? "点击图片打开素材详情" : "点击卡片打开素材详情"}</span>}
         </div>
 
         <div className="laper-canvas laper-asset-canvas">
@@ -783,44 +856,26 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 </section>
               </div>
             </div>
-          ) : active ? (
-            <div className="laper-asset-detail">
-              <header className="laper-canvas-head">
-                <div>
-                  <h2>{props.displayName(active)}</h2>
-                  {active.kind !== "角色立绘" && <p>{active.kind} · {props.sceneDisplayName(active)}</p>}
-                </div>
-                <span className={active.exists ? "ready" : ""}>{active.exists ? "已生成" : "待生成"}</span>
+          ) : section === "music" ? (
+            <div className="scene-music-workbench">
+              <header className="laper-canvas-head music-workbench-head">
+                <div><h2>场景音乐</h2></div>
+                {!props.readonly && <div className="music-upload-actions">{uploadNotice && <span className={uploadNotice.includes("失败") ? "failed" : "success"}>{uploadNotice}</span>}<button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button></div>}
               </header>
-              <div className={assetPreviewClass(active)}>
-                {active.exists ? <AssetPreviewImage asset={active} /> : <div className="asset-image-placeholder">图片尚未生成</div>}
+              <div className="scene-music-table" role="list">
+                {props.sceneMusic.map((scene, index) => {
+                  const selected = Object.hasOwn(musicDrafts, scene.scene_file) ? musicDrafts[scene.scene_file] || "" : scene.selected_asset || "";
+                  const effective = selected || scene.system_asset || "";
+                  const playing = Boolean(effective && musicPreviewingAsset === effective);
+                  return <article className="scene-music-row" role="listitem" key={scene.scene_file}>
+                    <span className="scene-music-index">{String(index + 1).padStart(2, "0")}</span>
+                    <div className="scene-music-scene"><small>{scene.kind === "ending" ? "结局" : "场景"}</small><strong>{scene.label}</strong><em>{scene.scene_file}</em></div>
+                    <label className="scene-music-select"><span>背景音乐</span><select value={selected} disabled={props.readonly || props.busy} onChange={(event) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: event.target.value || null })); }}><option value="">系统自动 · {scene.system_asset || "暂无推荐"}</option>{props.musicAssets.map((asset) => <option value={asset} key={asset}>{asset.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")}</option>)}</select></label>
+                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
+                  </article>;
+                })}
               </div>
-              <dl className="laper-asset-meta">
-                <div>
-                  <dt>文件</dt>
-                  <dd>
-                    {active.subdir}/{active.filename}.webp
-                  </dd>
-                </div>
-                <div>
-                  <dt>尺寸</dt>
-                  <dd>{active.size || "未设置"}</dd>
-                </div>
-              </dl>
-              <label className="asset-prompt-editor laper-asset-prompt">
-                <span>Prompt</span>
-                <textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={8} spellCheck={false} readOnly={props.readonly} />
-              </label>
-              <div className="laper-asset-actions">
-                <button className="btn outline" type="button" onClick={props.closeAsset}>
-                  返回列表
-                </button>
-                {!props.readonly && (
-                  <button className="btn primary" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>
-                    重新生成此素材
-                  </button>
-                )}
-              </div>
+              {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
             </div>
           ) : (
             <>
@@ -943,7 +998,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                         ? "草稿没有新的已保存改动，无需同步"
                         : undefined
                   }
-                  onClick={() => void props.buildGame(hasStagedPresentation ? { music: musicDrafts, effects: effectDrafts } : undefined)}
+                  onClick={() => void (async () => {
+                    const applied = await props.buildGame(hasStagedPresentation ? { music: musicDrafts, effects: effectDrafts, avatarCrops: avatarCropDrafts } : undefined);
+                    if (applied) setAvatarCropDrafts({});
+                  })()}
                 >
                   {props.published ? "应用修改到游戏" : "确认素材并生成游戏"}
                 </button>
@@ -951,28 +1009,24 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             )
           }
         />
-        {props.sceneMusicEnabled && props.sceneMusic.length > 0 ? (
-          <section className="scene-music-editor" aria-label="场景音乐">
-            <span className="scene-music-kicker">SCENE MUSIC</span>
-            <h3>场景音乐</h3>
-            <p>选择只在当前编辑中暂存；点击“应用修改到游戏”时统一写入并生效。</p>
-            <div className="ui-form-field"><span>场景</span><ScenePicker value={selectedMusicScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.sceneMusic.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.selected_asset) }))} onChange={(value) => { stopMusicPreview(); setMusicSceneFile(value); }} /></div>
-            <div className="ui-form-field"><span>音乐</span>
-              <div className="music-choice-list" role="radiogroup" aria-label="选择场景音乐">
-                {[{ asset: "", label: "系统自动", hint: selectedMusicScene?.system_asset || "由系统根据场景选择" }, ...props.musicAssets.map((asset) => ({ asset, label: asset.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "), hint: asset }))].map((item) => {
-                  const previewAsset = item.asset || selectedMusicScene?.system_asset || "";
-                  const playing = Boolean(previewAsset && musicPreviewingAsset === previewAsset);
-                  return <div className={`music-choice ${musicAsset === item.asset ? "active" : ""}`} key={item.asset || "system"}>
-                  <button className="music-choice-select" type="button" role="radio" aria-checked={musicAsset === item.asset} disabled={props.readonly || props.busy} onClick={() => { stopMusicPreview(); if (selectedMusicScene) setMusicDrafts((current) => ({ ...current, [selectedMusicScene.scene_file]: item.asset || null })); }}><i /><span><strong>{item.label}</strong><small>{item.hint}</small></span>{!item.asset ? <em>推荐</em> : null}</button>
-                    <button className={`music-choice-play ${playing ? "is-playing" : ""}`} type="button" disabled={props.busy || !previewAsset} aria-label={playing ? `停止试听 ${previewAsset}` : `试听 ${previewAsset}`} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(previewAsset)}>{playing ? "Ⅱ" : "▶"}</button>
-                  </div>;
-                })}
+      </aside>
+      {active && (
+        <div className="asset-modal-layer" role="presentation">
+          <button className="asset-modal-backdrop" type="button" aria-label="关闭素材详情" onClick={props.closeAsset} />
+          <section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
+            <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
+            <div className="asset-modal-body">
+              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}</div><div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{uploadNotice || "当前素材已加载"}</div></div>
+              <div className="asset-modal-editor">
+                {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
+                <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>
+                {!props.readonly && <button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy} onClick={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }}>上传图片</button>}
               </div>
             </div>
-            {musicPreviewError ? <small className="scene-music-error">{musicPreviewError}</small> : null}
+            <footer className="asset-modal-actions">{!props.readonly && <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</button>}<button className="btn primary" type="button" onClick={props.closeAsset}>关闭</button></footer>
           </section>
-        ) : null}
-      </aside>
+        </div>
+      )}
     </section>
   );
 }

@@ -5,6 +5,8 @@ import subprocess
 import os
 import time
 import json
+import mimetypes
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ from .narrative_structure import (
     build_synced_narrative_structure,
     repair_narrative_structure_if_needed,
 )
+from .oss_storage import OSSUploadError, upload_public_asset
 from .prompts import (
     SYSTEM_PROMPT,
     asset_prompt,
@@ -437,6 +440,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             shutil.copytree(game_dir, backup_dir)
         self.store.mark_build_started(job)
         try:
+            self._publish_uploaded_assets_to_oss(job_dir, job["id"])
             self._copy_draft_game_assets(job_dir)
             self.run_script_rewrite(job)
             self.run_sound_effects(job)
@@ -495,6 +499,9 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 self.run_tts_generation(job)
             elif "voices" in dirty_scopes:
                 self.run_tts_generation(job)
+
+            if dirty_scopes & {"assets", "music"}:
+                self._publish_uploaded_assets_to_oss(job_dir, job["id"])
 
             if "assets" in dirty_scopes:
                 self._copy_draft_game_assets(job_dir)
@@ -625,7 +632,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
             *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
         ]
-        plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(), scene_plan, overrides)
+        plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(job_dir), scene_plan, overrides)
         # Incremental music edits bypass run_sound_effects(), which normally
         # writes this plan. Keep the persisted scene configuration aligned with
         # the rewritten WebGAL scene files.
@@ -709,6 +716,61 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             target = game_dir / source.relative_to(draft_game_dir)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+
+    def _publish_uploaded_assets_to_oss(self, job_dir: Path, job_id: str) -> None:
+        """Publish staged user assets only when the user confirms the game update."""
+        state_path = job_dir / "state" / "uploaded_assets.json"
+        if not state_path.exists():
+            return
+        payload = read_json(state_path)
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        if not isinstance(items, list):
+            raise PipelineError("uploaded_assets.json items must be an array")
+        changed = False
+        updated_items: list[dict[str, Any]] = []
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            item = dict(raw)
+            if item.get("status") != "staged":
+                updated_items.append(item)
+                continue
+            asset_type = str(item.get("type") or "")
+            filename = Path(str(item.get("filename") or "")).name
+            if not filename:
+                raise PipelineError("staged upload is missing a filename")
+            if asset_type == "image":
+                subdir = str(item.get("subdir") or "background")
+                if subdir not in {"figure", "background"}:
+                    raise PipelineError(f"invalid staged image directory: {subdir}")
+                source = job_dir / "draft" / "game" / subdir / filename
+                category = f"images/{subdir}"
+                content_type = "image/webp"
+            elif asset_type == "bgm":
+                source = job_dir / "draft" / "game" / "bgm" / filename
+                category = "bgm"
+                content_type = str(item.get("content_type") or mimetypes.guess_type(filename)[0] or "application/octet-stream")
+            else:
+                raise PipelineError(f"unsupported staged asset type: {asset_type}")
+            if not source.exists():
+                raise PipelineError(f"staged asset file is missing: {source}")
+            try:
+                oss_key, oss_url = upload_public_asset(job_id, category, filename, source.read_bytes(), content_type)
+                item.update({"status": "published", "oss_key": oss_key, "oss_url": f"{oss_url}?v={uuid.uuid4().hex[:10]}"})
+                if asset_type == "image" and item.get("subdir") == "figure":
+                    stem = Path(filename).stem
+                    avatar_name = f"miniavatar_{stem.removeprefix('figure_')}.webp" if stem.startswith("figure_") else f"miniavatar_{stem}.webp"
+                    avatar_path = source.parent / avatar_name
+                    if not avatar_path.exists():
+                        raise PipelineError(f"staged figure avatar is missing: {avatar_path}")
+                    avatar_key, avatar_url = upload_public_asset(job_id, category, avatar_name, avatar_path.read_bytes(), "image/webp")
+                    item.update({"avatar_oss_key": avatar_key, "avatar_oss_url": f"{avatar_url}?v={uuid.uuid4().hex[:10]}"})
+            except OSSUploadError as exc:
+                raise PipelineError(str(exc)) from exc
+            changed = True
+            updated_items.append(item)
+        if changed:
+            write_json(state_path, {"version": 1, "items": updated_items})
 
     def run_asset_manifest(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "ASSET_PLANNING")
@@ -1219,20 +1281,24 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             normalized.append(entry)
         return normalized
 
-    def _load_bgm_assets(self) -> dict[str, list[str]]:
+    def _load_bgm_assets(self, job_dir: Path | None = None) -> dict[str, list[str]]:
         assets: dict[str, list[str]] = {"opening": [], "dialog": [], "ending": []}
-        if not settings.sound_effects_dir.exists():
-            return assets
-
-        for path in sorted(settings.sound_effects_dir.glob("*.mp3"), key=lambda item: item.name.lower()):
-            name = path.name
-            lower = name.lower()
-            if lower.startswith("bgm_opening_"):
-                assets["opening"].append(name)
-            elif lower.startswith("bgm_dialog"):
-                assets["dialog"].append(name)
-            elif lower.startswith("bgm_ending_"):
-                assets["ending"].append(name)
+        if settings.sound_effects_dir.exists():
+            for path in sorted(settings.sound_effects_dir.glob("*.mp3"), key=lambda item: item.name.lower()):
+                name = path.name
+                lower = name.lower()
+                if lower.startswith("bgm_opening_"):
+                    assets["opening"].append(name)
+                elif lower.startswith("bgm_dialog"):
+                    assets["dialog"].append(name)
+                elif lower.startswith("bgm_ending_"):
+                    assets["ending"].append(name)
+        # User-uploaded BGM is project-local and selectable like dialog music.
+        # It is deliberately not copied into the shared library.
+        if job_dir:
+            for root in (job_dir / "draft" / "game" / "bgm", job_dir / "public" / "game" / "bgm"):
+                if root.exists():
+                    assets["dialog"].extend(path.name for path in root.iterdir() if path.is_file() and path.name not in assets["dialog"])
         return assets
 
     def _build_bgm_plan(
@@ -1719,6 +1785,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         target_dir = job_dir / "public" / "game" / "bgm"
         target_dir.mkdir(parents=True, exist_ok=True)
         for filename in assets:
+            draft_source = job_dir / "draft" / "game" / "bgm" / filename
+            if draft_source.exists():
+                shutil.copy2(draft_source, target_dir / filename)
+                continue
             source = settings.sound_effects_dir / filename
             if not source.exists():
                 raise PipelineError(f"bgm file is missing: {source}")
@@ -1804,7 +1874,7 @@ Previous generated content:
         prompt: str,
     ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
-        if self._use_json_text_for_function(function_name):
+        if self._use_json_text_for_function(llm, function_name):
             text_prompt = f"""{prompt}
 
 Return valid JSON only, without Markdown fences or explanation.
@@ -1823,7 +1893,12 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             return "disabled"
         return settings.llm_thinking
 
-    def _use_json_text_for_function(self, function_name: str) -> bool:
+    def _use_json_text_for_function(self, llm: OpenAIFunctionClient, function_name: str) -> bool:
+        # Kimi K2.7 Code does not support required/named tool choice. MiMo also
+        # produces more reliable structured artifacts as JSON text. Both paths
+        # are parsed and validated locally by the same artifact validators.
+        if getattr(llm, "provider", "deepseek") in {"kimi", "mimo"}:
+            return True
         if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
             return True
         return settings.llm_thinking == "enabled"

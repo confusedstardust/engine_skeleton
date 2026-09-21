@@ -140,15 +140,21 @@ export default function HistoryPage() {
   return (
     <>
       <header className="top-nav">
-        <Link className="brand brand-link" href="/">
-          <div className="brand-seal" aria-hidden="true">
-            <img src={withBasePath("/icon.png")} alt="" />
-          </div>
-          <div className="brand-copy">
-            <span className="brand-name">临场 · 生成记录</span>
-            <span className="brand-subtitle">GENERATION HISTORY</span>
-          </div>
-        </Link>
+        <div className="workspace-nav-leading">
+          <Link className="brand brand-link" href="/?workspace=1">
+            <div className="brand-seal" aria-hidden="true">
+              <img src={withBasePath("/icon.png")} alt="" />
+            </div>
+            <div className="brand-copy">
+              <span className="brand-name">临场 · 生成记录</span>
+              <span className="brand-subtitle">GENERATION HISTORY</span>
+            </div>
+          </Link>
+          <Link className="workspace-back" href="/?workspace=1" aria-label="返回工作台">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            <span>返回工作台</span>
+          </Link>
+        </div>
         <nav className="nav-links" aria-label="记录导航">
           <Link href="/">新建任务</Link>
           <Link className="nav-login" href="/login">账户</Link>

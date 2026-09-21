@@ -82,6 +82,9 @@ class Settings:
     mimo_api_key: str | None
     mimo_base_url: str
     mimo_model: str
+    kimi_api_key: str | None
+    kimi_base_url: str
+    kimi_model: str
     max_schema_retries: int
     max_text_retries: int
     max_advanced_phase_retries: int
@@ -93,6 +96,11 @@ class Settings:
     image_api_key_env: str
     qwen_image_base_url: str
     qwen_image_api_key_env: str
+    oss_bucket: str | None
+    oss_endpoint: str
+    oss_access_key_id: str | None
+    oss_access_key_secret: str | None
+    oss_prefix: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -132,6 +140,9 @@ class Settings:
             mimo_api_key=os.getenv("MIMO_API_KEY"),
             mimo_base_url=(os.getenv("MIMO_BASE_URL") or "https://api.xiaomimimo.com/v1").rstrip("/"),
             mimo_model=os.getenv("MIMO_MODEL") or "MiMo-V2.5-Pro-UltraSpeed",
+            kimi_api_key=os.getenv("MOONSHOT_API_KEY"),
+            kimi_base_url=(os.getenv("KIMI_BASE_URL") or "https://api.moonshot.cn/v1").rstrip("/"),
+            kimi_model=os.getenv("KIMI_MODEL") or "kimi-k2.7-code-highspeed",
             max_schema_retries=int(os.getenv("WEBGAL_MAX_SCHEMA_RETRIES", "2")),
             max_text_retries=int(os.getenv("WEBGAL_MAX_TEXT_RETRIES", "1")),
             max_advanced_phase_retries=max(0, int(os.getenv("WEBGAL_MAX_ADVANCED_PHASE_RETRIES", "2"))),
@@ -149,6 +160,11 @@ class Settings:
                 or "https://dashscope.aliyuncs.com/api/v1"
             ).rstrip("/"),
             qwen_image_api_key_env=(os.getenv("QWEN_IMAGE_API_KEY_ENV") or "DASHSCOPE_API_KEY"),
+            oss_bucket=os.getenv("WEBGAL_OSS_BUCKET") or "ecs-oss-ist",
+            oss_endpoint=(os.getenv("WEBGAL_OSS_ENDPOINT") or "https://oss-cn-hangzhou.aliyuncs.com").rstrip("/"),
+            oss_access_key_id=os.getenv("OSS_ACCESS_KEY_ID"),
+            oss_access_key_secret=os.getenv("OSS_ACCESS_KEY_SECRET"),
+            oss_prefix=(os.getenv("WEBGAL_OSS_PREFIX") or "game_assets/public_assets").strip("/"),
         )
 
 

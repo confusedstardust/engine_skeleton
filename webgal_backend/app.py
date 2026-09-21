@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -149,6 +149,19 @@ class AssetRegenerateRequest(BaseModel):
     filename: str = Field(min_length=1)
     prompt: str | None = None
     background: bool = True
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class AssetRemoveBackgroundRequest(BaseModel):
+    filename: str = Field(min_length=1)
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class AvatarCropRequest(BaseModel):
+    filename: str = Field(min_length=1)
+    zoom: float = Field(default=1, ge=1, le=3)
+    offset_x: float = Field(default=0, ge=-1, le=1)
+    offset_y: float = Field(default=0, ge=-1, le=1)
     base_revision: int | None = Field(default=None, ge=0)
 
 
@@ -442,7 +455,7 @@ def _scene_music_review(job_dir: Path) -> tuple[list[dict[str, Any]], list[str]]
     overrides_payload = _read_json_file(job_dir / "state" / "scene_music_overrides.json")
     overrides = overrides_payload.get("scene_overrides", {})
     overrides = overrides if isinstance(overrides, dict) else {}
-    bgm_assets = pipeline._load_bgm_assets()
+    bgm_assets = pipeline._load_bgm_assets(job_dir)
     music_assets = sorted({asset for group in bgm_assets.values() for asset in group}, key=str.lower)
     script_lines = [
         *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
@@ -564,6 +577,10 @@ def _asset_review_item(
         _public_app_path(f"/play/{job_id}/{asset_url_kind}/{asset_relative}"),
         asset_path,
     )
+    crop_source_url = asset_url
+    uploaded = next((item for item in _uploaded_assets(job_dir) if str(item.get("replaces_filename") or "") == filename), None)
+    if uploaded and uploaded.get("oss_url"):
+        asset_url = str(uploaded["oss_url"])
     return {
         "filename": filename,
         "subdir": subdir,
@@ -575,9 +592,62 @@ def _asset_review_item(
         "scene_display_name": scene_display_name,
         "exists": asset_path.exists(),
         "url": asset_url,
+        "crop_source_url": crop_source_url,
         "avatar_exists": avatar_exists,
         "avatar_url": avatar_url,
     }
+
+
+def _uploaded_assets(job_dir: Path) -> list[dict[str, Any]]:
+    payload = _read_json_file(job_dir / "state" / "uploaded_assets.json")
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _write_figure_avatar(image: Any, figure_dir: Path, figure_filename: str) -> Path:
+    """Keep the dialogue avatar synchronized whenever a figure is replaced."""
+    from PIL import Image
+    width, height = image.size
+    crop_height = max(1, int(height * 0.40))
+    upper = image.crop((0, 0, width, crop_height))
+    ratio = 400 / max(width, crop_height)
+    resized = upper.resize((max(1, int(width * ratio)), max(1, int(crop_height * ratio))), Image.Resampling.LANCZOS)
+    avatar = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+    avatar.alpha_composite(resized, ((400 - resized.width) // 2, (400 - resized.height) // 2))
+    stem = Path(figure_filename).stem
+    avatar_name = f"miniavatar_{stem.removeprefix('figure_')}.webp" if stem.startswith("figure_") else f"miniavatar_{stem}.webp"
+    avatar_path = figure_dir / avatar_name
+    avatar.save(avatar_path, "WEBP", lossless=True)
+    return avatar_path
+
+
+def _job_music_assets(job_dir: Path) -> list[str]:
+    names = {asset for group in pipeline._load_bgm_assets(job_dir).values() for asset in group}
+    for root in (job_dir / "draft" / "game" / "bgm", job_dir / "public" / "game" / "bgm"):
+        if root.exists(): names.update(path.name for path in root.iterdir() if path.is_file())
+    return sorted(names, key=str.lower)
+
+
+def _uploaded_image_review_items(job_id: str, job_dir: Path) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _uploaded_assets(job_dir):
+        if item.get("type") != "image" or item.get("replaces_filename"): continue
+        subdir, filename = str(item.get("subdir") or "background"), str(item.get("filename") or "")
+        if subdir not in {"figure", "background"} or not filename: continue
+        draft_path = job_dir / "draft" / "game" / subdir / filename
+        public_path = job_dir / "public" / "game" / subdir / filename
+        path = draft_path if draft_path.exists() else public_path
+        asset_kind = "draft-game" if draft_path.exists() else "game"
+        stem = Path(filename).stem
+        avatar_name = f"miniavatar_{stem.removeprefix('figure_')}.webp" if stem.startswith("figure_") else f"miniavatar_{stem}.webp"
+        draft_avatar = job_dir / "draft" / "game" / "figure" / avatar_name
+        public_avatar = job_dir / "public" / "game" / "figure" / avatar_name
+        avatar_path = draft_avatar if draft_avatar.exists() else public_avatar
+        avatar_kind = "draft-game" if draft_avatar.exists() else "game"
+        avatar_url = str(item.get("avatar_oss_url") or _versioned_file_url(_public_app_path(f"/play/{job_id}/{avatar_kind}/figure/{avatar_name}"), avatar_path)) if subdir == "figure" and avatar_path.exists() else None
+        local_url = _versioned_file_url(_public_app_path(f"/play/{job_id}/{asset_kind}/{subdir}/{filename}"), path)
+        result.append({"filename": stem, "subdir": subdir, "kind": "角色立绘" if subdir == "figure" else "场景背景", "display_name": str(item.get("display_name") or stem), "size": str(item.get("size") or "用户上传"), "prompt": "用户上传素材", "available_scene": "", "scene_display_name": "", "exists": path.exists(), "url": str(item.get("oss_url") or local_url), "crop_source_url": local_url, "avatar_exists": bool(avatar_url), "avatar_url": avatar_url, "uploaded": True})
+    return result
 
 
 def _tts_voice_review_payload(job_id: str, job_dir: Path, voice_enabled: bool) -> dict[str, Any]:
@@ -622,10 +692,10 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
         scene_music, music_assets = _scene_music_review(job_dir)
         return {
             "job": job,
-            "assets": [],
+            "assets": _uploaded_image_review_items(job_id, job_dir),
             "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
             "scene_music": scene_music,
-            "music_assets": music_assets,
+            "music_assets": _job_music_assets(job_dir),
             "particle_effects": particle_effects,
             **voice_review,
         }
@@ -640,13 +710,130 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     scene_music, music_assets = _scene_music_review(job_dir)
     return {
         "job": job,
-        "assets": [_asset_review_item(job_id, job_dir, image, character_labels, scene_labels) for image in images if isinstance(image, dict)],
+        "assets": [*_uploaded_image_review_items(job_id, job_dir), *[_asset_review_item(job_id, job_dir, image, character_labels, scene_labels) for image in images if isinstance(image, dict)]],
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
         "scene_music": scene_music,
-        "music_assets": music_assets,
+        "music_assets": _job_music_assets(job_dir),
         "particle_effects": particle_effects,
         **voice_review,
     }
+
+
+@app.post("/jobs/{job_id}/assets/upload")
+async def upload_asset(job_id: str, request: Request, file: UploadFile = File(...), asset_type: str = Form(...), image_role: str = Form("background"), remove_background: bool = Form(False), replace_filename: str | None = Form(None), base_revision: int | None = Form(None)) -> dict[str, Any]:
+    """Store a user asset in this job's draft; it is published only via Apply changes."""
+    job = _get_owned_job_or_404(job_id, request)
+    _require_job_editable(job, base_revision)
+    asset_type, suffix = asset_type.strip().lower(), Path(file.filename or "").suffix.lower()
+    image_suffixes, audio_suffixes = {".png", ".jpg", ".jpeg", ".webp"}, {".mp3", ".wav", ".ogg"}
+    if asset_type not in {"image", "bgm"} or (asset_type == "image" and suffix not in image_suffixes) or (asset_type == "bgm" and suffix not in audio_suffixes): raise HTTPException(status_code=422, detail="unsupported file type")
+    content = await file.read()
+    if not content or len(content) > 30 * 1024 * 1024: raise HTTPException(status_code=422, detail="file must be between 1 byte and 30 MB")
+    job_dir = _job_dir_or_404(job_id)
+    safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(file.filename or "upload").stem).strip("_") or "upload"
+    if asset_type == "image":
+        from io import BytesIO
+        from PIL import Image
+        try:
+            image = Image.open(BytesIO(content)); image.verify(); image = Image.open(BytesIO(content)).convert("RGBA")
+        except Exception as exc: raise HTTPException(status_code=422, detail="invalid image file") from exc
+        if remove_background:
+            try:
+                from rembg import remove
+                image = remove(image)
+            except Exception as exc: raise HTTPException(status_code=503, detail="background removal is temporarily unavailable") from exc
+        subdir = "figure" if image_role == "figure" else "background"
+        replacement_stem = Path(replace_filename or "").name.removesuffix(".webp")
+        if replace_filename and replacement_stem != replace_filename.removesuffix(".webp"):
+            raise HTTPException(status_code=422, detail="invalid replacement filename")
+        stored_name = f"{replacement_stem}.webp" if replacement_stem else f"upload_{uuid.uuid4().hex[:10]}_{safe_stem}.webp"
+        target = job_dir / "draft" / "game" / subdir / stored_name; target.parent.mkdir(parents=True, exist_ok=True); image.save(target, "WEBP", lossless=True)
+        avatar_path = _write_figure_avatar(image, target.parent, stored_name) if subdir == "figure" else None
+        item: dict[str, Any] = {"type": "image", "subdir": subdir, "filename": stored_name, "display_name": safe_stem, "size": f"{image.width}×{image.height}", "status": "staged"}
+        existing_standalone = next((existing for existing in _uploaded_assets(job_dir) if existing.get("type") == "image" and not existing.get("replaces_filename") and Path(str(existing.get("filename") or "")).stem == replacement_stem), None)
+        if replacement_stem and not existing_standalone: item["replaces_filename"] = replacement_stem
+    else:
+        stored_name = f"upload_{uuid.uuid4().hex[:10]}_{safe_stem}{suffix}"; target = job_dir / "draft" / "game" / "bgm" / stored_name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(content)
+        item = {"type": "bgm", "filename": stored_name, "display_name": safe_stem, "content_type": file.content_type, "status": "staged"}
+    items = _uploaded_assets(job_dir)
+    items = [existing for existing in items if not (existing.get("type") == item.get("type") and existing.get("subdir") == item.get("subdir") and existing.get("filename") == item.get("filename"))]
+    items.append(item); write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
+    store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json"); store.mark_draft_changed(job, "assets" if asset_type == "image" else "music")
+    return {"job": _get_owned_job_or_404(job_id, request), "asset": item}
+
+
+@app.post("/jobs/{job_id}/assets/remove-background")
+def remove_asset_background(job_id: str, payload: AssetRemoveBackgroundRequest, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    _require_job_editable(job, payload.base_revision)
+    filename = Path(payload.filename).name.removesuffix(".webp")
+    if filename != payload.filename.removesuffix(".webp"):
+        raise HTTPException(status_code=422, detail="invalid asset filename")
+    job_dir = _job_dir_or_404(job_id)
+    relative = Path("figure") / f"{filename}.webp"
+    source = job_dir / "draft" / "game" / relative
+    if not source.exists(): source = job_dir / "public" / "game" / relative
+    if not source.exists(): raise HTTPException(status_code=404, detail="figure asset not found")
+    try:
+        from PIL import Image
+        from rembg import remove
+        output = remove(Image.open(source).convert("RGBA"))
+        target = job_dir / "draft" / "game" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        output.save(target, "WEBP", lossless=True)
+        avatar_path = _write_figure_avatar(output, target.parent, target.name)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="background removal is temporarily unavailable") from exc
+    upload_record = next((item for item in _uploaded_assets(job_dir) if item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename), None)
+    upload_record = dict(upload_record) if upload_record else {"type": "image", "subdir": "figure", "filename": f"{filename}.webp", "display_name": filename, "replaces_filename": filename}
+    for key in ("oss_key", "oss_url", "avatar_oss_key", "avatar_oss_url"):
+        upload_record.pop(key, None)
+    upload_record["status"] = "staged"
+    items = [item for item in _uploaded_assets(job_dir) if not (item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename)]
+    items.append(upload_record)
+    write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
+    store.mark_draft_changed(job, "assets")
+    return {"job": _get_owned_job_or_404(job_id, request), "filename": filename}
+
+
+@app.post("/jobs/{job_id}/assets/avatar-crop")
+def crop_asset_avatar(job_id: str, payload: AvatarCropRequest, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    _require_job_editable(job, payload.base_revision)
+    filename = Path(payload.filename).name.removesuffix(".webp")
+    if filename != payload.filename.removesuffix(".webp"):
+        raise HTTPException(status_code=422, detail="invalid asset filename")
+    job_dir = _job_dir_or_404(job_id)
+    relative = Path("figure") / f"{filename}.webp"
+    source = job_dir / "draft" / "game" / relative
+    if not source.exists(): source = job_dir / "public" / "game" / relative
+    if not source.exists(): raise HTTPException(status_code=404, detail="figure asset not found")
+    try:
+        from PIL import Image
+        image = Image.open(source).convert("RGBA")
+        base_scale = max(400 / image.width, 400 / image.height)
+        scale = base_scale * payload.zoom
+        resized = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.Resampling.LANCZOS)
+        avatar = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+        x = round((400 - resized.width) / 2 + payload.offset_x * 400)
+        y = round((400 - resized.height) / 2 + payload.offset_y * 400)
+        avatar.alpha_composite(resized, (x, y))
+        avatar_name = f"miniavatar_{filename.removeprefix('figure_')}.webp" if filename.startswith("figure_") else f"miniavatar_{filename}.webp"
+        target = job_dir / "draft" / "game" / "figure" / avatar_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        avatar.save(target, "WEBP", lossless=True)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="avatar crop failed") from exc
+    record = next((dict(item) for item in _uploaded_assets(job_dir) if item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename), None)
+    record = record or {"type": "image", "subdir": "figure", "filename": f"{filename}.webp", "display_name": filename, "replaces_filename": filename}
+    for key in ("oss_key", "oss_url", "avatar_oss_key", "avatar_oss_url"):
+        record.pop(key, None)
+    record["status"] = "staged"
+    items = [item for item in _uploaded_assets(job_dir) if not (item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename)]
+    items.append(record)
+    write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
+    store.mark_draft_changed(job, "assets")
+    return {"job": _get_owned_job_or_404(job_id, request), "filename": filename}
 
 
 @app.put("/jobs/{job_id}/scene-music")
@@ -657,6 +844,7 @@ def update_scene_music(job_id: str, request: SceneMusicOverrideRequest, http_req
     _require_job_editable(job, request.base_revision)
     job_dir = _job_dir_or_404(job_id)
     scene_music, music_assets = _scene_music_review(job_dir)
+    music_assets = _job_music_assets(job_dir)
     valid_scenes = {str(item["scene_file"]) for item in scene_music}
     scene_file = request.scene_file.replace("\\", "/").split("/")[-1]
     if scene_file not in valid_scenes:
@@ -695,6 +883,7 @@ def update_scene_presentation_draft(
     _require_job_editable(job, request.base_revision)
     job_dir = _job_dir_or_404(job_id)
     scene_music, music_assets = _scene_music_review(job_dir)
+    music_assets = _job_music_assets(job_dir)
     valid_scenes = {str(item["scene_file"]) for item in scene_music}
     normalized_music = {Path(scene.replace("\\", "/")).name: (asset or "").strip() for scene, asset in request.music.items()}
     normalized_effects = {Path(scene.replace("\\", "/")).name: raw for scene, raw in request.effects.items()}
@@ -743,14 +932,13 @@ def preview_music_library_asset(job_id: str, asset_name: str, request: Request) 
     clean_name = Path(asset_name).name
     if clean_name != asset_name or clean_name.startswith("."):
         raise HTTPException(status_code=404, detail="music asset not found")
-    available_assets = {asset for group in pipeline._load_bgm_assets().values() for asset in group}
+    job_dir = _job_dir_or_404(job_id)
+    available_assets = set(_job_music_assets(job_dir))
     if clean_name not in available_assets:
         raise HTTPException(status_code=404, detail="music asset not found")
-    return _file_response_under_root(
-        root=settings.sound_effects_dir,
-        file_path=clean_name,
-        missing_detail="music asset not found",
-    )
+    for path in (job_dir / "draft" / "game" / "bgm" / clean_name, job_dir / "public" / "game" / "bgm" / clean_name):
+        if path.exists(): return FileResponse(path)
+    return _file_response_under_root(root=settings.sound_effects_dir, file_path=clean_name, missing_detail="music asset not found")
 
 
 @app.get("/effect-library/{asset_name}")
