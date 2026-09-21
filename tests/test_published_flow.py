@@ -14,6 +14,7 @@ def test_published_routes_not_draft(tmp_path):
     graph = published_flow(tmp_path, 3)
     assert graph["revision"] == 3
     assert graph["nodes"][0]["label"] == "发布起点"
+    assert graph["nodes"][0]["internalContinuationCount"] == 1
     assert {edge["target"] for edge in graph["edges"]} == {"phase1.txt", "ending_true.txt"}
     assert graph["warnings"] == []
 
@@ -34,3 +35,19 @@ def test_missing_target_visible(tmp_path):
     graph = published_flow(tmp_path)
     assert graph["nodes"][-1]["kind"] == "missing"
     assert graph["warnings"]
+
+
+def test_same_scene_forward_route_and_loop_are_described(tmp_path):
+    root = tmp_path / "public/game/scene"
+    root.mkdir(parents=True)
+    (root / "start.txt").write_text(
+        "label:again;\n旁白;\nchoose:重来:again|继续:done;\nlabel:done;\nchangeScene:end.txt;",
+        encoding="utf-8",
+    )
+    (root / "end.txt").write_text("end;", encoding="utf-8")
+    graph = published_flow(tmp_path)
+    start = next(node for node in graph["nodes"] if node["id"] == "start.txt")
+    assert start["internalLoopCount"] == 1
+    assert start["internalLoopLabels"] == ["重来"]
+    assert start["internalContinuationCount"] == 1
+    assert graph["edges"] == [{"id": "release-0", "source": "start.txt", "target": "end.txt", "label": ""}]

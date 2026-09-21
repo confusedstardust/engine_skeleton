@@ -266,7 +266,7 @@ type NarrativeNodeKind = "phase" | "ending" | "character";
 type GeneratedNarrativeNodeResponse = {
   kind: NarrativeNodeKind;
   node: StoryStep | NarrativeEnding | NarrativeCharacter;
-  provider: "deepseek" | "mimo";
+  provider: "deepseek" | "mimo" | "kimi";
 };
 
 type SyncNarrativeStructureResponse = {
@@ -370,7 +370,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
         };
         const context = [
           error.operation ? `环节：${error.operation}` : "",
-          error.provider ? `模型：${error.provider === "mimo" ? "MiMo" : error.provider}` : "",
+          error.provider ? `模型：${error.provider === "mimo" ? "MiMo" : error.provider === "kimi" ? "Kimi" : error.provider}` : "",
           error.diagnostic_id ? `诊断编号：${error.diagnostic_id}` : ""
         ].filter(Boolean);
         throw new Error(
@@ -1127,7 +1127,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       if (kind === "phase") setPhaseBrief("");
       if (kind === "ending") setEndingBrief("");
       if (kind === "character") setCharacterBrief("");
-      setMessage(`已使用 ${result.provider === "mimo" ? "MiMo" : "DeepSeek"} 新增${nodeLabel}并同步流程图。`);
+      setMessage(`已使用 ${result.provider === "mimo" ? "MiMo" : result.provider === "kimi" ? "Kimi" : "DeepSeek"} 新增${nodeLabel}并同步流程图。`);
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "新增节点失败。");
@@ -1568,16 +1568,47 @@ function CompletionPanel(props: {
   const [flowOpen, setFlowOpen] = useState(false);
   const [graph, setGraph] = useState<StoryGraph | null>(null);
   const [flowError, setFlowError] = useState("");
+  const [flowNotice, setFlowNotice] = useState("");
+  const [flowFullscreen, setFlowFullscreen] = useState(false);
+  const flowModalRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!flowOpen) return;
     let active = true;
     setGraph(null);
     setFlowError("");
+    setFlowNotice("");
     api<StoryGraph>(`/jobs/${props.job.id}/published-flow`).then(value => { if (active) setGraph(value); }).catch(error => { if (active) setFlowError(error instanceof Error ? error.message : "流程图加载失败"); });
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setFlowOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.fullscreenElement) setFlowOpen(false); };
+    const fullscreenChange = () => setFlowFullscreen(document.fullscreenElement === flowModalRef.current);
     window.addEventListener("keydown", escape);
-    return () => { active = false; window.removeEventListener("keydown", escape); };
+    document.addEventListener("fullscreenchange", fullscreenChange);
+    return () => {
+      active = false;
+      window.removeEventListener("keydown", escape);
+      document.removeEventListener("fullscreenchange", fullscreenChange);
+    };
   }, [flowOpen, props.job.id, props.job.published_revision]);
+  const closeFlow = () => {
+    if (document.fullscreenElement === flowModalRef.current) {
+      void document.exitFullscreen().catch(() => undefined).finally(() => setFlowOpen(false));
+      return;
+    }
+    setFlowOpen(false);
+  };
+  const toggleFlowFullscreen = () => {
+    const modal = flowModalRef.current;
+    if (!modal) return;
+    setFlowNotice("");
+    if (document.fullscreenElement === modal) {
+      void document.exitFullscreen().catch(() => setFlowNotice("退出全屏失败，请按 Esc 重试。"));
+      return;
+    }
+    if (!modal.requestFullscreen) {
+      setFlowNotice("当前浏览器不支持全屏查看。可以使用浏览器自身的全屏功能。");
+      return;
+    }
+    void modal.requestFullscreen().catch(() => setFlowNotice("浏览器未允许进入全屏，请检查权限后重试。"));
+  };
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
   const stale = state === "STALE" || failed;
@@ -1609,10 +1640,16 @@ function CompletionPanel(props: {
         <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>继续编辑草稿</button>
       </div>
       {flowOpen && <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="最新流程图">
-        <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={() => setFlowOpen(false)} />
-        <section className="flow-modal">
-          <div className="flow-modal-head"><div><span>已发布版本 · R{graph?.revision ?? props.job.published_revision ?? 0}</span><h3>最新剧情流程图</h3></div><button className="btn outline" autoFocus onClick={() => setFlowOpen(false)}>关闭</button></div>
-          <div className="flow-modal-body">{flowError ? <p className="error">{flowError}</p> : graph ? <StoryFlowView graph={graph} /> : <p>正在加载流程图…</p>}</div>
+        <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={closeFlow} />
+        <section className="flow-modal" ref={flowModalRef}>
+          <div className="flow-modal-head">
+            <div><span>已发布版本 · R{graph?.revision ?? props.job.published_revision ?? 0}</span><h3>最新剧情流程图</h3></div>
+            <div className="flow-modal-actions">
+              <button className="btn outline" type="button" autoFocus onClick={closeFlow}>关闭</button>
+            </div>
+          </div>
+          {flowNotice && <p className="flow-fullscreen-notice" role="alert">{flowNotice}</p>}
+          <div className="flow-modal-body">{flowError ? <p className="error">{flowError}</p> : graph ? <StoryFlowView graph={graph} viewportVersion={flowFullscreen ? 1 : 0} fullscreen={flowFullscreen} onToggleFullscreen={toggleFlowFullscreen} /> : <p>正在加载流程图…</p>}</div>
         </section>
       </div>}
     </section>

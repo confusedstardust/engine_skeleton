@@ -338,6 +338,10 @@ class BackendContractTests(unittest.TestCase):
         mimo_options["text_model"] = "mimo"
         self.assertEqual(normalize_generation_options(mimo_options)["text_model"], "mimo")
 
+        kimi_options = dict(VALID_OPTIONS)
+        kimi_options["text_model"] = "kimi"
+        self.assertEqual(normalize_generation_options(kimi_options)["text_model"], "kimi")
+
         invalid_options = dict(VALID_OPTIONS)
         invalid_options["text_model"] = "unknown"
         with self.assertRaises(ValueError):

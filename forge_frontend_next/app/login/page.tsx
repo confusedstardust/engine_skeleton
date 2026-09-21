@@ -68,11 +68,17 @@ export default function LoginPage() {
   return (
     <>
       <header className="top-nav">
-        <Link className="brand brand-link" href="/">
-          <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
-          <div className="brand-copy"><span className="brand-name">临场 · 邀请码</span><span className="brand-subtitle">INVITE ACCESS</span></div>
-        </Link>
-        <nav className="nav-links" aria-label="邀请码导航"><Link href="/">新建任务</Link><Link href="/history">生成记录</Link></nav>
+        <div className="workspace-nav-leading">
+          <Link className="brand brand-link" href="/?workspace=1">
+            <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
+            <div className="brand-copy"><span className="brand-name">临场 · 邀请码</span><span className="brand-subtitle">INVITE ACCESS</span></div>
+          </Link>
+          <Link className="workspace-back" href="/?workspace=1" aria-label="返回工作台">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            <span>返回工作台</span>
+          </Link>
+        </div>
+        <nav className="nav-links" aria-label="邀请码导航"><Link href="/?workspace=1">新建任务</Link><Link href="/history">生成记录</Link></nav>
       </header>
       <main className="main-wrapper auth-wrapper">
         <section className="auth-panel" aria-labelledby="login-title">

@@ -18,12 +18,13 @@ type Job = {
 };
 
 type GenerationMode = "auto" | "advanced";
-type TextModel = "deepseek" | "mimo";
+type TextModel = "deepseek" | "mimo" | "kimi";
 type ImageModel = "default" | "qwen-image-2.0-pro" | "qwen-image-2.0" | "qwen-image-max";
 
-const textModels: Array<{ id: TextModel; name: string; model: string; note: string }> = [
+const textModels: Array<{ id: TextModel; name: string; model: string; note: string; disabled?: boolean }> = [
   { id: "deepseek", name: "DeepSeek", model: "deepseek-v4-pro", note: "默认 · 深度推理" },
-  { id: "mimo", name: "MiMo", model: "V2.5 Pro UltraSpeed", note: "小米 · 极速生成" }
+  { id: "mimo", name: "MiMo", model: "V2.5 Pro UltraSpeed", note: "小米 · 暂不可用", disabled: true },
+  { id: "kimi", name: "Kimi", model: "kimi-k2.7-code-highspeed", note: "月之暗面 · 高速推理" }
 ];
 
 const imageModels: Array<{ id: ImageModel; name: string; model: string; note: string }> = [
@@ -419,10 +420,12 @@ function ClassroomGeneratorPage() {
                     {textModels.map((item) => (
                       <button
                         className={item.id === textModel ? "selected" : ""}
+                        disabled={item.disabled}
                         key={item.id}
                         type="button"
                         role="menuitemradio"
                         aria-checked={item.id === textModel}
+                        aria-label={`${item.name}${item.disabled ? "，暂不可用" : ""}`}
                         onClick={(event) => {
                           setTextModel(item.id);
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -432,7 +435,7 @@ function ClassroomGeneratorPage() {
                           <strong>{item.name}</strong>
                           <small>{item.note}</small>
                         </span>
-                        <span className="model-option-id">{item.model}</span>
+                        <span className="model-option-id">{item.disabled ? "暂不可用" : item.model}</span>
                         <span className="model-check" aria-hidden="true">{item.id === textModel ? "✓" : ""}</span>
                       </button>
                     ))}

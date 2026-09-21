@@ -1804,7 +1804,7 @@ Previous generated content:
         prompt: str,
     ) -> tuple[dict[str, Any], str]:
         thinking = self._thinking_for_function(function_name)
-        if self._use_json_text_for_function(function_name):
+        if self._use_json_text_for_function(llm, function_name):
             text_prompt = f"""{prompt}
 
 Return valid JSON only, without Markdown fences or explanation.
@@ -1823,7 +1823,12 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             return "disabled"
         return settings.llm_thinking
 
-    def _use_json_text_for_function(self, function_name: str) -> bool:
+    def _use_json_text_for_function(self, llm: OpenAIFunctionClient, function_name: str) -> bool:
+        # Kimi K2.7 Code does not support required/named tool choice. MiMo also
+        # produces more reliable structured artifacts as JSON text. Both paths
+        # are parsed and validated locally by the same artifact validators.
+        if getattr(llm, "provider", "deepseek") in {"kimi", "mimo"}:
+            return True
         if function_name in {"emit_narrative_plan", "emit_asset_manifest"}:
             return True
         return settings.llm_thinking == "enabled"
