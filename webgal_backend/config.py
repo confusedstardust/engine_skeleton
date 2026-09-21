@@ -96,6 +96,11 @@ class Settings:
     image_api_key_env: str
     qwen_image_base_url: str
     qwen_image_api_key_env: str
+    oss_bucket: str | None
+    oss_endpoint: str
+    oss_access_key_id: str | None
+    oss_access_key_secret: str | None
+    oss_prefix: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -155,6 +160,11 @@ class Settings:
                 or "https://dashscope.aliyuncs.com/api/v1"
             ).rstrip("/"),
             qwen_image_api_key_env=(os.getenv("QWEN_IMAGE_API_KEY_ENV") or "DASHSCOPE_API_KEY"),
+            oss_bucket=os.getenv("WEBGAL_OSS_BUCKET") or "ecs-oss-ist",
+            oss_endpoint=(os.getenv("WEBGAL_OSS_ENDPOINT") or "https://oss-cn-hangzhou.aliyuncs.com").rstrip("/"),
+            oss_access_key_id=os.getenv("OSS_ACCESS_KEY_ID"),
+            oss_access_key_secret=os.getenv("OSS_ACCESS_KEY_SECRET"),
+            oss_prefix=(os.getenv("WEBGAL_OSS_PREFIX") or "game_assets/public_assets").strip("/"),
         )
 
 

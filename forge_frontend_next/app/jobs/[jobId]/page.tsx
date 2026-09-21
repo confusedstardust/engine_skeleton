@@ -11,7 +11,7 @@ import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 import { SceneScrollButton } from "../../../components/scene-scroll-button";
 import { repairContinuationLabels, validateSceneConnections } from "../../../components/scene-connections";
 import { withBasePath } from "../../base-path";
-import { jsonAuthHeaders } from "../../invite-identity";
+import { inviteHeaders, jsonAuthHeaders } from "../../invite-identity";
 
 type Job = {
   id: string;
@@ -156,6 +156,7 @@ type AssetReviewItem = {
   scene_display_name?: string;
   exists: boolean;
   url: string;
+  crop_source_url?: string;
   avatar_exists: boolean;
   avatar_url: string | null;
 };
@@ -1234,6 +1235,42 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     return response.blob();
   }
 
+  async function uploadAsset(file: File, assetType: "image" | "bgm", imageRole: "figure" | "background" = "background", removeBackground = false, replaceFilename?: string): Promise<boolean> {
+    setBusy(true);
+    setMessage(removeBackground ? "正在上传并抠出立绘主体..." : `正在上传${assetType === "bgm" ? " BGM" : "图片"}...`);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("asset_type", assetType);
+      body.append("image_role", imageRole);
+      body.append("remove_background", String(removeBackground));
+      if (replaceFilename) body.append("replace_filename", replaceFilename);
+      body.append("base_revision", String(data?.job.draft_revision ?? 0));
+      const response = await fetch(withBasePath(`/api/forge/jobs/${jobId}/assets/upload`), { method: "POST", body, credentials: "include", headers: inviteHeaders() });
+      if (!response.ok) { const payload = await response.json().catch(() => null); throw new Error(payload?.detail || "上传失败。"); }
+      setMessage(removeBackground ? "立绘已抠图并加入草稿素材。" : "素材已加入草稿，应用修改后会进入游戏。");
+      await refresh(true);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "上传素材失败。");
+      return false;
+    } finally { setBusy(false); }
+  }
+
+  async function removeAssetBackground(asset: AssetReviewItem): Promise<boolean> {
+    setBusy(true);
+    setMessage(`正在为 ${assetDisplayName(asset)} 抠图...`);
+    try {
+      await api(`/jobs/${jobId}/assets/remove-background`, { method: "POST", body: JSON.stringify({ filename: asset.filename, base_revision: data?.job.draft_revision ?? 0 }) });
+      setMessage("立绘背景已移除。");
+      await refresh(true);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "一键抠图失败。");
+      return false;
+    } finally { setBusy(false); }
+  }
+
   async function previewCharacterVoice(speaker: string, voice: string) {
     setVoiceGeneratingSpeaker(speaker);
     setBusy(true);
@@ -1254,9 +1291,9 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   }
 
   async function buildGameFromAssets(staged?: StagedScenePresentation) {
-    if (!checkAllSceneConnections()) return;
+    if (!checkAllSceneConnections()) return false;
     setBusy(true);
-    setMessage(staged ? "正在保存场景音乐与特效，并应用到游戏..." : hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
+    setMessage(staged ? "正在统一保存素材调整并应用到游戏..." : hasPublishedBuild ? "正在应用草稿中的局部修改..." : "正在改写 WebGAL 脚本并生成游戏...");
     try {
       let revision = data?.job.draft_revision ?? 0;
       if (scenesDirty) {
@@ -1268,11 +1305,21 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         setScenesDirty(false);
         setData(previous => previous ? { ...previous, job: saved.job } : previous);
       }
+      if (staged) {
+        for (const [filename, crop] of Object.entries(staged.avatarCrops)) {
+          const saved = await api<{ job: Job }>(`/jobs/${jobId}/assets/avatar-crop`, {
+            method: "POST",
+            body: JSON.stringify({ filename, zoom: crop.zoom, offset_x: crop.offsetX, offset_y: crop.offsetY, base_revision: revision })
+          });
+          revision = saved.job.draft_revision ?? revision;
+        }
+      }
       if (staged && (Object.keys(staged.music).length || Object.keys(staged.effects).length)) {
-        await api(`/jobs/${jobId}/scene-presentation-draft`, {
+        const saved = await api<{ job: Job }>(`/jobs/${jobId}/scene-presentation-draft`, {
           method: "PUT",
-          body: JSON.stringify({ ...staged, base_revision: revision })
+          body: JSON.stringify({ music: staged.music, effects: staged.effects, base_revision: revision })
         });
+        revision = saved.job.draft_revision ?? revision;
       }
       await api<Job>(hasPublishedBuild ? `/jobs/${jobId}/apply-draft` : `/jobs/${jobId}/phases/game_build`, {
         method: "POST",
@@ -1284,8 +1331,10 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
       }
       setMessage(hasPublishedBuild ? "修改同步已启动；未修改的场景和素材会保持原样。" : "游戏生成已启动，完成后可以点击右上角打开游戏。");
       await refresh(true);
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "生成游戏失败。");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1377,17 +1426,25 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   return (
     <>
       <header className="top-nav">
-        <Link className="brand brand-link" href="/" onClick={(event) => {
-          if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
-        }}>
-          <div className="brand-seal" aria-hidden="true">
-            <img src={withBasePath("/icon.png")} alt="" />
-          </div>
-          <div className="brand-copy">
-            <span className="brand-name">临场 · 生成工作台</span>
-            <span className="brand-subtitle">JOB {compactId(data.job.id)}</span>
-          </div>
-        </Link>
+        <div className="workspace-nav-leading">
+          <Link className="brand brand-link" href="/" onClick={(event) => {
+            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          }}>
+            <div className="brand-seal" aria-hidden="true">
+              <img src={withBasePath("/icon.png")} alt="" />
+            </div>
+            <div className="brand-copy">
+              <span className="brand-name">临场 · 生成工作台</span>
+              <span className="brand-subtitle">JOB {compactId(data.job.id)}</span>
+            </div>
+          </Link>
+          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={(event) => {
+            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          }}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            <span>返回上一级</span>
+          </Link>
+        </div>
         <nav className="nav-links" aria-label="任务导航">
           <Link href="/" onClick={(event) => {
             if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
@@ -1510,6 +1567,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             sceneMusicEnabled={!autoMode}
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
+            uploadAsset={uploadAsset}
+            removeAssetBackground={removeAssetBackground}
             gameReady={hasPublishedBuild}
             buildState={data.job.build_state || "CURRENT"}
             hasDraftChanges={(data.job.draft_revision ?? 0) > (data.job.published_revision ?? 0) || data.job.build_state === "STALE"}
@@ -1667,12 +1726,14 @@ function AssetReviewPanel(props: {
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
   voiceGeneratingSpeaker: string | null;
-  buildGame: (staged?: StagedScenePresentation) => Promise<void>;
+  buildGame: (staged?: StagedScenePresentation) => Promise<boolean>;
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
   sceneMusicEnabled: boolean;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
+  uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
+  removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
   gameReady: boolean;
   buildState: string;
   hasDraftChanges: boolean;
@@ -1753,6 +1814,8 @@ function AssetReviewPanel(props: {
       sceneMusicEnabled={props.sceneMusicEnabled}
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}
+      uploadAsset={props.uploadAsset}
+      removeAssetBackground={props.removeAssetBackground}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
       retryLabel={props.retryLabel}
