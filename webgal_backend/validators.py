@@ -62,3 +62,34 @@ def semantic_asset_manifest(manifest: dict[str, Any], plan: dict[str, Any], expe
 
     if errors:
         raise ValidationFailure(errors)
+
+
+def semantic_quiz_plan(plan: dict[str, Any]) -> None:
+    errors: list[str] = []
+    question_ids: set[str] = set()
+    question_types: set[str] = set()
+    for index, question in enumerate(plan.get("questions", [])):
+        prefix = f"questions.{index}"
+        question_id = str(question.get("id", ""))
+        if question_id in question_ids:
+            errors.append(f"{prefix}.id must be unique")
+        question_ids.add(question_id)
+        question_type = str(question.get("type", ""))
+        question_types.add(question_type)
+        options = question.get("options", [])
+        option_ids = [str(option.get("id", "")) for option in options if isinstance(option, dict)]
+        if len(option_ids) != len(set(option_ids)):
+            errors.append(f"{prefix}.options ids must be unique")
+        correct = question.get("correct_option_ids", [])
+        if len(correct) != 1 or str(correct[0]) not in option_ids:
+            errors.append(f"{prefix}.correct_option_ids must contain exactly one existing option id")
+        if question_type == "single_choice" and len(options) != 4:
+            errors.append(f"{prefix}.options must contain four options for single_choice")
+        if question_type == "judgement":
+            option_texts = {str(option.get("text", "")).strip() for option in options if isinstance(option, dict)}
+            if len(options) != 2 or option_texts != {"正确", "错误"}:
+                errors.append(f"{prefix}.options must be 正确 and 错误 for judgement")
+    if not {"single_choice", "judgement"}.issubset(question_types):
+        errors.append("questions must include both single_choice and judgement")
+    if errors:
+        raise ValidationFailure(errors)

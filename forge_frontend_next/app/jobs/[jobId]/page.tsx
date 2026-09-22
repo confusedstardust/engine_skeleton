@@ -29,6 +29,14 @@ type Job = {
   };
 };
 
+type PublicationResponse = {
+  published: boolean;
+  work?: {
+    title: string;
+    playUrl: string;
+  };
+};
+
 type WorkflowStage = "outline" | "scenes" | "assets" | "complete";
 
 type FailedPhaseRetry = {
@@ -1629,7 +1637,23 @@ function CompletionPanel(props: {
   const [flowError, setFlowError] = useState("");
   const [flowNotice, setFlowNotice] = useState("");
   const [flowFullscreen, setFlowFullscreen] = useState(false);
+  const [publication, setPublication] = useState<PublicationResponse | null>(null);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const [publicationMessage, setPublicationMessage] = useState("");
   const flowModalRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    let active = true;
+    api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`)
+      .then((value) => {
+        if (active) setPublication(value);
+      })
+      .catch(() => {
+        if (active) setPublication(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.job.id]);
   useEffect(() => {
     if (!flowOpen) return;
     let active = true;
@@ -1668,6 +1692,36 @@ function CompletionPanel(props: {
     }
     void modal.requestFullscreen().catch(() => setFlowNotice("浏览器未允许进入全屏，请检查权限后重试。"));
   };
+  const publishToEcosystem = async () => {
+    setPublicationBusy(true);
+    setPublicationMessage("正在发布到教师创作生态…");
+    try {
+      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setPublication(value);
+      setPublicationMessage("发布成功，作品已经出现在教师创作生态中。");
+    } catch (error) {
+      setPublicationMessage(error instanceof Error ? error.message : "发布失败，请稍后重试。");
+    } finally {
+      setPublicationBusy(false);
+    }
+  };
+  const removeFromEcosystem = async () => {
+    if (!window.confirm("确定从教师创作生态中取消发布吗？游戏本身不会被删除。")) return;
+    setPublicationBusy(true);
+    setPublicationMessage("正在取消发布…");
+    try {
+      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, { method: "DELETE" });
+      setPublication(value);
+      setPublicationMessage("已从教师创作生态中取消发布。");
+    } catch (error) {
+      setPublicationMessage(error instanceof Error ? error.message : "取消发布失败，请稍后重试。");
+    } finally {
+      setPublicationBusy(false);
+    }
+  };
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
   const stale = state === "STALE" || failed;
@@ -1695,6 +1749,12 @@ function CompletionPanel(props: {
       </div>
       <div className="completion-actions">
         <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
+        <button className="btn ecosystem-publish" type="button" disabled={building || publicationBusy} onClick={publishToEcosystem}>
+          {publicationBusy ? "正在处理…" : publication?.published ? "更新教师生态作品" : "一键发布到教师生态"}
+        </button>
+        <Link className="btn outline" href={`/practice/${props.job.id}`}>打开讲评练</Link>
+        {publication?.published ? <button className="publication-remove" type="button" disabled={publicationBusy} onClick={removeFromEcosystem}>取消生态发布</button> : null}
+        {publicationMessage ? <span className="publication-message" role="status">{publicationMessage}</span> : null}
         <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>查看最新流程图</button>
         <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>继续编辑草稿</button>
       </div>

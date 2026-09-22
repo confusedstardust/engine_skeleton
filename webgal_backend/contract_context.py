@@ -13,6 +13,9 @@ PHASE_RESOURCES = {
     "emit_asset_manifest": {
         "schema": "asset_manifest.schema.json",
     },
+    "emit_quiz_plan": {
+        "schema": "quiz_plan.schema.json",
+    },
 }
 
 
@@ -63,4 +66,11 @@ Asset phase additions:
 - Every character must have exactly one figure asset.
 - Use bg_ prefix for backgrounds, figure_ prefix for sprites, cg_ prefix for event CGs.
 - Sprite prompts must include: clean plain white background, full body visible, no text, no watermark."""
+    if function_name == "emit_quiz_plan":
+        return """Quiz phase additions:
+- Include both single_choice and judgement question types.
+- Every question has exactly one correct option.
+- single_choice has exactly four options; judgement has exactly two options named 正确 and 错误.
+- Explanations must be grounded in the supplied lesson source, not invented facts.
+- Teaching tips should diagnose misconceptions and suggest one concise follow-up question."""
     return ""

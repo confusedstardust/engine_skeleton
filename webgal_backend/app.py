@@ -35,7 +35,15 @@ from .particle_effects import (
     save_scene_assignment,
 )
 from .scene_plan import build_scene_plan
-from .storage import JobStore, write_json
+from .storage import JobStore, read_json, utc_now, write_json
+from .teacher_ecosystem import (
+    TeacherEcosystemError,
+    build_publication_payload,
+    publication_status,
+    publish_work,
+    unpublish_work,
+)
+from .validators import ValidationFailure, semantic_quiz_plan, validate_schema
 
 
 logger = logging.getLogger(__name__)
@@ -121,6 +129,18 @@ class CreateJobRequest(BaseModel):
 
 class RunJobRequest(BaseModel):
     background: bool = False
+
+
+class PublishTeacherWorkRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=160)
+
+
+class GenerateQuizRequest(BaseModel):
+    regenerate: bool = False
+
+
+class UpdateQuizRequest(BaseModel):
+    quiz_plan: dict[str, Any]
 
 
 class ArtifactUpdateRequest(BaseModel):
@@ -296,6 +316,134 @@ def get_published_flow(job_id: str, request: Request) -> dict[str, Any]:
     if not job.get("has_published_build"):
         raise HTTPException(status_code=409, detail="尚无已发布游戏")
     return published_flow(_job_dir_or_404(job_id), job.get("published_revision", 0))
+
+
+@app.get("/jobs/{job_id}/ecosystem-publication")
+def get_ecosystem_publication(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    try:
+        return publication_status(job_id)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/ecosystem-publication")
+def publish_to_teacher_ecosystem(
+    job_id: str,
+    payload: PublishTeacherWorkRequest,
+    request: Request,
+) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    if not job.get("has_published_build"):
+        raise HTTPException(status_code=409, detail="游戏完成生成后才能发布到教师生态")
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=409, detail="请使用 NarrativeOS 账号登录后再发布到教师生态")
+    publication = build_publication_payload(
+        job=job,
+        job_dir=_job_dir_or_404(job_id),
+        user=user,
+        frontend_url=frontend_url,
+        title_override=payload.title,
+    )
+    try:
+        return publish_work(publication)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.delete("/jobs/{job_id}/ecosystem-publication")
+def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    owner_user_id = str(job.get("identity", {}).get("user_id") or "")
+    if not owner_user_id:
+        raise HTTPException(status_code=409, detail="邀请码任务无法发布到教师生态")
+    try:
+        return unpublish_work(owner_user_id, job_id)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _quiz_response(job_id: str) -> dict[str, Any]:
+    job_dir = _job_dir_or_404(job_id)
+    quiz_path = job_dir / "state" / "quiz_plan.json"
+    status_path = job_dir / "state" / "quiz_generation.json"
+    status: dict[str, Any] = {"status": "NOT_GENERATED", "error": None}
+    if status_path.exists():
+        try:
+            saved_status = read_json(status_path)
+            if isinstance(saved_status, dict):
+                status.update(saved_status)
+        except (OSError, json.JSONDecodeError):
+            pass
+    if quiz_path.exists():
+        try:
+            quiz = read_json(quiz_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=500, detail="讲评练文件损坏") from exc
+        effective_status = "READY" if status.get("status") == "NOT_GENERATED" else status.get("status", "READY")
+        return {**status, "status": effective_status, "quiz": quiz}
+    return {**status, "quiz": None}
+
+
+@app.get("/jobs/{job_id}/quiz")
+def get_quiz(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    return {**_quiz_response(job_id), "can_manage": True}
+
+
+@app.get("/public/jobs/{job_id}/quiz")
+def get_public_quiz(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_job_or_404(job_id)
+    can_manage = False
+    try:
+        can_manage = _job_belongs_to_identity(job, _identity_from_request(request))
+    except HTTPException:
+        pass
+    if not can_manage and not job.get("has_published_build"):
+        raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    return {**_quiz_response(job_id), "can_manage": can_manage}
+
+
+@app.post("/jobs/{job_id}/quiz")
+def generate_quiz(
+    job_id: str,
+    payload: GenerateQuizRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    current = _quiz_response(job_id)
+    if current["status"] in {"QUEUED", "RUNNING"}:
+        return current
+    if current["status"] == "READY" and not payload.regenerate:
+        return current
+    job_dir = _job_dir_or_404(job_id)
+    if not (job_dir / "state" / "narrative_plan.json").exists():
+        raise HTTPException(status_code=409, detail="请先完成故事大纲，再生成讲评练")
+    write_json(
+        job_dir / "state" / "quiz_generation.json",
+        {"status": "QUEUED", "error": None, "updated_at": utc_now()},
+    )
+    background_tasks.add_task(run_quiz_background, job_id)
+    return _quiz_response(job_id)
+
+
+@app.put("/jobs/{job_id}/quiz")
+def update_quiz(job_id: str, payload: UpdateQuizRequest, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    try:
+        validate_schema("quiz_plan.schema.json", payload.quiz_plan)
+        semantic_quiz_plan(payload.quiz_plan)
+    except ValidationFailure as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
+    job_dir = _job_dir_or_404(job_id)
+    write_json(job_dir / "state" / "quiz_plan.json", payload.quiz_plan)
+    write_json(
+        job_dir / "state" / "quiz_generation.json",
+        {"status": "READY", "error": None, "updated_at": utc_now()},
+    )
+    return _quiz_response(job_id)
 
 
 @app.patch("/jobs/{job_id}/artifacts")
@@ -1275,6 +1423,20 @@ def run_phase_background(job_id: str, phase: str) -> None:
         except Exception:
             logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
             return
+
+
+def run_quiz_background(job_id: str) -> None:
+    status_path = store.job_dir(job_id) / "state" / "quiz_generation.json"
+    try:
+        write_json(status_path, {"status": "RUNNING", "error": None, "updated_at": utc_now()})
+        pipeline.generate_quiz(job_id)
+        write_json(status_path, {"status": "READY", "error": None, "updated_at": utc_now()})
+    except Exception as exc:
+        write_json(
+            status_path,
+            {"status": "FAILED", "error": str(exc)[:2000], "updated_at": utc_now()},
+        )
+        logging.getLogger("uvicorn.error").exception("Quiz generation failed for job_id=%s", job_id)
 
 
 def run_asset_regeneration_background(job_id: str, filename: str, prompt: str | None) -> None:

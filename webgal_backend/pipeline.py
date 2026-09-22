@@ -34,6 +34,7 @@ from .prompts import (
     sound_effect_prompt,
 )
 from .raw_correction import correct_generated_raw_file
+from .quiz import quiz_prompt
 from .scene_plan import build_scene_plan, expected_scene_files
 from .scene_connections import check_scene_connections
 from .script_compiler import ScriptCompileError, compile_webgal_script
@@ -52,6 +53,7 @@ from .tts_pipeline import (
 from .validators import (
     ValidationFailure,
     semantic_asset_manifest,
+    semantic_quiz_plan,
     validate_schema,
 )
 
@@ -259,6 +261,26 @@ class WebGALPipeline:
         except Exception as exc:
             self.store.set_error(job, str(exc))
             raise
+
+    def generate_quiz(self, job_id: str) -> dict[str, Any]:
+        job = self.store.get(job_id)
+        job_dir = self.store.job_dir(job_id)
+        narrative_path = job_dir / "state" / "narrative_plan.json"
+        if not narrative_path.exists():
+            raise PipelineError("请先完成故事大纲，再生成讲评练")
+        narrative_plan = read_json(narrative_path)
+        quiz_plan = self._call_with_validation(
+            job=job,
+            job_dir=job_dir,
+            function_name="emit_quiz_plan",
+            artifact_key="quiz_plan",
+            schema_name="quiz_plan.schema.json",
+            user_prompt=quiz_prompt(job, narrative_plan),
+            semantic_validator=semantic_quiz_plan,
+        )
+        write_json(job_dir / "state" / "quiz_plan.json", quiz_plan)
+        self.store.record_artifact(job, "quiz_plan", "state/quiz_plan.json")
+        return quiz_plan
 
     def run_narrative(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "NARRATIVE_PLANNING")
