@@ -1203,7 +1203,7 @@ npm run dev
 
 `feature/*` 分支（同时兼容现有的 `feature-*` 命名）使用 `.github/workflows/docker-publish-deploy-dev.yml` 部署到独立的 Non-Prod 主机；`main` 分支使用生产工作流部署到生产环境。其他分支不会自动部署。GitHub 仓库需要创建名为 `development` 的 Environment，并配置 Secrets：`ACR_USERNAME`、`ACR_PASSWORD`、`DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH`。
 
-在 Non-Prod 服务器的 `DEPLOY_PATH` 中，根据 `deploy/development.env.example` 创建 `.env`，把 `WEBGAL_FRONTEND_URL` 中的占位地址改成实际服务器 IP。默认访问地址为：
+在 Non-Prod 服务器的 `DEPLOY_PATH` 中，根据 `deploy/development.env.example` 创建 `.env`，把 `WEBGAL_FRONTEND_URL` 中的占位地址改成实际服务器 IP。`TEACHER_ECOSYSTEM_SERVICE_TOKEN` 必须使用独立的长随机值，并与官网开发部署目录中的同名变量完全一致。默认访问地址为：
 
 - 工作台：`http://服务器IP:3001/narrativeos/`
 - 官网：`http://服务器IP:3002/`
