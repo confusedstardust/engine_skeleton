@@ -24,13 +24,22 @@ class OpenAIFunctionClient:
             self.api_mode = "chat"
             self.provider = "mimo"
             missing_key = "MIMO_API_KEY"
-        else:
+        elif provider == "kimi":
+            self.api_key = settings.kimi_api_key
+            self.base_url = settings.kimi_base_url
+            self.model = settings.kimi_model
+            self.api_mode = "chat"
+            self.provider = "kimi"
+            missing_key = "MOONSHOT_API_KEY"
+        elif provider == "deepseek":
             self.api_key = settings.llm_api_key
             self.base_url = settings.llm_base_url
             self.model = settings.llm_model
             self.api_mode = settings.llm_api_mode
             self.provider = "deepseek"
             missing_key = "DEEPSEEK_API_KEY"
+        else:
+            raise LLMError(f"unsupported text model provider: {provider}")
         if not self.api_key:
             raise LLMError(f"{missing_key} is not set")
         self.trace_dir = trace_dir

@@ -34,7 +34,7 @@ class GenerationOptions(BaseModel):
     generate_assets: StrictBool
     generate_tts: StrictBool | None = None
     generation_mode: Literal["auto", "advanced"] = "advanced"
-    text_model: Literal["deepseek", "mimo"] = "deepseek"
+    text_model: Literal["deepseek", "mimo", "kimi"] = "deepseek"
     image_model: Literal[
         "default",
         "qwen-image-2.0-pro",
