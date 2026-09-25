@@ -1,0 +1,193 @@
+erDiagram
+    users {
+        varchar id PK
+        varchar email UK
+        varchar nickname
+    }
+    accounts {
+        varchar id PK
+        varchar user_id FK
+        enum provider
+        varchar provider_account_id
+    }
+    auth_sessions {
+        varchar id PK
+        varchar user_id FK
+        varchar token_hash UK
+        datetime expires_at
+    }
+    verification_codes {
+        varchar id PK
+        varchar email
+        varchar code_hash
+        datetime consumed_at
+    }
+    _prisma_migrations {
+        varchar id PK
+        varchar migration_name
+        datetime finished_at
+    }
+    games {
+        char id PK
+        varchar owner_user_id FK
+        char current_version_id FK
+        char cover_file_id FK
+        varchar title
+    }
+    generation_jobs {
+        char id PK
+        char game_id FK
+        varchar owner_user_id FK
+        enum status
+        bigint draft_revision
+    }
+    generation_job_events {
+        bigint id PK
+        char job_id FK
+        varchar status
+        varchar phase
+        text message
+    }
+    game_versions {
+        char id PK
+        char game_id FK
+        char source_job_id FK
+        varchar reviewed_by_user_id FK
+        int version_no
+    }
+    assets {
+        char id PK
+        varchar owner_user_id FK
+        char source_job_id FK
+        enum kind
+    }
+    asset_files {
+        char id PK
+        char asset_id FK
+        int revision
+        varchar variant
+        varchar object_key
+    }
+    asset_usages {
+        char game_version_id PK,FK
+        varchar logical_path PK
+        char asset_file_id FK
+    }
+    draft_asset_usages {
+        char job_id PK,FK
+        varchar logical_path PK
+        char asset_file_id FK
+        varchar user_id FK
+    }
+    game_likes {
+        char game_id PK,FK
+        varchar user_id PK,FK
+    }
+    game_favorites {
+        char game_id PK,FK
+        varchar user_id PK,FK
+    }
+    products {
+        char id PK
+        varchar sku UK
+        bigint price_fen
+        json benefit_json
+    }
+    purchase_orders {
+        char id PK
+        varchar user_id FK
+        char product_id FK
+        char paid_attempt_id FK
+        json product_snapshot
+    }
+    payment_attempts {
+        char id PK
+        char order_id FK
+        varchar out_trade_no
+        varchar transaction_id
+        enum status
+    }
+    payment_notifications {
+        char id PK
+        char payment_attempt_id FK
+        varchar notification_id
+        enum status
+    }
+    refunds {
+        char id PK
+        char order_id FK
+        char payment_attempt_id FK
+        varchar requested_by_user_id FK
+        bigint amount_fen
+    }
+    entitlement_grants {
+        char id PK
+        char order_id FK
+        varchar user_id FK
+        char target_game_id FK
+        bigint units_available
+    }
+    credit_reservations {
+        char id PK
+        varchar user_id FK
+        char job_id FK
+        varchar operation_key
+        bigint units
+    }
+    credit_allocations {
+        char reservation_id PK,FK
+        char grant_id PK,FK
+        varchar user_id FK
+        bigint units
+    }
+    credit_ledger {
+        bigint id PK
+        char grant_id FK
+        char reservation_id FK
+        varchar user_id FK
+        enum action
+    }
+    outbox_events {
+        char id PK
+        varchar event_key UK
+        varchar event_type
+        varchar aggregate_id
+        enum status
+    }
+
+    users ||--o{ accounts : "绑定登录方式"
+    users ||--o{ auth_sessions : "登录会话"
+    users ||--o{ games : "拥有作品"
+    games ||--o{ generation_jobs : "作品及作者一致"
+    generation_jobs ||--o{ generation_job_events : "状态与错误历史"
+    games ||--o{ game_versions : "历史版本"
+    generation_jobs ||--o{ game_versions : "版本来源且作品一致"
+    users |o--o{ game_versions : "可选审核人"
+    game_versions |o--o| games : "当前发布指针"
+    users ||--o{ assets : "拥有素材"
+    generation_jobs |o--o{ assets : "可选来源且作者一致"
+    assets ||--o{ asset_files : "文件修订及变体"
+    game_versions ||--o{ asset_usages : "版本路径映射"
+    asset_files ||--o{ asset_usages : "引用确切文件"
+    generation_jobs ||--o{ draft_asset_usages : "草稿任务"
+    asset_files ||--o{ draft_asset_usages : "草稿引用确切文件"
+    asset_files |o--o{ games : "可选封面"
+    users ||--o{ game_likes : "点赞人"
+    games ||--o{ game_likes : "被点赞作品"
+    users ||--o{ game_favorites : "收藏人"
+    games ||--o{ game_favorites : "被收藏作品"
+    users ||--o{ purchase_orders : "购买人"
+    products ||--o{ purchase_orders : "购买商品并留快照"
+    purchase_orders ||--o{ payment_attempts : "渠道下单尝试"
+    payment_attempts |o--o| purchase_orders : "接受的收款指针"
+    payment_attempts |o--o{ payment_notifications : "可选匹配付款"
+    payment_attempts ||--o{ refunds : "退款且原订单一致"
+    users |o--o{ refunds : "可选申请人"
+    purchase_orders ||--o{ entitlement_grants : "发放且购买人一致"
+    games |o--o{ entitlement_grants : "预留游戏权益目标"
+    users ||--o{ credit_reservations : "额度使用人"
+    generation_jobs ||--o{ credit_reservations : "收费操作且作者一致"
+    credit_reservations ||--o{ credit_allocations : "分摊且用户一致"
+    entitlement_grants ||--o{ credit_allocations : "供给且用户一致"
+    entitlement_grants ||--o{ credit_ledger : "批次流水且用户一致"
+    credit_reservations |o--o{ credit_ledger : "可选关联消费操作"

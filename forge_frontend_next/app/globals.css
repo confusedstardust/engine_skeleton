@@ -5743,5 +5743,29 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
 @keyframes orbital-drift { 0%,100% { transform: translate3d(0,0,0) rotate(0); } 50% { transform: translate3d(22px,-16px,0) rotate(7deg); } } @keyframes constellation-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } } @keyframes star-pulse { 0%,100% { opacity: .45; transform: scale(.75); } 50% { opacity: 1; transform: scale(1.35); } } @keyframes card-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .router-orb, .router-constellation, .router-constellation i, .solution-card, .scene-dialog .scene-card { animation: none; }.scene-cover, .router-start::after { transition: none; } }
 
+/* Account-scoped OSS asset library. */
+.asset-library-wrapper { padding-bottom: 72px; }
+.asset-library-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.asset-library-head > span { color: #88776a; font-size: 13px; }
+.asset-library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 22px 0 28px; padding: 12px; border: 1px solid #e5ddd3; border-radius: 14px; background: #fffefa; }
+.asset-library-toolbar > div { display: flex; gap: 7px; flex-wrap: wrap; }
+.asset-library-toolbar button { padding: 8px 13px; color: #76675e; border: 0; border-radius: 999px; background: transparent; }
+.asset-library-toolbar button.active { color: #fff; background: #8d2939; }
+.asset-library-toolbar select { min-width: 130px; padding: 8px 34px 8px 12px; color: #53483f; border: 1px solid #ddd2c5; border-radius: 9px; background: #fff; }
+.asset-library-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.asset-library-card { overflow: hidden; border: 1px solid #e5ddd3; border-radius: 14px; background: #fffefa; box-shadow: 0 7px 22px rgba(65,50,36,.06); }
+.asset-library-preview { display: grid; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; color: #9a8778; background: linear-gradient(145deg,#eee9e1,#f8f5f0); font: 700 13px Georgia,serif; letter-spacing: .12em; }
+.asset-library-preview img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s ease; }
+.asset-library-card:hover .asset-library-preview img { transform: scale(1.035); }
+.asset-library-copy { padding: 15px 16px 17px; }
+.asset-library-copy > div { display: flex; gap: 7px; align-items: center; color: #9a8c80; font-size: 11px; }
+.asset-source { padding: 3px 7px; border-radius: 999px; color: #715644; background: #efe6da; }.asset-source.generated { color: #6e3250; background: #f2dfe8; }.asset-source.uploaded { color: #216a62; background: #dceee9; }
+.asset-library-copy h2 { margin: 11px 0 7px; overflow: hidden; color: #322d28; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.asset-library-copy p { margin: 0; color: #9a8c80; font-size: 12px; }
+.asset-library-more { display: flex; justify-content: center; margin-top: 30px; }
+@media(max-width: 1000px) { .asset-library-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media(max-width: 760px) { .asset-library-head, .asset-library-toolbar { align-items: stretch; flex-direction: column; }.asset-library-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }.asset-library-toolbar select { width: 100%; } }
+@media(max-width: 460px) { .asset-library-grid { grid-template-columns: 1fr; } }
+
 /* Solution cards use the same narrative imagery as the scene picker. */
 .solution-card { isolation: isolate; color: #ffefca; background: #172035; box-shadow: none; }.solution-cover { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; transition: transform .65s cubic-bezier(.2,.7,.2,1), filter .4s ease; }.solution-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(8,12,22,.84) 0%, rgba(8,12,22,.58) 49%, rgba(8,12,22,.08) 100%); }.solution-card h3 { color: #fffaf1; }.solution-card p { color: rgba(255,250,241,.82); }.solution-card button { color: #fff5df; }.solution-card:hover .solution-cover { filter: saturate(1.08) contrast(1.04); transform: scale(1.07); }.solution-card.one, .solution-card.plus, .solution-card.go { color: #ffd797; }.solution-card.plus { color: #bcd3ff; }.solution-card.go { color: #b5e4d8; }

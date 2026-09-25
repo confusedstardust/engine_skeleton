@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .config import settings
+from .asset_library import publish_public_oss_references, sync_generated_job_assets
 from . import game_design
 from .job_options import validate_generation_options
 from .contract_context import build_phase_context
@@ -862,6 +863,10 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                         errors.append(f"{label}: {exc}")
                 if errors:
                     raise PipelineError("asset generation failed:\n" + "\n".join(errors))
+            synced_assets = sync_generated_job_assets(job, job_dir)
+            if synced_assets:
+                write_json(job_dir / "state" / "asset_library_sync.json", {"version": 1, "items": synced_assets})
+                self.store.record_artifact(job, "asset_library_sync", "state/asset_library_sync.json")
 
         self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
 
@@ -916,6 +921,11 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 scripts = settings.asset_scripts_dir
                 self._run_script([scripts / "remove_bg.py", figure_path], job_dir)
                 self._run_script([scripts / "make_avatar.py", figure_path], job_dir)
+
+        synced_assets = sync_generated_job_assets(job, job_dir)
+        if synced_assets:
+            write_json(job_dir / "state" / "asset_library_sync.json", {"version": 1, "items": synced_assets})
+            self.store.record_artifact(job, "asset_library_sync", "state/asset_library_sync.json")
 
         if manifest_changed:
             write_json(manifest_path, manifest)
@@ -1213,6 +1223,14 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         self._copy_engine_skeleton(job_dir)
         self.store.transition(job, "SCENES_READY", "SCENE_WRITING")
 
+    def _publish_public_oss_references(self, job: dict[str, Any], job_dir: Path) -> None:
+        manifest = publish_public_oss_references(job, job_dir)
+        if manifest is None:
+            return
+        path = job_dir / "state" / "oss_game_manifest.json"
+        write_json(path, manifest)
+        self.store.record_artifact(job, "oss_game_manifest", "state/oss_game_manifest.json")
+
     def run_validation(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "VALIDATING")
         job_dir = self.store.job_dir(job["id"])
@@ -1245,6 +1263,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             if report["summary"]["errors"] > 0:
                 self.store.transition(job, "VALIDATION_FAILED", "VALIDATING")
                 raise PipelineError(f"validation failed with {report['summary']['errors']} errors")
+        self._publish_public_oss_references(job, job_dir)
         self.store.transition(job, "VALIDATION_PASSED", "VALIDATING")
 
     def run_scene_connections(self, job: dict[str, Any]) -> None:

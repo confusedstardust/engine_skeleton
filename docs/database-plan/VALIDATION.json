@@ -1,0 +1,156 @@
+{
+  "engine": "5.7.44",
+  "transport": "isolated loopback TCP port 8041",
+  "checks": [
+    {
+      "name": "read-only preflight",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 01_content.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 07_database_job_store.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 06_asset_library.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 02_commerce.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 03_credit_usage.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "execute 04_auth_additions_optional.sql",
+      "result": "PASS"
+    },
+    {
+      "name": "fixture insert across all domains",
+      "result": "PASS"
+    },
+    {
+      "name": "database JobStore CRUD and optimistic lock",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate like rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate favorite rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "job cannot belong to another owner",
+      "result": "PASS"
+    },
+    {
+      "name": "version cannot reference another game job",
+      "result": "PASS"
+    },
+    {
+      "name": "current version cannot belong to another game",
+      "result": "PASS"
+    },
+    {
+      "name": "asset source must have same owner",
+      "result": "PASS"
+    },
+    {
+      "name": "referenced file cannot be deleted",
+      "result": "PASS"
+    },
+    {
+      "name": "user with business records cannot be deleted",
+      "result": "PASS"
+    },
+    {
+      "name": "two unresolved payments prohibited",
+      "result": "PASS"
+    },
+    {
+      "name": "confirmed close permits new payment",
+      "result": "PASS"
+    },
+    {
+      "name": "settle one payment",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate channel transaction rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "order cannot use another order payment",
+      "result": "PASS"
+    },
+    {
+      "name": "refund cannot cross order",
+      "result": "PASS"
+    },
+    {
+      "name": "grant cannot belong to wrong buyer",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate fulfillment rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "credit allocation cannot spend another user grant",
+      "result": "PASS"
+    },
+    {
+      "name": "cannot charge another user job",
+      "result": "PASS"
+    },
+    {
+      "name": "job cannot have two unsettled charged operations",
+      "result": "PASS"
+    },
+    {
+      "name": "reserve then capture units transactionally",
+      "result": "PASS"
+    },
+    {
+      "name": "insufficient balance conditional update is no-op",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate credit event rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "notification uniqueness",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate notification rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "outbox event uniqueness",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate outbox event rejected",
+      "result": "PASS"
+    },
+    {
+      "name": "consistency query syntax",
+      "result": "PASS"
+    }
+  ],
+  "temp_dir": "C:\\Users\\Eden\\AppData\\Local\\Temp\\narrativeos-schema-ajwjmman",
+  "table_count": 24,
+  "foreign_key_count": 36,
+  "scope": "DDL, constraints, SQL state examples, and database JobStore CRUD/optimistic-lock integration; NOT external payment or OSS end-to-end tests.",
+  "result": "PASS",
+  "server_stopped": true
+}

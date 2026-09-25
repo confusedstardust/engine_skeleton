@@ -101,6 +101,11 @@ class Settings:
     oss_access_key_id: str | None
     oss_access_key_secret: str | None
     oss_prefix: str
+    oss_access_mode: str
+    oss_signed_url_ttl: int
+    database_url: str | None
+    asset_library_enabled: bool
+    database_job_store_enabled: bool
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -165,6 +170,11 @@ class Settings:
             oss_access_key_id=os.getenv("OSS_ACCESS_KEY_ID"),
             oss_access_key_secret=os.getenv("OSS_ACCESS_KEY_SECRET"),
             oss_prefix=(os.getenv("WEBGAL_OSS_PREFIX") or "game_assets/public_assets").strip("/"),
+            oss_access_mode=(os.getenv("WEBGAL_OSS_ACCESS_MODE") or "public").strip().lower(),
+            oss_signed_url_ttl=max(60, int(os.getenv("WEBGAL_OSS_SIGNED_URL_TTL", "900"))),
+            database_url=os.getenv("NARRATIVEOS_DATABASE_URL") or os.getenv("DATABASE_URL"),
+            asset_library_enabled=(os.getenv("WEBGAL_ASSET_LIBRARY_ENABLED") or "false").strip().lower() in {"1", "true", "yes", "on"},
+            database_job_store_enabled=(os.getenv("WEBGAL_DATABASE_JOB_STORE_ENABLED") or "false").strip().lower() in {"1", "true", "yes", "on"},
         )
 
 

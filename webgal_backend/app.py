@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from . import artifacts
 from .artifacts import contains_hidden_path
 from .auth import auth_mode, identity_from_request, job_belongs_to_identity, user_from_request
+from .asset_library import AssetLibraryError, AssetLibraryUnavailable, asset_library
 from .config import settings
 from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
@@ -101,6 +102,22 @@ def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
     if not _job_belongs_to_identity(job, identity):
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
     return job
+
+
+def _require_sso_user(request: Request) -> dict[str, Any]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="asset library requires a NarrativeOS account")
+    return user
+
+
+def _asset_library_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, AssetLibraryUnavailable):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    logger.exception("Asset library operation failed: %s", exc)
+    return HTTPException(status_code=502, detail=str(exc))
 
 
 def _job_dir_or_404(job_id: str) -> Path:
@@ -252,6 +269,34 @@ def auth_config() -> dict[str, str]:
     return {"mode": auth_mode()}
 
 
+@app.get("/assets")
+def list_library_assets(
+    request: Request,
+    source_type: str | None = Query(default=None, pattern="^(GENERATED|UPLOADED|IMPORTED)$"),
+    kind: str | None = Query(default=None, pattern="^(BACKGROUND|FIGURE|VOICE|BGM|SFX|OTHER)$"),
+    cursor_created_at: str | None = None,
+    cursor_id: str | None = None,
+    limit: int = Query(default=30, ge=1, le=50),
+) -> dict[str, Any]:
+    user = _require_sso_user(request)
+    try:
+        return asset_library.list_assets(
+            user_id=str(user["id"]), source_type=source_type, kind=kind,
+            cursor_created_at=cursor_created_at, cursor_id=cursor_id, limit=limit,
+        )
+    except (AssetLibraryError, FileNotFoundError) as exc:
+        raise _asset_library_http_error(exc) from exc
+
+
+@app.get("/assets/files/{file_id}/url")
+def get_library_asset_url(file_id: str, request: Request) -> dict[str, str]:
+    user = _require_sso_user(request)
+    try:
+        return {"url": asset_library.signed_file_url(user_id=str(user["id"]), file_id=file_id)}
+    except (AssetLibraryError, FileNotFoundError) as exc:
+        raise _asset_library_http_error(exc) from exc
+
+
 @app.get("/")
 def index() -> RedirectResponse:
     return RedirectResponse(frontend_url)
@@ -266,14 +311,7 @@ def create_job(request: CreateJobRequest, http_request: Request) -> dict[str, An
 @app.get("/jobs")
 def list_jobs(request: Request) -> dict[str, Any]:
     identity = _identity_from_request(request)
-    jobs = []
-    for path in sorted(store.jobs_dir.glob("*/job.json"), key=lambda item: item.stat().st_mtime, reverse=True):
-        try:
-            job = store.get(path.parent.name)
-        except FileNotFoundError:
-            continue
-        if _job_belongs_to_identity(job, identity):
-            jobs.append(job)
+    jobs = [job for job in store.list(identity) if _job_belongs_to_identity(job, identity)]
     return {"jobs": jobs}
 
 
@@ -755,6 +793,26 @@ async def upload_asset(job_id: str, request: Request, file: UploadFile = File(..
     else:
         stored_name = f"upload_{uuid.uuid4().hex[:10]}_{safe_stem}{suffix}"; target = job_dir / "draft" / "game" / "bgm" / stored_name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(content)
         item = {"type": "bgm", "filename": stored_name, "display_name": safe_stem, "content_type": file.content_type, "status": "staged"}
+    if settings.asset_library_enabled:
+        user = _require_sso_user(request)
+        logical_subdir = subdir if asset_type == "image" else "bgm"
+        try:
+            record = asset_library.register_file(
+                user_id=str(user["id"]), job_id=job_id, source_type="UPLOADED",
+                kind="FIGURE" if logical_subdir == "figure" else "BACKGROUND" if logical_subdir == "background" else "BGM",
+                source_key=f"{logical_subdir}/{stored_name}", display_name=safe_stem, path=target,
+                generation_metadata={"schema_version": 1, "original_filename": file.filename},
+            )
+            item.update({"asset_id": record.asset_id, "asset_file_id": record.file_id, "oss_key": record.object_key, "oss_url": record.url, "status": "published"})
+            if asset_type == "image" and avatar_path:
+                avatar = asset_library.register_file(
+                    user_id=str(user["id"]), job_id=job_id, source_type="UPLOADED", kind="FIGURE",
+                    source_key=f"{logical_subdir}/{stored_name}", display_name=safe_stem, path=avatar_path,
+                    variant="avatar", generation_metadata={"schema_version": 1, "original_filename": file.filename},
+                )
+                item.update({"avatar_asset_file_id": avatar.file_id, "avatar_oss_key": avatar.object_key, "avatar_oss_url": avatar.url})
+        except (AssetLibraryError, FileNotFoundError) as exc:
+            raise _asset_library_http_error(exc) from exc
     items = _uploaded_assets(job_dir)
     items = [existing for existing in items if not (existing.get("type") == item.get("type") and existing.get("subdir") == item.get("subdir") and existing.get("filename") == item.get("filename"))]
     items.append(item); write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
@@ -789,6 +847,22 @@ def remove_asset_background(job_id: str, payload: AssetRemoveBackgroundRequest, 
     for key in ("oss_key", "oss_url", "avatar_oss_key", "avatar_oss_url"):
         upload_record.pop(key, None)
     upload_record["status"] = "staged"
+    if settings.asset_library_enabled:
+        user = _require_sso_user(request)
+        try:
+            original = asset_library.register_file(
+                user_id=str(user["id"]), job_id=job_id, source_type="UPLOADED", kind="FIGURE",
+                source_key=f"figure/{target.name}", display_name=str(upload_record["display_name"]), path=target,
+                generation_metadata={"schema_version": 1, "operation": "remove_background"},
+            )
+            avatar_file = asset_library.register_file(
+                user_id=str(user["id"]), job_id=job_id, source_type="UPLOADED", kind="FIGURE",
+                source_key=f"figure/{target.name}", display_name=str(upload_record["display_name"]), path=avatar_path,
+                variant="avatar", generation_metadata={"schema_version": 1, "operation": "remove_background"},
+            )
+            upload_record.update({"asset_id": original.asset_id, "asset_file_id": original.file_id, "oss_key": original.object_key, "oss_url": original.url, "avatar_asset_file_id": avatar_file.file_id, "avatar_oss_key": avatar_file.object_key, "avatar_oss_url": avatar_file.url, "status": "published"})
+        except (AssetLibraryError, FileNotFoundError) as exc:
+            raise _asset_library_http_error(exc) from exc
     items = [item for item in _uploaded_assets(job_dir) if not (item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename)]
     items.append(upload_record)
     write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
@@ -829,6 +903,17 @@ def crop_asset_avatar(job_id: str, payload: AvatarCropRequest, request: Request)
     for key in ("oss_key", "oss_url", "avatar_oss_key", "avatar_oss_url"):
         record.pop(key, None)
     record["status"] = "staged"
+    if settings.asset_library_enabled:
+        user = _require_sso_user(request)
+        try:
+            avatar_file = asset_library.register_file(
+                user_id=str(user["id"]), job_id=job_id, source_type="UPLOADED", kind="FIGURE",
+                source_key=f"figure/{filename}.webp", display_name=str(record["display_name"]), path=target,
+                variant="avatar", generation_metadata={"schema_version": 1, "operation": "avatar_crop"},
+            )
+            record.update({"asset_id": avatar_file.asset_id, "avatar_asset_file_id": avatar_file.file_id, "avatar_oss_key": avatar_file.object_key, "avatar_oss_url": avatar_file.url, "status": "published"})
+        except (AssetLibraryError, FileNotFoundError) as exc:
+            raise _asset_library_http_error(exc) from exc
     items = [item for item in _uploaded_assets(job_dir) if not (item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename)]
     items.append(record)
     write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
