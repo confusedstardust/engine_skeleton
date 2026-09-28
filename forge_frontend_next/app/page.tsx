@@ -496,7 +496,7 @@ const narrativeScenes: NarrativeScene[] = [
   { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: ossImage("scene-ip-narrative.png") },
   { id: "culture", title: "文旅体验", description: "把场所、文化和记忆变成可探索的旅程", icon: "⌂", ready: true, tone: "orange", image: ossImage("scene-cultural-experience.png") },
   { id: "science", title: "科普解谜", description: "在任务和线索中理解科学知识", icon: "⟡", ready: true, tone: "sky", image: ossImage("scene-science-mystery.png") },
-  { id: "assets", title: "素材仓库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", tone: "ink", image: ossImage("scene-asset-library.png") }
+  { id: "assets", title: "素材仓库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
 ];
 
 function NarrativeRouterPage() {
@@ -509,6 +509,7 @@ function NarrativeRouterPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
   function selectScene(scene: NarrativeScene) {
+    if (scene.id === "assets") { router.push("/assets"); return; }
     if (scene.ready) { router.push("/?workspace=1"); return; }
     setNotice(`「${scene.title}」正在准备中，敬请期待。`);
   }
