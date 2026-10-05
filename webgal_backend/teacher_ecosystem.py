@@ -84,6 +84,7 @@ def build_publication_payload(
     narrative = _read_optional_json(job_dir / "state" / "narrative_plan.json")
     title = (
         (title_override or "").strip()
+        or str(job.get("title") or "").strip()
         or str(options.get("classroom_topic") or "").strip()
         or str(narrative.get("title") or "").strip()
         or "未命名叙事课堂"

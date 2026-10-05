@@ -99,6 +99,10 @@ class JobStore:
             job["build_state"] = "CURRENT" if has_published_build else "NONE"
         if not isinstance(job.get("dirty_scopes"), list):
             job["dirty_scopes"] = []
+        if not str(job.get("title") or "").strip():
+            options = job.get("options") if isinstance(job.get("options"), dict) else {}
+            source_title = str(job.get("source_material") or "").splitlines()[0].strip()[:160]
+            job["title"] = str(options.get("classroom_topic") or "").strip()[:160] or source_title or "未命名游戏"
 
     def mark_draft_changed(self, job: dict[str, Any], scope: str) -> None:
         self._ensure_build_metadata(job)

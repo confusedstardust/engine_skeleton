@@ -19,6 +19,8 @@ type Job = {
   status: string;
   phase?: string | null;
   error?: string | null;
+  title?: string;
+  source_material?: string;
   draft_revision?: number;
   published_revision?: number;
   build_state?: "NONE" | "DRAFT" | "CURRENT" | "STALE" | "BUILDING" | "FAILED";
@@ -1681,6 +1683,11 @@ function CompletionPanel(props: {
   const [quiz, setQuiz] = useState<QuizResponse | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [publicationMessage, setPublicationMessage] = useState("");
+  const [gameTitle, setGameTitle] = useState(props.job.title?.trim() || String(props.job.options?.classroom_topic || "").trim() || props.job.source_material?.split(/\r?\n/)[0]?.trim() || "未命名游戏");
+  const [titleDraft, setTitleDraft] = useState(gameTitle);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleBusy, setTitleBusy] = useState(false);
+  const [titleMessage, setTitleMessage] = useState("");
   const flowModalRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     let active = true;
@@ -1695,6 +1702,11 @@ function CompletionPanel(props: {
       active = false;
     };
   }, [props.job.id]);
+  useEffect(() => {
+    const nextTitle = props.job.title?.trim() || String(props.job.options?.classroom_topic || "").trim() || props.job.source_material?.split(/\r?\n/)[0]?.trim() || "未命名游戏";
+    setGameTitle(nextTitle);
+    setTitleDraft(nextTitle);
+  }, [props.job.id, props.job.options?.classroom_topic, props.job.source_material, props.job.title]);
   useEffect(() => {
     let active = true;
     api<QuizResponse>(`/jobs/${props.job.id}/quiz`)
@@ -1776,12 +1788,62 @@ function CompletionPanel(props: {
       setPublicationBusy(false);
     }
   };
+  const saveGameTitle = async () => {
+    const title = titleDraft.trim();
+    if (!title) {
+      setTitleMessage("游戏名称不能为空");
+      return;
+    }
+    setTitleBusy(true);
+    setTitleMessage("");
+    try {
+      const value = await api<{ job: Job }>(`/jobs/${props.job.id}/title`, {
+        method: "PUT",
+        body: JSON.stringify({ title })
+      });
+      const savedTitle = value.job.title?.trim() || title;
+      setGameTitle(savedTitle);
+      setTitleDraft(savedTitle);
+      setTitleEditing(false);
+      setTitleMessage("游戏名称已保存");
+    } catch (error) {
+      setTitleMessage(error instanceof Error ? error.message : "游戏名称保存失败");
+    } finally {
+      setTitleBusy(false);
+    }
+  };
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
   const stale = state === "STALE" || failed;
   const building = state === "BUILDING" || props.job.status === "RUNNING" || props.job.status === "QUEUED";
   return (
     <section className="completion-panel" aria-labelledby="completion-title">
+      <div className="completion-game-title">
+        <span>GAME TITLE</span>
+        {titleEditing ? (
+          <div className="completion-title-editor">
+            <input
+              value={titleDraft}
+              maxLength={160}
+              autoFocus
+              aria-label="游戏名称"
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveGameTitle();
+                if (event.key === "Escape") { setTitleDraft(gameTitle); setTitleEditing(false); setTitleMessage(""); }
+              }}
+            />
+            <button className="btn primary" type="button" disabled={titleBusy} onClick={() => void saveGameTitle()}>{titleBusy ? "保存中…" : "保存"}</button>
+            <button className="btn outline" type="button" disabled={titleBusy} onClick={() => { setTitleDraft(gameTitle); setTitleEditing(false); setTitleMessage(""); }}>取消</button>
+          </div>
+        ) : (
+          <div className="completion-title-display">
+            <strong>{gameTitle}</strong>
+            <button type="button" onClick={() => { setTitleEditing(true); setTitleMessage(""); }}>修改名称</button>
+          </div>
+        )}
+        {titleMessage ? <small role="status">{titleMessage}</small> : null}
+      </div>
       <div className="completion-cover">
         <img
           src={withBasePath(`/play/${props.job.id}/cover?revision=${props.job.published_revision ?? 0}`)}

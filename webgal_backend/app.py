@@ -283,6 +283,10 @@ class PublishTeacherWorkRequest(BaseModel):
     title: str | None = Field(default=None, max_length=160)
 
 
+class UpdateJobTitleRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+
+
 class GenerateQuizRequest(BaseModel):
     regenerate: bool = False
 
@@ -500,6 +504,17 @@ def list_jobs(request: Request) -> dict[str, Any]:
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> dict[str, Any]:
     return _get_owned_job_or_404(job_id, request)
+
+
+@app.put("/jobs/{job_id}/title")
+def update_job_title(job_id: str, payload: UpdateJobTitleRequest, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="游戏名称不能为空")
+    job["title"] = title
+    store.save(job)
+    return {"job": job}
 
 
 @app.get("/jobs/{job_id}/nodes")

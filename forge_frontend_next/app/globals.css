@@ -2100,6 +2100,25 @@ a {
   border-radius: 50%;
 }
 
+.completion-game-title {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-column: 1 / 3;
+  gap: 7px;
+  min-width: 0;
+}
+
+.completion-game-title > span { color: var(--cinnabar); font-size: 10px; font-weight: 800; letter-spacing: .18em; }
+.completion-game-title > small { color: var(--ink-muted); font-size: 11px; }
+.completion-title-display { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.completion-title-display strong { overflow: hidden; font-family: "Noto Serif SC", "STSong", serif; font-size: clamp(22px, 2.4vw, 34px); line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.completion-title-display button { flex: none; padding: 4px 0; color: var(--cinnabar); cursor: pointer; background: transparent; border: 0; font-size: 12px; text-decoration: underline; text-underline-offset: 4px; }
+.completion-title-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; }
+.completion-title-editor input { width: 100%; min-width: 0; padding: 10px 12px; color: var(--ink); background: rgba(255,255,255,.76); border: 1px solid var(--border); border-radius: 8px; font: 600 18px/1.3 "Noto Serif SC", "STSong", serif; outline: none; }
+.completion-title-editor input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(155, 51, 64, .1); }
+.completion-title-editor .btn { min-height: 42px; padding: 8px 16px; }
+
 .completion-cover {
   position: relative;
   width: 76px;
@@ -2126,6 +2145,7 @@ a {
 .completion-revisions dt { color: var(--ink-muted); font-size: 11px; }
 .completion-revisions dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
 .completion-actions { position: relative; z-index: 1; display: grid; gap: 10px; }
+.completion-actions { grid-column: 3; grid-row: 1 / 3; }
 .completion-actions .ecosystem-publish { color: #fffdf8; background: linear-gradient(135deg, #9b3340, #b4555f); border-color: #8f2e3a; box-shadow: 0 8px 18px rgba(155, 51, 64, .18); }
 .completion-actions .ecosystem-publish:hover:not(:disabled) { background: linear-gradient(135deg, #852a35, #a74650); }
 .publication-remove { padding: 3px 0; color: var(--ink-muted); cursor: pointer; background: transparent; border: 0; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
@@ -5561,6 +5581,9 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
   }
 
   .completion-panel { grid-template-columns: 1fr; padding: 28px 22px; }
+  .completion-game-title, .completion-actions { grid-column: 1; grid-row: auto; }
+  .completion-title-editor { grid-template-columns: 1fr 1fr; }
+  .completion-title-editor input { grid-column: 1 / -1; }
   .completion-actions { width: 100%; }
   .draft-edit-banner { align-items: stretch; flex-direction: column; }
 
