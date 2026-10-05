@@ -10,3 +10,4 @@ Pillow>=10.0
 rembg>=2.0
 onnxruntime>=1.18
 oss2>=2.19
+PyMySQL>=1.1

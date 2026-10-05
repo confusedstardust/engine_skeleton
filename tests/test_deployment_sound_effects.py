@@ -229,6 +229,105 @@ def test_completed_asset_regeneration_writes_draft_without_touching_published_ga
     assert updated["build_state"] == "STALE"
 
 
+def test_asset_regeneration_removes_the_previous_uploaded_override(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source")
+    job_dir = store.job_dir(job["id"])
+    figure_dir = job_dir / "public" / "game" / "figure"
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "assets_manifest.json").write_text(json.dumps({
+        "base_dir": str(job_dir / "public" / "game"),
+        "model": "test",
+        "images": [{"filename": "figure_role", "subdir": "figure", "size": "1024x1024", "prompt": "old"}],
+    }), encoding="utf-8")
+    uploaded_state = job_dir / "state" / "uploaded_assets.json"
+    uploaded_state.write_text(json.dumps({
+        "version": 1,
+        "items": [
+            {"type": "image", "filename": "figure_role.webp", "replaces_filename": "figure_role", "oss_url": "https://old.example/figure.webp"},
+            {"type": "bgm", "filename": "theme.mp3", "oss_url": "https://example/theme.mp3"},
+        ],
+    }), encoding="utf-8")
+    pipeline = WebGALPipeline(store)
+    monkeypatch.setattr(pipeline, "_image_generation_config", lambda _job: ("provider", "test", "ARK_API_KEY"))
+
+    def fake_generate(_job, _job_dir, manifest_path):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        target = Path(manifest["base_dir"]) / "figure" / "figure_role.webp"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"new figure")
+
+    monkeypatch.setattr(pipeline, "_run_asset_script_manifest", fake_generate)
+    monkeypatch.setattr(pipeline, "_run_script", lambda *_args, **_kwargs: None)
+
+    pipeline.regenerate_asset_image(store.get(job["id"]), "figure_role", "new prompt")
+
+    state = json.loads(uploaded_state.read_text(encoding="utf-8"))
+    assert state["items"] == [{"type": "bgm", "filename": "theme.mp3", "oss_url": "https://example/theme.mp3"}]
+
+
+def test_generated_asset_registration_skips_user_uploaded_replacement(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source", identity={"type": "sso", "user_id": "user-1"})
+    job_dir = store.job_dir(job["id"])
+    background = job_dir / "public" / "game" / "background" / "bg_room.webp"
+    background.parent.mkdir(parents=True, exist_ok=True)
+    background.write_bytes(b"user upload now occupying the generated filename")
+    (job_dir / "assets_manifest.json").write_text(json.dumps({
+        "model": "image-model",
+        "images": [{"filename": "bg_room", "subdir": "background", "prompt": "generated prompt"}],
+    }), encoding="utf-8")
+    (job_dir / "state" / "uploaded_assets.json").write_text(json.dumps({
+        "version": 1,
+        "items": [{"type": "image", "subdir": "background", "filename": "bg_room.webp", "replaces_filename": "bg_room"}],
+    }), encoding="utf-8")
+    published = []
+
+    class FakeLibrary:
+        def publish_file(self, **kwargs):
+            published.append(kwargs)
+
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary", FakeLibrary)
+
+    WebGALPipeline(store)._register_generated_assets(store.get(job["id"]), include_images=True, include_voice=False)
+
+    assert published == []
+
+
+def test_explicit_regeneration_registers_generated_asset_even_after_upload_override(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source", identity={"type": "sso", "user_id": "user-1"})
+    job_dir = store.job_dir(job["id"])
+    background = job_dir / "public" / "game" / "background" / "bg_room.webp"
+    background.parent.mkdir(parents=True, exist_ok=True)
+    background.write_bytes(b"freshly regenerated")
+    (job_dir / "assets_manifest.json").write_text(json.dumps({
+        "model": "image-model",
+        "images": [{"filename": "bg_room", "subdir": "background", "prompt": "fresh prompt"}],
+    }), encoding="utf-8")
+    (job_dir / "state" / "uploaded_assets.json").write_text(json.dumps({
+        "version": 1,
+        "items": [{"type": "image", "subdir": "background", "filename": "bg_room.webp", "replaces_filename": "bg_room"}],
+    }), encoding="utf-8")
+    published = []
+
+    class FakeLibrary:
+        def publish_file(self, **kwargs):
+            published.append(kwargs)
+
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary", FakeLibrary)
+
+    WebGALPipeline(store)._register_generated_assets(
+        store.get(job["id"]),
+        include_images=True,
+        include_voice=False,
+        only_logical_path="background/bg_room.webp",
+    )
+
+    assert len(published) == 1
+    assert published[0]["source_type"] == "GENERATED"
+
+
 def test_failed_rebuild_restores_previous_published_game(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "jobs")
     job = store.create("source")

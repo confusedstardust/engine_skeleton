@@ -70,7 +70,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
       setData(value);
       setMessage("");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "讲评练加载失败。");
+      setMessage(error instanceof Error ? error.message : "习题加载失败。");
     } finally {
       setLoading(false);
     }
@@ -94,9 +94,9 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
   }, [answers, data?.quiz, revealed]);
 
   async function generate(regenerate: boolean) {
-    if (regenerate && !window.confirm("重新生成会覆盖当前讲评练，确定继续吗？")) return;
+    if (regenerate && !window.confirm("重新生成会覆盖当前习题，确定继续吗？")) return;
     setActionBusy(true);
-    setMessage("讲评练已进入生成队列，请稍候…");
+    setMessage("习题已进入生成队列，请稍候…");
     try {
       const value = await api<QuizResponse>(`/jobs/${jobId}/quiz`, {
         method: "POST",
@@ -108,7 +108,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
         setRevealed(new Set());
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "讲评练生成失败。");
+      setMessage(error instanceof Error ? error.message : "习题生成失败。");
     } finally {
       setActionBusy(false);
     }
@@ -138,31 +138,31 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
         <div className="workspace-nav-leading">
           <Link className="brand brand-link" href="/">
             <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
-            <div className="brand-copy"><span className="brand-name">临场 · 讲评练</span><span className="brand-subtitle">REVIEW & PRACTICE</span></div>
+            <div className="brand-copy"><span className="brand-name">临场 · 习题</span><span className="brand-subtitle">PRACTICE</span></div>
           </Link>
           <Link className="workspace-back" href={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
             <span>{data?.can_manage ? "返回作品" : "进入游戏"}</span>
           </Link>
         </div>
-        <nav className="nav-links" aria-label="讲评练导航">
+        <nav className="nav-links" aria-label="习题导航">
           {data?.quiz ? <button className="practice-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
           <Link href="/history">我的作品</Link>
         </nav>
       </header>
 
       <main className="practice-page">
-        {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取讲评练</h1><p>正在准备作品的课后讲评内容。</p></section> : null}
+        {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
 
         {!loading && (!data || data.status === "NOT_GENERATED") ? (
           <section className="practice-state">
             <span className="practice-state-mark">练</span>
             <p className="practice-kicker">TEACHER REVIEW KIT</p>
-            <h1>为这份作品生成讲评练</h1>
+            <h1>为这份作品生成习题</h1>
             <p>系统会依据教学材料、学习目标和叙事大纲，生成单选与判断辨析卡片，并提供答案解析和教师追问建议。</p>
             {data?.can_manage ? (
-              <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成讲评练"}</button>
-            ) : <small>这份作品暂未发布讲评练，请先体验游戏内容。</small>}
+              <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</button>
+            ) : <small>这份作品暂未发布习题，请先体验游戏内容。</small>}
           </section>
         ) : null}
 
@@ -170,9 +170,9 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
           <section className="practice-state">
             <span className="practice-spinner" />
             <p className="practice-kicker">GENERATING</p>
-            <h1>正在生成讲评练</h1>
+            <h1>正在生成习题</h1>
             <p>正在从作品中提取知识点、常见误区和可用于课堂讲评的追问。</p>
-            {data?.quiz ? <small>上一版讲评练仍被保留，生成成功后会自动更新。</small> : null}
+            {data?.quiz ? <small>上一版习题仍被保留，生成成功后会自动更新。</small> : null}
           </section>
         ) : null}
 
@@ -180,7 +180,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
           <section className="practice-state failed">
             <span className="practice-state-mark">!</span>
             <p className="practice-kicker">GENERATION FAILED</p>
-            <h1>讲评练生成失败</h1>
+            <h1>习题生成失败</h1>
             <p>{data.error || "模型暂时没有返回有效题目，请重新生成。"}</p>
             {data.can_manage ? <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(true)}>重新生成</button> : null}
           </section>

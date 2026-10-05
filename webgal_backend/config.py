@@ -21,7 +21,7 @@ def load_dotenv(path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ[key] = value
+        os.environ.setdefault(key, value)
 
 
 def _resolve_asset_scripts_dir(workspace_root: Path) -> Path:

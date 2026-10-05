@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
+import { CreditBalance, creditBalanceChangedEvent } from "../components/credit-balance";
 
 type Choice = {
   name: string;
@@ -63,7 +64,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: jsonAuthHeaders(init?.headers)
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    const text = await response.text();
+    try {
+      const payload = JSON.parse(text) as { detail?: string };
+      throw new Error(payload.detail || text);
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(text);
+      throw error;
+    }
   }
   return response.json() as Promise<T>;
 }
@@ -197,6 +205,7 @@ function ClassroomGeneratorPage() {
           body: JSON.stringify({ background: true })
         });
       }
+      window.dispatchEvent(new Event(creditBalanceChangedEvent));
       router.push(`/jobs/${created.id}`);
     } catch (error) {
       setRunning(false);
@@ -232,6 +241,7 @@ function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
+          <CreditBalance />
           <Link className="nav-login" href="/login" data-tour="invite">账户</Link>
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
@@ -516,7 +526,7 @@ function NarrativeRouterPage() {
   return <main className="narrative-router">
     <section className="router-hero" aria-labelledby="router-title">
       <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
-      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="账户导航"><Link href="/history">我的作品</Link><Link href="/login">账户</Link></nav></header>
+      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="账户导航"><Link href="/history">我的作品</Link><CreditBalance /><Link href="/login">账户</Link></nav></header>
       <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><button className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></button></div>
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>

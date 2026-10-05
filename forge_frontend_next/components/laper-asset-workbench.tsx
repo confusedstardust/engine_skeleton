@@ -55,6 +55,22 @@ export type SceneMusicItem = {
   active_asset: string | null;
 };
 
+export type PersonalLibraryAsset = {
+  id: string;
+  file_id: string;
+  name: string;
+  kind: "FIGURE" | "BACKGROUND" | "BGM";
+  source_type: "GENERATED";
+  revision: number;
+  variant: string;
+  mime_type: string;
+  width_px?: number | null;
+  height_px?: number | null;
+  duration_ms?: number | null;
+  created_at: string;
+  url: string;
+};
+
 export type ParticleEffectPreset = {
   id: string;
   label: string;
@@ -119,6 +135,8 @@ type LaperAssetWorkbenchProps = {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"]) => Promise<PersonalLibraryAsset[]>;
+  useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
 };
 
@@ -579,6 +597,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const musicUploadRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageUpload, setPendingImageUpload] = useState<{ role: "figure" | "background"; removeBackground: boolean; replaceFilename?: string }>({ role: "background", removeBackground: false });
   const [uploadNotice, setUploadNotice] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [libraryPicker, setLibraryPicker] = useState<{ kind: PersonalLibraryAsset["kind"]; target: "figure" | "background" | "bgm"; replaceFilename?: string } | null>(null);
+  const [libraryAssets, setLibraryAssets] = useState<PersonalLibraryAsset[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
+  const [selectedLibraryFileId, setSelectedLibraryFileId] = useState("");
+  const [libraryApplying, setLibraryApplying] = useState(false);
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
@@ -631,6 +656,42 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   }
   const hasGeneratedImages = props.assets.some((asset) => asset.exists);
   const active = props.activeAsset;
+
+  async function openLibraryPicker(kind: PersonalLibraryAsset["kind"], target: "figure" | "background" | "bgm", replaceFilename?: string) {
+    setLibraryPicker({ kind, target, replaceFilename });
+    setLibraryAssets([]);
+    setSelectedLibraryFileId("");
+    setLibraryError("");
+    setLibraryLoading(true);
+    try {
+      setLibraryAssets(await props.loadLibraryAssets(kind));
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : "素材库加载失败，请稍后重试");
+    } finally {
+      setLibraryLoading(false);
+    }
+  }
+
+  async function applyLibraryAsset() {
+    if (!libraryPicker || !selectedLibraryFileId) return;
+    const asset = libraryAssets.find((item) => item.file_id === selectedLibraryFileId);
+    if (!asset) return;
+    setLibraryApplying(true);
+    setLibraryError("");
+    try {
+      const ok = await props.useLibraryAsset(asset, libraryPicker.target, libraryPicker.replaceFilename);
+      if (!ok) {
+        setLibraryError("素材调用失败，请重试");
+        return;
+      }
+      showUploadNotice(libraryPicker.target === "bgm" ? "素材库 BGM 已加入当前作品" : "素材库素材已替换当前预览");
+      setLibraryPicker(null);
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : "素材调用失败，请重试");
+    } finally {
+      setLibraryApplying(false);
+    }
+  }
 
   async function playVoice(speaker: string, audio: HTMLAudioElement) {
     if (activeAudioRef.current && activeAudioRef.current !== audio) {
@@ -782,7 +843,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       </aside>
 
       <section className="laper-canvas-wrap">
-        <input ref={imageUploadRef} className="asset-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename); showUploadNotice(ok ? pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新" : "上传失败，请重试"); } event.currentTarget.value = ""; }} />
+        <input ref={imageUploadRef} className="asset-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { setImageUploading(true); try { const ok = await props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename); showUploadNotice(ok ? pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新" : "上传失败，请重试"); } finally { setImageUploading(false); } } event.currentTarget.value = ""; }} />
         <input ref={musicUploadRef} className="asset-upload-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "bgm"); showUploadNotice(ok ? "BGM 上传成功" : "BGM 上传失败，请重试"); } event.currentTarget.value = ""; }} />
         <div className="laper-toolbar" role="toolbar" aria-label="素材工具栏">
           {props.sceneMusicEnabled && <button className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>场景音乐</button>}
@@ -860,7 +921,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             <div className="scene-music-workbench">
               <header className="laper-canvas-head music-workbench-head">
                 <div><h2>场景音乐</h2></div>
-                {!props.readonly && <div className="music-upload-actions">{uploadNotice && <span className={uploadNotice.includes("失败") ? "failed" : "success"}>{uploadNotice}</span>}<button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button></div>}
+                {!props.readonly && <div className="music-upload-actions">{uploadNotice && <span className={uploadNotice.includes("失败") ? "failed" : "success"}>{uploadNotice}</span>}<button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</button></div>}
               </header>
               <div className="scene-music-table" role="list">
                 {props.sceneMusic.map((scene, index) => {
@@ -1016,14 +1077,29 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
             <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
             <div className="asset-modal-body">
-              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}</div><div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{uploadNotice || "当前素材已加载"}</div></div>
+              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div><div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice || "当前素材已加载"}</div></div>
               <div className="asset-modal-editor">
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>
-                {!props.readonly && <button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy} onClick={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }}>上传图片</button>}
+                {!props.readonly && <div className="asset-modal-source-actions"><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }}>{imageUploading ? "正在上传..." : "上传图片"}</button><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; void openLibraryPicker(isFigure ? "FIGURE" : "BACKGROUND", isFigure ? "figure" : "background", active.filename); }}>从素材库选择</button></div>}
               </div>
             </div>
             <footer className="asset-modal-actions">{!props.readonly && <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</button>}<button className="btn primary" type="button" onClick={props.closeAsset}>关闭</button></footer>
+          </section>
+        </div>
+      )}
+      {libraryPicker && (
+        <div className="asset-library-picker-layer" role="presentation">
+          <button className="asset-modal-backdrop" type="button" aria-label="关闭素材库" onClick={() => !libraryApplying && setLibraryPicker(null)} />
+          <section className="asset-library-picker" role="dialog" aria-modal="true" aria-labelledby="asset-library-picker-title">
+            <header className="asset-modal-head"><div><span>GENERATED ASSET LIBRARY</span><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
+            <div className="asset-library-picker-body">
+              {libraryLoading ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在整理你的 AI 生成素材…</strong></div> : null}
+              {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong></div> : null}
+              {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>还没有可用的 AI 生成素材</strong><span>完成一次对应类型的素材生成后，它会自动出现在这里。</span></div> : null}
+              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong><span>{asset.kind === "BGM" ? "AI 生成音乐" : [asset.width_px, asset.height_px].every(Boolean) ? `${asset.width_px} × ${asset.height_px}` : "AI 生成图片"}</span></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
+            </div>
+            <footer className="asset-modal-actions"><span className="asset-library-picker-count">{selectedLibraryFileId ? "已选择 1 项" : "请选择一项素材"}</span><button className="btn outline" type="button" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>取消</button><button className="btn primary" type="button" disabled={!selectedLibraryFileId || libraryApplying} onClick={() => void applyLibraryAsset()}>{libraryApplying ? "正在使用…" : "使用此素材"}</button></footer>
           </section>
         </div>
       )}

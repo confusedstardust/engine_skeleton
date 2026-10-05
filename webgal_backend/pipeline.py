@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator
 
 from .config import settings
 from . import game_design
+from .asset_library import AssetLibrary
 from .job_options import validate_generation_options
 from .contract_context import build_phase_context
 from .generation_limits import generation_limits
@@ -35,6 +36,7 @@ from .prompts import (
 )
 from .raw_correction import correct_generated_raw_file
 from .quiz import quiz_prompt
+from .runtime_assets import rewrite_webgal_asset_urls
 from .scene_plan import build_scene_plan, expected_scene_files
 from .scene_connections import check_scene_connections
 from .script_compiler import ScriptCompileError, compile_webgal_script
@@ -464,12 +466,15 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
         try:
             self._publish_uploaded_assets_to_oss(job_dir, job["id"])
             self._copy_draft_game_assets(job_dir)
+            self._ensure_runtime_image_assets(job)
             self.run_script_rewrite(job)
             self.run_sound_effects(job)
             self.run_tts_generation(job)
             self.run_scenes(job)
             self._apply_particle_effect_changes(job_dir)
             self.run_validation(job)
+            self._rewrite_runtime_asset_urls(job)
+            self._publish_asset_version(job)
         except Exception:
             if had_published_build and backup_dir.exists():
                 if game_dir.exists():
@@ -527,6 +532,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
 
             if "assets" in dirty_scopes:
                 self._copy_draft_game_assets(job_dir)
+                self._ensure_runtime_image_assets(job)
 
             if "music" in dirty_scopes:
                 self._apply_scene_music_changes(job_dir, self._changed_music_scene_files(job_dir))
@@ -535,6 +541,8 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 self._apply_particle_effect_changes(job_dir, self._changed_effect_scene_files(job_dir))
 
             self.run_validation(job)
+            self._rewrite_runtime_asset_urls(job)
+            self._publish_asset_version(job)
         except Exception:
             if game_dir.exists():
                 shutil.rmtree(game_dir)
@@ -846,6 +854,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
 
         with self._trace_stage(job, 7, "素材生成", "generated_assets", "public/game/background/*.webp, public/game/figure/*.webp"):
             self._run_asset_scripts(job, job_dir)
+            self._register_generated_assets(job, include_images=True, include_voice=False)
         self.store.transition(job, "ASSET_REVIEW_READY", "ASSET_GENERATION")
 
     def run_asset_generation(self, job: dict[str, Any]) -> None:
@@ -884,6 +893,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                         errors.append(f"{label}: {exc}")
                 if errors:
                     raise PipelineError("asset generation failed:\n" + "\n".join(errors))
+            self._register_generated_assets(job, include_images=image_enabled, include_voice=tts_enabled)
 
         self.store.transition(job, "ASSET_GENERATION_READY", "ASSET_GENERATION")
 
@@ -939,12 +949,194 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 self._run_script([scripts / "remove_bg.py", figure_path], job_dir)
                 self._run_script([scripts / "make_avatar.py", figure_path], job_dir)
 
+        self._register_generated_assets(
+            job,
+            include_images=True,
+            include_voice=False,
+            only_logical_path=f"{subdir}/{clean_filename}.webp",
+        )
+
+        self._clear_uploaded_asset_replacement(job_dir, clean_filename)
+
         if manifest_changed:
             write_json(manifest_path, manifest)
             self.store.record_artifact(job, "asset_manifest", "assets_manifest.json")
         self.store.transition(job, "DONE" if had_published_build else "ASSET_GENERATION_READY", None if had_published_build else "ASSET_GENERATION")
         self.store.mark_draft_changed(job, "assets")
         return image
+
+    def _clear_uploaded_asset_replacement(self, job_dir: Path, filename: str) -> None:
+        """Let a newly generated asset replace an earlier uploaded override."""
+        state_path = job_dir / "state" / "uploaded_assets.json"
+        if not state_path.exists():
+            return
+        payload = read_json(state_path)
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        if not isinstance(items, list):
+            raise PipelineError("uploaded_assets.json items must be an array")
+        retained = [
+            item
+            for item in items
+            if not isinstance(item, dict)
+            or str(item.get("replaces_filename") or "").removesuffix(".webp") != filename
+        ]
+        if len(retained) != len(items):
+            write_json(state_path, {**payload, "items": retained})
+
+    def _register_generated_assets(
+        self,
+        job: dict[str, Any],
+        *,
+        include_images: bool,
+        include_voice: bool,
+        only_logical_path: str | None = None,
+        prefer_public_images: bool = False,
+    ) -> None:
+        identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+        if identity.get("type") != "sso" or not identity.get("user_id"):
+            return
+        user_id = str(identity["user_id"])
+        job_id = str(job["id"])
+        job_dir = self.store.job_dir(job_id)
+        root = job_dir / ("public/game" if prefer_public_images or not bool(job.get("has_published_build")) else "draft/game")
+        library = AssetLibrary()
+        manifest_path = job_dir / "assets_manifest.json"
+        manifest = read_json(manifest_path) if manifest_path.exists() else {}
+        image_metadata: dict[str, dict[str, Any]] = {}
+        if isinstance(manifest, dict) and isinstance(manifest.get("images"), list):
+            for raw in manifest["images"]:
+                if not isinstance(raw, dict):
+                    continue
+                key = f"{str(raw.get('subdir') or '').strip()}/{str(raw.get('filename') or '').removesuffix('.webp')}.webp"
+                image_metadata[key] = raw
+
+        externally_supplied_paths: set[str] = set()
+        uploaded_state_path = job_dir / "state" / "uploaded_assets.json"
+        if uploaded_state_path.exists() and only_logical_path is None:
+            uploaded_state = read_json(uploaded_state_path)
+            uploaded_items = uploaded_state.get("items", []) if isinstance(uploaded_state, dict) else []
+            if isinstance(uploaded_items, list):
+                for item in uploaded_items:
+                    if not isinstance(item, dict) or item.get("type") != "image":
+                        continue
+                    subdir = str(item.get("subdir") or "").strip()
+                    filename = Path(str(item.get("filename") or "")).name
+                    if subdir in {"background", "figure"} and filename:
+                        externally_supplied_paths.add(f"{subdir}/{filename}")
+
+        if include_images:
+            for subdir, kind in (("background", "BACKGROUND"), ("figure", "FIGURE")):
+                directory = root / subdir
+                if not directory.exists():
+                    continue
+                for path in sorted(directory.glob("*.webp")):
+                    logical_path = f"{subdir}/{path.name}"
+                    if path.name.startswith("miniavatar_") or (only_logical_path and logical_path != only_logical_path):
+                        continue
+                    if logical_path in externally_supplied_paths:
+                        continue
+                    if logical_path not in image_metadata:
+                        continue
+                    try:
+                        from PIL import Image
+                        with Image.open(path) as image:
+                            width, height = image.size
+                    except Exception:
+                        width = height = None
+                    metadata = image_metadata.get(logical_path, {})
+                    source_key = f"job:{job_id}:{logical_path}"
+                    library.publish_file(
+                        user_id=user_id, job_id=job_id, path=path, logical_path=logical_path,
+                        kind=kind, source_type="GENERATED", name=str(metadata.get("display_name") or metadata.get("name") or path.stem),
+                        usage_role=subdir, source_key=source_key, metadata={
+                            "model": manifest.get("model") if isinstance(manifest, dict) else None,
+                            "prompt": metadata.get("prompt"),
+                        }, width=width, height=height,
+                    )
+                    if subdir == "figure":
+                        avatar_name = f"miniavatar_{path.stem.removeprefix('figure_')}.webp" if path.stem.startswith("figure_") else f"miniavatar_{path.stem}.webp"
+                        avatar_path = path.parent / avatar_name
+                        if avatar_path.exists():
+                            library.publish_file(
+                                user_id=user_id, job_id=job_id, path=avatar_path,
+                                logical_path=f"figure/{avatar_name}", kind="FIGURE", source_type="GENERATED",
+                                name=str(metadata.get("display_name") or metadata.get("name") or path.stem),
+                                usage_role="avatar", source_key=source_key, variant="avatar", metadata={
+                                    "model": manifest.get("model") if isinstance(manifest, dict) else None,
+                                    "prompt": metadata.get("prompt"),
+                                }, width=400, height=400,
+                            )
+        if include_voice:
+            vocal_dir = job_dir / "public" / "game" / "vocal"
+            if vocal_dir.exists():
+                for path in sorted(vocal_dir.glob("*")):
+                    if not path.is_file():
+                        continue
+                    logical_path = f"vocal/{path.name}"
+                    library.publish_file(
+                        user_id=user_id, job_id=job_id, path=path, logical_path=logical_path,
+                        kind="VOICE", source_type="GENERATED", name=path.stem, usage_role="voice",
+                        source_key=f"job:{job_id}:{logical_path}",
+                    )
+
+    def _ensure_runtime_image_assets(self, job: dict[str, Any]) -> None:
+        identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+        if identity.get("type") != "sso" or not identity.get("user_id"):
+            return
+        job_id = str(job["id"])
+        job_dir = self.store.job_dir(job_id)
+        manifest_path = job_dir / "assets_manifest.json"
+        if not manifest_path.exists():
+            return
+        manifest = read_json(manifest_path)
+        images = manifest.get("images", []) if isinstance(manifest, dict) else []
+        expected = {
+            f"{str(item.get('subdir') or '').strip()}/{str(item.get('filename') or '').removesuffix('.webp')}.webp"
+            for item in images
+            if isinstance(item, dict) and str(item.get("subdir") or "") in {"background", "figure"}
+        }
+        urls = AssetLibrary().runtime_urls_for_job(str(identity["user_id"]), job_id)
+        if expected - set(urls):
+            self._register_generated_assets(
+                job,
+                include_images=True,
+                include_voice=False,
+                prefer_public_images=True,
+            )
+
+    def _publish_asset_version(self, job: dict[str, Any]) -> None:
+        identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+        if identity.get("type") != "sso" or not identity.get("user_id"):
+            return
+        current = self.store.get(str(job["id"]))
+        AssetLibrary().publish_game_version(
+            user_id=str(identity["user_id"]),
+            job_id=str(job["id"]),
+            draft_revision=int(current.get("draft_revision", 0)),
+        )
+
+    def _rewrite_runtime_asset_urls(self, job: dict[str, Any]) -> None:
+        identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+        if identity.get("type") != "sso" or not identity.get("user_id"):
+            return
+        job_id = str(job["id"])
+        job_dir = self.store.job_dir(job_id)
+        urls = AssetLibrary().runtime_urls_for_job(str(identity["user_id"]), job_id)
+        if not urls:
+            return
+        script_path = job_dir / "state" / "game_design_webgal.txt"
+        if script_path.exists():
+            source = script_path.read_text(encoding="utf-8")
+            rewritten = rewrite_webgal_asset_urls(source, urls)
+            if rewritten != source:
+                script_path.write_text(rewritten, encoding="utf-8")
+        scene_dir = job_dir / "public" / "game" / "scene"
+        if scene_dir.exists():
+            for scene_path in scene_dir.glob("*.txt"):
+                source = scene_path.read_text(encoding="utf-8")
+                rewritten = rewrite_webgal_asset_urls(source, urls)
+                if rewritten != source:
+                    scene_path.write_text(rewritten, encoding="utf-8")
 
     def run_script_rewrite(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "SCRIPT_REWRITE")
@@ -1044,6 +1236,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         job_dir = self.store.job_dir(job["id"])
         with self._trace_stage(job, 7, "素材生成", "generated_vocals", "state/tts_manifest.json, public/game/vocal/*.wav"):
             self._generate_tts_artifacts(job, job_dir)
+            self._register_generated_assets(job, include_images=False, include_voice=True)
         self.store.transition(job, "TTS_READY", "TTS_GENERATION")
 
     def run_tts_preview_generation(self, job: dict[str, Any]) -> None:

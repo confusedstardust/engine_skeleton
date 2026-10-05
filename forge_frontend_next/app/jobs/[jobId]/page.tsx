@@ -4,11 +4,12 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoryFlowView } from "../../../components/story-flow-view";
 import { planningGraph, type StoryGraph } from "../../../components/story-graph-data";
-import { LaperAssetWorkbench, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
+import { LaperAssetWorkbench, type PersonalLibraryAsset, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 import { SceneScrollButton } from "../../../components/scene-scroll-button";
+import { CreditBalance, creditBalanceChangedEvent } from "../../../components/credit-balance";
 import { repairContinuationLabels, validateSceneConnections } from "../../../components/scene-connections";
 import { withBasePath } from "../../base-path";
 import { inviteHeaders, jsonAuthHeaders } from "../../invite-identity";
@@ -35,6 +36,11 @@ type PublicationResponse = {
     title: string;
     playUrl: string;
   };
+};
+
+type QuizResponse = {
+  status: string;
+  quiz?: unknown | null;
 };
 
 type WorkflowStage = "outline" | "scenes" | "assets" | "complete";
@@ -1224,6 +1230,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         method: "POST",
         body: JSON.stringify({ filename: asset.filename, prompt, background: true, base_revision: data?.job.draft_revision ?? 0 })
       });
+      window.dispatchEvent(new Event(creditBalanceChangedEvent));
       setAssetPromptDirty(false);
       setMessage("单个素材已加入生成队列。");
       await refresh(true);
@@ -1265,6 +1272,35 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     } finally { setBusy(false); }
   }
 
+  async function loadLibraryAssets(kind: PersonalLibraryAsset["kind"]): Promise<PersonalLibraryAsset[]> {
+    const result = await api<{ assets: PersonalLibraryAsset[] }>(`/assets?kind=${kind}&source_type=GENERATED&limit=100`);
+    return result.assets.filter((asset) => asset.variant === "original");
+  }
+
+  async function useLibraryAsset(asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string): Promise<boolean> {
+    setBusy(true);
+    setMessage(`正在从素材库调用「${asset.name}」...`);
+    try {
+      await api(`/jobs/${jobId}/assets/from-library`, {
+        method: "POST",
+        body: JSON.stringify({
+          asset_file_id: asset.file_id,
+          target,
+          replace_filename: replaceFilename,
+          base_revision: data?.job.draft_revision ?? 0
+        })
+      });
+      setMessage(target === "bgm" ? "素材库音乐已加入当前作品。" : "素材库图片已替换当前草稿素材。");
+      await refresh(true);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "调用素材库失败。");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeAssetBackground(asset: AssetReviewItem): Promise<boolean> {
     setBusy(true);
     setMessage(`正在为 ${assetDisplayName(asset)} 抠图...`);
@@ -1293,6 +1329,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "语音试听生成失败。");
     } finally {
+      window.dispatchEvent(new Event(creditBalanceChangedEvent));
       setVoiceGeneratingSpeaker(null);
       setBusy(false);
     }
@@ -1457,6 +1494,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           <Link href="/" onClick={(event) => {
             if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
           }}>新建任务</Link>
+          <CreditBalance />
           {hasPublishedBuild && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
         </nav>
       </header>
@@ -1576,6 +1614,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
             uploadAsset={uploadAsset}
+            loadLibraryAssets={loadLibraryAssets}
+            useLibraryAsset={useLibraryAsset}
             removeAssetBackground={removeAssetBackground}
             gameReady={hasPublishedBuild}
             buildState={data.job.build_state || "CURRENT"}
@@ -1638,6 +1678,7 @@ function CompletionPanel(props: {
   const [flowNotice, setFlowNotice] = useState("");
   const [flowFullscreen, setFlowFullscreen] = useState(false);
   const [publication, setPublication] = useState<PublicationResponse | null>(null);
+  const [quiz, setQuiz] = useState<QuizResponse | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [publicationMessage, setPublicationMessage] = useState("");
   const flowModalRef = useRef<HTMLElement | null>(null);
@@ -1649,6 +1690,19 @@ function CompletionPanel(props: {
       })
       .catch(() => {
         if (active) setPublication(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.job.id]);
+  useEffect(() => {
+    let active = true;
+    api<QuizResponse>(`/jobs/${props.job.id}/quiz`)
+      .then((value) => {
+        if (active) setQuiz(value);
+      })
+      .catch(() => {
+        if (active) setQuiz(null);
       });
     return () => {
       active = false;
@@ -1728,7 +1782,12 @@ function CompletionPanel(props: {
   const building = state === "BUILDING" || props.job.status === "RUNNING" || props.job.status === "QUEUED";
   return (
     <section className="completion-panel" aria-labelledby="completion-title">
-      <div className="completion-seal" aria-hidden="true">成</div>
+      <div className="completion-cover">
+        <img
+          src={withBasePath(`/play/${props.job.id}/cover?revision=${props.job.published_revision ?? 0}`)}
+          alt="当前游戏封面"
+        />
+      </div>
       <div className="completion-copy">
         <span className="completion-kicker">PUBLISHED BUILD</span>
         <h2 id="completion-title">{building ? "正在应用修改" : failed ? "修改应用失败" : stale ? "已有草稿修改" : "当前游戏已发布"}</h2>
@@ -1750,9 +1809,9 @@ function CompletionPanel(props: {
       <div className="completion-actions">
         <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
         <button className="btn ecosystem-publish" type="button" disabled={building || publicationBusy} onClick={publishToEcosystem}>
-          {publicationBusy ? "正在处理…" : publication?.published ? "更新教师生态作品" : "一键发布到教师生态"}
+          {publicationBusy ? "正在处理…" : publication?.published ? "更新发布" : "发布"}
         </button>
-        <Link className="btn outline" href={`/practice/${props.job.id}`}>打开讲评练</Link>
+        <Link className="btn outline" href={`/practice/${props.job.id}`}>{quiz?.quiz || quiz?.status === "READY" ? "打开习题" : "生成习题"}</Link>
         {publication?.published ? <button className="publication-remove" type="button" disabled={publicationBusy} onClick={removeFromEcosystem}>取消生态发布</button> : null}
         {publicationMessage ? <span className="publication-message" role="status">{publicationMessage}</span> : null}
         <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>查看最新流程图</button>
@@ -1793,6 +1852,8 @@ function AssetReviewPanel(props: {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"]) => Promise<PersonalLibraryAsset[]>;
+  useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
   gameReady: boolean;
   buildState: string;
@@ -1875,6 +1936,8 @@ function AssetReviewPanel(props: {
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}
       uploadAsset={props.uploadAsset}
+      loadLibraryAssets={props.loadLibraryAssets}
+      useLibraryAsset={props.useLibraryAsset}
       removeAssetBackground={props.removeAssetBackground}
       buildGame={props.buildGame}
       retryAction={props.retryAction}

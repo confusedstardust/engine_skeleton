@@ -113,6 +113,7 @@ class OpenAIFunctionClient:
         try:
             with urllib.request.urlopen(request, timeout=180) as response:
                 result = json.loads(response.read().decode("utf-8"))
+                self._write_usage_trace(function_name, result.get("usage"), trace_path)
                 return result
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -295,6 +296,17 @@ class OpenAIFunctionClient:
         path = traces[-1]
         trace = json.loads(path.read_text(encoding="utf-8"))
         trace["parsed_arguments"] = {"content": text}
+        path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def _write_usage_trace(self, trace_name: str, usage: Any, path: Path | None) -> None:
+        """Persist provider-reported usage without estimating missing token counts."""
+        if not self.trace_dir or path is None or not isinstance(usage, dict):
+            return
+        trace = json.loads(path.read_text(encoding="utf-8"))
+        trace["usage"] = usage
+        trace["provider"] = self.provider
+        trace["model"] = self.model
+        trace["trace_name"] = trace_name
         path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     def _strip_markdown_json_fence(self, text: str) -> str:

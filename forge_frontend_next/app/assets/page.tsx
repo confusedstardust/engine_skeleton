@@ -1,75 +1,75 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { withBasePath } from "../base-path";
 import { getCurrentUser, jsonAuthHeaders } from "../invite-identity";
+import { CreditBalance } from "../../components/credit-balance";
 
-type Asset = { id: string; name: string; kind: string; source_type: string; created_at: string; file_id?: string | null; mime_type?: string | null; size_bytes?: number | null; width_px?: number | null; height_px?: number | null; url?: string | null };
-type Cursor = { created_at: string; id: string } | null;
-type AssetResponse = { items: Asset[]; next_cursor: Cursor };
-const kindLabels: Record<string, string> = { BACKGROUND: "背景", FIGURE: "角色", VOICE: "语音", BGM: "音乐", SFX: "音效", OTHER: "其他" };
+type Asset = {
+  id: string; name: string; kind: string; source_type: string; created_at: string;
+  file_id: string; revision: number; variant: string; mime_type: string; size_bytes: number;
+  width_px?: number | null; height_px?: number | null; duration_ms?: number | null; url: string;
+};
+type Job = { id: string; status: string; has_published_build?: boolean; options?: { classroom_topic?: string }; source_material?: string };
 
-function formatSize(bytes?: number | null) {
-  if (!bytes) return "—";
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(withBasePath(`/api/forge${path}`), {
+    ...init, credentials: "include", headers: { ...jsonAuthHeaders(), ...(init?.headers || {}), ...(init?.body ? { "Content-Type": "application/json" } : {}) },
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<T>;
 }
 
-async function fetchAssets(source: string, kind: string, cursor?: Cursor): Promise<AssetResponse> {
-  const params = new URLSearchParams({ limit: "30" });
-  if (source !== "ALL") params.set("source_type", source);
-  if (kind !== "ALL") params.set("kind", kind);
-  if (cursor) { params.set("cursor_created_at", cursor.created_at); params.set("cursor_id", cursor.id); }
-  const response = await fetch(withBasePath(`/api/forge/assets?${params}`), { credentials: "include", headers: jsonAuthHeaders() });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: string } | null;
-    throw new Error(body?.detail || "素材库加载失败");
-  }
-  return response.json() as Promise<AssetResponse>;
-}
+const labels: Record<string, string> = { BACKGROUND: "场景", FIGURE: "角色", VOICE: "语音", BGM: "音乐", SFX: "音效", OTHER: "其他" };
+const targets: Record<string, string> = { BACKGROUND: "background", FIGURE: "figure", BGM: "bgm" };
 
 export default function AssetsPage() {
-  const [items, setItems] = useState<Asset[]>([]);
-  const [source, setSource] = useState("ALL");
-  const [kind, setKind] = useState("ALL");
-  const [cursor, setCursor] = useState<Cursor>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobId, setJobId] = useState("");
+  const [filter, setFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [authMissing, setAuthMissing] = useState(false);
   const [error, setError] = useState("");
-  const load = useCallback(async (append = false, next?: Cursor) => {
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    try {
-      const data = await fetchAssets(source, kind, next);
-      setItems((current) => append ? [...current, ...data.items] : data.items);
-      setCursor(data.next_cursor); setError("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "素材库加载失败"); }
-    finally { setLoading(false); setLoadingMore(false); }
-  }, [kind, source]);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState("");
 
   useEffect(() => {
     let active = true;
     getCurrentUser().then((user) => {
+      if (!user) throw new Error("请先登录 NarrativeOS");
+      return Promise.all([api<{ assets: Asset[] }>("/assets"), api<{ jobs: Job[] }>("/jobs")]);
+    }).then(([assetData, jobData]) => {
       if (!active) return;
-      if (!user || user.auth_type !== "sso") { setAuthMissing(true); setLoading(false); return; }
-      setAuthMissing(false); void load();
-    });
+      setAssets(assetData.assets || []); setJobs(jobData.jobs || []);
+      if (jobData.jobs?.[0]) setJobId(jobData.jobs[0].id);
+    }).catch((reason) => active && setError(reason instanceof Error ? reason.message : "资产库加载失败"))
+      .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [load]);
+  }, []);
+
+  const visible = useMemo(() => assets.filter((asset) => asset.variant === "original" && (filter === "ALL" || asset.kind === filter)), [assets, filter]);
+  async function applyAsset(asset: Asset) {
+    const target = targets[asset.kind];
+    if (!target || !jobId) return;
+    setBusy(asset.file_id); setError(""); setNotice("");
+    try {
+      await api(`/jobs/${jobId}/assets/from-library`, { method: "POST", body: JSON.stringify({ asset_file_id: asset.file_id, target }) });
+      setNotice(`已将「${asset.name}」加入所选作品草稿`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "调用素材失败");
+    } finally { setBusy(""); }
+  }
+  function jobName(job: Job) { return job.options?.classroom_topic || job.source_material?.split(/\r?\n/)[0]?.slice(0, 28) || job.id.slice(0, 8); }
 
   return <>
-    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/?workspace=1"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">临场 · 素材库</span><span className="brand-subtitle">ASSET LIBRARY</span></div></Link><Link className="workspace-back" href="/?workspace=1"><span>返回工作台</span></Link></div><nav className="nav-links"><Link href="/history">我的作品</Link><Link className="nav-login" href="/login">账户</Link></nav></header>
+    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">临场 · 我的资产</span><span className="brand-subtitle">PERSONAL ASSET LIBRARY</span></div></Link><Link className="workspace-back" href="/"><span>返回首页</span></Link></div><nav className="nav-links"><Link href="/history">我的作品</Link><CreditBalance /><Link href="/login">账户</Link></nav></header>
     <main className="main-wrapper asset-library-wrapper">
-      <section className="page-header asset-library-head"><div><h1>我的素材库</h1><p>AI 生成和你上传的素材统一保存到 OSS，并按账号隔离。</p></div><span>{items.length} 项已加载</span></section>
-      <section className="asset-library-toolbar" aria-label="素材筛选"><div>{[["ALL","全部来源"],["GENERATED","AI 生成"],["UPLOADED","用户上传"],["IMPORTED","素材库导入"]].map(([value,label]) => <button type="button" key={value} className={source === value ? "active" : ""} onClick={() => setSource(value)}>{label}</button>)}</div><select aria-label="素材类型" value={kind} onChange={(event) => setKind(event.target.value)}><option value="ALL">全部类型</option>{Object.entries(kindLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></section>
-      {authMissing ? <div className="history-empty"><strong>请先登录 NarrativeOS</strong><span>素材库仅对正式账号开放。</span><Link className="btn primary" href="/login">前往登录</Link></div> : null}
-      {loading ? <div className="history-empty">正在加载素材...</div> : null}
-      {error ? <div className="history-empty error"><strong>暂时无法加载素材库</strong><span>{error}</span><button className="btn outline" type="button" onClick={() => void load()}>重试</button></div> : null}
-      {!loading && !error && !authMissing && items.length === 0 ? <div className="history-empty"><strong>暂无素材</strong><span>生成游戏或在素材审阅页上传文件后，素材会出现在这里。</span><Link className="btn primary" href="/?workspace=1">创建游戏</Link></div> : null}
-      <section className="asset-library-grid" aria-label="素材列表">{items.map((asset) => <article className="asset-library-card" key={asset.id}><div className="asset-library-preview">{asset.mime_type?.startsWith("image/") && asset.url ? <img src={asset.url} alt={asset.name} loading="lazy" /> : <span>{["VOICE","BGM","SFX"].includes(asset.kind) ? asset.kind : "FILE"}</span>}</div><div className="asset-library-copy"><div><span className={`asset-source ${asset.source_type.toLowerCase()}`}>{asset.source_type === "GENERATED" ? "AI 生成" : asset.source_type === "UPLOADED" ? "用户上传" : "素材库"}</span><span>{kindLabels[asset.kind] || asset.kind}</span></div><h2 title={asset.name}>{asset.name}</h2><p>{asset.width_px && asset.height_px ? `${asset.width_px} × ${asset.height_px} · ` : ""}{formatSize(asset.size_bytes)}</p></div></article>)}</section>
-      {cursor ? <div className="asset-library-more"><button className="btn outline" type="button" disabled={loadingMore} onClick={() => void load(true, cursor)}>{loadingMore ? "加载中..." : "加载更多"}</button></div> : null}
+      <section className="page-header asset-library-head"><div><p className="router-kicker">YOUR CREATIVE MEMORY</p><h1>我的资产库</h1><span>上传和生成的素材会自动保存在这里，可跨作品重复使用。</span></div><div className="asset-use-target"><label htmlFor="asset-target-job">调用到作品</label><select id="asset-target-job" value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">请选择作品</option>{jobs.map((job) => <option key={job.id} value={job.id}>{jobName(job)}</option>)}</select></div></section>
+      <section className="asset-library-filters" aria-label="素材筛选">{["ALL", "BACKGROUND", "FIGURE", "VOICE", "BGM"].map((kind) => <button className={filter === kind ? "active" : ""} key={kind} onClick={() => setFilter(kind)}>{kind === "ALL" ? "全部" : labels[kind]}</button>)}</section>
+      {notice ? <div className="asset-library-notice">{notice}</div> : null}{error ? <div className="history-empty error">{error}</div> : null}{loading ? <div className="history-empty">正在整理你的资产...</div> : null}
+      {!loading && !error && visible.length === 0 ? <div className="history-empty"><strong>这里还没有素材</strong><span>在作品中上传或生成图片、语音和音乐后，会自动出现在这里。</span><Link className="btn primary" href="/?workspace=1">开始创作</Link></div> : null}
+      <section className="asset-library-grid">{visible.map((asset) => <article className="asset-library-card" key={asset.file_id}><div className="asset-library-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt={asset.name} /> : asset.mime_type.startsWith("audio/") ? <audio controls preload="none" src={asset.url} /> : <span>{labels[asset.kind] || "素材"}</span>}</div><div className="asset-library-card-body"><div><span className="asset-kind">{labels[asset.kind] || asset.kind}</span><h2>{asset.name}</h2><p>{asset.source_type === "GENERATED" ? "AI 生成" : "用户上传"} · 第 {asset.revision} 版{asset.width_px ? ` · ${asset.width_px}×${asset.height_px}` : ""}</p></div>{targets[asset.kind] ? <button className="btn primary" disabled={!jobId || busy === asset.file_id} onClick={() => applyAsset(asset)}>{busy === asset.file_id ? "正在加入..." : "用于作品"}</button> : <span className="asset-library-hint">暂不支持直接调用</span>}</div></article>)}</section>
     </main>
   </>;
 }
