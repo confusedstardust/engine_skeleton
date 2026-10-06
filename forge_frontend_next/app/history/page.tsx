@@ -8,6 +8,7 @@ import { CreditBalance } from "../../components/credit-balance";
 
 type Job = {
   id: string;
+  title?: string;
   status: string;
   phase?: string | null;
   error?: string | null;
@@ -55,16 +56,14 @@ async function api<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function compactId(id: string) {
-  return `${id.slice(0, 8)}...${id.slice(-4)}`;
-}
-
 function jobTitle(job: Job) {
+  const title = String(job.title || "").trim();
+  if (title) return title;
   const topic = String(job.options?.classroom_topic || "").trim();
   if (topic) return topic;
   const source = String(job.source_material || "").trim();
   const firstLine = source.split(/\r?\n/).find(Boolean);
-  return firstLine?.replace(/^课堂主题[:：]\s*/, "").slice(0, 36) || `任务 ${compactId(job.id)}`;
+  return firstLine?.replace(/^课堂主题[:：]\s*/, "").slice(0, 36) || "未命名游戏";
 }
 
 function formatTime(value?: string) {
@@ -167,7 +166,6 @@ export default function HistoryPage() {
       <main className="main-wrapper history-wrapper">
         <section className="page-header history-head" aria-labelledby="history-title">
           <h1 id="history-title">生成记录</h1>
-          <p>这里只显示当前 NarrativeOS 账号创建的任务，不会混入其他账号的生成记录。</p>
         </section>
 
         <section className="history-toolbar" aria-label="记录筛选">
@@ -212,9 +210,8 @@ export default function HistoryPage() {
                   </span>
                 </div>
                 <div className="history-meta">
-                  <span>任务 {compactId(job.id)}</span>
                   <span>更新 {formatTime(job.updated_at || job.created_at)}</span>
-                  <span>{job.phase || "等待开始"}</span>
+                  {job.phase ? <span>{job.phase}</span> : null}
                 </div>
                 {job.error ? <p className="history-error">{job.error}</p> : null}
               </div>

@@ -8,9 +8,10 @@ from webgal_backend.asset_library import AssetLibrary, AssetLibraryError
 
 
 class RecordingCursor:
-    def __init__(self, fetches=None) -> None:
+    def __init__(self, fetches=None, rowcount=1) -> None:
         self.calls = []
         self.fetches = list(fetches or [])
+        self.rowcount = rowcount
 
     def execute(self, query, params=()):
         self.calls.append((" ".join(str(query).split()), tuple(params)))
@@ -125,3 +126,35 @@ def test_visibility_migration_never_blocks_or_rewrites_generated_files():
     assert "SET visibility = 'PUBLIC'" in migration
     assert "UPDATE asset_files" not in migration
     assert "SET asset.status" not in migration
+
+
+def test_rename_asset_is_owner_scoped():
+    cursor = RecordingCursor([{"id": "a" * 32, "name": "新名称", "kind": "FIGURE", "source_type": "UPLOADED"}])
+    library = library_with_cursor(cursor)
+
+    result = library.rename_asset("owner-user", "a" * 32, "  新名称  ")
+
+    assert result["name"] == "新名称"
+    update_query, update_params = cursor.calls[0]
+    assert "owner_user_id=%s" in update_query
+    assert update_params == ("新名称", "a" * 32, "owner-user")
+
+
+def test_delete_asset_soft_deletes_owner_asset_without_touching_files():
+    cursor = RecordingCursor()
+    library = library_with_cursor(cursor)
+
+    library.delete_asset("owner-user", "a" * 32)
+
+    query, params = cursor.calls[0]
+    assert "UPDATE assets SET status='DELETED'" in query
+    assert "owner_user_id=%s" in query
+    assert params == ("a" * 32, "owner-user")
+    assert "asset_files" not in query
+
+
+def test_delete_asset_rejects_missing_or_foreign_asset():
+    library = library_with_cursor(RecordingCursor(rowcount=0))
+
+    with pytest.raises(AssetLibraryError, match="Asset not found"):
+        library.delete_asset("owner-user", "a" * 32)

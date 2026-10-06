@@ -344,6 +344,10 @@ class UseLibraryAssetRequest(BaseModel):
     base_revision: int | None = Field(default=None, ge=0)
 
 
+class AssetRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class SceneMusicOverrideRequest(BaseModel):
     scene_file: str = Field(min_length=1)
     asset: str | None = None
@@ -474,6 +478,35 @@ def list_personal_assets(
     except Exception as exc:
         logger.exception("Asset library lookup failed for user_id=%s", user.get("id"))
         raise HTTPException(status_code=503, detail="资产库暂时不可用，请稍后重试") from exc
+
+
+@app.put("/assets/{asset_id}/name")
+def rename_personal_asset(asset_id: str, payload: AssetRenameRequest, request: Request) -> dict[str, Any]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="素材名称不能为空")
+    try:
+        return {"asset": get_asset_library().rename_asset(str(user["id"]), asset_id.lower(), payload.name)}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权修改") from exc
+
+
+@app.delete("/assets/{asset_id}")
+def delete_personal_asset(asset_id: str, request: Request) -> dict[str, bool]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    try:
+        get_asset_library().delete_asset(str(user["id"]), asset_id.lower())
+        return {"deleted": True}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权删除") from exc
 
 
 @app.get("/")
@@ -1182,8 +1215,6 @@ def use_personal_asset(job_id: str, payload: UseLibraryAssetRequest, request: Re
     expected = {"background": {"BACKGROUND"}, "figure": {"FIGURE"}, "bgm": {"BGM"}}
     if str(record["kind"]) not in expected[payload.target] or str(record["variant"]) != "original":
         raise HTTPException(status_code=422, detail="素材类型与目标位置不匹配")
-    if str(record["source_type"]) != "GENERATED":
-        raise HTTPException(status_code=422, detail="当前入口仅支持选择 AI 生成素材")
     source_suffix = Path(str(record["object_key"])).suffix.lower()
     safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(record["name"])).strip("_") or "library_asset"
     replacement = Path(payload.replace_filename or "").name.removesuffix(".webp")

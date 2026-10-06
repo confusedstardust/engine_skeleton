@@ -236,6 +236,35 @@ class AssetLibrary:
             raise AssetLibraryError("Asset file not found")
         return dict(row)
 
+    def rename_asset(self, user_id: str, asset_id: str, name: str) -> dict[str, Any]:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise AssetLibraryError("Asset name is required")
+        with self._transaction() as cursor:
+            cursor.execute(
+                "UPDATE assets SET name=%s WHERE id=%s AND owner_user_id=%s AND status='ACTIVE'",
+                (normalized_name[:200], asset_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise AssetLibraryError("Asset not found")
+            cursor.execute(
+                "SELECT id, name, kind, source_type FROM assets WHERE id=%s AND owner_user_id=%s",
+                (asset_id, user_id),
+            )
+            row = cursor.fetchone()
+        return dict(row)
+
+    def delete_asset(self, user_id: str, asset_id: str) -> None:
+        # Keep immutable files available for already-published game versions, but
+        # remove the logical asset from the owner's active personal library.
+        with self._transaction() as cursor:
+            cursor.execute(
+                "UPDATE assets SET status='DELETED' WHERE id=%s AND owner_user_id=%s AND status='ACTIVE'",
+                (asset_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise AssetLibraryError("Asset not found")
+
     def get_accessible_file(self, user_id: str, file_id: str) -> dict[str, Any]:
         with self._transaction() as cursor:
             cursor.execute(

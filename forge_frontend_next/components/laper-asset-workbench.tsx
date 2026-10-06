@@ -60,7 +60,7 @@ export type PersonalLibraryAsset = {
   file_id: string;
   name: string;
   kind: "FIGURE" | "BACKGROUND" | "BGM";
-  source_type: "GENERATED";
+  source_type: "GENERATED" | "UPLOADED";
   revision: number;
   variant: string;
   mime_type: string;
@@ -135,7 +135,7 @@ type LaperAssetWorkbenchProps = {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
-  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"]) => Promise<PersonalLibraryAsset[]>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], scope: "personal" | "library") => Promise<PersonalLibraryAsset[]>;
   useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
 };
@@ -600,6 +600,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [imageUploading, setImageUploading] = useState(false);
   const [libraryPicker, setLibraryPicker] = useState<{ kind: PersonalLibraryAsset["kind"]; target: "figure" | "background" | "bgm"; replaceFilename?: string } | null>(null);
   const [libraryAssets, setLibraryAssets] = useState<PersonalLibraryAsset[]>([]);
+  const [libraryScope, setLibraryScope] = useState<"personal" | "library">("personal");
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState("");
   const [selectedLibraryFileId, setSelectedLibraryFileId] = useState("");
@@ -659,14 +660,31 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
 
   async function openLibraryPicker(kind: PersonalLibraryAsset["kind"], target: "figure" | "background" | "bgm", replaceFilename?: string) {
     setLibraryPicker({ kind, target, replaceFilename });
+    setLibraryScope("personal");
     setLibraryAssets([]);
     setSelectedLibraryFileId("");
     setLibraryError("");
     setLibraryLoading(true);
     try {
-      setLibraryAssets(await props.loadLibraryAssets(kind));
+      setLibraryAssets(await props.loadLibraryAssets(kind, "personal"));
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : "素材库加载失败，请稍后重试");
+    } finally {
+      setLibraryLoading(false);
+    }
+  }
+
+  async function changeLibraryScope(scope: "personal" | "library") {
+    if (!libraryPicker || scope === libraryScope) return;
+    setLibraryScope(scope);
+    setLibraryAssets([]);
+    setSelectedLibraryFileId("");
+    setLibraryError("");
+    setLibraryLoading(true);
+    try {
+      setLibraryAssets(await props.loadLibraryAssets(libraryPicker.kind, scope));
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : "素材加载失败，请稍后重试");
     } finally {
       setLibraryLoading(false);
     }
@@ -1092,12 +1110,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         <div className="asset-library-picker-layer" role="presentation">
           <button className="asset-modal-backdrop" type="button" aria-label="关闭素材库" onClick={() => !libraryApplying && setLibraryPicker(null)} />
           <section className="asset-library-picker" role="dialog" aria-modal="true" aria-labelledby="asset-library-picker-title">
-            <header className="asset-modal-head"><div><span>GENERATED ASSET LIBRARY</span><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
+            <header className="asset-modal-head"><div><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
             <div className="asset-library-picker-body">
-              {libraryLoading ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在整理你的 AI 生成素材…</strong></div> : null}
+              <div className="asset-library-scope-tabs" role="tablist" aria-label="素材来源"><button className={libraryScope === "personal" ? "active" : ""} type="button" role="tab" aria-selected={libraryScope === "personal"} disabled={libraryApplying} onClick={() => void changeLibraryScope("personal")}>用户的资产</button><button className={libraryScope === "library" ? "active" : ""} type="button" role="tab" aria-selected={libraryScope === "library"} disabled={libraryApplying} onClick={() => void changeLibraryScope("library")}>素材库资产</button></div>
+              {libraryLoading ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>{libraryScope === "personal" ? "正在整理你的资产…" : "正在加载素材库…"}</strong></div> : null}
               {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong></div> : null}
-              {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>还没有可用的 AI 生成素材</strong><span>完成一次对应类型的素材生成后，它会自动出现在这里。</span></div> : null}
-              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong><span>{asset.kind === "BGM" ? "AI 生成音乐" : [asset.width_px, asset.height_px].every(Boolean) ? `${asset.width_px} × ${asset.height_px}` : "AI 生成图片"}</span></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
+              {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>{libraryScope === "personal" ? "还没有可用的个人资产" : "素材库中暂无对应素材"}</strong><span>{libraryScope === "personal" ? "生成或上传对应类型的素材后，它会出现在这里。" : "请稍后再来查看。"}</span></div> : null}
+              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; const sourceLabel = asset.source_type === "UPLOADED" ? "用户上传" : "AI 生成"; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong><span>{sourceLabel}{asset.kind !== "BGM" && [asset.width_px, asset.height_px].every(Boolean) ? ` · ${asset.width_px} × ${asset.height_px}` : ""}</span></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
             </div>
             <footer className="asset-modal-actions"><span className="asset-library-picker-count">{selectedLibraryFileId ? "已选择 1 项" : "请选择一项素材"}</span><button className="btn outline" type="button" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>取消</button><button className="btn primary" type="button" disabled={!selectedLibraryFileId || libraryApplying} onClick={() => void applyLibraryAsset()}>{libraryApplying ? "正在使用…" : "使用此素材"}</button></footer>
           </section>

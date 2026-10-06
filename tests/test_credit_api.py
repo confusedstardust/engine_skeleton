@@ -83,6 +83,15 @@ class FakeAssetLibrary:
     def download_accessible_variant(self, user_id: str, asset_id: str, variant: str):
         return None
 
+    def record_draft_usage(self, **kwargs):
+        return None
+
+    def rename_asset(self, user_id: str, asset_id: str, name: str):
+        return {"id": asset_id, "name": name.strip(), "kind": "FIGURE", "source_type": "UPLOADED"}
+
+    def delete_asset(self, user_id: str, asset_id: str):
+        return None
+
 
 def _authenticated_user(_request, _workspace_root):
     return {
@@ -143,31 +152,49 @@ def test_asset_library_rejects_unused_imported_source_type(monkeypatch):
     assert response.json()["detail"] == "unsupported asset source type"
 
 
-def test_from_library_rejects_non_generated_asset(monkeypatch, tmp_path: Path):
+def test_asset_library_owner_can_rename_and_delete_asset(monkeypatch):
+    library = FakeAssetLibrary()
+    monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
+    monkeypatch.setattr(backend_app, "get_asset_library", lambda: library)
+    asset_id = "a" * 32
+
+    rename_response = TestClient(backend_app.app).put(f"/assets/{asset_id}/name", json={"name": " 新名称 "})
+    delete_response = TestClient(backend_app.app).delete(f"/assets/{asset_id}")
+
+    assert rename_response.status_code == 200
+    assert rename_response.json()["asset"]["name"] == "新名称"
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": True}
+
+
+def test_from_library_accepts_owned_uploaded_asset(monkeypatch, tmp_path: Path):
     credits = FakeCredits()
     store = JobStore(tmp_path / "jobs")
     job = store.create("lesson", {"classroom_topic": "课堂"}, {"type": "sso", "user_id": "user-1"})
     library = FakeAssetLibrary({
         "id": "f" * 32,
         "asset_id": "a" * 32,
-        "kind": "FIGURE",
+        "kind": "BGM",
         "source_type": "UPLOADED",
         "variant": "original",
-        "object_key": "assets/uploaded.png",
+        "bucket": "test-bucket",
+        "object_key": "assets/uploaded.mp3",
+        "mime_type": "audio/mpeg",
         "name": "上传素材",
     })
     monkeypatch.setattr(backend_app, "store", store)
     monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
     monkeypatch.setattr(backend_app, "get_credit_service", lambda: credits)
     monkeypatch.setattr(backend_app, "get_asset_library", lambda: library)
+    monkeypatch.setattr(backend_app, "_get_owned_job_or_404", lambda _job_id, _request: store.get(_job_id))
 
     response = TestClient(backend_app.app).post(
         f"/jobs/{job['id']}/assets/from-library",
-        json={"asset_file_id": "f" * 32, "target": "figure", "base_revision": 0},
+        json={"asset_file_id": "f" * 32, "target": "bgm", "base_revision": 0},
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "当前入口仅支持选择 AI 生成素材"
+    assert response.status_code == 200
+    assert response.json()["asset"]["type"] == "bgm"
 
 
 def test_successful_generation_captures_reserved_credits(monkeypatch, tmp_path: Path):
