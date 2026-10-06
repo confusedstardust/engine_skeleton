@@ -158,3 +158,38 @@ def test_delete_asset_rejects_missing_or_foreign_asset():
 
     with pytest.raises(AssetLibraryError, match="Asset not found"):
         library.delete_asset("owner-user", "a" * 32)
+
+
+def test_favorites_are_user_scoped_and_check_access():
+    cursor = RecordingCursor()
+    library_with_cursor(cursor).list_assets("viewer", collection="favorites")
+    query, params = cursor.calls[-1]
+    assert "af.user_id=%s" in query
+    assert "a.owner_user_id=%s OR a.source_type='GENERATED'" in query
+    assert params == ("viewer", "viewer", 100)
+
+
+def test_cannot_favorite_inaccessible_asset():
+    cursor = RecordingCursor([None])
+    with pytest.raises(AssetLibraryError):
+        library_with_cursor(cursor).set_favorite("viewer", "asset", True)
+    assert len(cursor.calls) == 1
+
+
+def test_favorite_is_idempotent_and_unfavorite_only_affects_viewer():
+    cursor = RecordingCursor([{"id": "asset"}])
+    library = library_with_cursor(cursor)
+    library.set_favorite("viewer", "asset", True)
+    assert "ON DUPLICATE KEY UPDATE" in cursor.calls[-1][0]
+    library.set_favorite("viewer", "asset", False)
+    assert cursor.calls[-1][1] == ("viewer", "asset")
+    assert "WHERE user_id=%s AND asset_id=%s" in cursor.calls[-1][0]
+
+
+def test_upload_collection_excludes_generated_assets():
+    cursor = RecordingCursor()
+    library_with_cursor(cursor).list_assets("viewer", collection="uploads")
+    query, params = cursor.calls[-1]
+    assert "a.owner_user_id=%s" in query
+    assert "a.source_type='UPLOADED'" in query
+    assert params == ("viewer", 100)

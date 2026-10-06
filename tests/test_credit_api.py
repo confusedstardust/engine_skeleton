@@ -140,7 +140,7 @@ def test_asset_library_list_forwards_generated_source_filter(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"assets": []}
-    assert library.list_calls == [{"user_id": "user-1", "kind": "FIGURE", "source_type": "GENERATED", "limit": 25}]
+    assert library.list_calls == [{"user_id": "user-1", "kind": "FIGURE", "source_type": "GENERATED", "limit": 25, "collection": None}]
 
 
 def test_asset_library_rejects_unused_imported_source_type(monkeypatch):
@@ -345,3 +345,52 @@ def test_tts_preview_regeneration_has_its_own_metered_reservation(monkeypatch, t
     assert reservation["pricing_snapshot"]["plan"] == "tts-preview-v1"
     assert reservation["units"] == 30
     assert ("capture", "b" * 32) in credits.calls
+
+
+def test_asset_favorite_routes_use_authenticated_user(monkeypatch):
+    calls = []
+    library = FakeAssetLibrary()
+    library.set_favorite = lambda user, asset, favorite: calls.append((user, asset, favorite))
+    monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
+    monkeypatch.setattr(backend_app, "get_asset_library", lambda: library)
+    client = TestClient(backend_app.app)
+    asset = "a" * 32
+    assert client.put(f"/assets/{asset}/favorite").json() == {"favorite": True}
+    assert client.delete(f"/assets/{asset}/favorite").json() == {"favorite": False}
+    assert calls == [("user-1", asset, True), ("user-1", asset, False)]
+    assert client.put("/assets/invalid/favorite").status_code == 422
+    monkeypatch.setattr(backend_app, "user_from_request", _invite_user)
+    assert client.put(f"/assets/{asset}/favorite").status_code == 403
+
+
+def test_asset_collection_filter(monkeypatch):
+    library = FakeAssetLibrary()
+    monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
+    monkeypatch.setattr(backend_app, "get_asset_library", lambda: library)
+    client = TestClient(backend_app.app)
+    assert client.get("/assets?collection=favorites").status_code == 200
+    assert library.list_calls[-1]["collection"] == "favorites"
+    assert client.get("/assets?collection=invalid").status_code == 422
+
+
+def test_asset_search_pagination_uses_lookahead(monkeypatch):
+    library = FakeAssetLibrary()
+    rows = [{"id": str(i)} for i in range(13)]
+    def list_page(user_id, **options):
+        library.list_calls.append(options)
+        return rows
+    library.list_assets = list_page
+    monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
+    monkeypatch.setattr(backend_app, "get_asset_library", lambda: library)
+    client = TestClient(backend_app.app)
+    response = client.get("/assets?page=2&page_size=12&search=courtyard&source_type=GENERATED")
+    assert response.status_code == 200
+    assert response.json() == {"assets": rows[:12], "page": 2, "has_more": True}
+    assert library.list_calls[-1]["offset"] == 12
+    assert library.list_calls[-1]["search"] == "courtyard"
+    assert library.list_calls[-1]["limit"] == 13
+    assert library.list_calls[-1]["original_only"] is True
+    rows.clear()
+    assert client.get("/assets?page=1").json()["has_more"] is False
+    assert client.get("/assets?page=0").status_code == 422
+    assert client.get("/assets?page=1&page_size=100").status_code == 422

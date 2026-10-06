@@ -1270,8 +1270,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     } finally { setBusy(false); }
   }
 
-  async function loadLibraryAssets(kind: PersonalLibraryAsset["kind"], scope: "personal" | "library"): Promise<PersonalLibraryAsset[]> {
-    const sourceFilter = scope === "library" ? "&source_type=GENERATED" : "";
+  async function loadLibraryAssets(kind: PersonalLibraryAsset["kind"], scope: "uploads" | "favorites"): Promise<PersonalLibraryAsset[]> {
+    const sourceFilter = `&collection=${scope}`;
     const result = await api<{ assets: PersonalLibraryAsset[] }>(`/assets?kind=${kind}${sourceFilter}&limit=100`);
     return result.assets.filter((asset) => asset.variant === "original");
   }
@@ -1918,7 +1918,7 @@ function AssetReviewPanel(props: {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
-  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], scope: "personal" | "library") => Promise<PersonalLibraryAsset[]>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], scope: "uploads" | "favorites") => Promise<PersonalLibraryAsset[]>;
   useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
   gameReady: boolean;

@@ -114,15 +114,6 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
     }
   }
 
-  function reveal(question: QuizQuestion) {
-    if (!answers[question.id]) {
-      setMessage("请先选择一个答案。");
-      return;
-    }
-    setMessage("");
-    setRevealed((current) => new Set(current).add(question.id));
-  }
-
   function resetPractice() {
     setAnswers({});
     setRevealed(new Set());
@@ -146,7 +137,8 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
           </Link>
         </div>
         <nav className="nav-links" aria-label="习题导航">
-          {data?.quiz ? <button className="practice-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
+          {data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
+          {data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => void generate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
           <Link href="/history">我的作品</Link>
         </nav>
       </header>
@@ -159,7 +151,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
             <span className="practice-state-mark">练</span>
             <p className="practice-kicker">TEACHER REVIEW KIT</p>
             <h1>为这份作品生成习题</h1>
-            <p>系统会依据教学材料、学习目标和叙事大纲，生成单选与判断辨析卡片，并提供答案解析和教师追问建议。</p>
+            <p>系统会依据教学材料、学习目标和叙事大纲，生成单选与判断习题，并提供答案解析。</p>
             {data?.can_manage ? (
               <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</button>
             ) : <small>这份作品暂未发布习题，请先体验游戏内容。</small>}
@@ -171,7 +163,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
             <span className="practice-spinner" />
             <p className="practice-kicker">GENERATING</p>
             <h1>正在生成习题</h1>
-            <p>正在从作品中提取知识点、常见误区和可用于课堂讲评的追问。</p>
+            <p>正在依据作品内容生成题目与答案解析。</p>
             {data?.quiz ? <small>上一版习题仍被保留，生成成功后会自动更新。</small> : null}
           </section>
         ) : null}
@@ -191,7 +183,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
             <section className="practice-hero">
               <div>
                 <p className="practice-kicker">REVIEW & PRACTICE · {data.quiz.questions.length} CARDS</p>
-                <h1>{data.quiz.title}</h1>
+                <h1>{data.quiz.title.replace(/课后讲评练|讲评练/g, "课后习题")}</h1>
                 <span>{data.quiz.introduction}</span>
               </div>
               <aside>
@@ -210,7 +202,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
                   <article className={`quiz-card ${question.type === "judgement" ? "judgement" : "choice"}`} key={question.id}>
                     <header>
                       <span>{String(index + 1).padStart(2, "0")}</span>
-                      <div><em>{question.type === "judgement" ? "判断辨析" : "单项选择"}</em><small>{question.difficulty} · {question.knowledge_point}</small></div>
+                      <div><em>{question.type === "judgement" ? "判断辨析" : "单项选择"}</em></div>
                     </header>
                     <h2>{question.prompt}</h2>
                     <div className="quiz-options" role="radiogroup" aria-label={question.prompt}>
@@ -225,30 +217,27 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
                             aria-checked={selected === option.id}
                             disabled={isRevealed}
                             key={option.id}
-                            onClick={() => setAnswers((current) => ({ ...current, [question.id]: option.id }))}
+                            onClick={() => {
+                              setAnswers((current) => ({ ...current, [question.id]: option.id }));
+                              setRevealed((current) => new Set(current).add(question.id));
+                            }}
                           >
                             <span>{option.id}</span><strong>{option.text}</strong>
                           </button>
                         );
                       })}
                     </div>
-                    {!isRevealed ? <button className="quiz-submit" type="button" onClick={() => reveal(question)}>确认答案</button> : (
-                      <div className="quiz-explanation">
-                        <strong>{selected === correct ? "回答正确" : `正确答案：${correct}`}</strong>
+                    {isRevealed ? (
+                      <div className="quiz-explanation" role="status">
+                        <strong>{selected === correct ? "回答正确" : `回答错误，正确答案：${correct}`}</strong>
                         <p>{question.explanation}</p>
-                        <div><span>教师讲评提示</span><p>{question.teaching_tip}</p></div>
                       </div>
-                    )}
+                    ) : null}
                   </article>
                 );
               })}
             </section>
 
-            <section className="practice-footer-actions">
-              <button className="btn outline" type="button" onClick={resetPractice}>重新作答</button>
-              {data.can_manage ? <button className="btn outline" type="button" disabled={actionBusy} onClick={() => void generate(true)}>{actionBusy ? "正在处理…" : "重新生成题目"}</button> : null}
-              <Link className="btn primary" href={data.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>{data.can_manage ? "返回作品" : "进入游戏"}</Link>
-            </section>
           </>
         ) : null}
 

@@ -175,8 +175,16 @@ class AssetLibrary:
         kind: str | None = None,
         source_type: str | None = None,
         limit: int = 100,
+        collection: str | None = None,
+        search: str = "",
+        offset: int = 0,
+        original_only: bool = False,
+        include_favorite: bool = False,
     ) -> list[dict[str, Any]]:
-        if source_type == "GENERATED":
+        if collection == "favorites":
+            where = "a.status='ACTIVE' AND f.status='READY' AND (a.owner_user_id=%s OR a.source_type='GENERATED') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)"
+            params: list[Any] = [user_id, user_id]
+        elif source_type == "GENERATED":
             # GENERATED is globally reusable by product definition. Do not hide legacy
             # generated rows that predate the PUBLIC visibility migration.
             where = "a.source_type='GENERATED' AND a.status='ACTIVE' AND f.status='READY'"
@@ -184,20 +192,33 @@ class AssetLibrary:
         else:
             where = "a.owner_user_id=%s AND a.status='ACTIVE' AND f.status='READY'"
             params = [user_id]
+        if collection == "uploads":
+            where += " AND a.source_type='UPLOADED'"
         if kind:
             where += " AND a.kind=%s"
             params.append(kind)
         if source_type and source_type != "GENERATED":
             where += " AND a.source_type=%s"
             params.append(source_type)
+        if search:
+            where += " AND LOCATE(%s, a.name)>0"
+            params.append(search.strip())
+        if original_only:
+            where += " AND f.variant='original'"
+        favorite_select = ", EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s) AS is_favorite" if include_favorite else ""
+        if include_favorite:
+            params.insert(0, user_id)
         params.append(max(1, min(limit, 200)))
+        offset_clause = " OFFSET %s" if offset else ""
+        if offset:
+            params.append(max(0, offset))
         with self._transaction() as cursor:
             cursor.execute(
                 f"""
                 SELECT a.id, a.owner_user_id, a.name, a.kind, a.source_type, a.visibility,
                        a.source_job_id, a.created_at,
                        f.id AS file_id, f.revision, f.variant, f.mime_type, f.size_bytes,
-                       f.width_px, f.height_px, f.duration_ms, f.object_key
+                       f.width_px, f.height_px, f.duration_ms, f.object_key{favorite_select}
                 FROM assets a
                 JOIN asset_files f ON f.asset_id=a.id
                 JOIN (
@@ -206,7 +227,7 @@ class AssetLibrary:
                 ) latest ON latest.asset_id=f.asset_id AND latest.variant=f.variant AND latest.revision=f.revision
                 WHERE {where}
                 ORDER BY a.updated_at DESC, a.id DESC, f.variant ASC
-                LIMIT %s
+                LIMIT %s{offset_clause}
                 """,
                 tuple(params),
             )
@@ -220,6 +241,16 @@ class AssetLibrary:
                     item[key] = item[key].isoformat()
             result.append(item)
         return result
+
+    def set_favorite(self, user_id: str, asset_id: str, favorite: bool) -> None:
+        with self._transaction() as cursor:
+            if favorite:
+                cursor.execute("SELECT id FROM assets WHERE id=%s AND status='ACTIVE' AND (owner_user_id=%s OR source_type='GENERATED') FOR UPDATE", (asset_id, user_id))
+                if cursor.fetchone() is None:
+                    raise AssetLibraryError("Asset not found")
+                cursor.execute("INSERT INTO asset_favorites (user_id, asset_id) VALUES (%s,%s) ON DUPLICATE KEY UPDATE asset_id=VALUES(asset_id)", (user_id, asset_id))
+            else:
+                cursor.execute("DELETE FROM asset_favorites WHERE user_id=%s AND asset_id=%s", (user_id, asset_id))
 
     def get_owned_file(self, user_id: str, file_id: str) -> dict[str, Any]:
         with self._transaction() as cursor:

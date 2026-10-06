@@ -455,10 +455,18 @@ def list_personal_assets(
     kind: str | None = None,
     source_type: str | None = None,
     limit: int = 100,
+    collection: str | None = None,
+    search: str = "",
+    page: int | None = None,
+    page_size: int = 12,
 ) -> dict[str, Any]:
     user = user_from_request(request, settings.workspace_root)
     if user.get("auth_type") != "sso":
         raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if collection not in {None, "uploads", "favorites"}:
+        raise HTTPException(status_code=422, detail="unsupported asset collection")
+    if page is not None and (page < 1 or page_size < 1 or page_size > 48):
+        raise HTTPException(status_code=422, detail="invalid pagination")
     normalized_kind = kind.strip().upper() if kind else None
     allowed = {"BACKGROUND", "FIGURE", "AVATAR", "VOICE", "BGM", "SFX", "VIDEO", "SCRIPT", "OTHER"}
     if normalized_kind and normalized_kind not in allowed:
@@ -467,17 +475,39 @@ def list_personal_assets(
     if normalized_source_type and normalized_source_type not in {"GENERATED", "UPLOADED"}:
         raise HTTPException(status_code=422, detail="unsupported asset source type")
     try:
-        return {
-            "assets": get_asset_library().list_assets(
-                str(user["id"]),
-                kind=normalized_kind,
-                source_type=normalized_source_type,
-                limit=limit,
-            )
-        }
+        options: dict[str, Any] = {}
+        if page is not None:
+            options = {"search": search, "offset": (page - 1) * page_size,
+                       "original_only": True, "include_favorite": True}
+        rows = get_asset_library().list_assets(
+            str(user["id"]), kind=normalized_kind, source_type=normalized_source_type,
+            limit=page_size + 1 if page is not None else limit, collection=collection, **options,
+        )
+        if page is not None:
+            return {"assets": rows[:page_size], "page": page, "has_more": len(rows) > page_size}
+        return {"assets": rows}
     except Exception as exc:
         logger.exception("Asset library lookup failed for user_id=%s", user.get("id"))
         raise HTTPException(status_code=503, detail="资产库暂时不可用，请稍后重试") from exc
+
+
+@app.put("/assets/{asset_id}/favorite")
+@app.delete("/assets/{asset_id}/favorite")
+def update_asset_favorite(asset_id: str, request: Request) -> dict[str, bool]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="请先登录 NarrativeOS")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    try:
+        favorite = request.method == "PUT"
+        get_asset_library().set_favorite(str(user["id"]), asset_id.lower(), favorite)
+        return {"favorite": favorite}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权访问") from exc
+    except Exception as exc:
+        logger.exception("Asset favorite update failed")
+        raise HTTPException(status_code=503, detail="收藏操作失败，请稍后重试") from exc
 
 
 @app.put("/assets/{asset_id}/name")
