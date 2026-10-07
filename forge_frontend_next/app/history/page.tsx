@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminLink } from "../../components/admin-link";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { withBasePath } from "../base-path";
@@ -158,7 +160,7 @@ export default function HistoryPage() {
         <nav className="nav-links" aria-label="记录导航">
           <Link href="/">新建任务</Link>
           <Link href="/assets">我的资产</Link>
-          <CreditBalance />
+          <AdminLink /><CreditBalance />
           <Link className="nav-login" href="/login">账户</Link>
         </nav>
       </header>

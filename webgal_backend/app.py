@@ -66,6 +66,24 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
+from .platform_admin import router as admin_router, blocked as admin_blocked
+app.include_router(admin_router)
+
+
+@app.middleware('http')
+async def enforce_game_moderation(request: Request, call_next):
+    # Cover player files and public metadata as well as the player entry point.
+    match = re.match(r'^/(?:play|public/jobs)/([0-9a-f]{32})(?:/|$)', request.url.path)
+    if match:
+        from starlette.concurrency import run_in_threadpool
+        from fastapi.responses import JSONResponse
+        try:
+            is_blocked = await run_in_threadpool(admin_blocked, 'JOB', match.group(1))
+        except Exception:
+            return JSONResponse({'detail': '作品访问检查暂时不可用'}, status_code=503)
+        if is_blocked:
+            return JSONResponse({'detail': '该作品已下架'}, status_code=403)
+    return await call_next(request)
 store = JobStore()
 pipeline = WebGALPipeline(store)
 frontend_dir = settings.workspace_root / "forge_frontend"
@@ -459,11 +477,12 @@ def list_personal_assets(
     search: str = "",
     page: int | None = None,
     page_size: int = 12,
+    category: str | None = None,
 ) -> dict[str, Any]:
     user = user_from_request(request, settings.workspace_root)
     if user.get("auth_type") != "sso":
         raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
-    if collection not in {None, "uploads", "favorites"}:
+    if collection not in {None, "uploads", "favorites", "personal"}:
         raise HTTPException(status_code=422, detail="unsupported asset collection")
     if page is not None and (page < 1 or page_size < 1 or page_size > 48):
         raise HTTPException(status_code=422, detail="invalid pagination")
@@ -476,9 +495,11 @@ def list_personal_assets(
         raise HTTPException(status_code=422, detail="unsupported asset source type")
     try:
         options: dict[str, Any] = {}
+        if category:
+            options["category"] = category
         if page is not None:
-            options = {"search": search, "offset": (page - 1) * page_size,
-                       "original_only": True, "include_favorite": True}
+            options.update({"search": search, "offset": (page - 1) * page_size,
+                            "original_only": True, "include_favorite": True})
         rows = get_asset_library().list_assets(
             str(user["id"]), kind=normalized_kind, source_type=normalized_source_type,
             limit=page_size + 1 if page is not None else limit, collection=collection, **options,

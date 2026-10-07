@@ -140,7 +140,7 @@ type LaperAssetWorkbenchProps = {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
-  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], scope: "uploads" | "favorites") => Promise<PersonalLibraryAsset[]>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], page: number) => Promise<{ assets: PersonalLibraryAsset[]; has_more: boolean }>;
   useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
 };
@@ -606,6 +606,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [uploadNotice, setUploadNotice] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [libraryPicker, setLibraryPicker] = useState<{ kind: PersonalLibraryAsset["kind"]; target: "figure" | "background" | "bgm"; replaceFilename?: string } | null>(null);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryHasMore, setLibraryHasMore] = useState(false);
   const [libraryAssets, setLibraryAssets] = useState<PersonalLibraryAsset[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState("");
@@ -666,21 +668,37 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
 
   async function openLibraryPicker(kind: PersonalLibraryAsset["kind"], target: "figure" | "background" | "bgm", replaceFilename?: string) {
     setLibraryPicker({ kind, target, replaceFilename });
-    setLibraryAssets([]);
-    setSelectedLibraryFileId("");
+    setLibraryPage(1);
+  }
+
+  const libraryLoadPending = useRef(false);
+  const libraryScrollRef = useRef<HTMLDivElement>(null);
+  const libraryLoaderRef = useRef(props.loadLibraryAssets);
+  libraryLoaderRef.current = props.loadLibraryAssets;
+  useEffect(() => {
+    if (!libraryPicker) return;
+    let active = true;
+    if (libraryPage === 1) {
+      libraryScrollRef.current?.scrollTo({top: 0});
+      setLibraryAssets([]);
+      setSelectedLibraryFileId("");
+    }
+    libraryLoadPending.current = true;
     setLibraryError("");
     setLibraryLoading(true);
-    try {
-      const groups = await Promise.all([
-        props.loadLibraryAssets(kind, "uploads"),
-        props.loadLibraryAssets(kind, "favorites")
-      ]);
-      setLibraryAssets(Array.from(new Map(groups.flat().map((asset) => [asset.file_id, asset])).values()));
-    } catch (error) {
-      setLibraryError(error instanceof Error ? error.message : "素材库加载失败，请稍后重试");
-    } finally {
-      setLibraryLoading(false);
-    }
+    libraryLoaderRef.current(libraryPicker.kind, libraryPage).then((data) => {
+      if (!active) return;
+      setLibraryAssets(previous => libraryPage === 1 ? data.assets : [...previous, ...data.assets.filter(asset => !previous.some(item => item.file_id === asset.file_id))]);
+      setLibraryHasMore(data.has_more);
+    }).catch((error) => { if (active) setLibraryError(error instanceof Error ? error.message : "素材库加载失败"); })
+      .finally(() => { if (active) { setLibraryLoading(false); libraryLoadPending.current = false; } });
+    return () => { active = false; };
+  }, [libraryPicker, libraryPage]);
+
+  function loadNextLibraryBatch(element: HTMLDivElement) {
+    if (libraryLoading || libraryLoadPending.current || libraryError || !libraryHasMore || element.scrollHeight - element.scrollTop - element.clientHeight > 80) return;
+    libraryLoadPending.current = true;
+    setLibraryPage(value => value + 1);
   }
 
   async function applyLibraryAsset() {
@@ -1088,11 +1106,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <button className="asset-modal-backdrop" type="button" aria-label="关闭素材库" onClick={() => !libraryApplying && setLibraryPicker(null)} />
           <section className="asset-library-picker" role="dialog" aria-modal="true" aria-labelledby="asset-library-picker-title">
             <header className="asset-modal-head"><div><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
-            <div className="asset-library-picker-body">
-              {libraryLoading ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在加载素材…</strong></div> : null}
-              {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong></div> : null}
+            <div className="asset-library-picker-body" ref={libraryScrollRef} onScroll={event => loadNextLibraryBatch(event.currentTarget)} onWheel={event => { if (event.deltaY > 0) loadNextLibraryBatch(event.currentTarget); }}>
+              {libraryLoading && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在加载素材…</strong></div> : null}
+              {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong><button className="btn outline" onClick={() => {setLibraryError(""); setLibraryPicker(value => value ? {...value} : value);}}>重试</button></div> : null}
               {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>暂无可选素材</strong></div> : null}
-              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" loading="lazy" decoding="async" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
+
+              {libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" loading="lazy" decoding="async" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
+              {libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-more" role="status">正在加载更多素材…</div> : null}
             </div>
             <footer className="asset-modal-actions"><button className="btn outline" type="button" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>取消</button><button className="btn primary" type="button" disabled={!selectedLibraryFileId || libraryApplying} onClick={() => void applyLibraryAsset()}>{libraryApplying ? "正在使用…" : "使用此素材"}</button></footer>
           </section>

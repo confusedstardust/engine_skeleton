@@ -180,14 +180,18 @@ class AssetLibrary:
         offset: int = 0,
         original_only: bool = False,
         include_favorite: bool = False,
+        category: str | None = None,
     ) -> list[dict[str, Any]]:
-        if collection == "favorites":
-            where = "a.status='ACTIVE' AND f.status='READY' AND (a.owner_user_id=%s OR a.source_type='GENERATED') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)"
+        if collection == "personal":
+            where = "a.status='ACTIVE' AND f.status='READY' AND ((a.owner_user_id=%s AND a.source_type='UPLOADED') OR ((a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)))"
+            params: list[Any] = [user_id, user_id, user_id]
+        elif collection == "favorites":
+            where = "a.status='ACTIVE' AND f.status='READY' AND (a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)"
             params: list[Any] = [user_id, user_id]
         elif source_type == "GENERATED":
             # GENERATED is globally reusable by product definition. Do not hide legacy
             # generated rows that predate the PUBLIC visibility migration.
-            where = "a.source_type='GENERATED' AND a.status='ACTIVE' AND f.status='READY'"
+            where = "(a.source_type='GENERATED' OR a.visibility='PUBLIC') AND a.status='ACTIVE' AND f.status='READY'"
             params: list[Any] = []
         else:
             where = "a.owner_user_id=%s AND a.status='ACTIVE' AND f.status='READY'"
@@ -197,12 +201,15 @@ class AssetLibrary:
         if kind:
             where += " AND a.kind=%s"
             params.append(kind)
+        if category:
+            where += " AND JSON_UNQUOTE(JSON_EXTRACT(a.generation_metadata, '$.category'))=%s"
+            params.append(category)
         if source_type and source_type != "GENERATED":
             where += " AND a.source_type=%s"
             params.append(source_type)
         if search:
-            where += " AND LOCATE(%s, a.name)>0"
-            params.append(search.strip())
+            where += " AND (LOCATE(%s, a.name)>0 OR LOCATE(%s, COALESCE(JSON_UNQUOTE(JSON_EXTRACT(a.generation_metadata, '$.category_label')), ''))>0 OR LOCATE(%s, COALESCE(JSON_EXTRACT(a.generation_metadata, '$.tags'), ''))>0)"
+            params.extend([search.strip()] * 3)
         if original_only:
             where += " AND f.variant='original'"
         favorite_select = ", EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s) AS is_favorite" if include_favorite else ""
@@ -216,7 +223,7 @@ class AssetLibrary:
             cursor.execute(
                 f"""
                 SELECT a.id, a.owner_user_id, a.name, a.kind, a.source_type, a.visibility,
-                       a.source_job_id, a.created_at,
+                       a.source_job_id, a.created_at, a.generation_metadata,
                        f.id AS file_id, f.revision, f.variant, f.mime_type, f.size_bytes,
                        f.width_px, f.height_px, f.duration_ms, f.object_key{favorite_select}
                 FROM assets a
@@ -235,6 +242,11 @@ class AssetLibrary:
         result = []
         for row in rows:
             item = dict(row)
+            metadata = item.pop("generation_metadata", None)
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            if isinstance(metadata, dict):
+                item.update({key: metadata.get(key) for key in ("type", "category", "category_label", "tags")})
             item["url"] = _public_url(item.pop("object_key"))
             for key in ("created_at",):
                 if item.get(key) is not None:
@@ -245,7 +257,7 @@ class AssetLibrary:
     def set_favorite(self, user_id: str, asset_id: str, favorite: bool) -> None:
         with self._transaction() as cursor:
             if favorite:
-                cursor.execute("SELECT id FROM assets WHERE id=%s AND status='ACTIVE' AND (owner_user_id=%s OR source_type='GENERATED') FOR UPDATE", (asset_id, user_id))
+                cursor.execute("SELECT id FROM assets WHERE id=%s AND status='ACTIVE' AND (owner_user_id=%s OR source_type='GENERATED' OR visibility='PUBLIC') FOR UPDATE", (asset_id, user_id))
                 if cursor.fetchone() is None:
                     raise AssetLibraryError("Asset not found")
                 cursor.execute("INSERT INTO asset_favorites (user_id, asset_id) VALUES (%s,%s) ON DUPLICATE KEY UPDATE asset_id=VALUES(asset_id)", (user_id, asset_id))
@@ -304,7 +316,7 @@ class AssetLibrary:
                        a.id AS asset_id
                 FROM asset_files f JOIN assets a ON a.id=f.asset_id
                 WHERE f.id=%s
-                  AND (a.owner_user_id=%s OR a.source_type='GENERATED')
+                  AND (a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC')
                   AND a.status='ACTIVE' AND f.status='READY'
                 """,
                 (file_id, user_id),
@@ -378,7 +390,7 @@ class AssetLibrary:
                        a.id AS asset_id
                 FROM asset_files f JOIN assets a ON a.id=f.asset_id
                 WHERE a.id=%s
-                  AND (a.owner_user_id=%s OR a.source_type='GENERATED')
+                  AND (a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC')
                   AND a.status='ACTIVE' AND f.variant=%s AND f.status='READY'
                 ORDER BY f.revision DESC LIMIT 1
                 """,

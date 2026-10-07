@@ -10,6 +10,7 @@ const nextConfig = {
   async rewrites() {
     return [
       { source: "/api/forge/health", destination: `${backend}/health` },
+      { source: "/api/forge/admin/:path*", destination: `${backend}/admin/:path*` },
       { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
       { source: "/api/forge/auth/config", destination: `${backend}/auth/config` },
       { source: "/api/forge/credits/balance", destination: `${backend}/credits/balance` },

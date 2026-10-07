@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminLink } from "../components/admin-link";
+
 import { ModalFrame } from "../components/ui/modal";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
@@ -231,7 +233,7 @@ function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <CreditBalance />
+          <AdminLink /><CreditBalance />
           <Link className="nav-login" href="/login" data-tour="invite">账户</Link>
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">

@@ -57,6 +57,26 @@ def test_uploaded_asset_listing_remains_owner_scoped():
     assert params == ("owner-user", "FIGURE", "UPLOADED", 100)
 
 
+def test_personal_collection_combines_uploads_and_accessible_favorites_in_one_page():
+    cursor = RecordingCursor()
+    library = library_with_cursor(cursor)
+    library.list_assets("viewer", collection="personal", original_only=True, limit=13, offset=12)
+    query, params = cursor.calls[-1]
+    assert "a.source_type='UPLOADED'" in query
+    assert "EXISTS (SELECT 1 FROM asset_favorites" in query
+    assert "a.owner_user_id=%s OR a.source_type='GENERATED'" in query
+    assert "f.variant='original'" in query
+    assert params == ("viewer", "viewer", "viewer", 13, 12)
+
+
+def test_category_filter_is_bound_with_server_side_pagination():
+    cursor = RecordingCursor()
+    library_with_cursor(cursor).list_assets("viewer", source_type="GENERATED", category="ancient", limit=13, offset=12)
+    query, params = cursor.calls[-1]
+    assert "'$.category'))=%s" in query
+    assert params == ("ancient", 13, 12)
+
+
 def test_public_generated_asset_is_accessible_to_another_user():
     record = {"id": "f" * 32, "source_type": "GENERATED", "visibility": "PUBLIC"}
     cursor = RecordingCursor([record])

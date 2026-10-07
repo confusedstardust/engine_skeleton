@@ -171,6 +171,9 @@ def principal_from_request(request: Request, workspace_root: Path) -> dict[str, 
         cookie_name = _sso_cookie_name()
         if request.cookies.get(cookie_name):
             user = _sso_user_from_request(request)
+            from .platform_admin import blocked
+            if blocked('USER', user['id']):
+                raise HTTPException(status_code=403, detail='此账号已被禁止使用本平台')
             return {
                 "identity": {"type": "sso", "user_id": user["id"]},
                 "user": user,
