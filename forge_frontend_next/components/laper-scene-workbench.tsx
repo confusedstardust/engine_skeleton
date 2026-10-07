@@ -1,4 +1,5 @@
 "use client";
+import { FormSelect } from "./ui/form-controls";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertionIndex, isTerminalLine, jumpTarget, keepContinuationLabelsTogether } from "./scene-connections";
@@ -548,11 +549,10 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                     <div className="laper-block-head"><span>场景跳转 · 最后一行</span>
                       {!disabled && <button className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>删除跳转</button>}
                     </div>
-                    <select aria-label="场景跳转目标" value={target} disabled={disabled}
-                      onChange={event => updateLine(lineIndex, { ...line, text: `changeScene:${event.target.value};` })}>
-                      {!props.targetOptions?.some(option => option.file === target) && <option value={target}>{target}</option>}
-                      {props.targetOptions?.map(option => <option key={option.file} value={option.file}>{option.label}</option>)}
-                    </select>
+                    <FormSelect ariaLabel="场景跳转目标" value={target} disabled={disabled} onValueChange={(value) => updateLine(lineIndex, { ...line, text: `changeScene:${value};` })} options={[
+                      ...(!props.targetOptions?.some(option => option.file === target) ? [{ value: target, label: target }] : []),
+                      ...(props.targetOptions || []).map(option => ({ value: option.file, label: option.label }))
+                    ]} />
                   </div>
                 </article>
               );
@@ -607,27 +607,12 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                               aria-label="选项文本"
                               readOnly={disabled}
                             />
-                            <select
-                              value={choiceTargetValue(choice)}
-                              onChange={(event) => updateChoiceTarget(lineIndex, choiceIndex, choice, event.target.value)}
-                              aria-label="跳转场景"
-                              disabled={disabled}
-                            >
-                              <option value={isLocalContinuationTarget(choiceTargetValue(choice)) ? choiceTargetValue(choice) : localChoiceTarget(line)}>留在当前场景（互动后继续）</option>
-                              {scene.lines.filter(item => item.kind === "branch" && !isLocalContinuationTarget(item.branchLabel || item.text)).map(item => (
-                                <option key={item.id} value={item.branchLabel || item.text}>当前场景标签：{item.branchLabel || item.text}</option>
-                              ))}
-                              {!props.targetOptions?.some((option) => option.file === choiceTargetValue(choice)) && (
-                                !isLocalContinuationTarget(choiceTargetValue(choice)) && (
-                                  <option value={choiceTargetValue(choice)}>{choiceTargetValue(choice) || "未设置目标"}</option>
-                                )
-                              )}
-                              {props.targetOptions?.map((option) => (
-                                <option key={option.file} value={option.file}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
+                            <FormSelect value={choiceTargetValue(choice)} onValueChange={(value) => updateChoiceTarget(lineIndex, choiceIndex, choice, value)} ariaLabel="跳转场景" disabled={disabled} options={Array.from(new Map([
+                              { value: isLocalContinuationTarget(choiceTargetValue(choice)) ? choiceTargetValue(choice) : localChoiceTarget(line), label: "留在当前场景（互动后继续）" },
+                              ...scene.lines.filter(item => item.kind === "branch" && !isLocalContinuationTarget(item.branchLabel || item.text)).map(item => ({ value: item.branchLabel || item.text, label: `当前场景标签：${item.branchLabel || item.text}` })),
+                              ...(!props.targetOptions?.some(option => option.file === choiceTargetValue(choice)) && !isLocalContinuationTarget(choiceTargetValue(choice)) ? [{ value: choiceTargetValue(choice), label: choiceTargetValue(choice) || "未设置目标" }] : []),
+                              ...(props.targetOptions || []).map(option => ({ value: option.file, label: option.label }))
+                            ].map(option => [option.value, option])).values())} />
                             {!disabled && (
                               <button type="button" onClick={() => updateLine(lineIndex, { ...line, choices: (line.choices || []).filter((_, index) => index !== choiceIndex) })}>
                                 删除

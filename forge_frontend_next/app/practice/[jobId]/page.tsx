@@ -1,5 +1,6 @@
 "use client";
 
+import { ConfirmDialog } from "../../../components/ui/modal";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { withBasePath } from "../../base-path";
@@ -59,6 +60,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
   const { jobId } = use(params);
   const [data, setData] = useState<QuizResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -94,7 +96,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
   }, [answers, data?.quiz, revealed]);
 
   async function generate(regenerate: boolean) {
-    if (regenerate && !window.confirm("重新生成会覆盖当前习题，确定继续吗？")) return;
+    setConfirmRegenerate(false);
     setActionBusy(true);
     setMessage("习题已进入生成队列，请稍候…");
     try {
@@ -138,11 +140,12 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
         </div>
         <nav className="nav-links" aria-label="习题导航">
           {data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
-          {data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => void generate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
+          {data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => setConfirmRegenerate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
           <Link href="/history">我的作品</Link>
         </nav>
       </header>
 
+      <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description="重新生成会覆盖当前习题。" onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
       <main className="practice-page">
         {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
 
@@ -174,7 +177,7 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
             <p className="practice-kicker">GENERATION FAILED</p>
             <h1>习题生成失败</h1>
             <p>{data.error || "模型暂时没有返回有效题目，请重新生成。"}</p>
-            {data.can_manage ? <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(true)}>重新生成</button> : null}
+            {data.can_manage ? <button className="btn primary" type="button" disabled={actionBusy} onClick={() => setConfirmRegenerate(true)}>重新生成</button> : null}
           </section>
         ) : null}
 

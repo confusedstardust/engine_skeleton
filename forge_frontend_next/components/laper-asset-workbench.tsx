@@ -2,9 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
+import * as Collapsible from "@radix-ui/react-collapsible";
+import * as Accordion from "@radix-ui/react-accordion";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
+import { ModalFrame } from "./ui/modal";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 import { FormSelect, FormSlider } from "./ui/form-controls";
 
@@ -234,13 +239,13 @@ function AvatarCropCanvas({ asset, busy, readonly, value, onChange }: {
             onChange(nextCrop);
           }}
         />
-        {!readonly && <button className="avatar-crop-reset" type="button" aria-label="重置小头像取景" title="重置取景" disabled={busy} onClick={() => {
+        {!readonly && <AssetHint text="重置小头像取景"><button className="avatar-crop-reset" type="button" aria-label="重置小头像取景" title="重置取景" disabled={busy} onClick={() => {
           const resetCrop = { zoom: 1, offsetX: 0, offsetY: 0 };
           cropRef.current = resetCrop;
           setZoom(1);
           setOffset({ x: 0, y: 0 });
           onChange(resetCrop);
-        }}>↻</button>}
+        }}>↻</button></AssetHint>}
       </div>
       <div className="avatar-crop-controls">
         <strong>小头像</strong>
@@ -251,6 +256,7 @@ function AvatarCropCanvas({ asset, busy, readonly, value, onChange }: {
 }
 
 type CharacterVoiceControlProps = {
+  generating?: boolean;
   item: TTSVoiceReviewItem;
   availableVoices: TTSVoiceOption[];
   selectedVoice: string;
@@ -337,7 +343,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
                 props.stopVoice(props.item.speaker, event.currentTarget);
               }}
             />
-            <button
+            <AssetHint text={playing ? "暂停试听" : "播放试听"}><button
               className="voice-play-button"
               type="button"
               aria-label={playing ? `暂停 ${props.item.speaker} 的试听` : `播放 ${props.item.speaker} 的试听`}
@@ -348,13 +354,14 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
               ) : (
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z" /></svg>
               )}
-            </button>
+            </button></AssetHint>
           </div>
         ) : (
           <div className="voice-preview-missing">试听暂不可用</div>
         )}
         <p className="character-voice-line">“{props.item.text}”</p>
       </div>
+      {props.generating && <div className="voice-card-generating" role="status"><span className="pending-spinner" aria-hidden="true" />正在生成音色…</div>}
       {!props.readonly && (
         <details
           className="character-voice-options"
@@ -374,7 +381,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
               disabled={props.busy || !selectedVoice}
               onClick={() => void props.previewVoice(props.item.speaker, selectedVoice)}
             >
-              生成并试听这个音色
+              {props.generating ? "正在生成音色…" : "生成并试听这个音色"}
             </button>
           </div>
         </details>
@@ -775,22 +782,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   }, [active, closeAsset]);
 
   return (
-    <section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
-      {props.voiceGeneratingSpeaker && (
-        <div className="voice-generation-lock" role="status" aria-live="assertive" aria-busy="true">
-          <div className="voice-generation-card">
-            <span className="voice-generation-orbit" aria-hidden="true">
-              <span />
-              <svg viewBox="0 0 24 24"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Zm-6-3.5a6 6 0 0 0 12 0M12 17.5V21m-3 0h6" /></svg>
-            </span>
-            <div>
-              <strong>正在生成新的角色试听</strong>
-              <p>正在为「{props.voiceGeneratingSpeaker}」重新调制音色，请稍候。</p>
-              <small>完成后页面会自动恢复，并替换卡片中的试听。</small>
-            </div>
-          </div>
-        </div>
-      )}
+    <Tabs.Root asChild value={section} onValueChange={(value) => setSection(value as typeof section)}><section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
       <aside className="laper-rail" aria-label="素材导航">
         <div className="laper-rail-brand">
           <strong>素材审阅</strong>
@@ -809,21 +801,20 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             ["backgrounds", "场景卡", backgrounds],
             ["effects", "特效素材", props.particleEffects.effects]
           ] as const).map(([sectionId, label, assets]) => (
-            <div className="laper-rail-tree-group" key={sectionId}>
+            <Collapsible.Root className="laper-rail-tree-group" key={sectionId} open={expandedSection === sectionId} onOpenChange={(open) => setExpandedSection(open ? sectionId : null)}><Collapsible.Trigger asChild>
               <button
                 aria-expanded={expandedSection === sectionId}
                 className={section === sectionId ? "active" : ""}
                 type="button"
                 onClick={() => {
                   setSection(sectionId);
-                  setExpandedSection((current) => current === sectionId ? null : sectionId);
                 }}
               >
                 <span>{label}</span>
                 <span className="laper-rail-tree-meta"><em>{assets.length}</em><b aria-hidden="true">{expandedSection === sectionId ? "⌄" : "›"}</b></span>
-              </button>
+              </button></Collapsible.Trigger>
               {expandedSection === sectionId && (
-                <ol className="laper-rail-list laper-rail-tree-list">
+                <Collapsible.Content asChild><ol className="laper-rail-list laper-rail-tree-list">
                   {assets.map((asset) => (
                     <li key={"id" in asset ? asset.id : `${asset.subdir}-${asset.filename}`}>
                       <button
@@ -839,9 +830,9 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                       </button>
                     </li>
                   ))}
-                </ol>
+                </ol></Collapsible.Content>
               )}
-            </div>
+            </Collapsible.Root>
           ))}
         </nav>
       </aside>
@@ -849,22 +840,22 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       <section className="laper-canvas-wrap">
         <input ref={imageUploadRef} className="asset-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { setImageUploading(true); try { const ok = await props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename); showUploadNotice(ok ? pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新" : "上传失败，请重试"); } finally { setImageUploading(false); } } event.currentTarget.value = ""; }} />
         <input ref={musicUploadRef} className="asset-upload-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "bgm"); showUploadNotice(ok ? "BGM 上传成功" : "BGM 上传失败，请重试"); } event.currentTarget.value = ""; }} />
-        <div className="laper-toolbar" role="toolbar" aria-label="素材工具栏">
-          {props.sceneMusicEnabled && <button className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>场景音乐</button>}
-          <button className={section === "figures" ? "active" : ""} type="button" onClick={() => setSection("figures")}>
+        <Tabs.List className="laper-toolbar" aria-label="素材分类">
+          {props.sceneMusicEnabled && <Tabs.Trigger value="music" className={section === "music" ? "active" : ""}>场景音乐</Tabs.Trigger>}
+          <Tabs.Trigger value="figures" className={section === "figures" ? "active" : ""}>
             角色卡
-          </button>
-          <button className={section === "backgrounds" ? "active" : ""} type="button" onClick={() => setSection("backgrounds")}>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="backgrounds" className={section === "backgrounds" ? "active" : ""}>
             场景卡
-          </button>
-          <button className={section === "effects" ? "active" : ""} type="button" onClick={() => setSection("effects")}>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="effects" className={section === "effects" ? "active" : ""}>
             特效素材
-          </button>
+          </Tabs.Trigger>
           <span className="laper-toolbar-divider" />
           {section !== "music" && <span className="laper-toolbar-note">{props.imageEnabled ? "点击图片打开素材详情" : "点击卡片打开素材详情"}</span>}
-        </div>
+        </Tabs.List>
 
-        <div className="laper-canvas laper-asset-canvas">
+        <Tabs.Content asChild value={section}><div className="laper-canvas laper-asset-canvas">
           {section === "effects" ? (
             <div className="particle-effect-workbench">
               <header className="laper-canvas-head">
@@ -907,15 +898,14 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                       ))}
                       <DirectionDial value={effectDraft.angle} disabled={props.readonly || props.busy} onChange={(value) => changeEffectNumber("angle", value)} />
                       <div className="ui-form-field"><span>图层</span><ToggleGroup.Root className="segment-toggle" type="single" value={effectDraft.layer} disabled={props.readonly || props.busy} onValueChange={(value) => { if (value) setCurrentEffectDraft({ ...effectDraft, layer: value as "foreground" | "background" }); }} aria-label="选择图层"><ToggleGroup.Item value="foreground">前景</ToggleGroup.Item><ToggleGroup.Item value="background">背景</ToggleGroup.Item></ToggleGroup.Root></div>
-                      <details className="particle-advanced-controls">
-                        <summary>高级运动参数</summary>
+                      <Accordion.Root type="single" collapsible><Accordion.Item value="advanced" className="particle-advanced-controls"><Accordion.Header><Accordion.Trigger className="particle-advanced-trigger">高级运动参数 <span aria-hidden="true">⌄</span></Accordion.Trigger></Accordion.Header><Accordion.Content className="particle-advanced-body">
                         {([
                           ["drift", "横向漂移", -8, 8, 0.1], ["gravity", "重力", -3, 3, 0.1], ["rotation_speed", "旋转速度", -0.1, 0.1, 0.002]
                         ] as const).map(([key, label, min, max, step]) => (
                           <FormSlider key={key} label={label} min={min} max={max} step={step} value={effectDraft[key]} disabled={props.readonly || props.busy} onValueChange={(value) => changeEffectNumber(key, value)} />
                         ))}
                         <div className="ui-form-field"><span>混合模式</span><ToggleGroup.Root className="blend-mode-group" type="single" value={effectDraft.blend_mode} disabled={props.readonly || props.busy} onValueChange={(value) => { if (value) setCurrentEffectDraft({ ...effectDraft, blend_mode: value as "normal" | "add" | "screen" }); }} aria-label="选择混合模式"><ToggleGroup.Item value="normal"><b>普通</b><small>保留原色</small></ToggleGroup.Item><ToggleGroup.Item value="add"><b>发光</b><small>亮部相加</small></ToggleGroup.Item><ToggleGroup.Item value="screen"><b>滤色</b><small>柔和提亮</small></ToggleGroup.Item></ToggleGroup.Root></div>
-                      </details>
+                      </Accordion.Content></Accordion.Item></Accordion.Root>
                     </div>
                   )}
                 </section>
@@ -935,7 +925,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   return <article className="scene-music-row" role="listitem" key={scene.scene_file}>
                     <span className="scene-music-index">{String(index + 1).padStart(2, "0")}</span>
                     <div className="scene-music-scene"><small>{scene.kind === "ending" ? "结局" : "场景"}</small><strong>{scene.label}</strong><em>{scene.scene_file}</em></div>
-                    <label className="scene-music-select"><span>背景音乐</span><select value={selected} disabled={props.readonly || props.busy} onChange={(event) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: event.target.value || null })); }}><option value="">系统自动 · {scene.system_asset || "暂无推荐"}</option>{props.musicAssets.map((asset) => <option value={asset} key={asset}>{asset.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")}</option>)}</select></label>
+                    <label className="scene-music-select"><span>背景音乐</span><FormSelect value={selected} disabled={props.readonly || props.busy} ariaLabel="背景音乐" onValueChange={(value) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: value || null })); }} options={[{ value: "", label: `系统自动 · ${scene.system_asset ? musicAssetLabel(scene.system_asset) : "暂无推荐"}` }, ...Array.from(new Set([...props.musicAssets, ...(selected ? [selected] : [])])).map((asset) => ({ value: asset, label: musicAssetLabel(asset) }))]} /></label>
                     <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
                   </article>;
                 })}
@@ -990,6 +980,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                         {voiceItem && (
                           <CharacterVoiceControl
                             item={voiceItem}
+                            generating={props.voiceGeneratingSpeaker === voiceItem.speaker}
                             availableVoices={props.availableVoices}
                             selectedVoice={selectedVoice}
                             busy={props.busy}
@@ -1015,7 +1006,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               )}
             </>
           )}
-        </div>
+        </div></Tabs.Content>
       </section>
 
       <aside className="laper-inspector outline-side">
@@ -1076,12 +1067,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         />
       </aside>
       {active && (
-        <div className="asset-modal-layer" role="presentation">
+        <ModalFrame title="素材详情" onClose={props.closeAsset}><div className="asset-modal-layer" role="presentation">
           <button className="asset-modal-backdrop" type="button" aria-label="关闭素材详情" onClick={props.closeAsset} />
           <section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
             <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
             <div className="asset-modal-body">
-              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div><div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice || "当前素材已加载"}</div></div>
+              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div>{(imageUploading || uploadNotice) && <div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice}</div>}</div>
               <div className="asset-modal-editor">
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>
@@ -1090,10 +1081,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             </div>
             <footer className="asset-modal-actions">{!props.readonly && <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</button>}<button className="btn primary" type="button" onClick={props.closeAsset}>关闭</button></footer>
           </section>
-        </div>
+        </div></ModalFrame>
       )}
       {libraryPicker && (
-        <div className="asset-library-picker-layer" role="presentation">
+        <ModalFrame title="选择素材" onClose={() => { if (!libraryApplying) setLibraryPicker(null); }}><div className="asset-library-picker-layer" role="presentation">
           <button className="asset-modal-backdrop" type="button" aria-label="关闭素材库" onClick={() => !libraryApplying && setLibraryPicker(null)} />
           <section className="asset-library-picker" role="dialog" aria-modal="true" aria-labelledby="asset-library-picker-title">
             <header className="asset-modal-head"><div><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
@@ -1101,12 +1092,20 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               {libraryLoading ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在加载素材…</strong></div> : null}
               {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong></div> : null}
               {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>暂无可选素材</strong></div> : null}
-              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
+              {!libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" loading="lazy" decoding="async" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
             </div>
             <footer className="asset-modal-actions"><button className="btn outline" type="button" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>取消</button><button className="btn primary" type="button" disabled={!selectedLibraryFileId || libraryApplying} onClick={() => void applyLibraryAsset()}>{libraryApplying ? "正在使用…" : "使用此素材"}</button></footer>
           </section>
-        </div>
+        </div></ModalFrame>
       )}
-    </section>
+    </section></Tabs.Root>
   );
+}
+
+function AssetHint({ text, children }: { text: string; children: React.ReactElement }) {
+  return <Tooltip.Provider delayDuration={250}><Tooltip.Root><Tooltip.Trigger asChild>{children}</Tooltip.Trigger><Tooltip.Portal><Tooltip.Content className="action-hint-content" sideOffset={6}>{text}<Tooltip.Arrow /></Tooltip.Content></Tooltip.Portal></Tooltip.Root></Tooltip.Provider>;
+}
+
+function musicAssetLabel(filename: string) {
+  return filename.replace(/\.[^.]+$/, "").replace(/^bgm[_\s-]*/i, "").replace(/[_-]+/g, " ").trim();
 }

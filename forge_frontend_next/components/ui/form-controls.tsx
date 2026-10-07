@@ -20,8 +20,8 @@ export function FormSelect(props: {
         <Select.Icon className="ui-select-chevron" aria-hidden="true">⌄</Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Content className="ui-select-content" position="popper" sideOffset={5}>
-          <Select.Viewport>
+        <Select.Content className="ui-select-content" position="popper" side="bottom" align="start" sideOffset={5} collisionPadding={12}>
+          <Select.Viewport className="ui-select-viewport">
             {props.options.map((option) => (
               <Select.Item className="ui-select-item" key={option.value || emptyValue} value={option.value || emptyValue}>
                 <Select.ItemText>{option.label}</Select.ItemText>

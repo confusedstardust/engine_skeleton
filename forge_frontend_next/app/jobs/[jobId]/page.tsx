@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { ModalFrame, useConfirmation } from "../../../components/ui/modal";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoryFlowView } from "../../../components/story-flow-view";
@@ -810,6 +811,7 @@ function parseSceneLine(line: string, id: string): SceneLine {
 }
 
 export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: string }> }) {
+  const confirm = useConfirmation();
   const { jobId } = use(params);
   const [data, setData] = useState<NodesResponse | null>(null);
   const [message, setMessageValue] = useState("正在读取任务...");
@@ -983,8 +985,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     setMessage("已进入草稿编辑；可在素材审阅页调整素材、音乐、语音和特效，也可切换到场景页修改内容。当前可玩版本不会立即改变。");
   }
 
-  function exitCompletedEdit() {
-    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定退出编辑吗？")) return;
+  async function exitCompletedEdit() {
+    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !await confirm("还有未保存的修改，确定退出编辑吗？")) return;
     setScenesDirty(false);
     setDesignDraftDirty(false);
     setAssetPromptDirty(false);
@@ -1471,8 +1473,11 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     <>
       <header className="top-nav">
         <div className="workspace-nav-leading">
-          <Link className="brand brand-link" href="/" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link className="brand brand-link" href="/" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>
             <div className="brand-seal" aria-hidden="true">
               <img src={withBasePath("/icon.png")} alt="" />
@@ -1481,16 +1486,22 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
               <span className="brand-name">临场 · 生成工作台</span>
             </div>
           </Link>
-          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
             <span>返回上一级</span>
           </Link>
         </div>
         <nav className="nav-links" aria-label="任务导航">
-          <Link href="/" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link href="/" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>新建任务</Link>
           <CreditBalance />
           {hasPublishedBuild && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
@@ -1595,8 +1606,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
               setAssetPrompt(asset.prompt || "");
               setAssetPromptDirty(false);
             }}
-            closeAsset={() => {
-              if (assetPromptDirty && !window.confirm("Prompt 还没有用于重新生成素材，确定返回列表吗？")) return;
+            closeAsset={async () => {
+              if (assetPromptDirty && !await confirm("Prompt 还没有用于重新生成素材，确定返回列表吗？")) return;
               setAssetPromptDirty(false);
               setActiveAssetFilename(null);
             }}
@@ -1680,6 +1691,7 @@ function CompletionPanel(props: {
   const [gameTitle, setGameTitle] = useState(props.job.title?.trim() || String(props.job.options?.classroom_topic || "").trim() || props.job.source_material?.split(/\r?\n/)[0]?.trim() || "未命名游戏");
   const [titleDraft, setTitleDraft] = useState(gameTitle);
   const [titleEditing, setTitleEditing] = useState(false);
+  const confirm = useConfirmation();
   const [titleBusy, setTitleBusy] = useState(false);
   const [titleMessage, setTitleMessage] = useState("");
   const titleCancelRef = useRef(false);
@@ -1770,7 +1782,7 @@ function CompletionPanel(props: {
     }
   };
   const removeFromEcosystem = async () => {
-    if (!window.confirm("确定从教师创作生态中取消发布吗？游戏本身不会被删除。")) return;
+    if (!await confirm("确定从教师创作生态中取消发布吗？游戏本身不会被删除。")) return;
     setPublicationBusy(true);
     setPublicationMessage("正在取消发布…");
     try {
@@ -1883,7 +1895,7 @@ function CompletionPanel(props: {
         {publicationMessage ? <span className="publication-message" role="status">{publicationMessage}</span> : null}
         <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>流程图</button>
       </div>
-      {flowOpen && <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="最新流程图">
+      {flowOpen && <ModalFrame title="最新流程图" onClose={closeFlow}><div className="flow-modal-layer">
         <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={closeFlow} />
         <section className="flow-modal" ref={flowModalRef}>
           <div className="flow-modal-head">
@@ -1895,7 +1907,7 @@ function CompletionPanel(props: {
           {flowNotice && <p className="flow-fullscreen-notice" role="alert">{flowNotice}</p>}
           <div className="flow-modal-body">{flowError ? <p className="error">{flowError}</p> : graph ? <StoryFlowView graph={graph} viewportVersion={flowFullscreen ? 1 : 0} fullscreen={flowFullscreen} onToggleFullscreen={toggleFlowFullscreen} /> : <p>正在加载流程图…</p>}</div>
         </section>
-      </div>}
+      </div></ModalFrame>}
     </section>
   );
 }
@@ -2104,7 +2116,7 @@ function OutlineEditor(props: {
       retryLabel={props.retryLabel}
       renderFlowModal={(open, onClose) =>
         open ? (
-          <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="故事流程图">
+          <ModalFrame title="故事流程图" onClose={onClose}><div className="flow-modal-layer">
             <button className="flow-modal-dismiss" type="button" aria-label="关闭流程图" onClick={onClose} />
             <section className="flow-modal">
               <div className="flow-modal-head">
@@ -2118,7 +2130,7 @@ function OutlineEditor(props: {
                 <NarrativeFlowPreview plan={plan} syncStructure={props.syncStructure} />
               </div>
             </section>
-          </div>
+          </div></ModalFrame>
         ) : null
       }
     />

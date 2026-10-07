@@ -1,4 +1,5 @@
 "use client";
+import { FormSelect } from "./ui/form-controls";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LaperInspectorShell } from "./laper-inspector-shell";
@@ -507,18 +508,11 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                     placeholder="叙事目标"
                   />
                   <div className="laper-block-meta">
-                    <select
-                      disabled={disabled}
-                      value={step.strtype || "main"}
-                      onChange={(event) => {
-                        const next = [...props.plan.story_progression];
-                        next[index] = { ...step, strtype: event.target.value };
-                        props.updatePlan({ ...props.plan, story_progression: next });
-                      }}
-                    >
-                      <option value="main">主线</option>
-                      <option value="branch">分支</option>
-                    </select>
+                    <FormSelect ariaLabel="叙事线路类型" disabled={disabled} value={step.strtype || "main"} options={[{ value: "main", label: "主线" }, { value: "branch", label: "分支" }]} onValueChange={(value) => {
+                      const next = [...props.plan.story_progression];
+                      next[index] = { ...step, strtype: value };
+                      props.updatePlan({ ...props.plan, story_progression: next });
+                    }} />
                   </div>
                 </LaperBlock>
               ))}

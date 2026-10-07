@@ -1,8 +1,14 @@
 "use client";
 
+import { ModalFrame } from "../components/ui/modal";
+import * as RadioGroup from "@radix-ui/react-radio-group";
+import * as Switch from "@radix-ui/react-switch";
+import * as Checkbox from "@radix-ui/react-checkbox";
+import { ModelSelect, ActionHint } from "../components/ui/home-controls";
+import { FormSelect } from "../components/ui/form-controls";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
@@ -98,8 +104,6 @@ function getGenerationReadiness(topic: string, sourceText: string) {
 
 function ClassroomGeneratorPage() {
   const router = useRouter();
-  const imageModelPickerRef = useRef<HTMLDetailsElement>(null);
-  const textModelPickerRef = useRef<HTMLDetailsElement>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<"paste" | "upload" | "library">("paste");
   const [topic, setTopic] = useState("");
@@ -125,20 +129,6 @@ function ClassroomGeneratorPage() {
   const selectedImageModel = imageModels.find((item) => item.id === imageModel) || imageModels[0];
   const durationNumber = Number.parseInt(validDuration(duration), 10);
   const { canGenerate, reason: generateBlockReason } = getGenerationReadiness(topic, sourceText);
-
-  useEffect(() => {
-    function closeModelPickersOnOutsidePointer(event: PointerEvent) {
-      if (!(event.target instanceof Node)) return;
-      for (const picker of [imageModelPickerRef.current, textModelPickerRef.current]) {
-        if (picker && !picker.contains(event.target)) {
-          picker.removeAttribute("open");
-        }
-      }
-    }
-
-    document.addEventListener("pointerdown", closeModelPickersOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeModelPickersOnOutsidePointer);
-  }, []);
 
   async function runGeneration() {
     const source = sourceText.trim();
@@ -271,7 +261,7 @@ function ClassroomGeneratorPage() {
         </section>
 
         <div className="content-grid">
-          <section className="form-panel" aria-label="课堂生成表单">
+          <section className="form-panel home-generation-form" aria-label="课堂生成表单">
             <FormSection title="核心教学信息">
               <Field label="课堂主题" tourId="topic">
                 <input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="例如：《垓下歌》中的英雄悲剧 / 《关雎》中的爱情与礼教" />
@@ -292,27 +282,10 @@ function ClassroomGeneratorPage() {
 
               <div className="field-row">
                 <Field label="适用年级 / 课程体系" compact>
-                  <select value={grade} onChange={(event) => setGrade(event.target.value)}>
-                    <option value="">不确定，使用默认</option>
-                    <option>小学高年级语文</option>
-                    <option>初中语文</option>
-                    <option>初中历史</option>
-                    <option>高中语文</option>
-                    <option>高中历史</option>
-                    <option>DSE 中国文学</option>
-                    <option>IB 中文</option>
-                    <option>成人 / 企业培训</option>
-                  </select>
+                  <FormSelect value={grade} onValueChange={setGrade} ariaLabel="适用年级" options={[{"value": "", "label": "不确定，使用默认"}, {"value": "小学高年级语文", "label": "小学高年级语文"}, {"value": "初中语文", "label": "初中语文"}, {"value": "初中历史", "label": "初中历史"}, {"value": "高中语文", "label": "高中语文"}, {"value": "高中历史", "label": "高中历史"}, {"value": "DSE 中国文学", "label": "DSE 中国文学"}, {"value": "IB 中文", "label": "IB 中文"}, {"value": "成人 / 企业培训", "label": "成人 / 企业培训"}]} />
                 </Field>
                 <Field label="学习难度" compact>
-                  <select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}>
-                    <option value="">不确定，使用默认</option>
-                    <option>基础理解</option>
-                    <option>进阶分析</option>
-                    <option>高阶探究</option>
-                    <option>考试冲刺</option>
-                    <option>公开课展示</option>
-                  </select>
+                  <FormSelect value={difficulty} onValueChange={setDifficulty} ariaLabel="学习难度" options={[{"value": "", "label": "不确定，使用默认"}, {"value": "基础理解", "label": "基础理解"}, {"value": "进阶分析", "label": "进阶分析"}, {"value": "高阶探究", "label": "高阶探究"}, {"value": "考试冲刺", "label": "考试冲刺"}, {"value": "公开课展示", "label": "公开课展示"}]} />
                 </Field>
               </div>
             </FormSection>
@@ -339,118 +312,42 @@ function ClassroomGeneratorPage() {
                     <strong>开启配音</strong>
                     <span>为游戏角色添加 AI 语音，增强沉浸感</span>
                   </div>
-                  <label className="toggle-switch">
-                    <input type="checkbox" checked={voiceOn} onChange={(event) => setVoiceOn(event.target.checked)} />
-                    <span />
-                  </label>
+                  <Switch.Root className="home-voice-switch" checked={voiceOn} onCheckedChange={setVoiceOn} disabled={running} aria-label="开启角色配音"><Switch.Thumb className="home-voice-thumb" /></Switch.Root>
                 </div>
               </Field>
 
               <div className="backend-options" data-tour="image">
-                <label><input type="checkbox" checked={generateAssets} onChange={(event) => setGenerateAssets(event.target.checked)} /> 生成图片素材</label>
-                <details ref={imageModelPickerRef} className={`model-picker asset-model-picker ${!generateAssets || running ? "disabled" : ""}`}>
-                  <summary
-                    aria-label={`当前生图模型：${selectedImageModel.name}`}
-                    aria-disabled={!generateAssets || running}
-                    onClick={(event) => {
-                      if (!generateAssets || running) event.preventDefault();
-                    }}
-                  >
-                    <span className="image-model-dot" aria-hidden="true" />
-                    <span>{selectedImageModel.name}</span>
-                    <span className="model-chevron" aria-hidden="true">⌄</span>
-                  </summary>
-                  <div className="model-menu" role="menu" aria-label="选择图片生成模型">
-                    <div className="model-menu-label">图片生成模型</div>
-                    {imageModels.map((item) => (
-                      <button
-                        className={item.id === imageModel ? "selected" : ""}
-                        key={item.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={item.id === imageModel}
-                        onClick={(event) => {
-                          setImageModel(item.id);
-                          event.currentTarget.closest("details")?.removeAttribute("open");
-                        }}
-                      >
-                        <span className="model-option-copy">
-                          <strong>{item.name}</strong>
-                          <small>{item.note}</small>
-                        </span>
-                        <span className="model-option-id">{item.model}</span>
-                        <span className="model-check" aria-hidden="true">{item.id === imageModel ? "✓" : ""}</span>
-                      </button>
-                    ))}
-                  </div>
-                </details>
+                <label className="home-image-check"><Checkbox.Root className="home-checkbox" checked={generateAssets} onCheckedChange={(checked) => setGenerateAssets(checked === true)} disabled={running} aria-label="生成图片素材"><Checkbox.Indicator>✓</Checkbox.Indicator></Checkbox.Root> 生成图片素材</label>
+                <ModelSelect value={imageModel} onChange={setImageModel} items={imageModels} disabled={!generateAssets || running} label="图片生成模型" image />
               </div>
             </FormSection>
 
             <FormSection title="生成内容包" hint="选择需要生成的课堂配套内容">
               <div className="checkbox-group">
                 {packages.map((item) => (
-                  <button className={`check-item ${checkedPackages.has(item) ? "checked" : ""}`} key={item} type="button" onClick={() => togglePackage(item)}>
+                  <Checkbox.Root className={`check-item ${checkedPackages.has(item) ? "checked" : ""}`} key={item} checked={checkedPackages.has(item)} disabled={running} onCheckedChange={() => togglePackage(item)}>
                     <span className="check-box" />
                     <span>{item}</span>
-                  </button>
+                  </Checkbox.Root>
                 ))}
               </div>
             </FormSection>
 
             <div className="form-actions">
-              <button className="btn ghost" type="button" disabled title="草稿箱即将开放">保存草稿</button>
-              <button className="btn outline" type="button" disabled title="预览方案将在生成前校验接入后开放">预览方案</button>
+              <ActionHint text="草稿箱即将开放"><button className="btn ghost" type="button" disabled>保存草稿</button></ActionHint>
+              <ActionHint text="预览方案尚未开放"><button className="btn outline" type="button" disabled>预览方案</button></ActionHint>
               <span />
               <div className="generate-control">
-                <button
+                <ActionHint text={running ? "正在创建任务，请稍候" : !canGenerate ? generateBlockReason : undefined}><button
                   className="btn primary"
                   disabled={running || !canGenerate}
                   aria-busy={running}
-                  title={!canGenerate ? generateBlockReason : undefined}
                   type="button"
                   onClick={runGeneration}
                 >
                   {running ? "正在创建..." : "临场生成"}
-                </button>
-                <details ref={textModelPickerRef} className={`model-picker ${running ? "disabled" : ""}`}>
-                  <summary
-                    aria-label={`当前文本模型：${selectedTextModel.name}`}
-                    aria-disabled={running}
-                    onClick={(event) => {
-                      if (running) event.preventDefault();
-                    }}
-                  >
-                    <span className="model-spark" aria-hidden="true">✦</span>
-                    <span>{selectedTextModel.name}</span>
-                    <span className="model-chevron" aria-hidden="true">⌄</span>
-                  </summary>
-                  <div className="model-menu" role="menu" aria-label="选择文本生成模型">
-                    <div className="model-menu-label">文本生成模型</div>
-                    {textModels.map((item) => (
-                      <button
-                        className={item.id === textModel ? "selected" : ""}
-                        disabled={item.disabled}
-                        key={item.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={item.id === textModel}
-                        aria-label={`${item.name}${item.disabled ? "，暂不可用" : ""}`}
-                        onClick={(event) => {
-                          setTextModel(item.id);
-                          event.currentTarget.closest("details")?.removeAttribute("open");
-                        }}
-                      >
-                        <span className="model-option-copy">
-                          <strong>{item.name}</strong>
-                          <small>{item.note}</small>
-                        </span>
-                        <span className="model-option-id">{item.disabled ? "暂不可用" : item.model}</span>
-                        <span className="model-check" aria-hidden="true">{item.id === textModel ? "✓" : ""}</span>
-                      </button>
-                    ))}
-                  </div>
-                </details>
+                </button></ActionHint>
+                <ModelSelect value={textModel} onChange={setTextModel} items={textModels} disabled={running} label="文本生成模型" />
               </div>
             </div>
           </section>
@@ -535,7 +432,7 @@ function NarrativeRouterPage() {
       <article className="solution-card plus"><img className="solution-cover" src={ossImage("solution-narrativeos-plus.png")} alt="" /><span className="solution-shade" /><span>02</span><h3>NarrativeOS <b>Plus</b></h3><p>适合企业、学校、IP 和专业人士的互动叙事解决方案</p><button type="button" onClick={() => setNotice("NarrativeOS Plus 的专属方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
       <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><button type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
     </div></section>
-    {pickerOpen && <div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></div>}
+    {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></div></ModalFrame>}
     {notice && <div className="router-toast" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="关闭提示">×</button></div>}
   </main>;
 }
@@ -575,15 +472,12 @@ function GenerationModeRadio({ value, onChange }: { value: GenerationMode; onCha
     }
   ];
   return (
-    <div className="mode-radio" role="radiogroup" aria-label="生成工作台模式">
+    <RadioGroup.Root className="mode-radio" value={value} onValueChange={(next) => onChange(next as GenerationMode)} aria-label="生成工作台模式">
       {items.map((item) => (
-        <button
+        <RadioGroup.Item
           className={value === item.value ? "selected" : ""}
           key={item.value}
-          type="button"
-          role="radio"
-          aria-checked={value === item.value}
-          onClick={() => onChange(item.value)}
+          value={item.value}
         >
           <span className="mode-radio-dot" aria-hidden="true" />
           <span>
@@ -591,9 +485,9 @@ function GenerationModeRadio({ value, onChange }: { value: GenerationMode; onCha
             <small>{item.desc}</small>
           </span>
           <em>{item.meta}</em>
-        </button>
+        </RadioGroup.Item>
       ))}
-    </div>
+    </RadioGroup.Root>
   );
 }
 
@@ -611,14 +505,14 @@ function ChoiceGrid({ label, items, value, onChange, columns }: { label: string;
   return (
     <div className="field-group">
       <span className="field-label">{label}</span>
-      <div className={`card-grid ${columns}`}>
+      <RadioGroup.Root className={`card-grid ${columns}`} value={value} onValueChange={onChange} aria-label={label}>
         {items.map((item) => (
-          <button className={`select-card ${value === item.name ? "selected" : ""}`} key={item.name} type="button" onClick={() => onChange(item.name)}>
+          <RadioGroup.Item className={`select-card ${value === item.name ? "selected" : ""}`} key={item.name} value={item.name}>
             <strong>{item.name}</strong>
             <small>{item.desc}</small>
-          </button>
+          </RadioGroup.Item>
         ))}
-      </div>
+      </RadioGroup.Root>
     </div>
   );
 }

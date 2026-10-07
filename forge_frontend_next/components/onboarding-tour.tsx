@@ -1,4 +1,5 @@
 "use client";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 
@@ -203,7 +204,7 @@ export function OnboardingTour() {
       {open && (
         <>
           <div className="onboarding-veil" aria-hidden="true" />
-          <div className="onboarding-layer" aria-live="polite">
+          <Dialog.Root open onOpenChange={(value) => { if (!value) closeTour(); }}><Dialog.Portal><div className="onboarding-layer" aria-live="polite"><Dialog.Content asChild>
             <div
             ref={cardRef}
             className={`onboarding-card onboarding-${position?.placement || "center"}`}
@@ -219,8 +220,8 @@ export function OnboardingTour() {
               <span style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} />
             </div>
             <span className="onboarding-eyebrow">{step.eyebrow}</span>
-            <h2 id="onboarding-title">{step.title}</h2>
-            <p id="onboarding-description">{step.body}</p>
+            <Dialog.Title asChild><h2 id="onboarding-title">{step.title}</h2></Dialog.Title>
+            <Dialog.Description asChild><p id="onboarding-description">{step.body}</p></Dialog.Description>
             <div className="onboarding-actions">
               <button className="onboarding-skip" type="button" onClick={closeTour}>跳过引导</button>
               <span>{stepIndex + 1} / {steps.length}</span>
@@ -229,8 +230,8 @@ export function OnboardingTour() {
                 {stepIndex === steps.length - 1 ? "开始创作" : "下一步"}
               </button>
             </div>
-            </div>
-          </div>
+            </div></Dialog.Content>
+          </div></Dialog.Portal></Dialog.Root>
         </>
       )}
 
