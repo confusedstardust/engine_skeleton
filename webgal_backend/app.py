@@ -822,6 +822,11 @@ def crop_asset_avatar(job_id: str, payload: AvatarCropRequest, request: Request)
         target = job_dir / "draft" / "game" / "figure" / avatar_name
         target.parent.mkdir(parents=True, exist_ok=True)
         avatar.save(target, "WEBP", lossless=True)
+        # Publishing a staged figure requires both the figure and its avatar.
+        # Preserve the original bytes, including any existing draft replacement.
+        staged_figure = target.parent / relative.name
+        if source != staged_figure:
+            shutil.copy2(source, staged_figure)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="avatar crop failed") from exc
     record = next((dict(item) for item in _uploaded_assets(job_dir) if item.get("type") == "image" and Path(str(item.get("filename") or "")).stem == filename), None)
