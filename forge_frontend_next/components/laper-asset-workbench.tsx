@@ -109,7 +109,7 @@ type LaperAssetWorkbenchProps = {
   regenerateAsset: (asset: AssetReviewItem, prompt: string) => Promise<void>;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
   buildGame: (staged?: StagedScenePresentation) => Promise<boolean>;
-  retryAction?: () => void;
+  retryAction?: (staged?: StagedScenePresentation) => Promise<boolean>;
   retryLabel?: string;
   displayName: (asset: AssetReviewItem) => string;
   sceneDisplayName: (asset: AssetReviewItem) => string;
@@ -970,7 +970,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 className="btn primary retry-action"
                 type="button"
                 disabled={props.busy}
-                onClick={props.retryAction}
+                onClick={() => void (async () => {
+                  const applied = await props.retryAction?.(hasStagedPresentation ? { music: musicDrafts, effects: effectDrafts, avatarCrops: avatarCropDrafts } : undefined);
+                  if (applied) setAvatarCropDrafts({});
+                })()}
               >
                 <span aria-hidden="true">↻</span>
                 {props.busy ? "正在重试..." : props.retryLabel || "重试生成"}
