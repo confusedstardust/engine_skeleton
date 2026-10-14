@@ -22,7 +22,7 @@ const approvedFeatures: Record<string, string[]> = {
 };
 
 function PlanIcon({ file }: { file: "rocket-launch" | "palette" | "crown" | "student" }) {
-  const source = `url("${withBasePath(`/icons/plans/${file}.svg`)}")`;
+  const source = `url("https://ecs-oss-ist.oss-cn-hangzhou.aliyuncs.com/site_asset/icons/plans/${file}.svg")`;
   return <span className="pricing-plan-emblem" aria-hidden="true"><span className="pricing-plan-symbol" style={{ maskImage: source, WebkitMaskImage: source }} /></span>;
 }
 
