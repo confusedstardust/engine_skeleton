@@ -302,15 +302,15 @@ def test_private_test_product_hidden_and_normal_checkout_rejected(billing):
     import json
     store,connection=billing
     with connection.cursor() as cursor:
-        cursor.execute("UPDATE products SET sku='forge-private-payment-test-v1',status='DRAFT',price_fen=1,benefit_json=%s WHERE id=%s",(json.dumps({'credits':1,'billing_period':'once'}),'c'*32))
+        cursor.execute("UPDATE products SET sku='forge-private-payment-test-v1',status='DRAFT',price_fen=10,benefit_json=%s WHERE id=%s",(json.dumps({'credits':1,'billing_period':'once'}),'c'*32))
     connection.commit()
     assert store.list_products()==[]
-    assert store.private_test_product()['price_fen']==1
+    assert store.private_test_product()['price_fen']==10
     args=dict(user_id='test-user',product_id='c'*32,merchant_id='merchant',app_id='app')
     with pytest.raises(CreditNotFoundError):
         store.create_order(**args,request_key='normal-cannot-test')
     order=store.create_order(**args,request_key='private-owner-test',private_test=True)
-    assert order['payable_fen']==1
+    assert order['payable_fen']==10
     report=store.private_test_evidence(order['id'],'test-user')
     assert report['granted_credits']==0 and report['verified_callback'] is False
 

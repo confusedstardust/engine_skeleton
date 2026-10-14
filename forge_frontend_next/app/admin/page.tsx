@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PaymentTestPanel from "../../components/payment-test-panel";
 import AdminUserDetail from "../../components/admin-user-detail";
 import AdminAssetUpload from "../../components/admin-asset-upload";
 import dynamic from "next/dynamic";
@@ -22,7 +23,7 @@ function savedInputs(detail:GameDetail) {
   for(const key of ["grade","difficulty","teacher_goal","student_goal"]) if(detail.options?.[key]&&!rows.some(row=>inputKeys[row.label]===key))rows.push({label:optionLabels[key],value:String(detail.options[key])});
   return rows;
 }
-const resources = [{value:"dashboard",label:"看板"},{value:"games",label:"游戏"},{value:"assets",label:"素材"},{value:"users",label:"用户"}];
+const resources = [{value:"dashboard",label:"看板"},{value:"games",label:"游戏"},{value:"assets",label:"素材"},{value:"users",label:"用户"},{value:"payment-test",label:"支付测试"}];
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge/admin${path}`), { ...init, credentials:"include", headers:{...jsonAuthHeaders(), "Content-Type":"application/json", "X-Forge-Admin-Action":"1"} });
   const body = await response.json();
@@ -67,7 +68,7 @@ export default function AdminPage() {
     finally{setBusy(false);}
   }
   useEffect(() => {
-    if (!allowed || resource === "dashboard") return;
+    if (!allowed || (resource === "dashboard" || resource === "payment-test")) return;
     let active=true;
     setLoading(true); setError("");
     api<{items:Item[];has_more:boolean}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:""})}`)
@@ -92,9 +93,9 @@ export default function AdminPage() {
       {allowed ? <Tabs.Root value={resource} onValueChange={(value)=>{setResource(value);setPage(1);setSearch("");setQuery("");setEditing("");setAssetKind("");}}> 
         <Tabs.List className="asset-library-filters" aria-label="管理对象">{resources.map((r)=><Tabs.Trigger className={resource===r.value?"active":""} value={r.value} key={r.value}>{r.label}</Tabs.Trigger>)}</Tabs.List>
         {resource==="assets"?<><div className="asset-library-filters" role="group" aria-label="素材类型">{[["","全部"],["BACKGROUND","场景"],["FIGURE","角色"],["VOICE","语音"],["BGM","音乐"]].map(([value,label])=><button type="button" key={value} className={assetKind===value?"active":""} aria-pressed={assetKind===value} onClick={()=>{setAssetKind(value);setPage(1);}}>{label}</button>)}</div><AdminAssetUpload onUploaded={()=>setRevision(v=>v+1)}/></>:null}
-        {resource!=="dashboard" ? <form className="asset-library-search" onSubmit={(e)=>{e.preventDefault();setQuery(search.trim());setPage(1);}}><input type="search" value={search} placeholder={resource==="games"?"搜索作品、用户邮箱或 ID":"搜索名称、邮箱或 ID"} aria-label="搜索管理对象" onChange={(e)=>{setSearch(e.target.value);if(!e.target.value){setQuery("");setPage(1);}}}/><button className="btn primary">搜索</button></form> : null}
+        {resource!=="dashboard" && resource!=="payment-test" ? <form className="asset-library-search" onSubmit={(e)=>{e.preventDefault();setQuery(search.trim());setPage(1);}}><input type="search" value={search} placeholder={resource==="games"?"搜索作品、用户邮箱或 ID":"搜索名称、邮箱或 ID"} aria-label="搜索管理对象" onChange={(e)=>{setSearch(e.target.value);if(!e.target.value){setQuery("");setPage(1);}}}/><button className="btn primary">搜索</button></form> : null}
         <Tabs.Content className="admin-tab-panel" value={resource}>
-          {resource==="dashboard"?<AdminDashboard/>:<>
+          {resource==="dashboard"?<AdminDashboard/>:resource==="payment-test"?<PaymentTestPanel embedded/>:<>
           {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="users"?"邮箱":"归属用户"}</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
           <nav className="asset-library-pagination"><button className="btn outline" disabled={loading||page===1} onClick={()=>setPage(v=>v-1)}>上一页</button><span>第 {page} 页 · 每页 20 项</span><button className="btn outline" disabled={loading||!hasMore} onClick={()=>setPage(v=>v+1)}>下一页</button></nav>
           </>}

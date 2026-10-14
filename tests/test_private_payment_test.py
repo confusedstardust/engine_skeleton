@@ -23,14 +23,14 @@ def test_private_access_hidden_from_others(client,monkeypatch,identity):
 
 def test_owner_sees_server_defined_product(client,monkeypatch):
     monkeypatch.setattr(payments,'get_payment_service',lambda:object())
-    monkeypatch.setattr(payments,'get_payment_store',lambda:SimpleNamespace(is_payment_tester=lambda uid:uid=='owner', private_test_product=lambda:{'id':'a'*32,'price_fen':1,'credits':1}))
-    assert client.get('/payments/test/products').json()['product']['price_fen']==1
-    assert client.post('/payments/test/orders',json={'request_key':'test-key-123456789','price_fen':1}).status_code==422
+    monkeypatch.setattr(payments,'get_payment_store',lambda:SimpleNamespace(is_payment_tester=lambda uid:uid=='owner', private_test_product=lambda:{'id':'a'*32,'price_fen':10,'credits':1}))
+    assert client.get('/payments/test/products').json()['product']['price_fen']==10
+    assert client.post('/payments/test/orders',json={'request_key':'test-key-123456789','price_fen':10}).status_code==422
     assert client.post('/payments/test/orders',json={'request_key':'test-key-123456789'},headers={'Origin':'https://evil.example'}).status_code==404
 
 
 def test_owner_test_order_uses_fixed_server_product(client,monkeypatch):
-    monkeypatch.setattr(payments,'get_payment_store',lambda:SimpleNamespace(is_payment_tester=lambda uid:uid=='owner', private_test_product=lambda:{'id':'a'*32,'price_fen':1,'credits':1}))
+    monkeypatch.setattr(payments,'get_payment_store',lambda:SimpleNamespace(is_payment_tester=lambda uid:uid=='owner', private_test_product=lambda:{'id':'a'*32,'price_fen':10,'credits':1}))
     async def create(payload,user_id,*,private_test=False):
         assert user_id=='owner' and private_test is True
         assert payload.product_id=='a'*32
