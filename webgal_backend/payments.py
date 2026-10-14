@@ -59,12 +59,16 @@ def payment_user(request: Request):
     if user.get("auth_type") != "sso":
         raise HTTPException(403, "请使用 NarrativeOS 账号登录后充值")
     if request.method == "POST":
-        origin = request.headers.get("origin")
-        frontend = urlsplit(os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001"))
-        allowed = {f"{frontend.scheme}://{frontend.netloc}", str(request.base_url).rstrip("/")}
-        if request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin not in allowed):
-            raise HTTPException(403, "请从本站发起充值请求")
+        validate_payment_origin(request)
     return str(user["id"])
+
+
+def validate_payment_origin(request: Request):
+    origin = request.headers.get("origin")
+    frontend = urlsplit(os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001"))
+    allowed = {f"{frontend.scheme}://{frontend.netloc}", str(request.base_url).rstrip("/")}
+    if request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin not in allowed):
+        raise HTTPException(403, "请从本站发起充值请求")
 
 
 def order_view(order):
@@ -202,6 +206,10 @@ async def synchronize_order(order):
 @router.get("/orders/{order_id}")
 async def order_status(order_id: str, request: Request):
     user_id = await run_in_threadpool(payment_user, request)
+    return await _order_status_for_user(order_id, user_id)
+
+
+async def _order_status_for_user(order_id: str, user_id: str):
     require_enabled()
     order = await database_call(get_payment_store().get_order, order_id, user_id)
     return order_view(await synchronize_order(order))
@@ -210,6 +218,10 @@ async def order_status(order_id: str, request: Request):
 @router.post("/orders/{order_id}/close")
 async def close_order(order_id: str, request: Request):
     user_id = await run_in_threadpool(payment_user, request)
+    return await _close_order_for_user(order_id, user_id)
+
+
+async def _close_order_for_user(order_id: str, user_id: str):
     require_enabled()
     store, service = get_payment_store(), get_payment_service()
     order = await database_call(store.get_order, order_id, user_id)
@@ -237,6 +249,10 @@ async def close_order(order_id: str, request: Request):
 @router.get("/orders/{order_id}/qr")
 async def order_qr(order_id: str, request: Request):
     user_id = await run_in_threadpool(payment_user, request)
+    return await _order_qr_for_user(order_id, user_id)
+
+
+async def _order_qr_for_user(order_id: str, user_id: str):
     require_enabled()
     order = await database_call(get_payment_store().get_order, order_id, user_id)
     if order["status"] != "PENDING" or not order["attempt"]["code_url"] or order["expires_at"] <= datetime.now(timezone.utc).replace(tzinfo=None):
@@ -269,8 +285,16 @@ async def wechat_notify(request: Request):
 
 
 async def private_test_user(request: Request):
+    from .platform_admin import session_user
+    admin = await run_in_threadpool(session_user, request)
     try:
-        user_id = await run_in_threadpool(payment_user, request)
+        if admin:
+            # Keep the same Origin checks used by ordinary payment POSTs.
+            if request.method == "POST":
+                validate_payment_origin(request)
+            user_id = str(admin["id"])
+        else:
+            user_id = await run_in_threadpool(payment_user, request)
     except HTTPException:
         raise HTTPException(404, "页面不存在")
     if not await database_call(get_payment_store().is_payment_tester, user_id):
@@ -303,3 +327,38 @@ async def private_test_order(payload: PrivateTestOrder, request: Request):
 async def private_test_verification(order_id: str, request: Request):
     user_id = await private_test_user(request)
     return await database_call(get_payment_store().private_test_evidence, order_id, user_id)
+
+
+@router.get("/test/balance")
+async def private_test_balance(request: Request):
+    from dataclasses import asdict
+    user_id = await private_test_user(request)
+    return asdict(await database_call(get_payment_store().get_balance, user_id))
+
+
+@router.get("/test/orders")
+async def private_test_orders(request: Request):
+    user_id = await private_test_user(request)
+    require_enabled()
+    return [order_view(order) for order in await database_call(get_payment_store().list_orders, user_id)]
+
+
+async def require_test_order(order_id: str, request: Request):
+    user_id = await private_test_user(request)
+    await database_call(get_payment_store().private_test_evidence, order_id, user_id)
+    return user_id
+
+
+@router.get("/test/orders/{order_id}")
+async def private_test_status(order_id: str, request: Request):
+    return await _order_status_for_user(order_id, await require_test_order(order_id, request))
+
+
+@router.post("/test/orders/{order_id}/close")
+async def private_test_close(order_id: str, request: Request):
+    return await _close_order_for_user(order_id, await require_test_order(order_id, request))
+
+
+@router.get("/test/orders/{order_id}/qr")
+async def private_test_qr(order_id: str, request: Request):
+    return await _order_qr_for_user(order_id, await require_test_order(order_id, request))

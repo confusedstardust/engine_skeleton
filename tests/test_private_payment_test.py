@@ -37,3 +37,19 @@ def test_owner_test_order_uses_fixed_server_product(client,monkeypatch):
         return {'status':'PENDING'}
     monkeypatch.setattr(payments,'_create_order_for_user',create)
     assert client.post('/payments/test/orders',json={'request_key':'test-key-123456789'}).json()['status']=='PENDING'
+
+
+def test_admin_session_requires_tester_and_owns_order(client, monkeypatch):
+    import webgal_backend.platform_admin as admin
+    monkeypatch.setattr(admin, 'session_user', lambda _: {'id': 'admin-user', 'auth_type': 'platform_admin'})
+    monkeypatch.setattr(payments, 'get_payment_store', lambda: SimpleNamespace(
+        is_payment_tester=lambda uid: uid == 'admin-user',
+        private_test_product=lambda: {'id': 'a'*32, 'price_fen': 10, 'credits': 1}))
+    async def create(payload, user_id, *, private_test=False):
+        assert user_id == 'admin-user' and private_test
+        return {'status': 'PENDING'}
+    monkeypatch.setattr(payments, '_create_order_for_user', create)
+    assert client.post('/payments/test/orders', json={'request_key': 'admin-test-key-123'}).status_code == 200
+    assert client.post('/payments/test/orders', json={'request_key': 'admin-test-key-123'}, headers={'Origin':'https://evil.example'}).status_code == 404
+    monkeypatch.setattr(payments, 'get_payment_store', lambda: SimpleNamespace(is_payment_tester=lambda _: False))
+    assert client.post('/payments/test/orders', json={'request_key': 'admin-test-key-123'}).status_code == 404
