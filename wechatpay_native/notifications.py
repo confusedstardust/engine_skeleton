@@ -119,6 +119,17 @@ def parse_payment_notification(
         raise PaymentValidationError("Unexpected notification resource_type")
 
     decrypted = decrypt_notification_resource(_as_object(envelope.get("resource"), "resource"), config.api_v3_key)
+    transaction = parse_successful_transaction(decrypted, config=config)
+    return PaymentNotification(
+        notification_id=_required_string(envelope, "id"),
+        create_time=_required_string(envelope, "create_time"),
+        event_type="TRANSACTION.SUCCESS",
+        transaction=transaction,
+    )
+
+
+def parse_successful_transaction(decrypted: Mapping[str, Any], *, config: Any) -> PaymentTransaction:
+    """Validate a transaction from an authenticated callback or query response."""
     amount = _as_object(decrypted.get("amount"), "amount")
     transaction = PaymentTransaction(
         appid=_required_string(decrypted, "appid"),
@@ -146,12 +157,7 @@ def parse_payment_notification(
         raise PaymentValidationError("payer_total exceeds order total")
     if not OUT_TRADE_NO_RE.fullmatch(transaction.out_trade_no):
         raise PaymentValidationError("Invalid out_trade_no in payment")
-    return PaymentNotification(
-        notification_id=_required_string(envelope, "id"),
-        create_time=_required_string(envelope, "create_time"),
-        event_type="TRANSACTION.SUCCESS",
-        transaction=transaction,
-    )
+    return transaction
 
 
 def assert_expected_payment(

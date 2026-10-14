@@ -10,10 +10,16 @@ const nextConfig = {
   async rewrites() {
     return [
       { source: "/api/forge/health", destination: `${backend}/health` },
+      { source: "/api/forge/admin/:path*", destination: `${backend}/admin/:path*` },
       { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
       { source: "/api/forge/auth/config", destination: `${backend}/auth/config` },
+      { source: "/api/forge/credits/balance", destination: `${backend}/credits/balance` },
+      { source: "/api/forge/payments/:path*", destination: `${backend}/payments/:path*` },
+      { source: "/api/forge/assets", destination: `${backend}/assets` },
+      { source: "/api/forge/assets/:path*", destination: `${backend}/assets/:path*` },
       { source: "/api/forge/jobs", destination: `${backend}/jobs` },
       { source: "/api/forge/jobs/:path*", destination: `${backend}/jobs/:path*` },
+      { source: "/api/forge/public/jobs/:path*", destination: `${backend}/public/jobs/:path*` },
       { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },
       { source: "/play/:path*", destination: `${backend}/play/:path*` }
     ];

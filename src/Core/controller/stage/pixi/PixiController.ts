@@ -14,6 +14,7 @@ import * as PIXI from 'pixi.js';
 import { INSTALLED } from 'pixi.js';
 import { GifResource } from './GifResource';
 import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+import { addLayeredFigure } from './layeredFigure';
 
 export interface IAnimationObject {
   setStartState: Function;
@@ -42,7 +43,8 @@ export interface IStageObject {
   // 相关的源 url
   sourceUrl: string;
   sourceExt: string;
-  sourceType: 'img' | 'live2d' | 'spine' | 'gif' | 'video' | 'stage';
+  sourceType: 'img' | 'live2d' | 'spine' | 'gif' | 'video' | 'stage' | 'layered';
+  dispose?: () => void;
   spineAnimation?: string;
   isExiting?: boolean;
 }
@@ -109,6 +111,7 @@ export default class PixiStage {
    * @param presetPosition
    */
   public addSpineFigure = addSpineFigureImpl.bind(this);
+  public addLayeredFigure = addLayeredFigure.bind(this);
   public addSpineBg = addSpineBgImpl.bind(this);
   // 注册到 Ticker 上的函数
   private stageAnimations = this.createReactiveList<IStageAnimationObject>([]);
@@ -1047,6 +1050,7 @@ export default class PixiStage {
     const indexBg = this.backgroundObjects.findIndex((e) => e.key === key);
     if (indexFig >= 0) {
       const bgSprite = this.figureObjects[indexFig];
+      bgSprite.dispose?.();
       if (bgSprite.pixiContainer)
         for (const element of bgSprite.pixiContainer.children) {
           element.destroy();

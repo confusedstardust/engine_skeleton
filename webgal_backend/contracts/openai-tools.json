@@ -35,6 +35,24 @@
           }
         }
       }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "emit_quiz_plan",
+        "description": "Return a teacher-facing review quiz grounded in the lesson material and narrative plan.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "required": ["quiz_plan"],
+          "additionalProperties": false,
+          "properties": {
+            "quiz_plan": {
+              "$ref": "schemas/quiz_plan.schema.json"
+            }
+          }
+        }
+      }
     }
   ]
 }
