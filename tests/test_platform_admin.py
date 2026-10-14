@@ -32,10 +32,107 @@ def login(client):
     return client.post('/admin/login',json={'username':'test-admin','password':'test-password'})
 
 
+@pytest.fixture
+def ecosystem_game(client, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from webgal_backend.storage import write_json
+    from unittest.mock import Mock
+    login(client)
+    identifier = 'a' * 32
+    root = tmp_path / identifier
+    game = root / 'public/game'
+    (game / 'scene').mkdir(parents=True)
+    (game / 'config.txt').write_text('Game_name:课堂;')
+    (game / 'scene/start.txt').write_text('课堂开始;')
+    write_json(root / 'job.json', {'id': identifier, 'status': 'SUCCEEDED', 'title': '原作者课堂', 'options': {}, 'identity': {'user_id': 'original-author'}})
+    owner = {'owner_user_id': 'original-author', 'author_id': 'original-author', 'nickname': '原作者', 'email': 'author@example.com'}
+    calls = []
+    class Cursor:
+        def execute(self, sql, args=()):
+            calls.append((sql, args))
+        def fetchone(self):
+            return dict(owner)
+    @contextmanager
+    def transaction(self):
+        yield Cursor()
+    monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
+    monkeypatch.setattr(admin, 'settings', SimpleNamespace(jobs_dir=tmp_path))
+    monkeypatch.setattr(admin, 'blocked', lambda *args: False)
+    monkeypatch.setenv('WEBGAL_FRONTEND_URL', 'https://example.com/narrativeos')
+    publish = Mock(return_value={'published': True, 'work': {'title': '原作者课堂'}})
+    unpublish = Mock(return_value={'published': False})
+    monkeypatch.setattr(admin, 'publish_work', publish)
+    monkeypatch.setattr(admin, 'unpublish_work', unpublish)
+    monkeypatch.setattr(admin, 'publication_status', lambda identifier: {'published': False})
+    return SimpleNamespace(path=f'/admin/games/{identifier}/ecosystem-publication', root=root, owner=owner, calls=calls, publish=publish, unpublish=unpublish)
+
+
+def test_admin_ecosystem_publish_preserves_original_author_and_audits_actor(client, ecosystem_game):
+    import json
+    game = ecosystem_game
+    assert client.get(game.path).json()['owner_user_id'] == 'original-author'
+    response = client.post(game.path)
+    assert response.status_code == 200 and response.json()['published'] is True
+    payload = game.publish.call_args.args[0]
+    assert payload['ownerUserId'] == 'original-author'
+    assert payload['authorName'] == '原作者'
+    assert payload['title'] == '原作者课堂'
+    assert payload['playUrl'] == 'https://example.com/narrativeos/play/' + 'a' * 32 + '/'
+    audit = next(args for sql, args in game.calls if sql.startswith('INSERT INTO platform_admin_audit'))
+    assert audit[1] == 'test-admin-id' and audit[4] == 'ECOSYSTEM_PUBLISH'
+    assert json.loads(audit[6])['status'] == 'REQUESTED'
+    assert any(sql.startswith('UPDATE platform_admin_audit') for sql, args in game.calls)
+
+
+@pytest.mark.parametrize('reason', ['blocked', 'unbuilt', 'missing_author', 'missing_files'])
+def test_admin_ecosystem_rejects_unpublishable_games(client, ecosystem_game, monkeypatch, reason):
+    game = ecosystem_game
+    if reason == 'blocked':
+        monkeypatch.setattr(admin, 'blocked', lambda *args: True)
+    elif reason == 'unbuilt':
+        (game.root / 'public/game/config.txt').unlink()
+    elif reason == 'missing_author':
+        game.owner['author_id'] = None
+    else:
+        (game.root / 'job.json').unlink()
+    assert client.post(game.path).status_code == 409
+    game.publish.assert_not_called()
+
+
+def test_admin_ecosystem_unpublish_works_for_blocked_game_without_local_files(client, ecosystem_game, monkeypatch):
+    game = ecosystem_game
+    monkeypatch.setattr(admin, 'blocked', lambda *args: True)
+    (game.root / 'job.json').unlink()
+    assert client.delete(game.path).status_code == 200
+    game.unpublish.assert_called_once_with('original-author', 'a' * 32)
+
+
+def test_admin_ecosystem_mutations_require_action_header(client, ecosystem_game):
+    del client.headers['X-Forge-Admin-Action']
+    assert client.post(ecosystem_game.path).status_code == 403
+    assert client.delete(ecosystem_game.path).status_code == 403
+    ecosystem_game.publish.assert_not_called()
+    ecosystem_game.unpublish.assert_not_called()
+
+
+def test_admin_ecosystem_service_failure_is_not_reported_as_success(client, ecosystem_game):
+    ecosystem_game.publish.side_effect = admin.TeacherEcosystemError('服务暂时不可用')
+    response = client.post(ecosystem_game.path)
+    assert response.status_code == 503
+    assert not any(sql.startswith('UPDATE platform_admin_audit') for sql, args in ecosystem_game.calls)
+
+
+def test_ordinary_user_cannot_manage_ecosystem_publication(client):
+    with patch('webgal_backend.auth.user_from_request', return_value={'id': 'ordinary', 'auth_type': 'sso'}):
+        for method in ('get', 'post', 'delete'):
+            assert getattr(client, method)('/admin/games/' + 'a' * 32 + '/ecosystem-publication').status_code == 403
+
+
 @pytest.mark.parametrize('total,requested,expected_page,item_count,has_more', [
     (41, 2, 2, 20, True), (41, 99, 3, 1, False), (0, 1, 1, 0, False),
 ])
-def test_filtered_listing_pagination(client, monkeypatch, total, requested, expected_page, item_count, has_more):
+@pytest.mark.parametrize('owner_query,asset_status', [('', ''), ('原作者', 'ACTIVE'), ('author@example.com', 'BLOCKED')])
+def test_filtered_listing_pagination(client, monkeypatch, total, requested, expected_page, item_count, has_more, owner_query, asset_status):
     login(client)
     calls = []
     class Cursor:
@@ -50,7 +147,7 @@ def test_filtered_listing_pagination(client, monkeypatch, total, requested, expe
     def transaction(self):
         yield Cursor()
     monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
-    response = client.get('/admin/assets', params={'search': '月夜', 'asset_kind': 'BACKGROUND', 'page': requested})
+    response = client.get('/admin/assets', params={'search': '月夜', 'asset_kind': 'BACKGROUND', 'page': requested, 'owner_query': owner_query, 'asset_status': asset_status})
     assert response.status_code == 200
     data = response.json()
     assert data['total'] == total
@@ -59,10 +156,17 @@ def test_filtered_listing_pagination(client, monkeypatch, total, requested, expe
     assert data['has_more'] is has_more
     assert len(data['items']) == item_count
     # Count and data queries must apply the same search and kind filters.
-    assert calls[0][1] == ['月夜', '月夜', 'BACKGROUND']
-    assert calls[1][1] == ['ASSET', '月夜', '月夜', 'BACKGROUND', (expected_page - 1) * 20]
+    filters = ['月夜', '月夜', 'BACKGROUND'] + ([owner_query] * 3 if owner_query else []) + ([asset_status] if asset_status else [])
+    assert calls[0][1] == filters
+    assert calls[1][1] == ['ASSET', *filters, (expected_page - 1) * 20]
     assert 'CONVERT(r.id USING utf8mb4)' in calls[0][0]
     assert 'CONVERT(r.id USING utf8mb4)' in calls[1][0]
+
+
+def test_listing_rejects_invalid_status_filter(client):
+    login(client)
+    assert client.get('/admin/assets?asset_status=INVALID').status_code == 422
+    assert client.get('/admin/users?asset_status=ACTIVE').status_code == 422
 
 
 def test_login_cookie_and_logout(client):

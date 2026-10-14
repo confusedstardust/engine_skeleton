@@ -6235,6 +6235,10 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .account-footer code{display:block;color:var(--ink-muted);font-size:10px;overflow-wrap:anywhere;user-select:all}
 .account-footer button{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;padding:0;border:0;border-radius:7px;color:var(--ink-muted);background:transparent}
 .account-footer button:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
+.account-footer .account-logout{display:inline-flex;align-items:center;gap:5px;width:auto;padding:0 8px;white-space:nowrap}
+.account-footer .account-logout span{margin:0;color:inherit;font-size:12px}
+.account-footer .account-logout svg{width:17px;height:17px}
+.account-footer .account-logout:disabled{opacity:.6;cursor:wait}
 .account-copy-status{display:block;padding:2px 14px;color:var(--cinnabar);font-size:11px}
 .account-copy-status:empty{padding:0}
 @keyframes account-reveal{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
@@ -6652,3 +6656,13 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .admin-page-choice .btn { min-width: 40px; }
 .admin-page-jump, .admin-page-jump label { display: inline-flex; align-items: center; gap: 8px; }
 .admin-page-jump input { width: 76px; padding: 8px; border: 1px solid var(--line, #e5d8c6); border-radius: 8px; background: var(--surface, #fffdf9); color: inherit; font: inherit; }
+.admin-column-filter{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;padding:0;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;cursor:pointer}
+.admin-column-filter.is-filtered{color:var(--cinnabar)}
+.admin-column-filter small{display:block;flex-basis:100%;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:400}
+.admin-filter-popover{z-index:120;padding:16px;width:300px;border:1px solid var(--border);border-radius:12px;background:var(--paper);box-shadow:0 8px 28px #302b2920;color:var(--ink)}
+.admin-filter-popover label{display:block;font-size:13px;margin-bottom:10px}
+.admin-filter-popover input{width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fffdfa;color:inherit}
+.admin-filter-popover .admin-actions{justify-content:flex-end}
+.admin-status-filter{width:175px;padding:6px}
+.admin-status-filter>button{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:0;border-radius:7px;background:transparent;text-align:left;color:inherit;font:inherit;font-size:13px;cursor:pointer}
+.admin-status-filter>button:hover,.admin-status-filter>button.is-selected{background:var(--cinnabar-glow);color:var(--cinnabar)}
