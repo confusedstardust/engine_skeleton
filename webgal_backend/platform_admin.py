@@ -8,6 +8,7 @@ import secrets
 import time
 import threading
 import re
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Query, UploadFile, File, Form
@@ -15,10 +16,13 @@ from pydantic import BaseModel, Field
 
 from .asset_library import AssetLibrary, _public_url, _location_hash
 from .config import settings
+from .storage import JobStore
+from .teacher_ecosystem import TeacherEcosystemError, build_publication_payload, publication_status, publish_work, unpublish_work
 
 router = APIRouter(prefix='/admin', tags=['platform-admin'])
 TABLES = {'games': ('generation_jobs', 'JOB'), 'assets': ('assets', 'ASSET'), 'users': ('users', 'USER')}
 COOKIE = 'forge_platform_admin'
+logger = logging.getLogger(__name__)
 _login_attempts = {}
 _login_lock = threading.Lock()
 
@@ -167,6 +171,78 @@ def game_detail(identifier: str, request: Request):
     return {'game': row}
 
 
+def ecosystem_owner(identifier: str):
+    if not re.fullmatch(r'[0-9a-f]{32}', identifier):
+        raise HTTPException(422, '无效作品 ID')
+    with AssetLibrary()._transaction() as cursor:
+        cursor.execute('''SELECT g.owner_user_id,u.id AS author_id,u.nickname,u.email
+            FROM generation_jobs g LEFT JOIN users u ON u.id=g.owner_user_id WHERE g.id=%s''', (identifier,))
+        row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(404, '作品不存在')
+    if not row['owner_user_id'] or not row['author_id']:
+        raise HTTPException(409, '作品缺少有效作者账号，无法发布到教师生态')
+    return {'id': row['owner_user_id'], 'nickname': row['nickname'], 'email': row['email']}
+
+
+@router.get('/games/{identifier}/ecosystem-publication')
+def admin_ecosystem_status(identifier: str, request: Request):
+    require_admin(request)
+    owner = ecosystem_owner(identifier)
+    try:
+        return {**publication_status(identifier), 'owner_user_id': owner['id']}
+    except TeacherEcosystemError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+def ecosystem_change(actor, identifier, owner, action, operation):
+    # Record the attempt before calling the remote service, including uncertain outcomes.
+    audit_id = uuid.uuid4().hex
+    with AssetLibrary()._transaction() as cursor:
+        cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                       (audit_id, actor['id'], 'JOB', identifier, action, '{}', json.dumps({'owner_user_id': owner['id'], 'status': 'REQUESTED'})))
+    try:
+        result = operation()
+    except TeacherEcosystemError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    try:
+        with AssetLibrary()._transaction() as cursor:
+            cursor.execute('UPDATE platform_admin_audit SET after_json=%s WHERE id=%s',
+                           (json.dumps({'owner_user_id': owner['id'], 'status': 'SUCCEEDED', 'published': result.get('published')}), audit_id))
+    except Exception:
+        # The remote action succeeded; do not misreport it as a failed publication.
+        logger.exception('Could not finalize ecosystem audit %s', audit_id)
+    return result
+
+
+@router.post('/games/{identifier}/ecosystem-publication')
+def admin_publish_ecosystem(identifier: str, request: Request):
+    actor = require_admin(request)
+    require_action_header(request)
+    owner = ecosystem_owner(identifier)
+    if blocked('JOB', identifier):
+        raise HTTPException(409, '作品已下架，恢复后才能发布到教师生态')
+    try:
+        job = JobStore(settings.jobs_dir).get(identifier)
+    except FileNotFoundError as exc:
+        raise HTTPException(409, '服务器缺少作品文件，无法发布') from exc
+    root = settings.jobs_dir / identifier
+    if not job.get('has_published_build') or not any((root / 'public/game/scene').glob('*.txt')):
+        raise HTTPException(409, '作品尚无可播放版本，无法发布到教师生态')
+    import os
+    payload = build_publication_payload(job=job, job_dir=root, user=owner,
+        frontend_url=os.getenv('WEBGAL_FRONTEND_URL', 'http://127.0.0.1:3001'))
+    return ecosystem_change(actor, identifier, owner, 'ECOSYSTEM_PUBLISH', lambda: publish_work(payload))
+
+
+@router.delete('/games/{identifier}/ecosystem-publication')
+def admin_unpublish_ecosystem(identifier: str, request: Request):
+    actor = require_admin(request)
+    require_action_header(request)
+    owner = ecosystem_owner(identifier)
+    return ecosystem_change(actor, identifier, owner, 'ECOSYSTEM_UNPUBLISH', lambda: unpublish_work(owner['id'], identifier))
+
+
 @router.get('/assets/taxonomy')
 def asset_taxonomy(request: Request):
     require_admin(request)
@@ -271,12 +347,17 @@ async def upload_asset(request: Request, file: UploadFile = File(...), kind: str
 
 
 @router.get('/{resource}')
-def listing(resource: str, request: Request, page: int = 1, search: str = '', asset_kind: str = ''):
+def listing(resource: str, request: Request, page: int = 1, search: str = '', asset_kind: str = '',
+            owner_query: str = '', asset_status: str = ''):
     require_admin(request)
     if resource not in TABLES or page < 1:
         raise HTTPException(422, '无效查询')
     if asset_kind and asset_kind not in {'BACKGROUND','FIGURE','VOICE','BGM'}:
         raise HTTPException(422, '无效素材类型')
+    if asset_status and asset_status not in {'ACTIVE', 'BLOCKED', 'DELETED'}:
+        raise HTTPException(422, '无效素材状态')
+    if resource != 'assets' and (owner_query or asset_status):
+        raise HTTPException(422, '此筛选仅适用于素材')
     table, kind = TABLES[resource]
     columns = {'games': 'r.id,LEFT(r.source_material,48) AS name,r.owner_user_id,r.status,r.phase,r.created_at',
                'assets': "r.id,r.name,r.kind,r.owner_user_id,r.source_type,r.visibility,r.status,r.created_at,(SELECT f.object_key FROM asset_files f WHERE f.asset_id=r.id AND f.variant='original' AND f.status='READY' AND f.mime_type LIKE 'image/%%' ORDER BY f.revision DESC LIMIT 1) AS object_key",
@@ -286,16 +367,31 @@ def listing(resource: str, request: Request, page: int = 1, search: str = '', as
     field = {'games': "CONCAT(r.owner_user_id,' ',COALESCE(u.email,''),' ',r.source_material)", 'assets': 'r.name', 'users': "CONCAT(COALESCE(r.email,''),' ',COALESCE(r.nickname,''))"}[resource]
     owner_join = ' LEFT JOIN users u ON u.id=r.owner_user_id' if resource != 'users' else ''
     kind_where = ' AND r.kind=%s' if resource == 'assets' and asset_kind else ''
-    parameters = [kind, search, search] + ([asset_kind] if kind_where else []) + [(page-1)*20]
+    # Asset IDs may use ASCII storage; search text must remain Unicode.
+    where = f"(LOCATE(%s,CONVERT(r.id USING utf8mb4))>0 OR LOCATE(%s,{field})>0) {kind_where}"
+    filters = [search, search] + ([asset_kind] if kind_where else [])
+    if owner_query.strip():
+        where += " AND (LOCATE(%s,CONVERT(r.owner_user_id USING utf8mb4))>0 OR LOCATE(%s,COALESCE(u.email,''))>0 OR LOCATE(%s,COALESCE(u.nickname,''))>0)"
+        filters.extend([owner_query.strip()] * 3)
+    if asset_status:
+        where += ' AND r.status=%s'
+        filters.append(asset_status)
     with AssetLibrary()._transaction() as cursor:
-        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id WHERE (LOCATE(%s,r.id)>0 OR LOCATE(%s,{field})>0) {kind_where} ORDER BY r.created_at DESC,r.id LIMIT 21 OFFSET %s", parameters)
+        cursor.execute(f"SELECT COUNT(*) AS total FROM {table} r{owner_join} WHERE {where}", filters)
+        total = cursor.fetchone()['total']
+        total_pages = max(1, (total + 19) // 20)
+        page = min(page, total_pages)
+        parameters = [kind, *filters, (page-1)*20]
+        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id WHERE {where} ORDER BY r.created_at DESC,r.id LIMIT 20 OFFSET %s", parameters)
         rows = cursor.fetchall()
     if resource == 'assets':
         for row in rows:
             row['blocked'] = row['status'] == 'BLOCKED'
             key = row.pop('object_key', None)
             row['url'] = _public_url(key) if key else None
-    return {'items': rows[:20], 'has_more': len(rows) > 20}
+    return {'items': rows, 'has_more': page < total_pages, 'page': page,
+            'page_size': 20, 'total': total, 'total_pages': total_pages,
+            'applied_filters': {'owner_query': owner_query.strip(), 'asset_status': asset_status}}
 
 
 class Change(BaseModel):

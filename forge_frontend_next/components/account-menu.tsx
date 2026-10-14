@@ -4,12 +4,12 @@ import Link from "next/link";
 import { withBasePath } from "../app/base-path";
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useId, useRef, useState } from "react";
-import { getCurrentUser, getCreditBalance, type AuthUser, type CreditBalance } from "../app/invite-identity";
+import { clearStoredInviteCode, getCurrentUser, getCreditBalance, ssoLoginUrl, type AuthUser, type CreditBalance } from "../app/invite-identity";
 import { creditBalanceChangedEvent } from "./credit-balance";
 
-function Icon({ kind }: { kind: "person" | "works" | "assets" | "copy" }) {
+function Icon({ kind }: { kind: "person" | "works" | "assets" | "logout" }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind === "person" ? <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></> : kind === "works" ? <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /></> : kind === "assets" ? <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8" cy="9" r="1.5" /><path d="m3 17 5-5 4 4 4-6 5 7" /></> : <><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>}
+    {kind === "person" ? <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></> : kind === "works" ? <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /></> : kind === "assets" ? <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8" cy="9" r="1.5" /><path d="m3 17 5-5 4 4 4-6 5 7" /></> : <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M9 12h12m-4-4 4 4-4 4" /></>}
   </svg>;
 }
 
@@ -20,7 +20,8 @@ export function AccountMenu({ className = "", tour }: { className?: string; tour
   const [balance, setBalance] = useState<CreditBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [subscription, setSubscription] = useState<string | null>(null);
-  const [copyStatus, setCopyStatus] = useState("");
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const titleId = useId();
   const refreshAccount = useRef<(force?: boolean) => void>(() => {});
@@ -77,13 +78,22 @@ export function AccountMenu({ className = "", tour }: { className?: string; tour
     ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" onError={() => setAvatarFailed(true)} />
     : <span>{name.slice(0, 1).toUpperCase()}</span>;
 
-  async function copyId() {
-    if (!user) return;
-    try { await navigator.clipboard.writeText(user.id); setCopyStatus("账号 ID 已复制"); }
-    catch { setCopyStatus("复制失败，请手动选择账号 ID"); }
+  async function logout() {
+    if (!user || loggingOut) return;
+    setLoggingOut(true); setLogoutError("");
+    try {
+      if (user.auth_type === "sso") {
+        const url = new URL("/api/auth/logout", ssoLoginUrl("/"));
+        const response = await fetch(url, { method: "POST", credentials: "include" });
+        if (!response.ok) throw new Error("登出失败，请稍后重试");
+      }
+      clearStoredInviteCode();
+      setUser(null); setOpen(false);
+      window.location.assign(withBasePath("/"));
+    } catch { setLogoutError("登出失败，请稍后重试"); setLoggingOut(false); }
   }
 
-  return <Popover.Root open={open} onOpenChange={(value) => { setOpen(value); setCopyStatus(""); }}>
+  return <Popover.Root open={open} onOpenChange={(value) => { setOpen(value); setLogoutError(""); }}>
     <Popover.Trigger asChild>
       <button type="button" className={`account-trigger ${className}`} data-tour={tour} disabled={!loaded} aria-label={loaded ? `${name}的账户` : "正在加载账户"}>
         <span className="account-trigger-avatar">{loaded ? avatar : <Icon kind="person" />}</span>
@@ -104,8 +114,8 @@ export function AccountMenu({ className = "", tour }: { className?: string; tour
         <Link href="/history" onClick={() => setOpen(false)}><Icon kind="works" /><span>我的作品</span><b aria-hidden="true">›</b></Link>
         <Link href="/assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>素材仓库</span><b aria-hidden="true">›</b></Link>
       </nav>
-      <div className="account-footer"><div><span>账号 ID</span><code>{user?.id}</code></div><button type="button" onClick={() => void copyId()} aria-label="复制账号 ID" title="复制账号 ID"><Icon kind="copy" /></button></div>
-      <span className="account-copy-status" role="status">{copyStatus}</span>
+      <div className="account-footer"><div><span>账号 ID</span><code>{user?.id}</code></div><button className="account-logout" type="button" disabled={loggingOut} onClick={() => void logout()} aria-label="登出账户"><Icon kind="logout" /><span>{loggingOut ? "登出中…" : "登出"}</span></button></div>
+      {logoutError ? <span className="account-copy-status" role="alert">{logoutError}</span> : null}
     </Popover.Content></Popover.Portal>
   </Popover.Root>;
 }

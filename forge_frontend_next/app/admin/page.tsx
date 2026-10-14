@@ -4,6 +4,8 @@ import Link from "next/link";
 import PaymentTestPanel from "../../components/payment-test-panel";
 import AdminUserDetail from "../../components/admin-user-detail";
 import AdminAssetUpload from "../../components/admin-asset-upload";
+import AdminGamePublication from "../../components/admin-game-publication";
+import * as Popover from "@radix-ui/react-popover";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -24,9 +26,15 @@ function savedInputs(detail:GameDetail) {
   return rows;
 }
 const resources = [{value:"dashboard",label:"看板"},{value:"games",label:"游戏"},{value:"assets",label:"素材"},{value:"users",label:"用户"},{value:"payment-test",label:"支付测试"}];
+function FilterIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/></svg>;
+}
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge/admin${path}`), { ...init, credentials:"include", headers:{...jsonAuthHeaders(), "Content-Type":"application/json", "X-Forge-Admin-Action":"1"} });
-  const body = await response.json();
+  const text = await response.text();
+  let body;
+  try { body = JSON.parse(text); }
+  catch { throw new Error(response.ok ? "服务器响应格式异常，请稍后重试" : `管理服务暂时不可用（HTTP ${response.status}），请稍后重试`); }
   if (!response.ok) throw new Error(body.detail || "管理操作失败");
   return body;
 }
@@ -37,11 +45,19 @@ export default function AdminPage() {
   const [password,setPassword] = useState("");
   const [resource,setResource] = useState("dashboard");
   const [assetKind,setAssetKind] = useState("");
+  const [ownerSearch,setOwnerSearch] = useState("");
+  const [ownerQuery,setOwnerQuery] = useState("");
+  const [assetStatus,setAssetStatus] = useState("");
+  const [ownerFilterOpen,setOwnerFilterOpen] = useState(false);
+  const [statusFilterOpen,setStatusFilterOpen] = useState(false);
   const [items,setItems] = useState<Item[]>([]);
   const [search,setSearch] = useState("");
   const [query,setQuery] = useState("");
   const [page,setPage] = useState(1);
   const [hasMore,setHasMore] = useState(false);
+  const [total,setTotal] = useState(0);
+  const [totalPages,setTotalPages] = useState(1);
+  const [jumpPage,setJumpPage] = useState("1");
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState("");
   const [revision,setRevision] = useState(0);
@@ -54,6 +70,7 @@ export default function AdminPage() {
   const [detail,setDetail] = useState<GameDetail|null>(null);
   const [detailLoading,setDetailLoading] = useState(false);
   const [detailError,setDetailError] = useState("");
+  const [publicationTarget,setPublicationTarget] = useState<Item|null>(null);
   async function showDetail(item: Item) {
     setDetailOpen(true);setDetail(null);setDetailLoading(true);setDetailError("");
     try {const data=await api<{game:GameDetail}>(`/games/${encodeURIComponent(item.id)}`);setDetail(data.game);}
@@ -71,11 +88,11 @@ export default function AdminPage() {
     if (!allowed || (resource === "dashboard" || resource === "payment-test")) return;
     let active=true;
     setLoading(true); setError("");
-    api<{items:Item[];has_more:boolean}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:""})}`)
-      .then((data) => {if(active){setItems(data.items);setHasMore(data.has_more);}})
-      .catch((e) => {if(active)setError(e.message);}).finally(() => {if(active)setLoading(false);});
+    api<{items:Item[];has_more:boolean;page:number;total:number;total_pages:number;applied_filters?:{owner_query:string;asset_status:string}}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:"",owner_query:resource==="assets"?ownerQuery:"",asset_status:resource==="assets"?assetStatus:""})}`)
+      .then((data) => {if(active){if(resource==="assets"&&(ownerQuery||assetStatus)&&(data.applied_filters?.owner_query!==ownerQuery||data.applied_filters?.asset_status!==assetStatus))throw new Error("后端尚未加载筛选功能，请更新或重启后端服务");setItems(data.items);setHasMore(data.has_more);setTotal(data.total);setTotalPages(data.total_pages);setPage(data.page);setJumpPage(String(data.page));}})
+      .catch((e) => {if(active){setError(e.message);setItems([]);setHasMore(false);setTotal(0);setTotalPages(1);}}).finally(() => {if(active)setLoading(false);});
     return () => {active=false;};
-  },[allowed,resource,page,query,revision,assetKind]);
+  },[allowed,resource,page,query,revision,assetKind,ownerQuery,assetStatus]);
   async function change(item: Item, action: string) {
     setBusy(true);setError("");
     try {
@@ -85,19 +102,29 @@ export default function AdminPage() {
     finally {setBusy(false);}
   }
   const title = (item:Item) => item.name || item.nickname || item.email || item.id;
+  const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
     <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">平台管理</span><span className="brand-subtitle">ADMINISTRATION</span></div></Link><Link className="workspace-back" href="/">返回首页</Link></div><nav className="nav-links"><Link href="/assets">素材仓库</Link><Link href="/history">我的作品</Link>{allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null}</nav></header>
     <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
       {error ? <div className="history-empty error" role="alert">{error}</div>:null}
       {!allowed?<form className="admin-login" onSubmit={login}><h2>管理员登录</h2><label>账号<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="btn primary" disabled={busy}>{busy?"正在登录…":"登录"}</button></form>:null}
-      {allowed ? <Tabs.Root value={resource} onValueChange={(value)=>{setResource(value);setPage(1);setSearch("");setQuery("");setEditing("");setAssetKind("");}}>
+      {allowed ? <Tabs.Root value={resource} onValueChange={(value)=>{setResource(value);setPage(1);setSearch("");setQuery("");setEditing("");setAssetKind("");setOwnerSearch("");setOwnerQuery("");setAssetStatus("");}}>
         <Tabs.List className="asset-library-filters" aria-label="管理对象">{resources.map((r)=><Tabs.Trigger className={resource===r.value?"active":""} value={r.value} key={r.value}>{r.label}</Tabs.Trigger>)}</Tabs.List>
         {resource==="assets"?<><div className="asset-library-filters" role="group" aria-label="素材类型">{[["","全部"],["BACKGROUND","场景"],["FIGURE","角色"],["VOICE","语音"],["BGM","音乐"]].map(([value,label])=><button type="button" key={value} className={assetKind===value?"active":""} aria-pressed={assetKind===value} onClick={()=>{setAssetKind(value);setPage(1);}}>{label}</button>)}</div><AdminAssetUpload onUploaded={()=>setRevision(v=>v+1)}/></>:null}
-        {resource!=="dashboard" && resource!=="payment-test" ? <form className="asset-library-search" onSubmit={(e)=>{e.preventDefault();setQuery(search.trim());setPage(1);}}><input type="search" value={search} placeholder={resource==="games"?"搜索作品、用户邮箱或 ID":"搜索名称、邮箱或 ID"} aria-label="搜索管理对象" onChange={(e)=>{setSearch(e.target.value);if(!e.target.value){setQuery("");setPage(1);}}}/><button className="btn primary">搜索</button></form> : null}
+        {resource!=="dashboard" && resource!=="payment-test" ? <form className="asset-library-search" onSubmit={(e)=>{e.preventDefault();setQuery(search.trim());setPage(1);setRevision(v=>v+1);}}><input type="search" value={search} placeholder={resource==="games"?"搜索作品、用户邮箱或 ID":"搜索名称、邮箱或 ID"} aria-label="搜索管理对象" onChange={(e)=>{setSearch(e.target.value);if(!e.target.value){setQuery("");setPage(1);}}}/><button className="btn primary">搜索</button></form> : null}
         <Tabs.Content className="admin-tab-panel" value={resource}>
           {resource==="dashboard"?<AdminDashboard/>:resource==="payment-test"?<PaymentTestPanel embedded/>:<>
-          {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="users"?"邮箱":"归属用户"}</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
-          <nav className="asset-library-pagination"><button className="btn outline" disabled={loading||page===1} onClick={()=>setPage(v=>v-1)}>上一页</button><span>第 {page} 页 · 每页 20 项</span><button className="btn outline" disabled={loading||!hasMore} onClick={()=>setPage(v=>v+1)}>下一页</button></nav>
+          {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="assets"?<Popover.Root open={ownerFilterOpen} onOpenChange={value=>{setOwnerFilterOpen(value);if(value)setOwnerSearch(ownerQuery);}}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${ownerQuery?"is-filtered":""}`} aria-label="筛选归属用户" aria-haspopup="dialog">归属用户 <FilterIcon/>{ownerQuery?<small>{ownerQuery}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover" sideOffset={8} align="start" collisionPadding={12} aria-label="归属用户筛选"><form onSubmit={e=>{e.preventDefault();setOwnerQuery(ownerSearch.trim());setPage(1);setOwnerFilterOpen(false);}}><label htmlFor="admin-owner-filter">归属用户</label><input id="admin-owner-filter" type="search" value={ownerSearch} placeholder="输入邮箱、昵称或用户 ID" onChange={e=>setOwnerSearch(e.target.value)}/><div className="admin-actions"><button className="btn outline" type="button" onClick={()=>{setOwnerSearch("");setOwnerQuery("");setPage(1);setOwnerFilterOpen(false);}}>清除筛选</button><button className="btn primary" type="submit">应用</button></div></form></Popover.Content></Popover.Portal></Popover.Root>:resource==="users"?"邮箱":"归属用户"}</th><th>{resource==="assets"?<Popover.Root open={statusFilterOpen} onOpenChange={setStatusFilterOpen}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${assetStatus?"is-filtered":""}`} aria-label="筛选素材状态" aria-haspopup="dialog">状态 <FilterIcon/>{assetStatus?<small>{statusLabels[assetStatus]}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover admin-status-filter" sideOffset={8} align="start" collisionPadding={12} aria-label="素材状态筛选">{[["","全部状态"],["ACTIVE","正常"],["BLOCKED","已停用"],["DELETED","已删除"]].map(([value,label])=><button type="button" key={value} className={assetStatus===value?"is-selected":""} aria-pressed={assetStatus===value} onClick={()=>{setAssetStatus(value);setPage(1);setStatusFilterOpen(false);}}>{label}<span aria-hidden="true">{assetStatus===value?"✓":""}</span></button>)}</Popover.Content></Popover.Portal></Popover.Root>:"状态"}</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>setPublicationTarget(item)}>教师生态</button>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
+          <nav className="asset-library-pagination admin-pagination" aria-label="管理列表分页">
+            <span>共 {total} 项 · 第 {page} / {totalPages} 页</span>
+            <button className="btn outline" disabled={loading||!!error||page===1} onClick={()=>setPage(v=>v-1)}>上一页</button>
+            {pageNumbers.map((n,i)=><span className="admin-page-choice" key={n}>{i>0&&n>pageNumbers[i-1]+1?<span aria-hidden="true">…</span>:null}<button className={`btn ${n===page?"primary":"outline"}`} aria-label={`第 ${n} 页`} aria-current={n===page?"page":undefined} disabled={loading||!!error} onClick={()=>setPage(n)}>{n}</button></span>)}
+            <button className="btn outline" disabled={loading||!!error||!hasMore} onClick={()=>setPage(v=>v+1)}>下一页</button>
+            <form className="admin-page-jump" onSubmit={e=>{e.preventDefault();const n=Number(jumpPage);if(Number.isInteger(n)&&n>=1&&n<=totalPages)setPage(n);}}>
+              <label>跳至 <input type="number" aria-label="跳转页码" min={1} max={totalPages} step={1} required value={jumpPage} onChange={e=>setJumpPage(e.target.value)} disabled={loading||!!error}/> 页</label>
+              <button className="btn outline" disabled={loading||!!error}>跳转</button>
+            </form>
+          </nav>
           </>}
         </Tabs.Content>
       </Tabs.Root>:null}
@@ -119,6 +146,14 @@ export default function AdminPage() {
               <details className="admin-detail-options"><summary>全部参数</summary><dl className="admin-detail-info">{Object.entries(detail.options||{}).map(([key,value])=><div key={key}><dt>{optionLabels[key]||key}</dt><dd>{typeof value==="boolean"?(value?"是":"否"):Array.isArray(value)?value.join("、"):typeof value==="object"?JSON.stringify(value):String(value??"—")}</dd></div>)}</dl></details>
               {!detail.can_preview?<p className="admin-detail-note">{detail.blocked?"作品已下架，恢复后可预览。":"作品尚未生成可预览内容。"}</p>:null}
             </>:null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={publicationTarget !== null} onOpenChange={open=>{if(!open)setPublicationTarget(null);}}>
+        <Dialog.Portal><Dialog.Overlay className="radix-confirm-overlay" />
+          <Dialog.Content className="admin-detail" aria-describedby={undefined}>
+            <div className="admin-detail-heading"><Dialog.Title>教师生态发布</Dialog.Title><Dialog.Close className="admin-detail-close" aria-label="关闭发布管理">×</Dialog.Close></div>
+            {publicationTarget ? <><h3>{title(publicationTarget)}</h3><AdminGamePublication key={publicationTarget.id} jobId={publicationTarget.id} canPublish={publicationTarget.status==="SUCCEEDED"&&!publicationTarget.blocked} blocked={publicationTarget.blocked}/></> : null}
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

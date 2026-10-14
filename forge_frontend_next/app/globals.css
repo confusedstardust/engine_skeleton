@@ -6235,6 +6235,10 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .account-footer code{display:block;color:var(--ink-muted);font-size:10px;overflow-wrap:anywhere;user-select:all}
 .account-footer button{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;padding:0;border:0;border-radius:7px;color:var(--ink-muted);background:transparent}
 .account-footer button:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
+.account-footer .account-logout{display:inline-flex;align-items:center;gap:5px;width:auto;padding:0 8px;white-space:nowrap}
+.account-footer .account-logout span{margin:0;color:inherit;font-size:12px}
+.account-footer .account-logout svg{width:17px;height:17px}
+.account-footer .account-logout:disabled{opacity:.6;cursor:wait}
 .account-copy-status{display:block;padding:2px 14px;color:var(--cinnabar);font-size:11px}
 .account-copy-status:empty{padding:0}
 @keyframes account-reveal{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
@@ -6574,6 +6578,38 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 @media(max-width:600px){.pricing-grid-resources .pricing-boost-stack{grid-template-columns:1fr;gap:18px}.pricing-grid-resources .pricing-boost-card{padding:27px}}
 
 /* Payment stays in a focused dialog without moving the pricing page. */
+/* Keep plan prices in the first desktop viewport without changing the layout. */
+@media(min-width:1101px){
+  .recharge-page.recharge-twilight{padding-top:16px}
+  .recharge-twilight .recharge-hero{padding:12px 0 0;margin:0 0 12px}
+  .recharge-twilight .recharge-hero-eyebrow{margin-bottom:10px}
+  .recharge-twilight .recharge-hero h1{font-size:clamp(48px,4.2vw,64px);line-height:1.12}
+  .recharge-twilight .recharge-hero h1>span{width:fit-content;margin-inline:auto}
+  .recharge-twilight .recharge-hero-description{margin-top:14px;font-size:16px;line-height:1.65}
+  .recharge-twilight .recharge-balance{position:relative;z-index:1;margin-bottom:-33px}
+  .recharge-twilight .pricing-catalog-tabs{margin-bottom:10px}
+  .recharge-twilight .pricing-catalog-tabs button{padding-top:8px;padding-bottom:8px}
+  .recharge-twilight .billing-cycle{padding-top:6px;padding-bottom:6px;margin-bottom:24px}
+  .recharge-twilight .pricing-card-top{margin-bottom:12px}
+  .recharge-twilight .pricing-plan-heading h3{min-height:72px}
+  .recharge-twilight .pricing-plan-heading p{margin-top:8px;margin-bottom:10px;line-height:1.7}
+  .recharge-twilight .pricing-price-stage{margin-top:10px}
+  .recharge-twilight .pricing-price-stage-pro{max-width:calc(100% - 12px)}
+}
+@media(min-width:1101px) and (max-height:800px){
+  .recharge-page.recharge-twilight{padding-top:10px}
+  .recharge-twilight .recharge-hero{padding-top:6px;margin-bottom:8px}
+  .recharge-twilight .recharge-hero-description{margin-top:10px}
+  .recharge-twilight .recharge-hero-eyebrow{margin-bottom:6px}
+  .recharge-twilight .recharge-hero h1{font-size:clamp(40px,3.2vw,48px)}
+  .recharge-twilight .pricing-plan-heading h3{font-size:22px;line-height:1.4;min-height:62px}
+  .recharge-twilight .pricing-plan-heading p{font-size:14px;line-height:1.6}
+  .recharge-twilight .billing-cycle{margin-bottom:16px}
+  .recharge-twilight .pricing-catalog-tabs{margin-bottom:6px}
+  .recharge-twilight .pricing-card{padding-top:18px}
+  .recharge-twilight .pricing-card-top{margin-bottom:6px}
+  .recharge-twilight .pricing-price-stage{margin-top:4px}
+}
 .recharge-payment-overlay{position:fixed;inset:0;z-index:300;background:rgba(43,29,38,.38);backdrop-filter:blur(6px)}
 .recharge-payment-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:301;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;margin:0;padding:36px 28px 28px;border:1px solid #e7d8d6;border-radius:22px;background:linear-gradient(145deg,#fffdfa,#fbf1f1);box-shadow:0 28px 100px rgba(42,22,34,.25);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
 .recharge-payment-modal h2{font-size:24px;color:#402e39}
@@ -6615,3 +6651,18 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .private-test-card h2{margin:0 0 18px}.private-test-card small{font-size:16px;font-weight:400}.private-test-card p{line-height:1.9}
 .private-test-card dl{display:grid;grid-template-columns:150px 1fr;gap:14px;font-size:14px;line-height:1.7}.private-test-card dd{margin:0}
 @media(max-width:600px){.private-test-card dl{grid-template-columns:1fr;gap:6px}.private-test-card dd{margin-bottom:12px}}
+.admin-pagination { flex-wrap: wrap; gap: 10px; }
+.admin-page-choice { display: inline-flex; align-items: center; gap: 10px; }
+.admin-page-choice .btn { min-width: 40px; }
+.admin-page-jump, .admin-page-jump label { display: inline-flex; align-items: center; gap: 8px; }
+.admin-page-jump input { width: 76px; padding: 8px; border: 1px solid var(--line, #e5d8c6); border-radius: 8px; background: var(--surface, #fffdf9); color: inherit; font: inherit; }
+.admin-column-filter{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;padding:0;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;cursor:pointer}
+.admin-column-filter.is-filtered{color:var(--cinnabar)}
+.admin-column-filter small{display:block;flex-basis:100%;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:400}
+.admin-filter-popover{z-index:120;padding:16px;width:300px;border:1px solid var(--border);border-radius:12px;background:var(--paper);box-shadow:0 8px 28px #302b2920;color:var(--ink)}
+.admin-filter-popover label{display:block;font-size:13px;margin-bottom:10px}
+.admin-filter-popover input{width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fffdfa;color:inherit}
+.admin-filter-popover .admin-actions{justify-content:flex-end}
+.admin-status-filter{width:175px;padding:6px}
+.admin-status-filter>button{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:0;border-radius:7px;background:transparent;text-align:left;color:inherit;font:inherit;font-size:13px;cursor:pointer}
+.admin-status-filter>button:hover,.admin-status-filter>button.is-selected{background:var(--cinnabar-glow);color:var(--cinnabar)}
