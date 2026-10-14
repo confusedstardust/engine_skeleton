@@ -22,6 +22,7 @@ services:
     volumes:
       - forge_dev_jobs:/data/jobs
       - ${WEBGAL_SOUND_EFFECTS_DIR_HOST:-./deploy/sound-effects}:/opt/forge/sound-effects:ro
+      - ${WECHATPAY_KEYS_DIR_HOST:-./deploy/wechatpay}:/run/secrets/wechatpay:ro
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8010}:8010"
     networks:
