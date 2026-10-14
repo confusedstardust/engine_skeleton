@@ -1,4 +1,5 @@
 "use client";
+import { randomUUID } from "../app/random-uuid";
 import { FormSelect } from "./ui/form-controls";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -201,7 +202,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   function addLine(kind: "narration" | "dialogue") {
     if (!scene || disabled) return;
     const nextLine: SceneLine = {
-      id: `${scene.header}-${crypto.randomUUID()}`,
+      id: `${scene.header}-${randomUUID()}`,
       kind,
       speaker: kind === "dialogue" ? "角色" : "旁白",
       text: kind === "dialogue" ? "新的对话内容" : "新的旁白内容",
@@ -292,7 +293,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   function addInteractiveChoice() {
     if (!scene || disabled) return;
     if (scene.marker === "Ending") { inform("结局场景不能新增跨场景分支。"); return; }
-    const token = `continue_choice_${crypto.randomUUID().replace(/-/g, "_")}`;
+    const token = `continue_choice_${randomUUID().replace(/-/g, "_")}`;
     const choiceLine: SceneLine = {
       id: `${scene.header}-${token}-choose`,
       kind: "choice",
@@ -320,7 +321,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     if (scene.marker === "Ending") { inform("这是结局场景，会正常结束，无需再添加场景跳转。"); return; }
     if (!defaultChoiceTarget) { inform("没有可跳转的其他场景，请先创建目标场景。"); return; }
     const line: SceneLine = {
-      id: `${scene.header}-jump-${crypto.randomUUID()}`, kind: "command", speaker: "", rawPrefix: "changeScene",
+      id: `${scene.header}-jump-${randomUUID()}`, kind: "command", speaker: "", rawPrefix: "changeScene",
       text: `changeScene:${defaultChoiceTarget};`
     };
     patchScene({ ...scene, lines: [...scene.lines, line] });

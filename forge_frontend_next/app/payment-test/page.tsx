@@ -1,4 +1,5 @@
 "use client";
+import { randomUUID } from "../random-uuid";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -65,7 +66,7 @@ export default function PaymentTestPage() {
       return;
     }
     setBusy(true); setError(""); setEvidence(null); setQrError(false);
-    key.current ||= crypto.randomUUID();
+    key.current ||= randomUUID();
     try { const value = await api<Order>("/test/orders", { method: "POST", body: JSON.stringify({ request_key: key.current }) }); setOrder(value); setOpen(true); key.current = null; }
     catch(e) { setError(e instanceof Error ? e.message : "下单失败"); }
     finally { setBusy(false); }

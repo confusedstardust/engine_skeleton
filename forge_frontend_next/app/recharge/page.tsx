@@ -1,4 +1,5 @@
 "use client";
+import { randomUUID } from "../random-uuid";
 
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -141,7 +142,7 @@ export default function RechargePage() {
     const unfinished = orders.find((row) => row.status === "PENDING");
     if (unfinished) { setSelected(unfinished); setCheckoutOpen(true); return; }
     setBusy(true); setError("");
-    const key = requestKey.current || crypto.randomUUID();
+    const key = requestKey.current || randomUUID();
     requestKey.current = key;
     try {
       const order = await api<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: product.id, request_key: key }) });
