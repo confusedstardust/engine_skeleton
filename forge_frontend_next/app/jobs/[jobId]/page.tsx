@@ -1335,6 +1335,28 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     }
   }
 
+  async function saveStagedPresentation(staged: StagedScenePresentation | undefined, revision: number) {
+    if (staged) {
+      for (const [filename, crop] of Object.entries(staged.avatarCrops)) {
+        const saved = await api<{ job: Job }>(`/jobs/${jobId}/assets/avatar-crop`, {
+          method: "POST",
+          body: JSON.stringify({ filename, zoom: crop.zoom, offset_x: crop.offsetX, offset_y: crop.offsetY, base_revision: revision })
+        });
+        revision = saved.job.draft_revision ?? revision;
+        setData(previous => previous ? { ...previous, job: saved.job } : previous);
+      }
+    }
+    if (staged && (Object.keys(staged.music).length || Object.keys(staged.effects).length)) {
+      const saved = await api<{ job: Job }>(`/jobs/${jobId}/scene-presentation-draft`, {
+        method: "PUT",
+        body: JSON.stringify({ music: staged.music, effects: staged.effects, base_revision: revision })
+      });
+      revision = saved.job.draft_revision ?? revision;
+      setData(previous => previous ? { ...previous, job: saved.job } : previous);
+    }
+    return revision;
+  }
+
   async function buildGameFromAssets(staged?: StagedScenePresentation) {
     if (!checkAllSceneConnections()) return false;
     setBusy(true);
@@ -1350,22 +1372,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         setScenesDirty(false);
         setData(previous => previous ? { ...previous, job: saved.job } : previous);
       }
-      if (staged) {
-        for (const [filename, crop] of Object.entries(staged.avatarCrops)) {
-          const saved = await api<{ job: Job }>(`/jobs/${jobId}/assets/avatar-crop`, {
-            method: "POST",
-            body: JSON.stringify({ filename, zoom: crop.zoom, offset_x: crop.offsetX, offset_y: crop.offsetY, base_revision: revision })
-          });
-          revision = saved.job.draft_revision ?? revision;
-        }
-      }
-      if (staged && (Object.keys(staged.music).length || Object.keys(staged.effects).length)) {
-        const saved = await api<{ job: Job }>(`/jobs/${jobId}/scene-presentation-draft`, {
-          method: "PUT",
-          body: JSON.stringify({ music: staged.music, effects: staged.effects, base_revision: revision })
-        });
-        revision = saved.job.draft_revision ?? revision;
-      }
+      revision = await saveStagedPresentation(staged, revision);
       await api<Job>(hasPublishedBuild ? `/jobs/${jobId}/apply-draft` : `/jobs/${jobId}/phases/game_build`, {
         method: "POST",
         body: JSON.stringify({ background: true })
@@ -1428,19 +1435,26 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
   }
 
   async function retryFailedPhase() {
-    if (!failedRetry) return;
+    return retryPhase();
+  }
+
+  async function retryPhase(staged?: StagedScenePresentation) {
+    if (!failedRetry) return false;
     setBusy(true);
     setStage(failedRetry.stage);
     setMessage(failedRetry.pendingMessage);
     try {
+      await saveStagedPresentation(staged, data?.job.draft_revision ?? 0);
       await api<Job>(`/jobs/${jobId}/${failedRetry.path}`, {
         method: "POST",
         body: JSON.stringify({ background: true })
       });
       await refresh(true);
       setMessage(failedRetry.successMessage);
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "重试失败，请稍后再试。");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1630,7 +1644,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             gameBuilding={isGameBuildRunning}
             readonly={assetsLocked}
             playUrl={withBasePath(`/play/${data.job.id}/`)}
-            retryAction={failedRetry?.stage === "assets" ? retryFailedPhase : undefined}
+            retryAction={failedRetry?.stage === "assets" ? retryPhase : undefined}
             retryLabel={failedRetry?.stage === "assets" ? failedRetry.label : undefined}
           />
         ) : designNode?.exists ? (
@@ -1939,7 +1953,7 @@ function AssetReviewPanel(props: {
   gameBuilding: boolean;
   readonly: boolean;
   playUrl: string;
-  retryAction?: () => void;
+  retryAction?: (staged?: StagedScenePresentation) => Promise<boolean>;
   retryLabel?: string;
 }) {
   const assets = props.review?.assets || [];
@@ -1973,7 +1987,7 @@ function AssetReviewPanel(props: {
           <FailedPlaceholder
             title="素材阶段生成失败。"
             brief="自动重试仍未完成这一阶段，可以从失败的阶段重新生成。"
-            action={props.retryAction}
+            action={() => void props.retryAction?.()}
             actionLabel={props.retryLabel || "重试生成素材"}
             busy={props.busy}
           />
