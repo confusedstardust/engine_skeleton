@@ -1,3 +1,4 @@
+import { ConfirmationProvider } from "../components/ui/modal";
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
@@ -15,7 +16,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <style>{`@font-face { font-family: "NarrativeOS Solution Serif"; src: url("${solutionTitleFontUrl}") format("truetype"); font-display: swap; }`}</style>
       </head>
-      <body>{children}</body>
+      <body><ConfirmationProvider>{children}</ConfirmationProvider></body>
     </html>
   );
 }

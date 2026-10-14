@@ -13,6 +13,13 @@ export type AuthUser = {
 
 export type AuthMode = "invite" | "sso" | "sso_or_invite";
 
+export type CreditBalance = {
+  available: number;
+  reserved: number;
+  consumed: number;
+  revoked: number;
+};
+
 export const inviteStorageKey = "webgal_invite_code";
 export const inviteHeaderName = "X-WebGAL-Invite-Code";
 
@@ -76,4 +83,18 @@ export function jsonAuthHeaders(base?: HeadersInit) {
   const code = getStoredInviteCode();
   if (code) headers.set(inviteHeaderName, encodeURIComponent(code));
   return headers;
+}
+
+export async function getCreditBalance(): Promise<CreditBalance | null> {
+  try {
+    const response = await fetch(withBasePath("/api/forge/credits/balance"), {
+      credentials: "include",
+      cache: "no-store",
+      headers: inviteHeaders(),
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as CreditBalance;
+  } catch {
+    return null;
+  }
 }

@@ -1,14 +1,16 @@
 ﻿"use client";
 
+import { ModalFrame, useConfirmation } from "../../../components/ui/modal";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoryFlowView } from "../../../components/story-flow-view";
 import { planningGraph, type StoryGraph } from "../../../components/story-graph-data";
-import { LaperAssetWorkbench, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
+import { LaperAssetWorkbench, type PersonalLibraryAsset, type StagedScenePresentation } from "../../../components/laper-asset-workbench";
 import { LaperInspectorShell } from "../../../components/laper-inspector-shell";
 import { LaperOutlineWorkbench } from "../../../components/laper-outline-workbench";
 import { LaperSceneWorkbench } from "../../../components/laper-scene-workbench";
 import { SceneScrollButton } from "../../../components/scene-scroll-button";
+import { CreditBalance, creditBalanceChangedEvent } from "../../../components/credit-balance";
 import { repairContinuationLabels, validateSceneConnections } from "../../../components/scene-connections";
 import { withBasePath } from "../../base-path";
 import { inviteHeaders, jsonAuthHeaders } from "../../invite-identity";
@@ -18,6 +20,8 @@ type Job = {
   status: string;
   phase?: string | null;
   error?: string | null;
+  title?: string;
+  source_material?: string;
   draft_revision?: number;
   published_revision?: number;
   build_state?: "NONE" | "DRAFT" | "CURRENT" | "STALE" | "BUILDING" | "FAILED";
@@ -27,6 +31,19 @@ type Job = {
     generation_mode?: string;
     [key: string]: unknown;
   };
+};
+
+type PublicationResponse = {
+  published: boolean;
+  work?: {
+    title: string;
+    playUrl: string;
+  };
+};
+
+type QuizResponse = {
+  status: string;
+  quiz?: unknown | null;
 };
 
 type WorkflowStage = "outline" | "scenes" | "assets" | "complete";
@@ -384,10 +401,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`请求失败（HTTP ${response.status}）：${body}`);
   }
   return response.json() as Promise<T>;
-}
-
-function compactId(id: string) {
-  return `${id.slice(0, 8)}...${id.slice(-4)}`;
 }
 
 function parseSceneConnectionReport(content: string | null): SceneConnectionReport | null {
@@ -798,6 +811,7 @@ function parseSceneLine(line: string, id: string): SceneLine {
 }
 
 export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: string }> }) {
+  const confirm = useConfirmation();
   const { jobId } = use(params);
   const [data, setData] = useState<NodesResponse | null>(null);
   const [message, setMessageValue] = useState("正在读取任务...");
@@ -971,8 +985,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     setMessage("已进入草稿编辑；可在素材审阅页调整素材、音乐、语音和特效，也可切换到场景页修改内容。当前可玩版本不会立即改变。");
   }
 
-  function exitCompletedEdit() {
-    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定退出编辑吗？")) return;
+  async function exitCompletedEdit() {
+    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !await confirm("还有未保存的修改，确定退出编辑吗？")) return;
     setScenesDirty(false);
     setDesignDraftDirty(false);
     setAssetPromptDirty(false);
@@ -1216,6 +1230,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
         method: "POST",
         body: JSON.stringify({ filename: asset.filename, prompt, background: true, base_revision: data?.job.draft_revision ?? 0 })
       });
+      window.dispatchEvent(new Event(creditBalanceChangedEvent));
       setAssetPromptDirty(false);
       setMessage("单个素材已加入生成队列。");
       await refresh(true);
@@ -1257,6 +1272,35 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     } finally { setBusy(false); }
   }
 
+  async function loadLibraryAssets(kind: PersonalLibraryAsset["kind"], page: number): Promise<{ assets: PersonalLibraryAsset[]; has_more: boolean }> {
+    const params = new URLSearchParams({kind, collection: "personal", page: String(page), page_size: "6"});
+    return api<{ assets: PersonalLibraryAsset[]; has_more: boolean }>(`/assets?${params}`);
+  }
+
+  async function useLibraryAsset(asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string): Promise<boolean> {
+    setBusy(true);
+    setMessage(`正在从素材库调用「${asset.name}」...`);
+    try {
+      await api(`/jobs/${jobId}/assets/from-library`, {
+        method: "POST",
+        body: JSON.stringify({
+          asset_file_id: asset.file_id,
+          target,
+          replace_filename: replaceFilename,
+          base_revision: data?.job.draft_revision ?? 0
+        })
+      });
+      setMessage(target === "bgm" ? "素材库音乐已加入当前作品。" : "素材库图片已替换当前草稿素材。");
+      await refresh(true);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "调用素材库失败。");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeAssetBackground(asset: AssetReviewItem): Promise<boolean> {
     setBusy(true);
     setMessage(`正在为 ${assetDisplayName(asset)} 抠图...`);
@@ -1285,6 +1329,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "语音试听生成失败。");
     } finally {
+      window.dispatchEvent(new Event(creditBalanceChangedEvent));
       setVoiceGeneratingSpeaker(null);
       setBusy(false);
     }
@@ -1441,28 +1486,37 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
     <>
       <header className="top-nav">
         <div className="workspace-nav-leading">
-          <Link className="brand brand-link" href="/" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link className="brand brand-link" href="/" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>
             <div className="brand-seal" aria-hidden="true">
               <img src={withBasePath("/icon.png")} alt="" />
             </div>
             <div className="brand-copy">
               <span className="brand-name">临场 · 生成工作台</span>
-              <span className="brand-subtitle">JOB {compactId(data.job.id)}</span>
             </div>
           </Link>
-          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
             <span>返回上一级</span>
           </Link>
         </div>
         <nav className="nav-links" aria-label="任务导航">
-          <Link href="/" onClick={(event) => {
-            if ((planDirty || scenesDirty || designDraftDirty || assetPromptDirty) && !window.confirm("还有未保存的修改，确定离开吗？")) event.preventDefault();
+          <Link href="/" onClick={async (event) => {
+            if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+            event.preventDefault();
+            const target = event.currentTarget.href;
+            if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
           }}>新建任务</Link>
+          <CreditBalance />
           {hasPublishedBuild && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
         </nav>
       </header>
@@ -1472,15 +1526,13 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           <div>
             <span className={`status-pill ${data.job.status.toLowerCase()}`}>{data.job.status}</span>
             <h1>{stage === "outline" ? "确认故事大纲" : stage === "scenes" ? "审阅场景文本" : stage === "assets" ? "审阅素材资产" : "游戏生成完成"}</h1>
-            <p>
+            {stage !== "complete" ? <p>
               {stage === "outline"
                 ? "先确认阶段数量和角色阵容。这里的删改会影响下一阶段生成的场景。"
                 : stage === "scenes"
                   ? "按场景逐个审阅旁白、对话和分支内容，保存后会进入素材规划和生成。"
-                  : stage === "assets"
-                    ? "按角色和场景检查素材规划、生成图片和提示词，不满意的单个资产可以重新生成。"
-                    : "当前可玩版本默认保持只读；需要修改时，请明确进入对应的草稿编辑模式。"}
-            </p>
+                  : "按角色和场景检查素材规划、生成图片和提示词，不满意的单个资产可以重新生成。"}
+            </p> : null}
           </div>
           <div className="workflow-steps">
             <button className={stage === "outline" ? "active" : ""} type="button" onClick={() => setStage("outline")}>1 大纲</button>
@@ -1567,8 +1619,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
               setAssetPrompt(asset.prompt || "");
               setAssetPromptDirty(false);
             }}
-            closeAsset={() => {
-              if (assetPromptDirty && !window.confirm("Prompt 还没有用于重新生成素材，确定返回列表吗？")) return;
+            closeAsset={async () => {
+              if (assetPromptDirty && !await confirm("Prompt 还没有用于重新生成素材，确定返回列表吗？")) return;
               setAssetPromptDirty(false);
               setActiveAssetFilename(null);
             }}
@@ -1582,6 +1634,8 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
             uploadAsset={uploadAsset}
+            loadLibraryAssets={loadLibraryAssets}
+            useLibraryAsset={useLibraryAsset}
             removeAssetBackground={removeAssetBackground}
             gameReady={hasPublishedBuild}
             buildState={data.job.build_state || "CURRENT"}
@@ -1643,7 +1697,49 @@ function CompletionPanel(props: {
   const [flowError, setFlowError] = useState("");
   const [flowNotice, setFlowNotice] = useState("");
   const [flowFullscreen, setFlowFullscreen] = useState(false);
+  const [publication, setPublication] = useState<PublicationResponse | null>(null);
+  const [quiz, setQuiz] = useState<QuizResponse | null>(null);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const [publicationMessage, setPublicationMessage] = useState("");
+  const [gameTitle, setGameTitle] = useState(props.job.title?.trim() || String(props.job.options?.classroom_topic || "").trim() || props.job.source_material?.split(/\r?\n/)[0]?.trim() || "未命名游戏");
+  const [titleDraft, setTitleDraft] = useState(gameTitle);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const confirm = useConfirmation();
+  const [titleBusy, setTitleBusy] = useState(false);
+  const [titleMessage, setTitleMessage] = useState("");
+  const titleCancelRef = useRef(false);
   const flowModalRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    let active = true;
+    api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`)
+      .then((value) => {
+        if (active) setPublication(value);
+      })
+      .catch(() => {
+        if (active) setPublication(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.job.id]);
+  useEffect(() => {
+    const nextTitle = props.job.title?.trim() || String(props.job.options?.classroom_topic || "").trim() || props.job.source_material?.split(/\r?\n/)[0]?.trim() || "未命名游戏";
+    setGameTitle(nextTitle);
+    setTitleDraft(nextTitle);
+  }, [props.job.id, props.job.options?.classroom_topic, props.job.source_material, props.job.title]);
+  useEffect(() => {
+    let active = true;
+    api<QuizResponse>(`/jobs/${props.job.id}/quiz`)
+      .then((value) => {
+        if (active) setQuiz(value);
+      })
+      .catch(() => {
+        if (active) setQuiz(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.job.id]);
   useEffect(() => {
     if (!flowOpen) return;
     let active = true;
@@ -1682,25 +1778,117 @@ function CompletionPanel(props: {
     }
     void modal.requestFullscreen().catch(() => setFlowNotice("浏览器未允许进入全屏，请检查权限后重试。"));
   };
+  const publishToEcosystem = async () => {
+    setPublicationBusy(true);
+    setPublicationMessage("正在发布到教师创作生态…");
+    try {
+      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setPublication(value);
+      setPublicationMessage("发布成功，作品已经出现在教师创作生态中。");
+    } catch (error) {
+      setPublicationMessage(error instanceof Error ? error.message : "发布失败，请稍后重试。");
+    } finally {
+      setPublicationBusy(false);
+    }
+  };
+  const removeFromEcosystem = async () => {
+    if (!await confirm("确定从教师创作生态中取消发布吗？游戏本身不会被删除。")) return;
+    setPublicationBusy(true);
+    setPublicationMessage("正在取消发布…");
+    try {
+      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, { method: "DELETE" });
+      setPublication(value);
+      setPublicationMessage("已从教师创作生态中取消发布。");
+    } catch (error) {
+      setPublicationMessage(error instanceof Error ? error.message : "取消发布失败，请稍后重试。");
+    } finally {
+      setPublicationBusy(false);
+    }
+  };
+  const saveGameTitle = async () => {
+    const title = titleDraft.trim();
+    if (!title) {
+      setTitleDraft(gameTitle);
+      setTitleEditing(false);
+      setTitleMessage("");
+      return;
+    }
+    setTitleBusy(true);
+    setTitleMessage("");
+    try {
+      const value = await api<{ job: Job }>(`/jobs/${props.job.id}/title`, {
+        method: "PUT",
+        body: JSON.stringify({ title })
+      });
+      const savedTitle = value.job.title?.trim() || title;
+      setGameTitle(savedTitle);
+      setTitleDraft(savedTitle);
+      setTitleEditing(false);
+      setTitleMessage("");
+    } catch (error) {
+      setTitleMessage(error instanceof Error ? error.message : "游戏名称保存失败");
+    } finally {
+      setTitleBusy(false);
+    }
+  };
   const state = props.job.build_state || "CURRENT";
   const failed = state === "FAILED";
   const stale = state === "STALE" || failed;
   const building = state === "BUILDING" || props.job.status === "RUNNING" || props.job.status === "QUEUED";
   return (
     <section className="completion-panel" aria-labelledby="completion-title">
-      <div className="completion-seal" aria-hidden="true">成</div>
+      <div className="completion-game-title">
+        {titleEditing ? (
+          <div className="completion-title-editor">
+            <input
+              value={titleDraft}
+              maxLength={160}
+              autoFocus
+              aria-label="游戏名称"
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={() => {
+                if (titleCancelRef.current) {
+                  titleCancelRef.current = false;
+                  return;
+                }
+                if (!titleBusy) void saveGameTitle();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  titleCancelRef.current = true;
+                  setTitleDraft(gameTitle);
+                  setTitleEditing(false);
+                  setTitleMessage("");
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <div className="completion-title-display">
+            <strong>{gameTitle}</strong>
+            <button type="button" aria-label="修改游戏名称" title="修改游戏名称" onClick={() => { setTitleEditing(true); setTitleMessage(""); }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path className="edit-frame" d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" />
+                <path className="edit-pencil" d="m13.15 5.15 5.7 5.7L9.2 20.5l-5.7 1 1-5.7 9.65-10.65Zm1.42-1.42 2.16-2.16a2 2 0 0 1 2.83 0l2.87 2.87a2 2 0 0 1 0 2.83l-2.16 2.16-5.7-5.7Z" />
+              </svg>
+            </button>
+          </div>
+        )}
+        {titleMessage ? <small role="status">{titleMessage}</small> : null}
+      </div>
+      <div className="completion-cover">
+        <img
+          src={withBasePath(`/play/${props.job.id}/cover?revision=${props.job.published_revision ?? 0}`)}
+          alt="当前游戏封面"
+        />
+      </div>
       <div className="completion-copy">
-        <span className="completion-kicker">PUBLISHED BUILD</span>
         <h2 id="completion-title">{building ? "正在应用修改" : failed ? "修改应用失败" : stale ? "已有草稿修改" : "当前游戏已发布"}</h2>
-        <p>
-          {building
-            ? "修改应用完成前，打开游戏仍会进入上一次成功版本。"
-            : failed
-              ? `上一版游戏仍可正常打开。${props.job.error ? `失败原因：${props.job.error}` : "可以检查草稿后重新应用修改。"}`
-              : stale
-                ? "当前可玩版本仍然安全保留。进入对应编辑区，可以继续修改并局部应用。"
-                : "成品默认保持只读，只有明确进入编辑模式后才会建立草稿。"}
-        </p>
         <dl className="completion-revisions">
           <div><dt>当前发布</dt><dd>R{props.job.published_revision ?? 0}</dd></div>
           <div><dt>编辑草稿</dt><dd>R{props.job.draft_revision ?? 0}</dd></div>
@@ -1708,11 +1896,19 @@ function CompletionPanel(props: {
         </dl>
       </div>
       <div className="completion-actions">
-        <a className="btn primary" href={props.playUrl} target="_blank">打开当前游戏</a>
-        <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>查看最新流程图</button>
-        <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>继续编辑草稿</button>
+        <a className="btn primary" href={props.playUrl} target="_blank">开始游戏</a>
+        <div className="publication-actions">
+          <button className="btn ecosystem-publish" type="button" disabled={building || publicationBusy} onClick={publishToEcosystem}>
+            {publicationBusy ? "正在处理…" : publication?.published ? "更新发布" : "发布"}
+          </button>
+          {publication?.published ? <button className="publication-remove" type="button" disabled={publicationBusy} onClick={removeFromEcosystem}>取消生态发布</button> : null}
+        </div>
+        <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>编辑</button>
+        <Link className="btn outline" href={`/practice/${props.job.id}`}>{quiz?.quiz || quiz?.status === "READY" ? "打开习题" : "生成习题"}</Link>
+        {publicationMessage ? <span className="publication-message" role="status">{publicationMessage}</span> : null}
+        <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>流程图</button>
       </div>
-      {flowOpen && <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="最新流程图">
+      {flowOpen && <ModalFrame title="最新流程图" onClose={closeFlow}><div className="flow-modal-layer">
         <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={closeFlow} />
         <section className="flow-modal" ref={flowModalRef}>
           <div className="flow-modal-head">
@@ -1724,7 +1920,7 @@ function CompletionPanel(props: {
           {flowNotice && <p className="flow-fullscreen-notice" role="alert">{flowNotice}</p>}
           <div className="flow-modal-body">{flowError ? <p className="error">{flowError}</p> : graph ? <StoryFlowView graph={graph} viewportVersion={flowFullscreen ? 1 : 0} fullscreen={flowFullscreen} onToggleFullscreen={toggleFlowFullscreen} /> : <p>正在加载流程图…</p>}</div>
         </section>
-      </div>}
+      </div></ModalFrame>}
     </section>
   );
 }
@@ -1747,6 +1943,8 @@ function AssetReviewPanel(props: {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], page: number) => Promise<{ assets: PersonalLibraryAsset[]; has_more: boolean }>;
+  useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
   gameReady: boolean;
   buildState: string;
@@ -1829,6 +2027,8 @@ function AssetReviewPanel(props: {
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}
       uploadAsset={props.uploadAsset}
+      loadLibraryAssets={props.loadLibraryAssets}
+      useLibraryAsset={props.useLibraryAsset}
       removeAssetBackground={props.removeAssetBackground}
       buildGame={props.buildGame}
       retryAction={props.retryAction}
@@ -1929,7 +2129,7 @@ function OutlineEditor(props: {
       retryLabel={props.retryLabel}
       renderFlowModal={(open, onClose) =>
         open ? (
-          <div className="flow-modal-layer" role="dialog" aria-modal="true" aria-label="故事流程图">
+          <ModalFrame title="故事流程图" onClose={onClose}><div className="flow-modal-layer">
             <button className="flow-modal-dismiss" type="button" aria-label="关闭流程图" onClick={onClose} />
             <section className="flow-modal">
               <div className="flow-modal-head">
@@ -1943,7 +2143,7 @@ function OutlineEditor(props: {
                 <NarrativeFlowPreview plan={plan} syncStructure={props.syncStructure} />
               </div>
             </section>
-          </div>
+          </div></ModalFrame>
         ) : null
       }
     />

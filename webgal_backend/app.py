@@ -7,7 +7,11 @@ import os
 import re
 import shutil
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
+from contextlib import suppress
+from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -17,7 +21,11 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from credit_system import CreditError, CreditService, InsufficientCreditsError
+from credit_system.billing import Pricing, UsageSnapshot, credits_for_usage, estimate_hold, measure, snapshot
+
 from . import artifacts
+from .asset_library import AssetLibrary, AssetLibraryError
 from .artifacts import contains_hidden_path
 from .auth import auth_mode, identity_from_request, job_belongs_to_identity, user_from_request
 from .config import settings
@@ -35,7 +43,15 @@ from .particle_effects import (
     save_scene_assignment,
 )
 from .scene_plan import build_scene_plan
-from .storage import JobStore, write_json
+from .storage import JobStore, read_json, utc_now, write_json
+from .teacher_ecosystem import (
+    TeacherEcosystemError,
+    build_publication_payload,
+    publication_status,
+    publish_work,
+    unpublish_work,
+)
+from .validators import ValidationFailure, semantic_quiz_plan, validate_schema
 
 
 logger = logging.getLogger(__name__)
@@ -48,15 +64,66 @@ async def lifespan(_app: FastAPI):
         settings.contracts_dir,
         settings.asset_scripts_dir,
     )
-    yield
+    from .payments import subscription_credit_worker
+    credit_worker = asyncio.create_task(subscription_credit_worker())
+    try:
+        yield
+    finally:
+        credit_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await credit_worker
 
 
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
+from .platform_admin import router as admin_router, blocked as admin_blocked
+app.include_router(admin_router)
+from .payments import router as payments_router
+app.include_router(payments_router)
+
+
+@app.middleware('http')
+async def enforce_game_moderation(request: Request, call_next):
+    # Cover player files and public metadata as well as the player entry point.
+    match = re.match(r'^/(?:play|public/jobs)/([0-9a-f]{32})(?:/|$)', request.url.path)
+    if match:
+        from starlette.concurrency import run_in_threadpool
+        from fastapi.responses import JSONResponse
+        try:
+            is_blocked = await run_in_threadpool(admin_blocked, 'JOB', match.group(1))
+        except Exception:
+            return JSONResponse({'detail': '作品访问检查暂时不可用'}, status_code=503)
+        if is_blocked:
+            return JSONResponse({'detail': '该作品已下架'}, status_code=403)
+    return await call_next(request)
 store = JobStore()
 pipeline = WebGALPipeline(store)
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
+
+
+@lru_cache(maxsize=1)
+def get_credit_service() -> CreditService:
+    return CreditService.from_env()
+
+
+@lru_cache(maxsize=1)
+def get_asset_library() -> AssetLibrary:
+    return AssetLibrary()
+
+
+def _asset_user_and_job(job_id: str, request: Request) -> tuple[dict[str, Any], dict[str, Any]]:
+    user, job = _credit_user_and_job(job_id, request)
+    try:
+        get_credit_service().ensure_billable_job(
+            user_id=str(user["id"]),
+            job_id=str(job["id"]),
+            source_material=str(job.get("source_material") or ""),
+            options=job.get("options") if isinstance(job.get("options"), dict) else {},
+        )
+    except CreditError as exc:
+        raise HTTPException(status_code=503, detail="资产库暂时不可用，请稍后重试") from exc
+    return user, job
 
 
 def _contains_hidden_path(file_path: str) -> bool:
@@ -91,6 +158,124 @@ def _identity_from_request(request: Request) -> dict[str, str]:
     return identity_from_request(request, settings.workspace_root)
 
 
+def _credit_user_and_job(job_id: str, request: Request) -> tuple[dict[str, Any], dict[str, Any]]:
+    user = user_from_request(request, settings.workspace_root)
+    job = _get_job_or_404(job_id)
+    stored_identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+    if user.get("auth_type") == "sso":
+        owned = stored_identity.get("type") == "sso" and stored_identity.get("user_id") == user.get("id")
+    else:
+        owned = _job_belongs_to_identity(job, _identity_from_request(request))
+    if not owned:
+        raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    return user, job
+
+
+def _reserve_game_credits(user: dict[str, Any], job: dict[str, Any]):
+    if user.get("auth_type") != "sso":
+        return None
+    credits = get_credit_service()
+    try:
+        credits.ensure_signup_credits(str(user["id"]))
+        credits.ensure_billable_job(
+            user_id=str(user["id"]),
+            job_id=str(job["id"]),
+            source_material=str(job.get("source_material") or ""),
+            options=job.get("options") if isinstance(job.get("options"), dict) else {},
+        )
+        hold_units, pricing_snapshot = estimate_hold(
+            job.get("options") if isinstance(job.get("options"), dict) else {}
+        )
+        return credits.reserve_for_game(
+            user_id=str(user["id"]),
+            job_id=str(job["id"]),
+            operation_key=f"generation-{uuid.uuid4().hex}",
+            units=hold_units,
+            pricing_snapshot=pricing_snapshot,
+        )
+    except InsufficientCreditsError as exc:
+        raise HTTPException(
+            status_code=402,
+            detail=f"积分不足：本次需预扣 {exc.required} 分，当前可用 {exc.available} 分；预扣后余额不能低于 -15 分，请充值后重试",
+        ) from exc
+    except CreditError as exc:
+        logger.exception("Credit reservation failed for job_id=%s", job.get("id"))
+        raise HTTPException(status_code=503, detail="积分服务暂时不可用，请稍后重试") from exc
+
+
+def _reserve_resource_credits(
+    user: dict[str, Any],
+    job: dict[str, Any],
+    *,
+    plan: str,
+    hold_units: int,
+    subject: str,
+):
+    if user.get("auth_type") != "sso":
+        return None
+    credits = get_credit_service()
+    try:
+        credits.ensure_signup_credits(str(user["id"]))
+        credits.ensure_billable_job(
+            user_id=str(user["id"]),
+            job_id=str(job["id"]),
+            source_material=str(job.get("source_material") or ""),
+            options=job.get("options") if isinstance(job.get("options"), dict) else {},
+        )
+        return credits.reserve_for_game(
+            user_id=str(user["id"]),
+            job_id=str(job["id"]),
+            operation_key=f"{plan}-{uuid.uuid4().hex}",
+            units=max(1, hold_units),
+            pricing_snapshot={
+                "schema_version": 2,
+                "plan": plan,
+                "subject": subject,
+                "hold_units": max(1, hold_units),
+                "pricing": asdict(Pricing.from_env()),
+            },
+        )
+    except InsufficientCreditsError as exc:
+        raise HTTPException(
+            status_code=402,
+            detail=f"积分不足：本次需预扣 {exc.required} 分，当前可用 {exc.available} 分；预扣后余额不能低于 -15 分，请充值后重试",
+        ) from exc
+    except CreditError as exc:
+        logger.exception("Credit reservation failed for job_id=%s plan=%s", job.get("id"), plan)
+        raise HTTPException(status_code=503, detail="积分服务暂时不可用，请稍后重试") from exc
+
+
+def _settle_game_credits(
+    reservation_id: str,
+    *,
+    capture: bool,
+    job_id: str | None = None,
+    usage_before: UsageSnapshot | None = None,
+    reserved_units: int | None = None,
+) -> None:
+    try:
+        credits = get_credit_service()
+        if capture:
+            if not job_id or usage_before is None:
+                raise ValueError("Metered capture requires a job and usage snapshot")
+            usage = measure(store.job_dir(job_id), usage_before)
+            units, settlement = credits_for_usage(usage)
+            if reserved_units is None:
+                raise ValueError("Metered capture requires the frozen credit amount")
+            charged_units = min(units, reserved_units)
+            reservation = credits.capture(reservation_id, units=charged_units, settlement=settlement)
+            if units > reserved_units:
+                logger.warning("Usage exceeded frozen credits: job_id=%s charged=%s measured=%s", job_id, charged_units, units)
+        else:
+            credits.release(reservation_id)
+    except Exception:
+        logger.exception(
+            "Could not %s credit reservation id=%s",
+            "capture" if capture else "release",
+            reservation_id,
+        )
+
+
 def _job_belongs_to_identity(job: dict[str, Any], identity: dict[str, str]) -> bool:
     return job_belongs_to_identity(job, identity)
 
@@ -121,6 +306,22 @@ class CreateJobRequest(BaseModel):
 
 class RunJobRequest(BaseModel):
     background: bool = False
+
+
+class PublishTeacherWorkRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=160)
+
+
+class UpdateJobTitleRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+
+
+class GenerateQuizRequest(BaseModel):
+    regenerate: bool = False
+
+
+class UpdateQuizRequest(BaseModel):
+    quiz_plan: dict[str, Any]
 
 
 class ArtifactUpdateRequest(BaseModel):
@@ -163,6 +364,17 @@ class AvatarCropRequest(BaseModel):
     offset_x: float = Field(default=0, ge=-1, le=1)
     offset_y: float = Field(default=0, ge=-1, le=1)
     base_revision: int | None = Field(default=None, ge=0)
+
+
+class UseLibraryAssetRequest(BaseModel):
+    asset_file_id: str = Field(pattern=r"^[0-9a-fA-F]{32}$")
+    target: str = Field(pattern=r"^(background|figure|bgm)$")
+    replace_filename: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class AssetRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
 
 
 class SceneMusicOverrideRequest(BaseModel):
@@ -252,6 +464,113 @@ def auth_config() -> dict[str, str]:
     return {"mode": auth_mode()}
 
 
+@app.get("/credits/balance")
+def credit_balance(request: Request) -> dict[str, int]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="积分仅适用于 NarrativeOS 登录账号")
+    try:
+        credits = get_credit_service()
+        credits.ensure_signup_credits(str(user["id"]))
+        return asdict(credits.get_balance(str(user["id"])))
+    except CreditError as exc:
+        logger.exception("Credit balance lookup failed for user_id=%s", user.get("id"))
+        raise HTTPException(status_code=503, detail="积分服务暂时不可用，请稍后重试") from exc
+
+
+@app.get("/assets")
+def list_personal_assets(
+    request: Request,
+    kind: str | None = None,
+    source_type: str | None = None,
+    limit: int = 100,
+    collection: str | None = None,
+    search: str = "",
+    page: int | None = None,
+    page_size: int = 12,
+    category: str | None = None,
+) -> dict[str, Any]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if collection not in {None, "uploads", "favorites", "personal"}:
+        raise HTTPException(status_code=422, detail="unsupported asset collection")
+    if page is not None and (page < 1 or page_size < 1 or page_size > 48):
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    normalized_kind = kind.strip().upper() if kind else None
+    allowed = {"BACKGROUND", "FIGURE", "AVATAR", "VOICE", "BGM", "SFX", "VIDEO", "SCRIPT", "OTHER"}
+    if normalized_kind and normalized_kind not in allowed:
+        raise HTTPException(status_code=422, detail="unsupported asset kind")
+    normalized_source_type = source_type.strip().upper() if source_type else None
+    if normalized_source_type and normalized_source_type not in {"GENERATED", "UPLOADED"}:
+        raise HTTPException(status_code=422, detail="unsupported asset source type")
+    try:
+        options: dict[str, Any] = {}
+        if category:
+            options["category"] = category
+        if page is not None:
+            options.update({"search": search, "offset": (page - 1) * page_size,
+                            "original_only": True, "include_favorite": True})
+        rows = get_asset_library().list_assets(
+            str(user["id"]), kind=normalized_kind, source_type=normalized_source_type,
+            limit=page_size + 1 if page is not None else limit, collection=collection, **options,
+        )
+        if page is not None:
+            return {"assets": rows[:page_size], "page": page, "has_more": len(rows) > page_size}
+        return {"assets": rows}
+    except Exception as exc:
+        logger.exception("Asset library lookup failed for user_id=%s", user.get("id"))
+        raise HTTPException(status_code=503, detail="资产库暂时不可用，请稍后重试") from exc
+
+
+@app.put("/assets/{asset_id}/favorite")
+@app.delete("/assets/{asset_id}/favorite")
+def update_asset_favorite(asset_id: str, request: Request) -> dict[str, bool]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="请先登录 NarrativeOS")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    try:
+        favorite = request.method == "PUT"
+        get_asset_library().set_favorite(str(user["id"]), asset_id.lower(), favorite)
+        return {"favorite": favorite}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权访问") from exc
+    except Exception as exc:
+        logger.exception("Asset favorite update failed")
+        raise HTTPException(status_code=503, detail="收藏操作失败，请稍后重试") from exc
+
+
+@app.put("/assets/{asset_id}/name")
+def rename_personal_asset(asset_id: str, payload: AssetRenameRequest, request: Request) -> dict[str, Any]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="素材名称不能为空")
+    try:
+        return {"asset": get_asset_library().rename_asset(str(user["id"]), asset_id.lower(), payload.name)}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权修改") from exc
+
+
+@app.delete("/assets/{asset_id}")
+def delete_personal_asset(asset_id: str, request: Request) -> dict[str, bool]:
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", asset_id):
+        raise HTTPException(status_code=422, detail="invalid asset id")
+    try:
+        get_asset_library().delete_asset(str(user["id"]), asset_id.lower())
+        return {"deleted": True}
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail="素材不存在或无权删除") from exc
+
+
 @app.get("/")
 def index() -> RedirectResponse:
     return RedirectResponse(frontend_url)
@@ -282,6 +601,17 @@ def get_job(job_id: str, request: Request) -> dict[str, Any]:
     return _get_owned_job_or_404(job_id, request)
 
 
+@app.put("/jobs/{job_id}/title")
+def update_job_title(job_id: str, payload: UpdateJobTitleRequest, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="游戏名称不能为空")
+    job["title"] = title
+    store.save(job)
+    return {"job": job}
+
+
 @app.get("/jobs/{job_id}/nodes")
 def get_job_nodes(job_id: str, request: Request) -> dict[str, Any]:
     job = _get_owned_job_or_404(job_id, request)
@@ -296,6 +626,134 @@ def get_published_flow(job_id: str, request: Request) -> dict[str, Any]:
     if not job.get("has_published_build"):
         raise HTTPException(status_code=409, detail="尚无已发布游戏")
     return published_flow(_job_dir_or_404(job_id), job.get("published_revision", 0))
+
+
+@app.get("/jobs/{job_id}/ecosystem-publication")
+def get_ecosystem_publication(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    try:
+        return publication_status(job_id)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/ecosystem-publication")
+def publish_to_teacher_ecosystem(
+    job_id: str,
+    payload: PublishTeacherWorkRequest,
+    request: Request,
+) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    if not job.get("has_published_build"):
+        raise HTTPException(status_code=409, detail="游戏完成生成后才能发布到教师生态")
+    user = user_from_request(request, settings.workspace_root)
+    if user.get("auth_type") != "sso":
+        raise HTTPException(status_code=409, detail="请使用 NarrativeOS 账号登录后再发布到教师生态")
+    publication = build_publication_payload(
+        job=job,
+        job_dir=_job_dir_or_404(job_id),
+        user=user,
+        frontend_url=frontend_url,
+        title_override=payload.title,
+    )
+    try:
+        return publish_work(publication)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.delete("/jobs/{job_id}/ecosystem-publication")
+def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_owned_job_or_404(job_id, request)
+    owner_user_id = str(job.get("identity", {}).get("user_id") or "")
+    if not owner_user_id:
+        raise HTTPException(status_code=409, detail="邀请码任务无法发布到教师生态")
+    try:
+        return unpublish_work(owner_user_id, job_id)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _quiz_response(job_id: str) -> dict[str, Any]:
+    job_dir = _job_dir_or_404(job_id)
+    quiz_path = job_dir / "state" / "quiz_plan.json"
+    status_path = job_dir / "state" / "quiz_generation.json"
+    status: dict[str, Any] = {"status": "NOT_GENERATED", "error": None}
+    if status_path.exists():
+        try:
+            saved_status = read_json(status_path)
+            if isinstance(saved_status, dict):
+                status.update(saved_status)
+        except (OSError, json.JSONDecodeError):
+            pass
+    if quiz_path.exists():
+        try:
+            quiz = read_json(quiz_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=500, detail="讲评练文件损坏") from exc
+        effective_status = "READY" if status.get("status") == "NOT_GENERATED" else status.get("status", "READY")
+        return {**status, "status": effective_status, "quiz": quiz}
+    return {**status, "quiz": None}
+
+
+@app.get("/jobs/{job_id}/quiz")
+def get_quiz(job_id: str, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    return {**_quiz_response(job_id), "can_manage": True}
+
+
+@app.get("/public/jobs/{job_id}/quiz")
+def get_public_quiz(job_id: str, request: Request) -> dict[str, Any]:
+    job = _get_job_or_404(job_id)
+    can_manage = False
+    try:
+        can_manage = _job_belongs_to_identity(job, _identity_from_request(request))
+    except HTTPException:
+        pass
+    if not can_manage and not job.get("has_published_build"):
+        raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    return {**_quiz_response(job_id), "can_manage": can_manage}
+
+
+@app.post("/jobs/{job_id}/quiz")
+def generate_quiz(
+    job_id: str,
+    payload: GenerateQuizRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    current = _quiz_response(job_id)
+    if current["status"] in {"QUEUED", "RUNNING"}:
+        return current
+    if current["status"] == "READY" and not payload.regenerate:
+        return current
+    job_dir = _job_dir_or_404(job_id)
+    if not (job_dir / "state" / "narrative_plan.json").exists():
+        raise HTTPException(status_code=409, detail="请先完成故事大纲，再生成讲评练")
+    write_json(
+        job_dir / "state" / "quiz_generation.json",
+        {"status": "QUEUED", "error": None, "updated_at": utc_now()},
+    )
+    background_tasks.add_task(run_quiz_background, job_id)
+    return _quiz_response(job_id)
+
+
+@app.put("/jobs/{job_id}/quiz")
+def update_quiz(job_id: str, payload: UpdateQuizRequest, request: Request) -> dict[str, Any]:
+    _get_owned_job_or_404(job_id, request)
+    try:
+        validate_schema("quiz_plan.schema.json", payload.quiz_plan)
+        semantic_quiz_plan(payload.quiz_plan)
+    except ValidationFailure as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
+    job_dir = _job_dir_or_404(job_id)
+    write_json(job_dir / "state" / "quiz_plan.json", payload.quiz_plan)
+    write_json(
+        job_dir / "state" / "quiz_generation.json",
+        {"status": "READY", "error": None, "updated_at": utc_now()},
+    )
+    return _quiz_response(job_id)
 
 
 @app.patch("/jobs/{job_id}/artifacts")
@@ -755,10 +1213,139 @@ async def upload_asset(job_id: str, request: Request, file: UploadFile = File(..
     else:
         stored_name = f"upload_{uuid.uuid4().hex[:10]}_{safe_stem}{suffix}"; target = job_dir / "draft" / "game" / "bgm" / stored_name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(content)
         item = {"type": "bgm", "filename": stored_name, "display_name": safe_stem, "content_type": file.content_type, "status": "staged"}
+    identity = job.get("identity") if isinstance(job.get("identity"), dict) else {}
+    if identity.get("type") == "sso" and identity.get("user_id"):
+        user_id = str(identity["user_id"])
+        try:
+            get_credit_service().ensure_billable_job(
+                user_id=user_id,
+                job_id=job_id,
+                source_material=str(job.get("source_material") or ""),
+                options=job.get("options") if isinstance(job.get("options"), dict) else {},
+            )
+            logical_path = f"{subdir if asset_type == 'image' else 'bgm'}/{stored_name}"
+            published = get_asset_library().publish_file(
+                user_id=user_id,
+                job_id=job_id,
+                path=target,
+                logical_path=logical_path,
+                kind=("FIGURE" if asset_type == "image" and subdir == "figure" else "BACKGROUND" if asset_type == "image" else "BGM"),
+                source_type="UPLOADED",
+                name=safe_stem,
+                usage_role=("figure" if asset_type == "image" and subdir == "figure" else "background" if asset_type == "image" else "bgm"),
+                source_key=f"job:{job_id}:{logical_path}",
+                width=image.width if asset_type == "image" else None,
+                height=image.height if asset_type == "image" else None,
+            )
+            item.update({"status": "published", **published})
+            if asset_type == "image" and subdir == "figure" and avatar_path is not None:
+                avatar_name = avatar_path.name
+                avatar = get_asset_library().publish_file(
+                    user_id=user_id,
+                    job_id=job_id,
+                    path=avatar_path,
+                    logical_path=f"figure/{avatar_name}",
+                    kind="FIGURE",
+                    source_type="UPLOADED",
+                    name=safe_stem,
+                    usage_role="avatar",
+                    source_key=f"job:{job_id}:{logical_path}",
+                    variant="avatar",
+                    width=400,
+                    height=400,
+                )
+                item.update({"avatar_oss_key": avatar["oss_key"], "avatar_oss_url": avatar["oss_url"], "avatar_asset_file_id": avatar["asset_file_id"]})
+        except Exception as exc:
+            logger.exception("Could not register uploaded asset job_id=%s filename=%s", job_id, stored_name)
+            raise HTTPException(status_code=503, detail="素材已接收，但上传个人资产库失败，请稍后重试") from exc
     items = _uploaded_assets(job_dir)
     items = [existing for existing in items if not (existing.get("type") == item.get("type") and existing.get("subdir") == item.get("subdir") and existing.get("filename") == item.get("filename"))]
     items.append(item); write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
     store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json"); store.mark_draft_changed(job, "assets" if asset_type == "image" else "music")
+    return {"job": _get_owned_job_or_404(job_id, request), "asset": item}
+
+
+@app.post("/jobs/{job_id}/assets/from-library")
+def use_personal_asset(job_id: str, payload: UseLibraryAssetRequest, request: Request) -> dict[str, Any]:
+    user, job = _asset_user_and_job(job_id, request)
+    _require_job_editable(job, payload.base_revision)
+    try:
+        record, content = get_asset_library().download_accessible_file(str(user["id"]), payload.asset_file_id.lower())
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    expected = {"background": {"BACKGROUND"}, "figure": {"FIGURE"}, "bgm": {"BGM"}}
+    if str(record["kind"]) not in expected[payload.target] or str(record["variant"]) != "original":
+        raise HTTPException(status_code=422, detail="素材类型与目标位置不匹配")
+    source_suffix = Path(str(record["object_key"])).suffix.lower()
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(record["name"])).strip("_") or "library_asset"
+    replacement = Path(payload.replace_filename or "").name.removesuffix(".webp")
+    if payload.replace_filename and replacement != payload.replace_filename.removesuffix(".webp"):
+        raise HTTPException(status_code=422, detail="invalid replacement filename")
+    if payload.target in {"background", "figure"}:
+        from io import BytesIO
+        from PIL import Image
+        try:
+            image = Image.open(BytesIO(content)).convert("RGBA")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="资产库图片无法读取") from exc
+        stored_name = f"{replacement}.webp" if replacement else f"library_{uuid.uuid4().hex[:10]}_{safe_name}.webp"
+        target = _job_dir_or_404(job_id) / "draft" / "game" / payload.target / stored_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        image.save(target, "WEBP", lossless=True)
+        avatar_path = _write_figure_avatar(image, target.parent, stored_name) if payload.target == "figure" else None
+        item: dict[str, Any] = {
+            "type": "image", "subdir": payload.target, "filename": stored_name,
+            "display_name": record["name"], "size": f"{image.width}×{image.height}",
+            "status": "published", "asset_id": record["asset_id"], "asset_file_id": record["id"],
+            "oss_key": record["object_key"], "oss_url": f"https://{record['bucket']}.oss-cn-hangzhou.aliyuncs.com/{record['object_key']}",
+        }
+        if replacement:
+            item["replaces_filename"] = replacement
+        logical_path = f"{payload.target}/{stored_name}"
+        if avatar_path is not None:
+            avatar_variant = get_asset_library().download_accessible_variant(str(user["id"]), str(record["asset_id"]), "avatar")
+            if avatar_variant:
+                avatar_record, avatar_content = avatar_variant
+                avatar_path.write_bytes(avatar_content)
+                avatar_logical_path = f"figure/{avatar_path.name}"
+                get_asset_library().record_draft_usage(
+                    user_id=str(user["id"]), job_id=job_id, logical_path=avatar_logical_path,
+                    file_id=str(avatar_record["id"]), usage_role="avatar",
+                )
+                item.update({
+                    "avatar_asset_file_id": avatar_record["id"],
+                    "avatar_oss_key": avatar_record["object_key"],
+                    "avatar_oss_url": f"https://{avatar_record['bucket']}.oss-cn-hangzhou.aliyuncs.com/{avatar_record['object_key']}",
+                })
+    else:
+        suffix = source_suffix if source_suffix in {".mp3", ".wav", ".ogg"} else ".mp3"
+        stored_name = f"library_{uuid.uuid4().hex[:10]}_{safe_name}{suffix}"
+        target = _job_dir_or_404(job_id) / "draft" / "game" / "bgm" / stored_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        logical_path = f"bgm/{stored_name}"
+        item = {
+            "type": "bgm", "filename": stored_name, "display_name": record["name"],
+            "content_type": record["mime_type"], "status": "published",
+            "asset_id": record["asset_id"], "asset_file_id": record["id"],
+            "oss_key": record["object_key"], "oss_url": f"https://{record['bucket']}.oss-cn-hangzhou.aliyuncs.com/{record['object_key']}",
+        }
+    try:
+        get_asset_library().record_draft_usage(
+            user_id=str(user["id"]), job_id=job_id, logical_path=logical_path,
+            file_id=str(record["id"]), usage_role=payload.target,
+        )
+    except AssetLibraryError as exc:
+        raise HTTPException(status_code=503, detail="无法记录素材引用") from exc
+    job_dir = _job_dir_or_404(job_id)
+    items = [entry for entry in _uploaded_assets(job_dir) if not (
+        entry.get("type") == item.get("type") and entry.get("subdir") == item.get("subdir") and entry.get("filename") == item.get("filename")
+    )]
+    items.append(item)
+    write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
+    store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json")
+    store.mark_draft_changed(job, "assets" if payload.target != "bgm" else "music")
     return {"job": _get_owned_job_or_404(job_id, request), "asset": item}
 
 
@@ -988,18 +1575,44 @@ def update_scene_effect(job_id: str, request: SceneEffectRequest, http_request: 
 
 @app.post("/jobs/{job_id}/voices/preview")
 def regenerate_voice_preview(job_id: str, request: TTSPreviewRequest, http_request: Request) -> dict[str, Any]:
+    reservation = None
     try:
-        job = _get_owned_job_or_404(job_id, http_request)
+        user, job = _credit_user_and_job(job_id, http_request)
+        pricing = Pricing.from_env()
+        reservation = _reserve_resource_credits(
+            user,
+            job,
+            plan="tts-preview-v1",
+            hold_units=pricing.tts_hold,
+            subject=request.speaker.strip(),
+        )
+        usage_before = snapshot(store.job_dir(job_id)) if reservation is not None else None
         item = pipeline.regenerate_tts_preview(job, request.speaker.strip(), request.voice.strip())
+        if reservation is not None:
+            _settle_game_credits(
+                reservation.reservation_id,
+                capture=True,
+                job_id=job_id,
+                usage_before=usage_before,
+                reserved_units=reservation.units,
+            )
         return {
             "job": _get_owned_job_or_404(job_id, http_request),
             "voice": item,
             **_tts_voice_review_payload(job_id, store.job_dir(job_id), True),
         }
     except FileNotFoundError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
+        raise
 
 
 @app.post("/jobs/{job_id}/assets/regenerate")
@@ -1012,39 +1625,88 @@ def regenerate_asset(
     filename = request.filename.replace("\\", "/").split("/")[-1].removesuffix(".webp")
     if not filename or filename.startswith("."):
         raise HTTPException(status_code=400, detail="invalid asset filename")
+    user, job = _credit_user_and_job(job_id, http_request)
+    _require_job_editable(job, request.base_revision)
+    pricing = Pricing.from_env()
+    reservation = _reserve_resource_credits(
+        user,
+        job,
+        plan="image-regenerate-v1",
+        hold_units=pricing.image_each,
+        subject=filename,
+    )
+    usage_before = snapshot(store.job_dir(job_id)) if reservation is not None else None
     if request.background:
-        job = _get_owned_job_or_404(job_id, http_request)
-        _require_job_editable(job, request.base_revision)
-        background_tasks.add_task(run_asset_regeneration_background, job_id, filename, request.prompt)
+        background_tasks.add_task(
+            run_asset_regeneration_background,
+            job_id,
+            filename,
+            request.prompt,
+            reservation.reservation_id if reservation is not None else None,
+            reservation.units if reservation is not None else None,
+            usage_before,
+        )
         store.transition(job, "QUEUED", "ASSET_GENERATION")
         return {"job": job, "queued": True, "filename": filename}
     try:
-        job = _get_owned_job_or_404(job_id, http_request)
-        _require_job_editable(job, request.base_revision)
         image = pipeline.regenerate_asset_image(job, filename, request.prompt)
+        if reservation is not None:
+            _settle_game_credits(
+                reservation.reservation_id,
+                capture=True,
+                job_id=job_id,
+                usage_before=usage_before,
+                reserved_units=reservation.units,
+            )
         return {"job": _get_owned_job_or_404(job_id, http_request), "queued": False, "asset": image}
     except FileNotFoundError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
+        raise
 
 
 @app.post("/jobs/{job_id}/run")
 def run_job(job_id: str, request: RunJobRequest, background_tasks: BackgroundTasks, http_request: Request) -> dict[str, Any]:
-    current_job = _get_owned_job_or_404(job_id, http_request)
+    user, current_job = _credit_user_and_job(job_id, http_request)
     if current_job.get("status") in {"RUNNING", "QUEUED"}:
         raise HTTPException(status_code=409, detail="job is already running")
+    reservation = _reserve_game_credits(user, current_job)
+    usage_before = snapshot(store.job_dir(job_id)) if reservation is not None else None
     if request.background:
-        job = _get_owned_job_or_404(job_id, http_request)
-        background_tasks.add_task(run_pipeline_background, job_id)
-        store.transition(job, "QUEUED", job.get("phase"))
-        return job
+        background_tasks.add_task(
+            run_pipeline_background,
+            job_id,
+            reservation.reservation_id if reservation is not None else None,
+            reservation.units if reservation is not None else None,
+            usage_before,
+        )
+        store.transition(current_job, "QUEUED", current_job.get("phase"))
+        return current_job
     try:
-        return pipeline.run_all(job_id)
+        result = pipeline.run_all(job_id)
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reservation.units)
+        return result
     except FileNotFoundError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
+        raise
 
 
 @app.post("/jobs/{job_id}/apply-draft")
@@ -1054,20 +1716,36 @@ def apply_draft(
     background_tasks: BackgroundTasks,
     http_request: Request,
 ) -> dict[str, Any]:
-    job = _get_owned_job_or_404(job_id, http_request)
+    user, job = _credit_user_and_job(job_id, http_request)
     if job.get("status") in {"RUNNING", "QUEUED"}:
         raise HTTPException(status_code=409, detail="job is already running")
     if not job.get("has_published_build"):
         raise HTTPException(status_code=409, detail="game must be built before draft changes can be applied")
+    reservation = _reserve_game_credits(user, job)
+    usage_before = snapshot(store.job_dir(job_id)) if reservation is not None else None
     if request.background:
-        background_tasks.add_task(run_apply_draft_background, job_id)
+        background_tasks.add_task(
+            run_apply_draft_background,
+            job_id,
+            reservation.reservation_id if reservation is not None else None,
+            reservation.units if reservation is not None else None,
+            usage_before,
+        )
         store.transition(job, "QUEUED", "DRAFT_APPLY")
         return job
     try:
         pipeline.apply_draft_changes(job)
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reservation.units)
         return store.get(job_id)
     except PipelineError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
+        raise
 
 
 @app.post("/jobs/{job_id}/phases/{phase}")
@@ -1080,20 +1758,39 @@ def run_phase(
 ) -> dict[str, Any]:
     if phase not in pipeline.phase_names():
         raise HTTPException(status_code=422, detail=f"unknown phase: {phase}")
-    current_job = _get_owned_job_or_404(job_id, http_request)
+    user, current_job = _credit_user_and_job(job_id, http_request)
     if current_job.get("status") in {"RUNNING", "QUEUED"}:
         raise HTTPException(status_code=409, detail="job is already running")
+    reservation = _reserve_game_credits(user, current_job)
+    usage_before = snapshot(store.job_dir(job_id)) if reservation is not None else None
     if request.background:
-        job = _get_owned_job_or_404(job_id, http_request)
-        background_tasks.add_task(run_phase_background, job_id, phase)
-        store.transition(job, "QUEUED", phase.upper())
-        return job
+        background_tasks.add_task(
+            run_phase_background,
+            job_id,
+            phase,
+            reservation.reservation_id if reservation is not None else None,
+            reservation.units if reservation is not None else None,
+            usage_before,
+        )
+        store.transition(current_job, "QUEUED", phase.upper())
+        return current_job
     try:
-        return pipeline.run_phase(job_id, phase)
+        result = pipeline.run_phase(job_id, phase)
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reservation.units)
+        return result
     except FileNotFoundError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineError as exc:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        if reservation is not None:
+            _settle_game_credits(reservation.reservation_id, capture=False)
+        raise
 
 
 @app.get("/jobs/{job_id}/artifacts")
@@ -1135,6 +1832,28 @@ def play_game_asset(job_id: str, file_path: str) -> FileResponse:
         file_path=file_path,
         missing_detail=f"game asset not found: {file_path}",
     )
+
+
+@app.get("/play/{job_id}/cover")
+def play_game_cover(job_id: str) -> FileResponse:
+    job_dir = _job_dir_or_404(job_id)
+    backup_root = job_dir / "state" / "published_game_backup"
+    game_root = backup_root if store.get(job_id).get("build_state") == "BUILDING" and backup_root.exists() else job_dir / "public" / "game"
+    background_dir = game_root / "background"
+    if not background_dir.exists():
+        raise HTTPException(status_code=404, detail=f"game cover not found: {job_id}")
+    candidates = sorted(
+        path
+        for path in background_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    )
+    if not candidates:
+        raise HTTPException(status_code=404, detail=f"game cover not found: {job_id}")
+    cover = next(
+        (path for path in candidates if path.name.lower().startswith(("title", "bg_start", "bg_"))),
+        candidates[0],
+    )
+    return FileResponse(cover)
 
 
 @app.get("/play/{job_id}/draft-game/{file_path:path}")
@@ -1221,17 +1940,35 @@ def _file_response_under_root(*, root: Path, file_path: str, missing_detail: str
     return FileResponse(path, media_type=content_type)
 
 
-def run_pipeline_background(job_id: str) -> None:
+def run_pipeline_background(
+    job_id: str,
+    reservation_id: str | None,
+    reserved_units: int | None,
+    usage_before: UsageSnapshot | None,
+) -> None:
     try:
         pipeline.run_all(job_id)
+        if reservation_id is not None:
+            _settle_game_credits(reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reserved_units)
     except Exception:
+        if reservation_id is not None:
+            _settle_game_credits(reservation_id, capture=False)
         logging.getLogger("uvicorn.error").exception("Forge pipeline failed for job_id=%s", job_id)
 
 
-def run_apply_draft_background(job_id: str) -> None:
+def run_apply_draft_background(
+    job_id: str,
+    reservation_id: str | None,
+    reserved_units: int | None,
+    usage_before: UsageSnapshot | None,
+) -> None:
     try:
         pipeline.apply_draft_changes(store.get(job_id))
+        if reservation_id is not None:
+            _settle_game_credits(reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reserved_units)
     except Exception as exc:
+        if reservation_id is not None:
+            _settle_game_credits(reservation_id, capture=False)
         try:
             store.set_error(store.get(job_id), str(exc))
         except Exception:
@@ -1239,7 +1976,13 @@ def run_apply_draft_background(job_id: str) -> None:
         logging.getLogger("uvicorn.error").exception("Forge draft apply failed for job_id=%s", job_id)
 
 
-def run_phase_background(job_id: str, phase: str) -> None:
+def run_phase_background(
+    job_id: str,
+    phase: str,
+    reservation_id: str | None,
+    reserved_units: int | None,
+    usage_before: UsageSnapshot | None,
+) -> None:
     try:
         job = store.get(job_id)
         advanced_mode = job.get("options", {}).get("generation_mode") == "advanced"
@@ -1250,6 +1993,8 @@ def run_phase_background(job_id: str, phase: str) -> None:
     for attempt in range(retries + 1):
         try:
             pipeline.run_phase(job_id, phase)
+            if reservation_id is not None:
+                _settle_game_credits(reservation_id, capture=True, job_id=job_id, usage_before=usage_before, reserved_units=reserved_units)
             return
         except PipelineError as exc:
             if attempt < retries:
@@ -1267,6 +2012,8 @@ def run_phase_background(job_id: str, phase: str) -> None:
                     store.transition(store.get(job_id), "QUEUED", phase.upper())
                 except Exception:
                     logger.exception("Could not queue Advanced retry for job_id=%s phase=%s", job_id, phase)
+                    if reservation_id is not None:
+                        _settle_game_credits(reservation_id, capture=False)
                     return
                 continue
             if retries:
@@ -1276,17 +2023,52 @@ def run_phase_background(job_id: str, phase: str) -> None:
                 except Exception:
                     logger.exception("Could not save exhausted retry message for job_id=%s phase=%s", job_id, phase)
             logger.exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            if reservation_id is not None:
+                _settle_game_credits(reservation_id, capture=False)
             return
         except Exception:
             logging.getLogger("uvicorn.error").exception("Forge pipeline phase failed for job_id=%s phase=%s", job_id, phase)
+            if reservation_id is not None:
+                _settle_game_credits(reservation_id, capture=False)
             return
 
 
-def run_asset_regeneration_background(job_id: str, filename: str, prompt: str | None) -> None:
+def run_quiz_background(job_id: str) -> None:
+    status_path = store.job_dir(job_id) / "state" / "quiz_generation.json"
+    try:
+        write_json(status_path, {"status": "RUNNING", "error": None, "updated_at": utc_now()})
+        pipeline.generate_quiz(job_id)
+        write_json(status_path, {"status": "READY", "error": None, "updated_at": utc_now()})
+    except Exception as exc:
+        write_json(
+            status_path,
+            {"status": "FAILED", "error": str(exc)[:2000], "updated_at": utc_now()},
+        )
+        logging.getLogger("uvicorn.error").exception("Quiz generation failed for job_id=%s", job_id)
+
+
+def run_asset_regeneration_background(
+    job_id: str,
+    filename: str,
+    prompt: str | None,
+    reservation_id: str | None,
+    reserved_units: int | None,
+    usage_before: UsageSnapshot | None,
+) -> None:
     try:
         job = store.get(job_id)
         pipeline.regenerate_asset_image(job, filename, prompt)
+        if reservation_id is not None:
+            _settle_game_credits(
+                reservation_id,
+                capture=True,
+                job_id=job_id,
+                usage_before=usage_before,
+                reserved_units=reserved_units,
+            )
     except Exception as exc:
+        if reservation_id is not None:
+            _settle_game_credits(reservation_id, capture=False)
         try:
             store.set_error(store.get(job_id), str(exc))
         except Exception:

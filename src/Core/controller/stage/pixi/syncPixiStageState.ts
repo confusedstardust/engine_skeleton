@@ -222,7 +222,9 @@ function addFigure(key: string, url: string, position: 'left' | 'center' | 'righ
   const baseUrl = window.location.origin;
   const urlObject = new URL(url, baseUrl);
   const figureType = urlObject.searchParams.get('type') as 'image' | 'live2D' | 'spine' | null;
-  if (url.endsWith('.json')) {
+  if (urlObject.pathname.endsWith('.layered.json')) {
+    pixiStage.addLayeredFigure(key, url, position);
+  } else if (url.endsWith('.json')) {
     pixiStage.addLive2dFigure(key, url, position);
   } else if (url.endsWith('.skel') || figureType === 'spine') {
     pixiStage.addSpineFigure(key, url, position);
