@@ -26,7 +26,10 @@ function savedInputs(detail:GameDetail) {
 const resources = [{value:"dashboard",label:"看板"},{value:"games",label:"游戏"},{value:"assets",label:"素材"},{value:"users",label:"用户"},{value:"payment-test",label:"支付测试"}];
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(`/api/forge/admin${path}`), { ...init, credentials:"include", headers:{...jsonAuthHeaders(), "Content-Type":"application/json", "X-Forge-Admin-Action":"1"} });
-  const body = await response.json();
+  const text = await response.text();
+  let body;
+  try { body = JSON.parse(text); }
+  catch { throw new Error(response.ok ? "服务器响应格式异常，请稍后重试" : `管理服务暂时不可用（HTTP ${response.status}），请稍后重试`); }
   if (!response.ok) throw new Error(body.detail || "管理操作失败");
   return body;
 }
@@ -42,6 +45,9 @@ export default function AdminPage() {
   const [query,setQuery] = useState("");
   const [page,setPage] = useState(1);
   const [hasMore,setHasMore] = useState(false);
+  const [total,setTotal] = useState(0);
+  const [totalPages,setTotalPages] = useState(1);
+  const [jumpPage,setJumpPage] = useState("1");
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState("");
   const [revision,setRevision] = useState(0);
@@ -71,9 +77,9 @@ export default function AdminPage() {
     if (!allowed || (resource === "dashboard" || resource === "payment-test")) return;
     let active=true;
     setLoading(true); setError("");
-    api<{items:Item[];has_more:boolean}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:""})}`)
-      .then((data) => {if(active){setItems(data.items);setHasMore(data.has_more);}})
-      .catch((e) => {if(active)setError(e.message);}).finally(() => {if(active)setLoading(false);});
+    api<{items:Item[];has_more:boolean;page:number;total:number;total_pages:number}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:""})}`)
+      .then((data) => {if(active){setItems(data.items);setHasMore(data.has_more);setTotal(data.total);setTotalPages(data.total_pages);setPage(data.page);setJumpPage(String(data.page));}})
+      .catch((e) => {if(active){setError(e.message);setItems([]);setHasMore(false);setTotal(0);setTotalPages(1);}}).finally(() => {if(active)setLoading(false);});
     return () => {active=false;};
   },[allowed,resource,page,query,revision,assetKind]);
   async function change(item: Item, action: string) {
@@ -85,6 +91,7 @@ export default function AdminPage() {
     finally {setBusy(false);}
   }
   const title = (item:Item) => item.name || item.nickname || item.email || item.id;
+  const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
     <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">平台管理</span><span className="brand-subtitle">ADMINISTRATION</span></div></Link><Link className="workspace-back" href="/">返回首页</Link></div><nav className="nav-links"><Link href="/assets">素材仓库</Link><Link href="/history">我的作品</Link>{allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null}</nav></header>
     <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
@@ -97,7 +104,16 @@ export default function AdminPage() {
         <Tabs.Content className="admin-tab-panel" value={resource}>
           {resource==="dashboard"?<AdminDashboard/>:resource==="payment-test"?<PaymentTestPanel embedded/>:<>
           {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="users"?"邮箱":"归属用户"}</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
-          <nav className="asset-library-pagination"><button className="btn outline" disabled={loading||page===1} onClick={()=>setPage(v=>v-1)}>上一页</button><span>第 {page} 页 · 每页 20 项</span><button className="btn outline" disabled={loading||!hasMore} onClick={()=>setPage(v=>v+1)}>下一页</button></nav>
+          <nav className="asset-library-pagination admin-pagination" aria-label="管理列表分页">
+            <span>共 {total} 项 · 第 {page} / {totalPages} 页</span>
+            <button className="btn outline" disabled={loading||!!error||page===1} onClick={()=>setPage(v=>v-1)}>上一页</button>
+            {pageNumbers.map((n,i)=><span className="admin-page-choice" key={n}>{i>0&&n>pageNumbers[i-1]+1?<span aria-hidden="true">…</span>:null}<button className={`btn ${n===page?"primary":"outline"}`} aria-label={`第 ${n} 页`} aria-current={n===page?"page":undefined} disabled={loading||!!error} onClick={()=>setPage(n)}>{n}</button></span>)}
+            <button className="btn outline" disabled={loading||!!error||!hasMore} onClick={()=>setPage(v=>v+1)}>下一页</button>
+            <form className="admin-page-jump" onSubmit={e=>{e.preventDefault();const n=Number(jumpPage);if(Number.isInteger(n)&&n>=1&&n<=totalPages)setPage(n);}}>
+              <label>跳至 <input type="number" aria-label="跳转页码" min={1} max={totalPages} step={1} required value={jumpPage} onChange={e=>setJumpPage(e.target.value)} disabled={loading||!!error}/> 页</label>
+              <button className="btn outline" disabled={loading||!!error}>跳转</button>
+            </form>
+          </nav>
           </>}
         </Tabs.Content>
       </Tabs.Root>:null}

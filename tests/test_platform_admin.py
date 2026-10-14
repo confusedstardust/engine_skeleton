@@ -32,6 +32,39 @@ def login(client):
     return client.post('/admin/login',json={'username':'test-admin','password':'test-password'})
 
 
+@pytest.mark.parametrize('total,requested,expected_page,item_count,has_more', [
+    (41, 2, 2, 20, True), (41, 99, 3, 1, False), (0, 1, 1, 0, False),
+])
+def test_filtered_listing_pagination(client, monkeypatch, total, requested, expected_page, item_count, has_more):
+    login(client)
+    calls = []
+    class Cursor:
+        def execute(self, sql, args=()):
+            calls.append((sql, args))
+        def fetchone(self):
+            return {'total': total}
+        def fetchall(self):
+            return [{'id': str(i), 'name': '月夜河畔', 'status': 'ACTIVE', 'object_key': None}
+                    for i in range(item_count)]
+    @contextmanager
+    def transaction(self):
+        yield Cursor()
+    monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
+    response = client.get('/admin/assets', params={'search': '月夜', 'asset_kind': 'BACKGROUND', 'page': requested})
+    assert response.status_code == 200
+    data = response.json()
+    assert data['total'] == total
+    assert data['page'] == expected_page
+    assert data['total_pages'] == max(1, (total + 19) // 20)
+    assert data['has_more'] is has_more
+    assert len(data['items']) == item_count
+    # Count and data queries must apply the same search and kind filters.
+    assert calls[0][1] == ['月夜', '月夜', 'BACKGROUND']
+    assert calls[1][1] == ['ASSET', '月夜', '月夜', 'BACKGROUND', (expected_page - 1) * 20]
+    assert 'CONVERT(r.id USING utf8mb4)' in calls[0][0]
+    assert 'CONVERT(r.id USING utf8mb4)' in calls[1][0]
+
+
 def test_login_cookie_and_logout(client):
     r=login(client)
     assert r.status_code==200

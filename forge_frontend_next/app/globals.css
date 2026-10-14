@@ -6574,6 +6574,38 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 @media(max-width:600px){.pricing-grid-resources .pricing-boost-stack{grid-template-columns:1fr;gap:18px}.pricing-grid-resources .pricing-boost-card{padding:27px}}
 
 /* Payment stays in a focused dialog without moving the pricing page. */
+/* Keep plan prices in the first desktop viewport without changing the layout. */
+@media(min-width:1101px){
+  .recharge-page.recharge-twilight{padding-top:16px}
+  .recharge-twilight .recharge-hero{padding:12px 0 0;margin:0 0 12px}
+  .recharge-twilight .recharge-hero-eyebrow{margin-bottom:10px}
+  .recharge-twilight .recharge-hero h1{font-size:clamp(48px,4.2vw,64px);line-height:1.12}
+  .recharge-twilight .recharge-hero h1>span{width:fit-content;margin-inline:auto}
+  .recharge-twilight .recharge-hero-description{margin-top:14px;font-size:16px;line-height:1.65}
+  .recharge-twilight .recharge-balance{position:relative;z-index:1;margin-bottom:-33px}
+  .recharge-twilight .pricing-catalog-tabs{margin-bottom:10px}
+  .recharge-twilight .pricing-catalog-tabs button{padding-top:8px;padding-bottom:8px}
+  .recharge-twilight .billing-cycle{padding-top:6px;padding-bottom:6px;margin-bottom:24px}
+  .recharge-twilight .pricing-card-top{margin-bottom:12px}
+  .recharge-twilight .pricing-plan-heading h3{min-height:72px}
+  .recharge-twilight .pricing-plan-heading p{margin-top:8px;margin-bottom:10px;line-height:1.7}
+  .recharge-twilight .pricing-price-stage{margin-top:10px}
+  .recharge-twilight .pricing-price-stage-pro{max-width:calc(100% - 12px)}
+}
+@media(min-width:1101px) and (max-height:800px){
+  .recharge-page.recharge-twilight{padding-top:10px}
+  .recharge-twilight .recharge-hero{padding-top:6px;margin-bottom:8px}
+  .recharge-twilight .recharge-hero-description{margin-top:10px}
+  .recharge-twilight .recharge-hero-eyebrow{margin-bottom:6px}
+  .recharge-twilight .recharge-hero h1{font-size:clamp(40px,3.2vw,48px)}
+  .recharge-twilight .pricing-plan-heading h3{font-size:22px;line-height:1.4;min-height:62px}
+  .recharge-twilight .pricing-plan-heading p{font-size:14px;line-height:1.6}
+  .recharge-twilight .billing-cycle{margin-bottom:16px}
+  .recharge-twilight .pricing-catalog-tabs{margin-bottom:6px}
+  .recharge-twilight .pricing-card{padding-top:18px}
+  .recharge-twilight .pricing-card-top{margin-bottom:6px}
+  .recharge-twilight .pricing-price-stage{margin-top:4px}
+}
 .recharge-payment-overlay{position:fixed;inset:0;z-index:300;background:rgba(43,29,38,.38);backdrop-filter:blur(6px)}
 .recharge-payment-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:301;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;margin:0;padding:36px 28px 28px;border:1px solid #e7d8d6;border-radius:22px;background:linear-gradient(145deg,#fffdfa,#fbf1f1);box-shadow:0 28px 100px rgba(42,22,34,.25);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
 .recharge-payment-modal h2{font-size:24px;color:#402e39}
@@ -6615,3 +6647,8 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .private-test-card h2{margin:0 0 18px}.private-test-card small{font-size:16px;font-weight:400}.private-test-card p{line-height:1.9}
 .private-test-card dl{display:grid;grid-template-columns:150px 1fr;gap:14px;font-size:14px;line-height:1.7}.private-test-card dd{margin:0}
 @media(max-width:600px){.private-test-card dl{grid-template-columns:1fr;gap:6px}.private-test-card dd{margin-bottom:12px}}
+.admin-pagination { flex-wrap: wrap; gap: 10px; }
+.admin-page-choice { display: inline-flex; align-items: center; gap: 10px; }
+.admin-page-choice .btn { min-width: 40px; }
+.admin-page-jump, .admin-page-jump label { display: inline-flex; align-items: center; gap: 8px; }
+.admin-page-jump input { width: 76px; padding: 8px; border: 1px solid var(--line, #e5d8c6); border-radius: 8px; background: var(--surface, #fffdf9); color: inherit; font: inherit; }

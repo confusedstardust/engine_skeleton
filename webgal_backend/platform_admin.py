@@ -286,16 +286,24 @@ def listing(resource: str, request: Request, page: int = 1, search: str = '', as
     field = {'games': "CONCAT(r.owner_user_id,' ',COALESCE(u.email,''),' ',r.source_material)", 'assets': 'r.name', 'users': "CONCAT(COALESCE(r.email,''),' ',COALESCE(r.nickname,''))"}[resource]
     owner_join = ' LEFT JOIN users u ON u.id=r.owner_user_id' if resource != 'users' else ''
     kind_where = ' AND r.kind=%s' if resource == 'assets' and asset_kind else ''
-    parameters = [kind, search, search] + ([asset_kind] if kind_where else []) + [(page-1)*20]
+    # Asset IDs may use ASCII storage; search text must remain Unicode.
+    where = f"(LOCATE(%s,CONVERT(r.id USING utf8mb4))>0 OR LOCATE(%s,{field})>0) {kind_where}"
+    filters = [search, search] + ([asset_kind] if kind_where else [])
     with AssetLibrary()._transaction() as cursor:
-        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id WHERE (LOCATE(%s,r.id)>0 OR LOCATE(%s,{field})>0) {kind_where} ORDER BY r.created_at DESC,r.id LIMIT 21 OFFSET %s", parameters)
+        cursor.execute(f"SELECT COUNT(*) AS total FROM {table} r{owner_join} WHERE {where}", filters)
+        total = cursor.fetchone()['total']
+        total_pages = max(1, (total + 19) // 20)
+        page = min(page, total_pages)
+        parameters = [kind, *filters, (page-1)*20]
+        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id WHERE {where} ORDER BY r.created_at DESC,r.id LIMIT 20 OFFSET %s", parameters)
         rows = cursor.fetchall()
     if resource == 'assets':
         for row in rows:
             row['blocked'] = row['status'] == 'BLOCKED'
             key = row.pop('object_key', None)
             row['url'] = _public_url(key) if key else None
-    return {'items': rows[:20], 'has_more': len(rows) > 20}
+    return {'items': rows, 'has_more': page < total_pages, 'page': page,
+            'page_size': 20, 'total': total, 'total_pages': total_pages}
 
 
 class Change(BaseModel):
