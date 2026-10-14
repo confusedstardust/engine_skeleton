@@ -27,7 +27,7 @@ class PaymentStore(MySQLCreditStore):
         with self._transaction() as cursor:
             cursor.execute("SELECT * FROM products WHERE sku='forge-private-payment-test-v1' AND status='DRAFT' AND kind='CREDIT_PACK' AND currency='CNY'")
             row = cursor.fetchone()
-            if row is None or int(row["price_fen"]) != 1 or int(_json_object(row["benefit_json"]).get("credits", 0)) != 1:
+            if row is None or int(row["price_fen"]) != 10 or int(_json_object(row["benefit_json"]).get("credits", 0)) != 1:
                 raise CreditNotFoundError("测试档位未配置")
             return self.product_view(row)
 
@@ -119,7 +119,7 @@ class PaymentStore(MySQLCreditStore):
                 raise CreditNotFoundError("充值档位不存在或已下架")
             test_product = product["sku"] == "forge-private-payment-test-v1"
             if private_test:
-                if not test_product or product["status"] != "DRAFT" or int(product["price_fen"]) != 1 or int(_json_object(product["benefit_json"]).get("credits", 0)) != 1:
+                if not test_product or product["status"] != "DRAFT" or int(product["price_fen"]) != 10 or int(_json_object(product["benefit_json"]).get("credits", 0)) != 1:
                     raise CreditNotFoundError("测试档位不可用")
             elif test_product or product["status"] != "ACTIVE":
                 raise CreditNotFoundError("充值档位不存在或已下架")
