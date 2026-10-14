@@ -9,12 +9,13 @@ import * as Checkbox from "@radix-ui/react-checkbox";
 import { ModelSelect, ActionHint } from "../components/ui/home-controls";
 import { FormSelect } from "../components/ui/form-controls";
 import Link from "next/link";
+import { AccountMenu } from "../components/account-menu";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { withBasePath } from "./base-path";
 import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
-import { CreditBalance, creditBalanceChangedEvent } from "../components/credit-balance";
+import { creditBalanceChangedEvent } from "../components/credit-balance";
 
 type Choice = {
   name: string;
@@ -233,8 +234,8 @@ function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <AdminLink /><CreditBalance />
-          <Link className="nav-login" href="/login" data-tour="invite">账户</Link>
+          <AdminLink />
+          <AccountMenu className="nav-login" tour="invite" />
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
@@ -249,7 +250,7 @@ function ClassroomGeneratorPage() {
           <Link href="/history">我的游戏库</Link>
           <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
           <Link href="/history">生成记录</Link>
-          <Link className="mobile-login" href="/login" data-tour="invite">账户</Link>
+          <AccountMenu className="mobile-login" tour="invite" />
         </nav>
       )}
 
@@ -425,7 +426,7 @@ function NarrativeRouterPage() {
   return <main className="narrative-router">
     <section className="router-hero" aria-labelledby="router-title">
       <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
-      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="账户导航"><Link href="/history">我的作品</Link><CreditBalance /><Link href="/login">账户</Link></nav></header>
+      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="账户导航"><AccountMenu /></nav></header>
       <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><button className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></button></div>
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>

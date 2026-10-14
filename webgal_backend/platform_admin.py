@@ -340,3 +340,74 @@ def change(resource: str, identifier: str, payload: Change, request: Request):
             cursor.execute('INSERT INTO platform_resource_controls (resource_type,resource_id,blocked) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE blocked=VALUES(blocked)',(kind,identifier,after['blocked']))
         cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',(uuid.uuid4().hex,actor['id'],kind,identifier,payload.action,json.dumps(before),json.dumps(after)))
     return {'updated': True}
+
+
+class SubscriptionChange(BaseModel):
+    plan: Literal['Free', 'Creator', 'Pro', 'School']
+    expires_at: str | None = None
+    reason: str = Field(min_length=1, max_length=500)
+    expected_revision: int = Field(ge=0)
+
+
+def user_subscription_detail(identifier):
+    from webgal_backend.payments import get_payment_store
+    with AssetLibrary()._transaction() as cursor:
+        cursor.execute("SELECT id,email,nickname,created_at FROM users WHERE id=%s", (identifier,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(404, '用户不存在')
+        cursor.execute("SELECT blocked FROM platform_resource_controls WHERE resource_type='USER' AND resource_id=%s", (identifier,))
+        control = cursor.fetchone()
+        user['blocked'] = bool(control and control['blocked'])
+        cursor.execute("SELECT revision FROM user_subscription_overrides WHERE user_id=%s", (identifier,))
+        override = cursor.fetchone()
+        subscription = get_payment_store()._subscription_locked(cursor, identifier)
+    return {'user': user, 'subscription': subscription, 'revision': int(override['revision']) if override else 0}
+
+
+@router.get('/users/{identifier}/detail')
+def user_detail(identifier: str, request: Request):
+    require_admin(request)
+    return user_subscription_detail(identifier)
+
+
+@router.patch('/users/{identifier}/subscription')
+def edit_user_subscription(identifier: str, payload: SubscriptionChange, request: Request):
+    from datetime import datetime, timezone
+    from webgal_backend.payments import get_payment_store
+    actor = require_admin(request)
+    require_action_header(request)
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(422, '请填写修改原因')
+    expires = None
+    if payload.plan != 'Free':
+        try:
+            expires = datetime.fromisoformat((payload.expires_at or '').replace('Z', '+00:00'))
+            if expires.tzinfo is None:
+                raise ValueError('timezone required')
+            expires = expires.astimezone(timezone.utc).replace(tzinfo=None)
+            if expires <= datetime.now(timezone.utc).replace(tzinfo=None):
+                raise ValueError('expired')
+        except ValueError:
+            raise HTTPException(422, '请设置未来的订阅到期时间')
+    with AssetLibrary()._transaction() as cursor:
+        cursor.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (identifier,))
+        if not cursor.fetchone():
+            raise HTTPException(404, '用户不存在')
+        cursor.execute('SELECT * FROM user_subscription_overrides WHERE user_id=%s FOR UPDATE', (identifier,))
+        existing = cursor.fetchone()
+        revision = int(existing['revision']) if existing else 0
+        if revision != payload.expected_revision:
+            raise HTTPException(409, '订阅已被其他管理员修改，请重新打开详情')
+        before = get_payment_store()._subscription_locked(cursor, identifier)
+        cursor.execute("""INSERT INTO user_subscription_overrides
+            (user_id,plan,expires_at,revision,updated_at,actor_user_id,reason)
+            VALUES (%s,%s,%s,1,UTC_TIMESTAMP(3),%s,%s)
+            ON DUPLICATE KEY UPDATE plan=VALUES(plan),expires_at=VALUES(expires_at),
+            revision=revision+1,updated_at=UTC_TIMESTAMP(3),actor_user_id=VALUES(actor_user_id),reason=VALUES(reason)""",
+            (identifier, payload.plan, expires, actor['id'], reason))
+        after = {'plan': payload.plan, 'expires_at': expires.isoformat() if expires else None, 'reason': reason}
+        cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (uuid.uuid4().hex, actor['id'], 'USER', identifier, 'subscription', json.dumps(before), json.dumps(after)))
+    return user_subscription_detail(identifier)

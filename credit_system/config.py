@@ -107,6 +107,7 @@ class CreditDatabaseConfig:
             "connect_timeout": self.connect_timeout,
             "read_timeout": self.read_timeout,
             "write_timeout": self.write_timeout,
+            "init_command": "SET time_zone = '+00:00'",
         }
         if self.ssl_ca:
             kwargs["ssl"] = {

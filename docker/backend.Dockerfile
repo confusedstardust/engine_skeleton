@@ -30,6 +30,7 @@ RUN pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
 
 COPY webgal_backend ./webgal_backend
 COPY credit_system ./credit_system
+COPY wechatpay_native ./wechatpay_native
 COPY asset_scripts ./asset_scripts
 COPY public ./public
 COPY .env.example ./.env.example

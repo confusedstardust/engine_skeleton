@@ -14,6 +14,7 @@ const nextConfig = {
       { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
       { source: "/api/forge/auth/config", destination: `${backend}/auth/config` },
       { source: "/api/forge/credits/balance", destination: `${backend}/credits/balance` },
+      { source: "/api/forge/payments/:path*", destination: `${backend}/payments/:path*` },
       { source: "/api/forge/assets", destination: `${backend}/assets` },
       { source: "/api/forge/assets/:path*", destination: `${backend}/assets/:path*` },
       { source: "/api/forge/jobs", destination: `${backend}/jobs` },

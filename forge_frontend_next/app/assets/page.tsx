@@ -6,10 +6,10 @@ import { FormSelect } from "../../components/ui/form-controls";
 import { assetCategories } from "../../components/asset-categories";
 import { ConfirmDialog } from "../../components/ui/modal";
 import Link from "next/link";
+import { AccountMenu } from "../../components/account-menu";
 import { useEffect, useRef, useState } from "react";
 import { withBasePath } from "../base-path";
 import { getCurrentUser, jsonAuthHeaders } from "../invite-identity";
-import { CreditBalance } from "../../components/credit-balance";
 
 type Asset = {
   category_label?: string; is_favorite?: boolean; owner_user_id: string; id: string; name: string; kind: string; source_type: string; created_at: string;
@@ -142,7 +142,7 @@ export default function AssetsPage() {
   }
 
   return <>
-    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">素材仓库</span><span className="brand-subtitle">ASSET LIBRARY</span></div></Link><Link className="workspace-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span>返回首页</span></Link></div><nav className="nav-links"><Link href="/history">我的作品</Link><AdminLink /><CreditBalance /><Link href="/login">账户</Link></nav></header>
+    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">素材仓库</span><span className="brand-subtitle">ASSET LIBRARY</span></div></Link><Link className="workspace-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span>返回首页</span></Link></div><nav className="nav-links"><AdminLink /><AccountMenu /></nav></header>
     <main className="main-wrapper asset-library-wrapper asset-library-page">
       <section className="page-header asset-library-head"><div><p className="router-kicker">ASSET LIBRARY</p><h1>素材仓库</h1></div></section>
       <section className="asset-library-filters" aria-label="素材来源">{[["library", "素材库"], ["uploads", "我的上传"], ["favorites", "我的收藏"]].map(([value, label]) => <button key={value} className={collection === value ? "active" : ""} onClick={() => { setCollection(value); setPage(1); }}>{label}</button>)}</section>

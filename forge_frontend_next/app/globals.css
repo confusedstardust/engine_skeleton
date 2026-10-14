@@ -6194,3 +6194,424 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .admin-dashboard .admin-table td, .admin-dashboard .admin-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media(max-width:900px) { .admin-metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .admin-dashboard-charts { grid-template-columns: 1fr; } }
 @media(max-width:600px) { .admin-dashboard-toolbar { flex-direction: column; align-items: stretch; } .admin-metric { padding: 14px; } .admin-metric strong { font-size: 24px; } }
+
+/* Floating account card */
+.account-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--ink-muted);font:inherit;font-size:12px;font-weight:600;white-space:nowrap}
+.account-trigger:hover,.account-trigger[data-state=open]{background:var(--cinnabar-glow);color:var(--cinnabar);border-color:var(--cinnabar)}
+.account-trigger:disabled{cursor:wait;opacity:.65}
+.account-trigger-avatar{display:grid;place-items:center;width:22px;height:22px;overflow:hidden;border-radius:50%;color:var(--cinnabar);background:var(--rice-dark);font-size:11px}
+.account-trigger-avatar img,.account-avatar img{width:100%;height:100%;object-fit:cover}
+.account-trigger-avatar svg{width:16px;height:16px}
+.account-chevron{width:12px;height:12px;transition:transform .18s}
+.account-trigger[data-state=open] .account-chevron{transform:rotate(180deg)}
+.router-nav .account-trigger{color:rgba(255,255,255,.85);border-color:rgba(255,255,255,.25)}
+.account-popover{z-index:1200;width:344px;max-width:calc(100vw - 32px);max-height:var(--radix-popover-content-available-height);overflow-y:auto;padding:10px;border:1px solid var(--border);border-radius:20px;color:var(--ink);background:var(--paper);box-shadow:0 24px 64px rgba(46,33,24,.18),0 4px 12px rgba(46,33,24,.06);transform-origin:var(--radix-popover-content-transform-origin);animation:account-reveal .18s ease-out}
+.account-popover :is(a,button):focus-visible,.account-trigger:focus-visible{outline:2px solid var(--cinnabar);outline-offset:3px}
+.account-profile{padding:12px 14px 18px;border-radius:12px;background:linear-gradient(120deg,#eee5d6,#f6f0e5 75%)}
+.account-profile-top{display:flex;align-items:center;justify-content:flex-end;margin-bottom:4px}
+.account-close{display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--ink-muted);font-size:22px;line-height:1}
+.account-close:hover{background:#e7ddcd}
+.account-identity{display:flex;align-items:center;gap:13px}
+.account-avatar{position:relative;display:grid;place-items:center;flex:0 0 52px;height:52px;border:3px solid var(--paper);border-radius:50%;background:var(--cinnabar);color:var(--paper);font-family:"NarrativeOS Solution Serif",serif;font-size:24px;box-shadow:0 3px 8px var(--shadow)}
+.account-identity>div{min-width:0}
+.account-identity h2{margin:0 0 5px;font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.account-identity p{margin:0;color:var(--ink-muted);font-size:12px;overflow-wrap:anywhere}
+.account-avatar img{border-radius:50%}
+.account-status-dot{position:absolute;right:-3px;bottom:-2px;width:12px;height:12px;border:2px solid var(--paper);border-radius:50%;background:#2ea66a}
+.account-credits{position:relative;margin:14px 6px 5px;padding:15px 16px;border:1px solid var(--border-light);border-radius:12px;background:#fffdf9}
+.account-credits>div{display:flex;align-items:baseline;justify-content:space-between;padding-right:35px}
+.account-credits div>span{color:var(--ink-muted);font-size:12px}
+.account-credits strong{color:var(--cinnabar);font-size:27px;font-weight:600;font-variant-numeric:tabular-nums}
+.account-credit-mark{position:absolute;top:20px;right:16px;color:var(--gold);font-size:25px}
+.account-credits p{margin:8px 0 0;color:var(--ink-muted);font-size:11px}
+.account-actions{display:grid;gap:3px;padding:10px 0}
+.account-actions a{display:flex;align-items:center;gap:12px;padding:12px 15px;border-radius:10px;color:var(--ink-light);text-decoration:none;font-size:13px;transition:background .15s,color .15s}
+.account-actions a:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
+.account-actions svg,.account-footer svg{flex-shrink:0;width:20px;height:20px}
+.account-actions b{margin-left:auto;font-size:20px;font-weight:400;color:var(--ink-muted)}
+.account-footer{display:flex;align-items:center;gap:10px;margin:0 6px;padding:13px 8px 5px;border-top:1px solid var(--border-light)}
+.account-footer>div{flex:1;min-width:0}
+.account-footer span{display:block;margin-bottom:4px;color:var(--ink-muted);font-size:10px}
+.account-footer code{display:block;color:var(--ink-muted);font-size:10px;overflow-wrap:anywhere;user-select:all}
+.account-footer button{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;padding:0;border:0;border-radius:7px;color:var(--ink-muted);background:transparent}
+.account-footer button:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
+.account-copy-status{display:block;padding:2px 14px;color:var(--cinnabar);font-size:11px}
+.account-copy-status:empty{padding:0}
+@keyframes account-reveal{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(prefers-reduced-motion:reduce){.account-popover{animation:none}.account-chevron{transition:none}}
+.account-trigger.mobile-login { background: var(--cinnabar); padding: 11px 14px; font-size: 14px; }
+.account-trigger.mobile-login:hover, .account-trigger.mobile-login[data-state=open] { background: var(--cinnabar-deep); }
+@media (max-width: 520px) {
+  .router-nav nav { align-items: center; gap: 10px; }
+  .router-nav nav > a { white-space: nowrap; }
+  .router-nav nav > .credit-balance { display: none; }
+}
+
+/* Recharge follows the account card's paper and cinnabar palette. */
+.account-credits>div{padding-right:62px}
+.account-recharge{position:absolute;right:14px;top:19px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;color:var(--cinnabar);background:var(--paper);font-size:12px;text-decoration:none}
+.account-recharge:hover{background:var(--cinnabar);color:var(--paper)}
+/* Four plan comparison, with cinnabar actions and soft red interaction. */
+.recharge-page{position:relative;z-index:1;max-width:1500px;margin:0 auto;padding:36px 28px 70px;color:#202020;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
+.recharge-page::before{content:"";position:fixed;inset:0;z-index:-1;background:#f5f5f5;pointer-events:none}
+.recharge-nav{background:#fff;border-bottom:1px solid #e8e8e8}
+.recharge-heading{text-align:center;margin:4px 0 28px}
+.recharge-heading h1{margin:0;font-family:inherit;font-size:32px;font-weight:500;line-height:1.4;letter-spacing:-.035em;color:#202020}
+.recharge-balance{display:flex;align-items:center;justify-content:flex-end;gap:16px;width:fit-content;margin:0 0 18px auto;padding:7px 12px;border:1px solid #e5e5e5;border-radius:20px;background:#fff}
+.recharge-balance>div{display:flex;align-items:baseline;gap:10px}
+.recharge-balance span{font-size:11px;color:#777}
+.recharge-balance strong{font-size:14px;font-weight:600;color:var(--cinnabar);font-variant-numeric:tabular-nums}
+.recharge-balance p,.recharge-expiry{font-size:12px;color:#777;line-height:1.8;margin:0}
+.pricing-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px;align-items:stretch}
+.pricing-card{display:flex;flex-direction:column;min-width:0;min-height:590px;padding:24px 21px 30px;border:1px solid #e1e1e1;border-radius:23px;background:#fdfdfd;box-shadow:0 2px 5px rgba(0,0,0,.035);color:#202020;transition:background .18s,border-color .18s,box-shadow .18s}
+.pricing-card:hover,.pricing-card:focus-within,.pricing-card-selected{background:#fff4f4;border-color:#d799a3;box-shadow:0 3px 12px rgba(155,35,53,.06)}
+.pricing-card-top{display:flex;align-items:center;justify-content:space-between;min-height:24px;margin-bottom:27px;gap:6px}
+.pricing-card-category{margin:0;color:#202020;font-size:16px;font-weight:600;line-height:1.4}
+.pricing-badge{padding:4px 7px;border-radius:12px;background:#fae9ec;color:var(--cinnabar);font-size:9px;white-space:nowrap}
+.pricing-plan-heading h3{margin:0;font-family:inherit;font-size:20px;line-height:1.55;font-weight:500;letter-spacing:-.03em;min-height:62px}
+.pricing-plan-heading p{margin:15px 0 22px;min-height:58px;color:#777;font-size:13px;line-height:1.65}
+.pricing-cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:40px;padding:10px 12px;border:0;border-radius:24px;background:var(--cinnabar);color:#fff;font-size:12px;font-weight:500;text-decoration:none;transition:background .15s}
+.pricing-cta:hover:not(:disabled){background:var(--cinnabar-deep)}
+.pricing-cta:disabled{opacity:.55;cursor:default}
+.pricing-price{display:flex;align-items:baseline;gap:2px;min-height:48px;margin:33px 0 15px;white-space:nowrap}
+.pricing-price>span{font-size:16px;margin-right:1px}
+.pricing-price>strong{font-size:34px;line-height:1.2;font-weight:500;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.pricing-price>small{font-size:14px;color:#777;margin-left:4px}
+.pricing-custom-price{align-items:baseline}
+.pricing-custom-price>strong{font-size:27px;font-weight:500;letter-spacing:-.03em}
+.pricing-card-details{margin-top:0;padding-top:0}
+.pricing-card-details ul{display:grid;gap:23px;margin:0;padding:0;list-style:none;font-size:12px;line-height:1.8;color:#252525}
+.pricing-card-details li{display:flex;gap:10px}
+.pricing-card-details li::before{content:"✓";color:var(--cinnabar);flex-shrink:0;font-size:15px;line-height:1.4}
+.pricing-card-featured{border-color:#d799a3;background:linear-gradient(180deg,#fff 0%,#fff7f7 100%)}
+.pricing-card-school{background:#fdfdfd}
+.recharge-purchase-note{text-align:center;margin:21px 0 0;color:#888;font-size:11px;line-height:1.8}
+.recharge-purchase-note>span{display:none}
+.recharge-empty{padding:36px 20px;text-align:center;color:var(--ink-muted)}
+.recharge-empty>span{font-size:12px}
+.recharge-checkout{margin-top:28px;padding:28px;border:1px solid var(--border);border-radius:16px;background:var(--paper);text-align:center}
+.recharge-checkout h2,.recharge-history h2{margin:0 0 12px;font-size:19px;font-weight:600}
+.recharge-checkout p{font-size:13px}
+.recharge-qr{display:block;width:220px;max-width:100%;height:auto;margin:20px auto;background:white;border:1px solid var(--border-light);border-radius:12px}
+.recharge-buttons{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin:20px 0}
+.recharge-order-id{display:block;overflow-wrap:anywhere;color:var(--ink-muted);font-size:10px;margin-top:20px}
+.recharge-success{color:#238053}
+.recharge-history{margin-top:36px}
+.recharge-history>button{display:flex;align-items:center;gap:20px;width:100%;padding:18px 8px;text-align:left;color:var(--ink-light);border:0;border-bottom:1px solid var(--border-light);background:transparent;font-size:13px}
+.recharge-history>button:hover{background:var(--gold-pale)}
+.recharge-history>button>span:first-child{flex:1;min-width:0}
+.recharge-history small{display:block;margin-top:5px;font-size:10px;color:var(--ink-muted);overflow-wrap:anywhere}
+.recharge-history strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.recharge-error{padding:14px 18px;border-radius:10px;background:var(--cinnabar-glow);color:var(--cinnabar);font-size:13px;line-height:1.8}
+.recharge-page :is(a,button):focus-visible{outline:2px solid var(--cinnabar);outline-offset:3px}
+@media(max-width:1100px){.pricing-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.pricing-card{min-height:550px;padding:25px}.pricing-plan-heading p{min-height:43px}}
+@media(max-width:600px){.recharge-page{padding:28px 16px 56px}.recharge-heading{margin:0 0 24px}.recharge-heading h1{font-size:27px}.pricing-grid{grid-template-columns:1fr;max-width:440px;margin:0 auto}.pricing-card{padding:25px;min-height:480px}.pricing-card-top{margin-bottom:23px}.pricing-plan-heading p{min-height:0}.recharge-balance{margin-bottom:18px;padding:8px 12px;flex-wrap:wrap}.recharge-history>button{gap:12px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){.pricing-card,.pricing-cta{transition:none}}
+@media(max-width:760px){.recharge-nav{height:auto;min-height:64px;gap:10px;flex-wrap:wrap;padding-block:10px}.recharge-nav .nav-links{display:flex;margin-left:auto}.recharge-nav .brand-name{font-size:14px}.recharge-nav .brand-subtitle{font-size:8px}}
+.recharge-checkout{scroll-margin-top:24px}
+.billing-cycle{display:flex;align-items:center;gap:10px;margin:0 0 21px}
+.billing-cycle-label{padding:4px 0;border:0;background:transparent;color:#777;font-size:13px}
+.billing-cycle-label.active{color:#202020;font-weight:600}
+.billing-toggle{position:relative;width:52px;height:29px;border:0;border-radius:20px;background:var(--cinnabar);padding:3px;box-shadow:inset 0 1px 3px rgba(80,12,24,.12)}
+.billing-toggle-thumb{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:white;color:var(--cinnabar);box-shadow:0 1px 3px rgba(70,15,25,.2);transform:translateX(0);transition:transform .42s cubic-bezier(.22,.8,.25,1);perspective:70px}
+.billing-toggle.annual .billing-toggle-thumb{transform:translateX(23px)}
+.billing-toggle-arrow{width:16px;height:16px;transform:rotateY(0deg) rotateX(0deg);transition:transform .55s cubic-bezier(.22,.75,.25,1);transform-style:preserve-3d}
+.billing-toggle.annual .billing-toggle-arrow{transform:rotateY(180deg) rotateX(360deg)}
+.billing-saving{font-size:10px;padding:4px 7px;border-radius:12px;background:#fae9ec;color:var(--cinnabar);margin-left:2px}
+.pricing-boost-stack{display:grid;grid-template-rows:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+.pricing-boost-card{min-height:0;padding:22px;justify-content:space-between}
+.pricing-boost-card .pricing-card-top{margin-bottom:12px}
+.pricing-boost-tag{font-size:9px;color:#888;white-space:nowrap}
+.pricing-boost-quota{margin:0;color:#777;font-size:12px}
+.pricing-boost-quota strong{font-size:24px;font-weight:500;color:#262626}
+.pricing-boost-card .pricing-price{margin:13px 0 16px;min-height:34px}
+.pricing-boost-card .pricing-price strong{font-size:28px}
+.pricing-price-stage{position:relative;perspective:700px;margin-top:29px;margin-bottom:4px;min-height:80px}
+.pricing-price-stage .pricing-price{margin:0;min-height:80px;padding:25px 0 8px;flex-wrap:wrap}
+.pricing-discount{font-size:9px!important;color:var(--cinnabar);background:#f9e5e9;padding:4px 6px;border-radius:5px;margin-left:6px!important}
+.pricing-payment-caption{min-height:32px;margin:0 0 14px;color:#888;font-size:10px;line-height:1.8}
+/* A diagonal paper curl, rather than rotating the price as a flat panel. */
+.pricing-price-stage-pro{width:195px;max-width:100%;min-height:80px;margin-top:29px;margin-bottom:4px;border-radius:8px;isolation:isolate}
+.price-paper-face{position:relative;width:100%;height:80px;border-radius:8px;overflow:hidden;background:linear-gradient(130deg,#fce5b9 0%,#f4d294 55%,#e7b76b 100%);box-shadow:inset 0 0 0 1px #d6b47c;color:#6b482b}
+.price-paper-period{position:absolute;top:7px;right:10px;font-size:7px;letter-spacing:1px;color:#937b57}
+.price-paper-face .pricing-price{padding:25px 12px 8px;min-height:80px;flex-wrap:nowrap;color:inherit}
+.price-paper-face .pricing-price>strong{font-size:34px;font-weight:600}
+.price-paper-face .pricing-price>small{font-size:12px;color:#937b57}
+.price-peel-layer{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2}
+.price-paper-front{position:absolute;inset:0}
+.price-paper-curl{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+@media(max-width:600px){.pricing-boost-stack{grid-template-rows:auto auto}.pricing-boost-card{min-height:250px}.billing-cycle{gap:8px;flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.billing-toggle-thumb,.billing-toggle-arrow{transition:none}.price-peel-layer{animation:none;display:none}}
+
+.price-paper-face.is-annual{background:linear-gradient(118deg,rgba(255,255,255,.9),rgba(255,255,255,0) 38%,rgba(255,255,255,.8) 66%,rgba(255,255,255,0)),linear-gradient(135deg,#e8ecf3 0%,#f1e6fa 16%,#e2f4f2 31%,#fcf1df 46%,#ede8fa 63%,#e0eff6 78%,#f8e6ed 91%,#e7ecf3 100%);box-shadow:0 2px 6px rgba(74,78,100,.16),inset 0 0 0 1px #c8cbd6,inset 0 0 0 4px rgba(255,255,255,.6)}
+.price-paper-face.is-annual .price-paper-period{color:#7e8198}
+.price-paper-face.is-annual .pricing-price{color:#293650}
+.price-paper-face.is-annual .pricing-price>small{color:#65718a}
+.price-paper-face.is-annual::after{content:"";position:absolute;inset:4px;border-radius:5px;border:1px solid rgba(255,255,255,.8);pointer-events:none}
+
+.pricing-card-name{margin:0;min-width:0}
+.pricing-card{position:relative}
+.pricing-card-top{justify-content:flex-start;min-height:42px;padding-right:56px;flex-wrap:wrap;align-content:center}
+.pricing-plan-emblem{position:absolute;top:18px;right:17px;width:54px;height:54px;display:grid;place-items:center;pointer-events:none;background:radial-gradient(ellipse at center,rgba(242,202,99,.2),rgba(255,237,186,.08) 48%,transparent 72%)}
+.pricing-plan-symbol{display:block;width:42px;height:42px;background:linear-gradient(125deg,#a97a19 8%,#d9ad42 30%,#fff1ae 44%,#c3952d 55%,#edce76 72%,#b28523 94%);background-size:220% 220%;filter:drop-shadow(0 0 2px rgba(231,189,76,.3));mask-repeat:no-repeat;mask-position:center;mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;-webkit-mask-size:contain;animation:plan-gold-shimmer 5s ease-in-out infinite}
+.pricing-plan-emblem::before,.pricing-plan-emblem::after{content:"";position:absolute;background:linear-gradient(135deg,#fff8d5,#d4a235);clip-path:polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%);filter:drop-shadow(0 0 3px rgba(239,193,75,.45));animation:plan-sparkle 3.6s ease-in-out infinite}
+.pricing-plan-emblem::before{width:11px;height:11px;top:2px;right:1px}
+.pricing-plan-emblem::after{width:7px;height:7px;left:1px;bottom:6px;animation-delay:1.7s}
+@keyframes plan-gold-shimmer{0%,100%{background-position:0% 20%}50%{background-position:100% 80%}}
+@keyframes plan-sparkle{0%,100%{opacity:.4;transform:scale(.75)}50%{opacity:1;transform:scale(1.1)}}
+@media(prefers-reduced-motion:reduce){.pricing-plan-symbol,.pricing-plan-emblem::before,.pricing-plan-emblem::after{animation:none}}
+
+.pricing-cta-free{background:transparent;color:#777;box-shadow:inset 0 0 0 1px #e0e0e0}
+.pricing-cta-free:hover{background:#fff4f4!important;color:var(--cinnabar)}
+@media(min-width:1101px) and (max-width:1300px){.pricing-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* Classical stationery: warm paper, fine gilt rules and restrained cornerwork. */
+.recharge-page::before{background:radial-gradient(ellipse at 50% 0,rgba(224,204,165,.15),transparent 65%),#f5f1e9}
+.recharge-nav{background:#faf7f0;border-bottom-color:#e4d8be}
+.recharge-heading h1{font-family:"NarrativeOS Solution Serif","Songti SC",SimSun,serif;letter-spacing:.12em;font-weight:500;color:#382d27}
+.pricing-card{border:1px solid #cbb886;border-radius:5px;background:linear-gradient(125deg,rgba(255,255,255,.65),rgba(242,231,211,.16)),#faf6ed;box-shadow:0 4px 14px rgba(75,49,24,.045);color:#3d3027}
+.pricing-card::before{content:"";position:absolute;inset:6px;pointer-events:none;border:1px solid rgba(190,161,100,.24);background:linear-gradient(#baa16c,#baa16c) left top/13px 1px no-repeat,linear-gradient(#baa16c,#baa16c) left top/1px 13px no-repeat,linear-gradient(#baa16c,#baa16c) right top/13px 1px no-repeat,linear-gradient(#baa16c,#baa16c) right top/1px 13px no-repeat,linear-gradient(#baa16c,#baa16c) left bottom/13px 1px no-repeat,linear-gradient(#baa16c,#baa16c) left bottom/1px 13px no-repeat,linear-gradient(#baa16c,#baa16c) right bottom/13px 1px no-repeat,linear-gradient(#baa16c,#baa16c) right bottom/1px 13px no-repeat}
+.pricing-card::after{content:"";position:absolute;bottom:5px;left:calc(50% - 3px);width:6px;height:6px;background:#d6c49c;transform:rotate(45deg);box-shadow:0 0 0 4px #faf6ed;pointer-events:none}
+.pricing-card:hover,.pricing-card:focus-within,.pricing-card-selected{background:linear-gradient(130deg,#fff9f0,#fbefea);border-color:#b77b6e;box-shadow:0 5px 18px rgba(123,53,40,.07)}
+.pricing-card-featured{border-color:#b5816d;background:linear-gradient(135deg,#fffaf1,#f7ece3)}
+.pricing-card-category{font-family:Georgia,"NarrativeOS Solution Serif",serif;font-size:19px;font-weight:500;letter-spacing:.025em;color:#3c3028}
+.pricing-plan-heading h3{font-family:"NarrativeOS Solution Serif","Songti SC",SimSun,serif;font-weight:500;letter-spacing:.02em;color:#3c3028}
+.pricing-plan-heading p{color:#887b6f}
+.pricing-badge{background:#f0e5d2;color:#8a563c;border:1px solid #e4d1ac;border-radius:3px}
+.pricing-cta{border-radius:4px;border:1px solid rgba(145,98,63,.2);background:#922b39;box-shadow:inset 0 1px rgba(255,255,255,.12);letter-spacing:.06em}
+.pricing-cta:hover:not(:disabled){background:#772330}
+.pricing-cta-free{background:transparent;color:#817264;border-color:#d9cab0;box-shadow:none}
+.pricing-card-details{position:relative;padding-top:13px}
+.pricing-card-details::before{content:"";position:absolute;left:0;top:0;width:32px;height:1px;background:#c8b184}
+.pricing-card-details ul{color:#655548}
+.pricing-card-details li::before{color:#9b6e45}
+.pricing-payment-caption,.pricing-boost-tag{color:#958575}
+.pricing-boost-quota,.pricing-custom-price{color:#655548}
+.pricing-boost-quota strong{color:#4b392b}
+.billing-saving{border:1px solid #e6d3b6;border-radius:3px;background:#f1e7d6;color:#986044}
+.recharge-balance{background:#faf6ed;border-color:#e1d4b8;border-radius:4px}
+/* Larger Song-style typography and a clear price-to-action hierarchy. */
+.recharge-page{--pricing-title-font:"STSong","华文宋体","PMingLiU","新細明體","SimSun",serif;max-width:1600px}
+.recharge-heading h1{font-family:var(--pricing-title-font);font-size:38px;letter-spacing:.08em}
+.pricing-card-category{font-family:var(--pricing-title-font);font-size:23px;letter-spacing:.02em;font-weight:500}
+.pricing-plan-heading h3{font-family:var(--pricing-title-font);font-size:24px;line-height:1.5;min-height:72px}
+.pricing-plan-heading p{font-size:15px;line-height:1.85;min-height:112px;color:#796a5c;margin:14px 0 0}
+.pricing-card-top{order:0}
+.pricing-plan-heading{order:1}
+.pricing-price-stage,.pricing-custom-price{order:2}
+.pricing-payment-caption{order:3;font-size:12px;line-height:1.7;min-height:31px;margin-bottom:17px}
+.pricing-cta{order:4;font-size:14px;min-height:45px}
+.pricing-card-details{order:5;margin-top:30px;padding-top:19px}
+.pricing-card-details ul{font-size:14px;line-height:1.9;gap:17px}
+.pricing-card-details li::before{font-size:16px}
+.pricing-custom-price{white-space:normal;min-height:80px;margin:29px 0 48px;align-items:center}
+.pricing-custom-price>strong{font-family:var(--pricing-title-font);font-size:28px;font-weight:500;line-height:1.35;letter-spacing:.06em}
+.pricing-boost-tag{font-size:12px;line-height:1.7}
+.pricing-boost-quota{order:1;font-size:14px}
+.pricing-boost-card .pricing-price{order:2}
+.pricing-badge{font-size:11px;line-height:1.5}
+.school-service-note{font-size:12px;color:#978574;line-height:1.8;margin:24px 0 0}
+@media(max-width:1100px){.pricing-plan-heading p{min-height:86px}.pricing-card-category{font-size:24px}}
+@media(max-width:600px){.recharge-heading h1{font-size:32px}.pricing-plan-heading h3{font-size:24px;min-height:0}.pricing-plan-heading p{min-height:0;margin-bottom:6px}.pricing-card-details ul{font-size:15px}.pricing-custom-price>strong{font-size:30px}.pricing-card{padding:27px}}
+/* Angled paper notes and compact credit offers. */
+.pricing-payment-caption{font-size:14px;color:#8a6746;min-height:37px;line-height:1.8;padding-top:8px;margin-bottom:17px}
+.billing-cycle{justify-content:flex-end;width:fit-content;margin:0 0 28px auto;padding:10px 14px;border:1px solid #dcc6a0;background:#fcf8ee;border-radius:7px;gap:12px;box-shadow:0 2px 7px rgba(92,61,31,.04)}
+.billing-cycle-label{font-size:16px;min-height:32px;padding:4px 2px}
+.billing-toggle{width:64px;height:36px;padding:4px}
+.billing-toggle-thumb{width:28px;height:28px}
+.billing-toggle.annual .billing-toggle-thumb{transform:translateX(28px)}
+.billing-toggle-arrow{width:19px;height:19px}
+.billing-saving{font-size:12px;padding:5px 8px}
+.pricing-custom-price{justify-content:center;text-align:center}
+.pricing-price-stage-pro{transform:rotate(-3deg);transform-origin:50% 50%;min-height:96px;margin-top:33px;margin-bottom:8px;filter:drop-shadow(2px 5px 4px rgba(83,51,22,.12))}
+.pricing-price-stage-pro::before{content:"";position:absolute;z-index:4;top:-10px;left:calc(50% - 31px);width:62px;height:19px;background:repeating-linear-gradient(90deg,rgba(205,178,122,.02) 0 2px,rgba(205,178,122,.08) 2px 3px),rgba(232,217,181,.7);border-left:1px dashed rgba(169,145,100,.22);border-right:1px dashed rgba(169,145,100,.22);transform:rotate(5deg);pointer-events:none}
+.price-paper-face{height:96px;border-radius:2px;box-shadow:inset 0 0 0 1px #cfad70,inset 0 0 0 4px rgba(255,246,211,.4)}
+.price-paper-face::before{content:"";position:absolute;inset:0;border-radius:2px;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(136,97,41,.035) 3px 4px);pointer-events:none}
+.price-paper-face .pricing-price{padding:31px 13px 13px;min-height:96px}
+.price-paper-face .pricing-price>strong{font-family:Georgia,"Times New Roman",serif;font-size:38px;font-weight:600}
+.price-paper-period{top:13px;right:12px;font-size:8px;letter-spacing:1.3px}
+.price-paper-seal{position:absolute;bottom:7px;right:9px;border:1px solid rgba(146,43,57,.38);padding:1px 2px;color:#a14b43;font-family:var(--pricing-title-font);font-size:9px;line-height:1.05;writing-mode:vertical-rl;transform:rotate(4deg);opacity:.65}
+.price-paper-face.is-annual{border-radius:2px}
+.price-paper-face.is-annual::after{border-radius:1px}
+.pricing-boost-stack{grid-template-rows:auto auto;align-content:start;gap:20px}
+.pricing-boost-card{justify-content:flex-start;gap:15px;min-height:0;padding:25px 21px 25px}
+.pricing-boost-card .pricing-card-top{margin-bottom:6px;min-height:42px}
+.pricing-boost-quota{display:flex;align-items:baseline;gap:8px;order:1;line-height:1.1;margin:5px 0 0}
+.pricing-boost-quota strong{font-size:42px;font-weight:600;letter-spacing:-.04em;color:#7b2735}
+.pricing-boost-quota>span{font-size:14px;color:#8a6c4f}
+.pricing-boost-note{order:1;margin:0;font-size:13px;line-height:1.6;color:#98816b}
+.pricing-boost-card .pricing-price{margin:8px 0 2px;min-height:44px;align-items:baseline}
+.pricing-boost-card .pricing-price strong{font-size:36px;font-weight:600;color:#422c24}
+.pricing-boost-card .pricing-price small{font-size:14px}
+.pricing-boost-card .pricing-cta{margin-top:5px;min-height:46px;font-size:14px}
+@media(max-width:600px){.billing-cycle{gap:9px;padding:8px 10px;max-width:100%}.billing-saving{font-size:10px}.billing-cycle-label{font-size:15px}.pricing-boost-card{min-height:0;gap:15px}.pricing-payment-caption{font-size:14px}}
+.pricing-card-school .pricing-custom-price{margin-bottom:82px;min-height:80px}
+.pricing-card-free .pricing-price-stage{min-height:96px;margin-top:33px;margin-bottom:8px}
+.pricing-card-free .pricing-price{padding-top:31px;min-height:96px}
+
+/* Rounded actions and editorial plan recommendations. */
+.pricing-cta{border-radius:12px;font-size:16px;min-height:49px;letter-spacing:.02em;font-weight:600}
+.pricing-boost-card .pricing-cta{font-size:16px;min-height:49px}
+.pricing-badge,.billing-saving,.billing-cycle,.recharge-balance{border-radius:10px}
+.pricing-badge{font-size:12px;padding:5px 8px}
+.pricing-ribbon{position:absolute;top:-14px;left:22px;z-index:3;padding:6px 15px;border-radius:18px;background:#a02c3e;color:#fff;font-size:13px;font-weight:600;line-height:1.3;box-shadow:0 2px 5px rgba(121,36,52,.1)}
+.pricing-card-featured .pricing-ribbon{left:auto;right:22px}
+.pricing-plan-heading h3{min-height:108px}
+.pricing-plan-heading p{min-height:168px}
+.pricing-custom-price>strong{font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;font-size:clamp(18px,1.4vw,23px);font-weight:700;letter-spacing:-.05em;white-space:nowrap;line-height:1.5}
+@media(max-width:1100px){.pricing-custom-price>strong{font-size:24px}.pricing-plan-heading p{min-height:140px}}
+@media(max-width:600px){.pricing-custom-price>strong{font-size:24px}.pricing-plan-heading h3,.pricing-plan-heading p{min-height:0}.pricing-ribbon{font-size:13px}.pricing-cta{font-size:16px}}
+
+/* Compact, aligned plan summaries and readable benefit lists. */
+.pricing-ribbon,.pricing-card-featured .pricing-ribbon{left:50%;right:auto;transform:translateX(-50%);top:-17px;font-size:15px;padding:8px 19px;white-space:nowrap}
+.pricing-plan-heading p{min-height:0;margin:12px 0 16px;color:#655548}
+.pricing-plan-heading{min-height:290px}
+.pricing-card-top{margin-bottom:20px}
+.pricing-price-stage-pro,.pricing-card-free .pricing-price-stage{margin-top:18px}
+.pricing-payment-caption{min-height:30px;margin-bottom:12px;padding-top:4px}
+.pricing-card-details{margin-top:20px;padding-top:16px}
+.pricing-feature-heading{font-size:15px;line-height:1.65;font-weight:700;color:#48392f;margin:0 0 16px;min-height:50px}
+.pricing-card-details ul{gap:13px;color:#514236}
+.pricing-boost-note,.pricing-boost-tag{font-size:15px;line-height:1.65;color:#64503e}
+.pricing-card-school .pricing-cta{margin-top:0}
+@media(min-width:1301px){
+.pricing-grid{grid-template-rows:auto auto auto auto auto auto;row-gap:0}
+.pricing-grid>.pricing-card{display:grid;grid-template-rows:subgrid;grid-row:span 6;align-content:start}
+.pricing-card-top{grid-row:1;align-self:start}
+.pricing-plan-heading{grid-row:2;min-height:0}
+.pricing-price-stage{grid-row:3;align-self:start}
+.pricing-payment-caption{grid-row:4}
+.pricing-cta{grid-row:5;align-self:start}
+.pricing-card-details{grid-row:6;align-self:start}
+.pricing-boost-stack{grid-row:span 6;display:grid;row-gap:20px}
+}
+@media(max-width:600px){.pricing-plan-heading{min-height:0}.pricing-feature-heading{min-height:0}.pricing-card{min-height:0}.pricing-ribbon,.pricing-card-featured .pricing-ribbon{font-size:15px}}
+
+/* Emphasize plan introductions and the free price. */
+.pricing-plan-heading h3{font-weight:700}
+.pricing-card-free .pricing-price>strong{font-size:64px;font-weight:800;line-height:1;letter-spacing:-.045em}
+.pricing-card-free .pricing-price>span{font-size:36px;font-weight:800}
+.pricing-card-free .pricing-price{padding-top:18px}
+
+/* Refined, readable typography for plan benefits. */
+.pricing-card-details{font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;-webkit-font-smoothing:antialiased}
+.pricing-card-details ul{font-size:15px;line-height:1.85;gap:14px;letter-spacing:.01em}
+.pricing-feature-heading{font-size:16px;line-height:1.65}
+.school-service-note{font-size:13px;line-height:1.85;color:#796653}
+
+.billing-saving{background:#a02c3e;color:#fff;border-color:#a02c3e;border-radius:999px;font-size:13px;font-weight:700;padding:5px 10px;white-space:nowrap}
+
+/* A prominent editorial masthead for the pricing page. */
+.recharge-heading{margin:12px 0 36px;text-align:center}
+.recharge-heading h1{font-size:clamp(48px,6.4vw,96px);font-weight:800;line-height:1.2;letter-spacing:.08em;color:#30221d;text-shadow:0 2px 0 rgba(255,255,255,.85);margin:0;text-wrap:balance}
+.recharge-heading h1::after{content:"";display:block;width:88px;height:4px;margin:24px auto 0;background:linear-gradient(90deg,#b28a4a,#a02c3e,#b28a4a);border-radius:4px}
+@media(max-width:600px){.recharge-heading{margin:8px 0 28px}.recharge-heading h1{font-size:clamp(32px,8.5vw,48px);letter-spacing:.035em}.recharge-heading h1::after{width:60px;height:3px;margin-top:18px}}
+
+/* Background study 01 — an unfolding story scroll. */
+.recharge-story-scroll::before{background:var(--story-scroll-art) center top / max(100vw,1000px) auto no-repeat,radial-gradient(ellipse at 10% 46%,rgba(185,138,78,.11),transparent 42%),radial-gradient(ellipse at 90% 80%,rgba(156,66,49,.08),transparent 50%),linear-gradient(180deg,#f6eddf 0%,#fbf6ec 37%,#eee1cb 100%)}
+.recharge-story-scroll::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;box-shadow:inset 18px 0 32px -24px #8a653a,inset -18px 0 32px -24px #8a653a;background:repeating-linear-gradient(92deg,transparent 0 23px,rgba(132,100,55,.012) 24px,transparent 25px)}
+.recharge-story-scroll .recharge-heading{position:relative;padding:28px 0 20px}
+.recharge-story-scroll .recharge-heading h1{color:#432822;text-shadow:0 2px 0 #fff8ed,0 9px 30px rgba(129,48,35,.07)}
+.recharge-story-scroll .pricing-card{box-shadow:0 10px 28px rgba(93,64,35,.075),0 1px 0 rgba(255,255,255,.9)}
+@media(max-width:600px){.recharge-story-scroll .recharge-heading{padding:12px 0}.recharge-story-scroll::after{box-shadow:inset 8px 0 18px -15px #8a653a,inset -8px 0 18px -15px #8a653a}}
+
+/* Background study 02 — dusk, silk light and an editorial reading room. */
+.recharge-twilight::before{position:absolute;inset:-70px auto 0;left:50%;width:100vw;transform:translateX(-50%);background:radial-gradient(ellipse 60% 32% at 100% 0%,rgba(130,116,153,.3),transparent 75%),radial-gradient(ellipse 55% 26% at 0% 15%,rgba(189,133,139,.25),transparent 76%),radial-gradient(ellipse 42% 25% at 58% 0%,rgba(255,255,255,.95),transparent 80%),radial-gradient(ellipse 80% 40% at 72% 56%,rgba(213,197,208,.28),transparent 80%),linear-gradient(160deg,#f9f5f0 0%,#f2e9e9 29%,#f8f5f2 60%,#e9e4ec 100%)}
+.recharge-twilight::after{content:"";position:absolute;top:-70px;left:50%;width:100vw;height:550px;transform:translateX(-50%);z-index:-1;pointer-events:none;background:linear-gradient(116deg,transparent 20%,rgba(255,255,255,.5) 20.3%,rgba(255,255,255,.05) 32%,transparent 32.3%),linear-gradient(116deg,transparent 65%,rgba(255,255,255,.42) 65.2%,rgba(255,255,255,.05) 74%,transparent 74.3%);mask-image:linear-gradient(#000,transparent)}
+.recharge-twilight .recharge-heading{position:relative;padding:36px 0 25px;margin-bottom:24px}
+.recharge-twilight .recharge-heading h1{color:#402e39;letter-spacing:.065em;text-shadow:0 2px 0 rgba(255,255,255,.8),0 12px 50px rgba(113,63,79,.1)}
+.recharge-twilight .recharge-heading h1::after{width:76px;height:3px;background:#a02c3e;margin-top:27px}
+.recharge-twilight .pricing-card{border:1px solid rgba(162,135,141,.32);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(255,251,246,.82));box-shadow:0 14px 40px -20px rgba(78,48,65,.19),inset 0 1px 0 #fff;transition:background .2s,border-color .2s,box-shadow .2s}
+.recharge-twilight .pricing-card::before{inset:7px;border:1px solid rgba(177,146,126,.14);border-radius:10px;background:none}
+.recharge-twilight .pricing-card::after{display:none}
+.recharge-twilight .pricing-card-featured{background:linear-gradient(155deg,#fff9f8,rgba(250,235,238,.94));border-color:rgba(160,44,62,.45);box-shadow:0 18px 45px -22px rgba(138,46,69,.26),inset 0 1px 0 #fff}
+.recharge-twilight .pricing-card:hover,.recharge-twilight .pricing-card-selected{background:linear-gradient(145deg,#fffaf8,#f9ecef);border-color:#ba7d89;box-shadow:0 18px 45px -20px rgba(119,57,77,.24)}
+.recharge-twilight .billing-cycle,.recharge-twilight .recharge-balance{background:rgba(255,252,250,.8);border-color:rgba(168,137,145,.26);box-shadow:0 5px 20px rgba(90,54,70,.04)}
+.recharge-twilight .pricing-card-category,.recharge-twilight .pricing-plan-heading h3{color:#43313a}
+.recharge-twilight .pricing-card-details::before{background:linear-gradient(90deg,#ad6c79,#d5bab0);width:42px}
+@media(max-width:600px){.recharge-twilight .recharge-heading{padding:20px 0 16px}.recharge-twilight::after{height:380px}.recharge-twilight .pricing-card{border-radius:14px}}
+
+/* Give paid plan prices the same visual prominence as the free price. */
+.pricing-price-stage-pro{width:100%;max-width:280px}
+.price-paper-face .pricing-price{margin:0;padding:24px 12px 8px;align-items:baseline;gap:3px}
+.price-paper-face .pricing-price>strong{font-size:64px;font-weight:700;line-height:1;letter-spacing:-.055em}
+.price-paper-face .pricing-price>span{font-size:19px;font-weight:600}
+.price-paper-face .pricing-price>small{font-size:14px;margin-left:3px}
+@media(min-width:1301px) and (max-width:1400px){.price-paper-face .pricing-price>strong{font-size:58px}}
+
+/* A two-line editorial introduction, with the payment promise in cinnabar. */
+.recharge-twilight .recharge-hero{padding:28px 0 12px;margin-bottom:24px}
+.recharge-hero-eyebrow{margin:0 0 18px;color:#a02c3e;font-size:14px;font-weight:700;letter-spacing:.2em;line-height:1.6}
+.recharge-twilight .recharge-hero h1{font-size:clamp(48px,5.6vw,84px);line-height:1.16;letter-spacing:-.025em;font-weight:700;text-shadow:0 2px 0 rgba(255,255,255,.65)}
+.recharge-hero h1>span{display:block}
+.recharge-twilight .recharge-hero h1 .recharge-hero-accent{color:#a02c3e}
+.recharge-hero h1::after{display:none}
+.recharge-hero-description{max-width:850px;margin:24px auto 0;color:#746570;font-size:18px;line-height:1.9;text-wrap:balance}
+@media(max-width:600px){.recharge-twilight .recharge-hero{padding:16px 0 12px}.recharge-hero-eyebrow{font-size:12px;letter-spacing:.12em;margin-bottom:15px}.recharge-twilight .recharge-hero h1{font-size:clamp(31px,8.5vw,48px);line-height:1.25;letter-spacing:-.04em}.recharge-hero-description{font-size:15px;line-height:1.85;margin-top:18px}.recharge-hero-break{display:none}}
+
+/* Offset the headline lines like two ascending editorial steps. */
+.recharge-hero h1>span:first-child{transform:translateX(-.55em)}
+.recharge-hero h1>span:last-child{transform:translateX(.55em)}
+@media(max-width:600px){.recharge-hero h1>span:first-child{transform:translateX(-.18em)}.recharge-hero h1>span:last-child{transform:translateX(.18em)}}
+
+/* Match linchangWeb hero's 900 ms rising character entrance and 45 ms stagger. */
+.recharge-title-char{display:inline-block;animation:recharge-title-enter .9s cubic-bezier(.16,1,.3,1) both}
+@keyframes recharge-title-enter{from{opacity:0;transform:translateY(45%)}to{opacity:1;transform:translateY(0)}}
+.recharge-hero-eyebrow,.recharge-hero-description{animation:recharge-copy-enter .7s cubic-bezier(.22,1,.36,1) both}
+.recharge-hero-eyebrow{animation-delay:.52s}
+.recharge-hero-description{animation-delay:.61s}
+@keyframes recharge-copy-enter{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.recharge-title-char,.recharge-hero-eyebrow,.recharge-hero-description{animation:none}}
+
+/* Separate subscriptions and one-off resources with a pill-shaped tab switch. */
+.pricing-catalog-tabs{display:flex;width:min(360px,100%);margin:0 auto 26px;padding:5px;gap:4px;border-radius:999px;background:rgba(91,68,79,.075);box-shadow:inset 0 1px 2px rgba(73,47,60,.03)}
+.pricing-catalog-tabs button{flex:1;border:0;border-radius:999px;background:transparent;color:#84727d;font:inherit;font-size:16px;padding:11px 20px;cursor:pointer;transition:background .2s,color .2s,box-shadow .2s}
+.pricing-catalog-tabs button.active{background:#fffdfb;color:#842d40;font-weight:600;box-shadow:0 2px 5px rgba(75,45,59,.12)}
+.pricing-catalog-tabs button:focus-visible{outline:2px solid #a02c3e;outline-offset:3px}
+@media(min-width:1301px){.pricing-grid-subscription{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.pricing-grid-resources{display:block;max-width:840px;margin:0 auto}
+.pricing-grid-resources .pricing-boost-stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto;gap:24px}
+.pricing-grid-resources .pricing-boost-card{padding:30px;gap:20px}
+@media(max-width:600px){.pricing-grid-resources .pricing-boost-stack{grid-template-columns:1fr;gap:18px}.pricing-grid-resources .pricing-boost-card{padding:27px}}
+
+/* Payment stays in a focused dialog without moving the pricing page. */
+.recharge-payment-overlay{position:fixed;inset:0;z-index:300;background:rgba(43,29,38,.38);backdrop-filter:blur(6px)}
+.recharge-payment-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:301;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;margin:0;padding:36px 28px 28px;border:1px solid #e7d8d6;border-radius:22px;background:linear-gradient(145deg,#fffdfa,#fbf1f1);box-shadow:0 28px 100px rgba(42,22,34,.25);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
+.recharge-payment-modal h2{font-size:24px;color:#402e39}
+.recharge-payment-modal .recharge-qr{width:232px;background:#fff;padding:12px;border-radius:16px}
+.recharge-payment-dismiss{position:absolute;right:13px;top:11px;width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:#79636b;font-size:27px;cursor:pointer}
+.recharge-payment-dismiss:hover{background:#f1e4e7}
+.recharge-payment-modal .recharge-buttons{flex-wrap:wrap}
+.recharge-payment-modal .recharge-order-id{overflow-wrap:anywhere}
+
+.recharge-success-panel{padding:12px 0 4px}
+.recharge-success-mark{display:grid;place-items:center;width:56px;height:56px;margin:0 auto 16px;border-radius:50%;background:#e8f3ec;color:#34845b;font-size:32px}
+.recharge-credited-amount{display:block;margin:18px 0 10px;color:#842d40;font-size:24px}
+.recharge-success-panel>.btn{margin-top:12px;min-width:150px}
+
+
+
+.admin-user-dialog{position:fixed;z-index:301;top:50%;left:50%;transform:translate(-50%,-50%);width:min(620px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;padding:30px;border:1px solid #e5d7c7;border-radius:20px;background:#fffaf5;box-shadow:0 24px 90px #30222a40;color:#493c35}
+.admin-user-dialog h2{font-size:24px;margin:0 32px 24px 0}
+.admin-user-info{display:grid;gap:12px;margin:0 0 24px}
+.admin-user-info>div{display:grid;grid-template-columns:85px 1fr;gap:12px}
+.admin-user-info dt{color:#8a786b;font-size:14px}
+.admin-user-info dd{margin:0;overflow-wrap:anywhere;font-size:14px}
+.admin-subscription-form{display:grid;gap:16px;border-top:1px solid #eadfd4;padding-top:20px}
+.admin-subscription-form h3{margin:0;font-size:18px}
+.admin-subscription-form label{display:grid;gap:8px;font-size:14px}
+.admin-subscription-form select,.admin-subscription-form input,.admin-subscription-form textarea{width:100%;padding:11px;border:1px solid #dfcdbc;border-radius:9px;background:#fff;font:inherit;color:inherit;box-sizing:border-box}
+.admin-subscription-form textarea{min-height:75px;resize:vertical}
+.admin-subscription-note{font-size:12px;line-height:1.8;color:#887365;margin:0}
+.admin-user-name{padding:0;border:0;background:none;color:#842d40;font:inherit;font-weight:700;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:4px}
+
+/* Subscription belongs to the lower-right corner of the profile header. */
+.account-profile{position:relative;padding-bottom:29px}
+.account-plan-label{position:absolute;right:16px;bottom:10px;color:#8a6653;font-size:14px;font-weight:600;line-height:1.2;letter-spacing:.025em}
+
+.private-payment-test{max-width:800px;margin:0 auto;padding:48px 24px 80px;color:#49333d}
+.private-payment-test h1{font-family:STSong,SimSun,serif;font-size:42px;margin:12px 0}
+.private-test-kicker{font-size:12px;letter-spacing:.2em;color:#a02c3e;margin-top:36px}
+.private-test-card{padding:26px;margin-top:24px;border:1px solid #e4d5d7;border-radius:18px;background:#fffcfa}
+.private-test-card h2{margin:0 0 18px}.private-test-card small{font-size:16px;font-weight:400}.private-test-card p{line-height:1.9}
+.private-test-card dl{display:grid;grid-template-columns:150px 1fr;gap:14px;font-size:14px;line-height:1.7}.private-test-card dd{margin:0}
+@media(max-width:600px){.private-test-card dl{grid-template-columns:1fr;gap:6px}.private-test-card dd{margin-bottom:12px}}

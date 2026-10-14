@@ -7,7 +7,9 @@ import os
 import re
 import shutil
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
@@ -62,12 +64,21 @@ async def lifespan(_app: FastAPI):
         settings.contracts_dir,
         settings.asset_scripts_dir,
     )
-    yield
+    from .payments import subscription_credit_worker
+    credit_worker = asyncio.create_task(subscription_credit_worker())
+    try:
+        yield
+    finally:
+        credit_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await credit_worker
 
 
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
 from .platform_admin import router as admin_router, blocked as admin_blocked
 app.include_router(admin_router)
+from .payments import router as payments_router
+app.include_router(payments_router)
 
 
 @app.middleware('http')
@@ -185,7 +196,7 @@ def _reserve_game_credits(user: dict[str, Any], job: dict[str, Any]):
     except InsufficientCreditsError as exc:
         raise HTTPException(
             status_code=402,
-            detail=f"积分不足：本次需要 {exc.required} 积分，当前可用 {exc.available} 积分",
+            detail=f"积分不足：本次需预扣 {exc.required} 分，当前可用 {exc.available} 分；预扣后余额不能低于 -15 分，请充值后重试",
         ) from exc
     except CreditError as exc:
         logger.exception("Credit reservation failed for job_id=%s", job.get("id"))
@@ -227,7 +238,7 @@ def _reserve_resource_credits(
     except InsufficientCreditsError as exc:
         raise HTTPException(
             status_code=402,
-            detail=f"积分不足：本次最多需要冻结 {exc.required} 积分，当前可用 {exc.available} 积分",
+            detail=f"积分不足：本次需预扣 {exc.required} 分，当前可用 {exc.available} 分；预扣后余额不能低于 -15 分，请充值后重试",
         ) from exc
     except CreditError as exc:
         logger.exception("Credit reservation failed for job_id=%s plan=%s", job.get("id"), plan)

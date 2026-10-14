@@ -20,6 +20,7 @@ ConnectionFactory = Callable[[], Any]
 _ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _OPERATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
 _SIGNUP_SOURCE_KEY = "signup-credits:v1"
+OVERDRAFT_LIMIT = 15
 
 
 def _stable_id(*parts: str) -> str:
@@ -214,6 +215,11 @@ class MySQLCreditStore:
         if not _ID_RE.fullmatch(order_id):
             raise ValueError("order_id must be a 32-character hexadecimal id")
         with self._transaction() as cursor:
+            cursor.execute("SELECT user_id FROM purchase_orders WHERE id=%s", (order_id.lower(),))
+            owner = cursor.fetchone()
+            if owner is None:
+                raise CreditNotFoundError("Order does not exist")
+            cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (owner["user_id"],))
             return self._grant_order_locked(cursor, order_id=order_id.lower())
 
     def _grant_order_locked(
@@ -240,6 +246,7 @@ class MySQLCreditStore:
         benefit = _json_object(snapshot.get("benefit"))
         units_per_item = _positive_units(benefit.get("credits"))
         units = units_per_item * int(order["quantity"])
+        from .subscriptions import ensure_schedule_locked
         grant_id = expected_grant_id or _stable_id("order-credit-grant-v1", order_id)
 
         cursor.execute(
@@ -255,6 +262,7 @@ class MySQLCreditStore:
                     "UPDATE purchase_orders SET fulfillment_status='FULFILLED', lock_version=lock_version+1 WHERE id=%s",
                     (order_id,),
                 )
+            ensure_schedule_locked(cursor, order, benefit)
             return CreditGrant(grant_id, order_id, order["user_id"], units, False)
         if order["fulfillment_status"] == "FULFILLED":
             raise CreditStateError("Order is marked fulfilled but its credit grant is missing")
@@ -296,11 +304,31 @@ class MySQLCreditStore:
             "UPDATE purchase_orders SET fulfillment_status='FULFILLED', lock_version=lock_version+1 WHERE id=%s",
             (order_id,),
         )
+        ensure_schedule_locked(cursor, order, benefit)
         return CreditGrant(grant_id, order_id, order["user_id"], units, True)
+
+    def _ensure_credit_line_locked(self, cursor: Any, user_id: str) -> str:
+        """A zero-value, non-expiring batch records debt without issuing credits."""
+        grant_id = _stable_id("credit-line-v1", user_id)
+        cursor.execute("SELECT id FROM entitlement_grants WHERE id=%s FOR UPDATE", (grant_id,))
+        if cursor.fetchone() is None:
+            cursor.execute(
+                """INSERT INTO entitlement_grants
+                (id, user_id, source, source_key, benefit_key, kind, status,
+                 units_granted, units_available, units_reserved, units_consumed, units_revoked,
+                 starts_at, metadata_json)
+                VALUES (%s,%s,'CREDIT_LINE','overdraft:v1','credits','CREDITS','ACTIVE',
+                        0,0,0,0,0,CURRENT_TIMESTAMP(3),%s)""",
+                (grant_id, user_id, _canonical_json({"overdraft_limit": OVERDRAFT_LIMIT})),
+            )
+        return grant_id
 
     def get_balance(self, user_id: str) -> CreditBalance:
         user_id = _validate_user_id(user_id)
+        from .subscriptions import issue_for_user
+        issue_for_user(self, user_id)
         with self._transaction() as cursor:
+            cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user_id,))
             self._expire_grants_locked(cursor, user_id)
             cursor.execute(
                 """
@@ -336,8 +364,14 @@ class MySQLCreditStore:
         units = _positive_units(units)
         pricing_json = _canonical_json(pricing_snapshot)
         reservation_id = _stable_id("credit-reservation-v1", job_id, operation_key)
+        from .subscriptions import issue_for_user
+        issue_for_user(self, user_id)
 
         with self._transaction() as cursor:
+            # Serialize all jobs for this account, including empty/negative balances.
+            cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user_id,))
+            if cursor.fetchone() is None:
+                raise CreditNotFoundError("User does not exist")
             cursor.execute(
                 "SELECT id FROM generation_jobs WHERE id=%s AND owner_user_id=%s FOR UPDATE",
                 (job_id, user_id),
@@ -367,13 +401,13 @@ class MySQLCreditStore:
                 raise CreditConflictError("This job already has an active credit reservation")
 
             self._expire_grants_locked(cursor, user_id)
+            credit_line_id = self._ensure_credit_line_locked(cursor, user_id)
             cursor.execute(
                 """
                 SELECT * FROM entitlement_grants
                 WHERE user_id=%s AND kind='CREDITS' AND status='ACTIVE'
                   AND starts_at <= CURRENT_TIMESTAMP(3)
                   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP(3))
-                  AND units_available > 0
                 ORDER BY (expires_at IS NULL), expires_at, created_at, id
                 FOR UPDATE
                 """,
@@ -381,7 +415,7 @@ class MySQLCreditStore:
             )
             grants = cursor.fetchall()
             available = sum(int(grant["units_available"]) for grant in grants)
-            if available < units:
+            if available - units < -OVERDRAFT_LIMIT:
                 raise InsufficientCreditsError(required=units, available=available)
 
             cursor.execute(
@@ -393,10 +427,17 @@ class MySQLCreditStore:
                 (reservation_id, user_id, job_id, operation_key, units, pricing_json),
             )
             remaining = units
-            for grant in grants:
+            # Spend real grants first, then allocate any shortfall to the debt batch.
+            allocations = [(grant, min(units, max(0, int(grant["units_available"]))))
+                           for grant in grants if grant["id"] != credit_line_id]
+            credit_line = next(grant for grant in grants if grant["id"] == credit_line_id)
+            allocations.append((credit_line, units))
+            for grant, capacity in allocations:
                 if remaining == 0:
                     break
-                allocated = min(remaining, int(grant["units_available"]))
+                allocated = min(remaining, capacity)
+                if allocated == 0:
+                    continue
                 after = (
                     int(grant["units_available"]) - allocated,
                     int(grant["units_reserved"]) + allocated,
@@ -452,6 +493,11 @@ class MySQLCreditStore:
             raise ValueError("reservation_id must be a 32-character hexadecimal id")
         action = "CAPTURE" if target == "CAPTURED" else "RELEASE"
         with self._transaction() as cursor:
+            cursor.execute("SELECT user_id FROM credit_reservations WHERE id=%s", (reservation_id,))
+            owner = cursor.fetchone()
+            if owner is None:
+                raise CreditNotFoundError(f"Reservation does not exist: {reservation_id}")
+            cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (owner["user_id"],))
             cursor.execute("SELECT * FROM credit_reservations WHERE id=%s FOR UPDATE", (reservation_id,))
             reservation = cursor.fetchone()
             if reservation is None:
