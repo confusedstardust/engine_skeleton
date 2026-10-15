@@ -4,6 +4,7 @@ const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || "").trim().replace(/\/+$/
 
 const nextConfig = {
   reactStrictMode: true,
+  distDir: process.env.FORGE_NEXT_DIST_DIR || ".next",
   basePath: basePath || undefined,
   trailingSlash: true,
   skipTrailingSlashRedirect: true,

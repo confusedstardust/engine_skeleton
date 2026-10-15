@@ -1,4 +1,6 @@
 "use client";
+
+import { ReturnLink } from "./navigation-return";
 import { randomUUID } from "../app/random-uuid";
 
 import Link from "next/link";
@@ -84,7 +86,7 @@ export default function PaymentTestPanel({ embedded = false }: { embedded?: bool
     catch(e) { setError(e instanceof Error ? e.message : "操作失败"); }
     finally { setBusy(false); }
   }
-  if (access !== "allowed") return <section className="private-payment-test"><p role="status">{access === "loading" ? "正在验证访问权限…" : "测试支付暂不可用"}</p>{access === "denied" ? <p role="alert" className="recharge-error">{error === "页面不存在" ? "请登录已标记为测试账号的 NarrativeOS 用户或管理员账号。" : error || "测试配置检查失败，请稍后重试。"}</p> : null}{!embedded ? <Link href="/">返回首页</Link> : null}</section>;
+  if (access !== "allowed") return <section className="private-payment-test"><p role="status">{access === "loading" ? "正在验证访问权限…" : "测试支付暂不可用"}</p>{access === "denied" ? <p role="alert" className="recharge-error">{error === "页面不存在" ? "请登录已标记为测试账号的 NarrativeOS 用户或管理员账号。" : error || "测试配置检查失败，请稍后重试。"}</p> : null}{!embedded ? <ReturnLink /> : null}</section>;
   const completed = order?.status === "PAID" && order.fulfillment_status === "FULFILLED";
   return <section className="private-payment-test">{!embedded ? <Link href="/recharge">← 返回充值页</Link> : null}<p className="private-test-kicker">PRIVATE PAYMENT TEST</p><h1>真实支付验收</h1><p>仅当前授权账号可用 · 走正式微信支付与积分入账流程</p>
     <section className="private-test-card"><h2>¥0.10 <small>／1 积分</small></h2><p>点击后创建真实订单，由你使用微信扫码付款。可测试下单、二维码、付款确认及积分到账。</p><p className="admin-subscription-note">主动查询确认付款与微信自动回调分别验收；完整回调测试需要公网服务已部署。</p><button className="btn primary" disabled={busy} onClick={() => void start()}>{busy ? "正在处理…" : order?.status === "PENDING" ? "继续测试订单" : "创建 ¥0.10 测试订单"}</button><p>当前积分余额：{balance ? balance.available : "—"}</p></section>

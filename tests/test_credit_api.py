@@ -378,6 +378,7 @@ def test_asset_search_pagination_uses_lookahead(monkeypatch):
     rows = [{"id": str(i)} for i in range(13)]
     def list_page(user_id, **options):
         library.list_calls.append(options)
+        options["pagination"]["total"] = 25 if rows else 0
         return rows
     library.list_assets = list_page
     monkeypatch.setattr(backend_app, "user_from_request", _authenticated_user)
@@ -385,7 +386,7 @@ def test_asset_search_pagination_uses_lookahead(monkeypatch):
     client = TestClient(backend_app.app)
     response = client.get("/assets?page=2&page_size=12&search=courtyard&source_type=GENERATED")
     assert response.status_code == 200
-    assert response.json() == {"assets": rows[:12], "page": 2, "has_more": True}
+    assert response.json() == {"assets": rows[:12], "page": 2, "has_more": True, "total": 25, "total_pages": 3}
     assert library.list_calls[-1]["offset"] == 12
     assert library.list_calls[-1]["search"] == "courtyard"
     assert library.list_calls[-1]["limit"] == 13

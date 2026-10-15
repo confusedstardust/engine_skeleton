@@ -213,3 +213,21 @@ def test_upload_collection_excludes_generated_assets():
     assert "a.owner_user_id=%s" in query
     assert "a.source_type='UPLOADED'" in query
     assert params == ("viewer", 100)
+
+
+def test_asset_pagination_total_uses_same_filters_without_limit_or_favorite_parameter():
+    cursor = RecordingCursor(fetches=[{"total": 25}])
+    pagination = {}
+    library_with_cursor(cursor).list_assets(
+        "viewer", collection="favorites", kind="FIGURE", category="ancient",
+        search="hero", original_only=True, include_favorite=True,
+        limit=13, offset=12, pagination=pagination,
+    )
+    count_query, count_params = cursor.calls[0]
+    page_query, page_params = cursor.calls[1]
+    assert pagination == {"total": 25}
+    assert "SELECT COUNT(*) AS total" in count_query
+    assert "LIMIT" not in count_query
+    assert count_query.split("FROM assets a", 1)[1].strip() == page_query.split("FROM assets a", 1)[1].split("ORDER BY", 1)[0].strip()
+    assert count_params == ("viewer", "viewer", "FIGURE", "ancient", "hero", "hero", "hero")
+    assert page_params == ("viewer", *count_params, 13, 12)

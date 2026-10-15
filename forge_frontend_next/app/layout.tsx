@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { NavigationReturnProvider } from "../components/navigation-return";
 import { ConfirmationProvider } from "../components/ui/modal";
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
@@ -16,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <style>{`@font-face { font-family: "NarrativeOS Solution Serif"; src: url("${solutionTitleFontUrl}") format("truetype"); font-display: swap; }`}</style>
       </head>
-      <body><ConfirmationProvider>{children}</ConfirmationProvider></body>
+      <body><ConfirmationProvider><Suspense><NavigationReturnProvider>{children}</NavigationReturnProvider></Suspense></ConfirmationProvider></body>
     </html>
   );
 }

@@ -18,8 +18,8 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); }
-    catch { throw new Error(`教师生态服务响应异常（HTTP ${response.status}）`); }
-    if (!response.ok) throw new Error(data.detail || "教师生态操作失败");
+    catch { throw new Error(`教师资源广场服务响应异常（HTTP ${response.status}）`); }
+    if (!response.ok) throw new Error(data.detail || "教师资源广场操作失败");
     return data;
   }
 
@@ -45,8 +45,8 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     } finally { setBusy(false); }
   }
 
-  if (loading) return <button className="btn outline" type="button" disabled>正在查询教师生态…</button>;
-  if (!publication) return <button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师生态状态</button>;
+  if (loading) return <button className="btn outline" type="button" disabled>正在查询教师资源广场…</button>;
+  if (!publication) return <button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</button>;
   const disabled = busy || (!publication.published && !canPublish);
   const unavailableReason = blocked ? "作品已下架，请先恢复作品再发布" : "作品尚未生成可播放版本，暂时不能发布";
   return <button
@@ -54,9 +54,9 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     type="button"
     disabled={disabled}
     title={error || ((!publication.published && !canPublish) ? unavailableReason : undefined)}
-    aria-label={error ? `${publication.published ? "取消发布教师生态" : "发布到教师生态"}，上次操作失败：${error}` : undefined}
+    aria-label={error ? `${publication.published ? "取消发布教师资源广场" : "发布到教师资源广场"}，上次操作失败：${error}` : undefined}
     onClick={() => void togglePublication()}
   >
-    {busy ? "正在处理…" : publication.published ? "取消发布教师生态" : "发布到教师生态"}
+    {busy ? "正在处理…" : publication.published ? "取消发布教师资源广场" : "发布到教师资源广场"}
   </button>;
 }

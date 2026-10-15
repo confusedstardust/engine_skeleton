@@ -218,6 +218,7 @@ jobs:
             set -e
             mkdir -p "${{ secrets.DEPLOY_PATH }}/deploy/sound-effects"
             cd "${{ secrets.DEPLOY_PATH }}"
+            test -s .env || { echo "Missing production .env in $PWD"; exit 1; }
             echo "$ACR_PASSWORD" | docker login "$REGISTRY" -u "$ACR_USERNAME" --password-stdin
             IMAGE_STATE_FILE=".deploy-images.env"
             touch "$IMAGE_STATE_FILE"
@@ -240,6 +241,12 @@ jobs:
               echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
               exit 1
             fi
+            # Export only the generated image pins. Compose must use .env for
+            # interpolation as well as env_file, otherwise environment entries
+            # override configured service URLs/tokens with defaults or empty values.
+            set -a
+            . "./$IMAGE_STATE_FILE"
+            set +a
             if docker compose version >/dev/null 2>&1; then
               COMPOSE_CMD="docker compose"
             elif command -v docker-compose >/dev/null 2>&1; then
@@ -265,15 +272,15 @@ jobs:
             }
             SERVICES=""
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              timed_retry "pull backend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull backend
+              timed_retry "pull backend image" $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml pull backend
               SERVICES="$SERVICES backend"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              timed_retry "pull frontend image" $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml pull frontend
+              timed_retry "pull frontend image" $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml pull frontend
               SERVICES="$SERVICES frontend"
             fi
             echo "[$(date -Is)] Starting docker compose up"
-            $COMPOSE_CMD --env-file "$IMAGE_STATE_FILE" -f docker-compose.prod.yml up -d --no-deps $SERVICES
+            $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml up -d --no-deps $SERVICES
             echo "[$(date -Is)] Finished docker compose up"
             # Keep cleanup out of the deployment critical path; run it separately
             # during maintenance so a deploy is not delayed by Docker disk scans.

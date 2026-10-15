@@ -488,6 +488,7 @@ def list_personal_assets(
     search: str = "",
     page: int | None = None,
     page_size: int = 12,
+    offset: int | None = None,
     category: str | None = None,
 ) -> dict[str, Any]:
     user = user_from_request(request, settings.workspace_root)
@@ -495,7 +496,8 @@ def list_personal_assets(
         raise HTTPException(status_code=403, detail="个人资产库仅适用于 NarrativeOS 登录账号")
     if collection not in {None, "uploads", "favorites", "personal"}:
         raise HTTPException(status_code=422, detail="unsupported asset collection")
-    if page is not None and (page < 1 or page_size < 1 or page_size > 48):
+    paginated = page is not None or offset is not None
+    if paginated and ((page is not None and page < 1) or (offset is not None and offset < 0) or page_size < 1 or page_size > 48):
         raise HTTPException(status_code=422, detail="invalid pagination")
     normalized_kind = kind.strip().upper() if kind else None
     allowed = {"BACKGROUND", "FIGURE", "AVATAR", "VOICE", "BGM", "SFX", "VIDEO", "SCRIPT", "OTHER"}
@@ -508,15 +510,18 @@ def list_personal_assets(
         options: dict[str, Any] = {}
         if category:
             options["category"] = category
-        if page is not None:
-            options.update({"search": search, "offset": (page - 1) * page_size,
+        pagination: dict[str, int] = {}
+        if paginated:
+            options["pagination"] = pagination
+            options.update({"search": search, "offset": offset if offset is not None else ((page or 1) - 1) * page_size,
                             "original_only": True, "include_favorite": True})
         rows = get_asset_library().list_assets(
             str(user["id"]), kind=normalized_kind, source_type=normalized_source_type,
-            limit=page_size + 1 if page is not None else limit, collection=collection, **options,
+            limit=page_size + 1 if paginated else limit, collection=collection, **options,
         )
-        if page is not None:
-            return {"assets": rows[:page_size], "page": page, "has_more": len(rows) > page_size}
+        if paginated:
+            return {"assets": rows[:page_size], "page": page or 1, **({"next_offset": options["offset"] + min(len(rows), page_size)} if offset is not None else {}), "has_more": len(rows) > page_size,
+                    "total": pagination["total"], "total_pages": max(1, (pagination["total"] + page_size - 1) // page_size)}
         return {"assets": rows}
     except Exception as exc:
         logger.exception("Asset library lookup failed for user_id=%s", user.get("id"))
