@@ -29,8 +29,9 @@ export function AccountMenu({ className = "", tour, includeAdmin = false }: { cl
 
   useEffect(() => {
     let active = true;
-    void getCurrentUser().then((value) => { if (active) { setUser(value); setLoaded(true); } });
-    return () => { active = false; };
+    const refresh = () => { void getCurrentUser().then((value) => { if (active) { setUser(value); setLoaded(true); } }); };
+    refresh(); window.addEventListener("forge-auth-changed", refresh);
+    return () => { active = false; window.removeEventListener("forge-auth-changed", refresh); };
   }, []);
 
   useEffect(() => {
@@ -113,9 +114,10 @@ export function AccountMenu({ className = "", tour, includeAdmin = false }: { cl
       </section> : null}
       <nav className="account-actions" aria-label="我的空间">
         <Link href="/history" onClick={() => setOpen(false)}><Icon kind="works" /><span>我的作品</span><b aria-hidden="true">›</b></Link>
+        <Link href="/my-assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>我的资产</span><b aria-hidden="true">›</b></Link>
+        <div className="account-actions-divider" role="separator" />
         <Link href="/assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>素材库</span><b aria-hidden="true">›</b></Link>
         <a href={teacherResourcePlazaUrl()} onClick={() => setOpen(false)}><Icon kind="assets" /><span>教师资源广场</span><b aria-hidden="true">›</b></a>
-        <Link href="/my-assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>我的资产</span><b aria-hidden="true">›</b></Link>
         {includeAdmin ? <AdminLink onClick={() => setOpen(false)}><Icon kind="person" /><span>平台管理</span><b aria-hidden="true">›</b></AdminLink> : null}
       </nav>
       <div className="account-footer"><div><span>账号 ID</span><code>{user?.id}</code></div><button className="account-logout" type="button" disabled={loggingOut} onClick={() => void logout()} aria-label="登出账户"><Icon kind="logout" /><span>{loggingOut ? "登出中…" : "登出"}</span></button></div>
