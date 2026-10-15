@@ -1,5 +1,9 @@
 ﻿"use client";
 
+import { AccountMenu } from "../../../components/account-menu";
+
+import { ReturnLink } from "../../../components/navigation-return";
+
 import { ModalFrame, useConfirmation } from "../../../components/ui/modal";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1499,18 +1503,15 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
               <span className="brand-name">临场 · 生成工作台</span>
             </div>
           </Link>
-          <Link className="workspace-back" href="/history" aria-label="返回上一级" onClick={async (event) => {
+
+        </div>
+        <nav className="nav-links" aria-label="任务导航"><ReturnLink fallback="/history" onClick={async (event) => {
             if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
             event.preventDefault();
             const target = event.currentTarget.href;
             if (await confirm("还有未保存的修改，确定离开吗？")) window.location.assign(target);
-          }}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-            <span>返回上一级</span>
-          </Link>
-        </div>
-        <nav className="nav-links" aria-label="任务导航">
-          <Link href="/" onClick={async (event) => {
+          }} />
+          <Link href="/?workspace=1" onClick={async (event) => {
             if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
             event.preventDefault();
             const target = event.currentTarget.href;
@@ -1518,6 +1519,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
           }}>新建任务</Link>
           <CreditBalance />
           {hasPublishedBuild && <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">打开游戏</a>}
+          <AccountMenu includeAdmin />
         </nav>
       </header>
 
@@ -1780,14 +1782,14 @@ function CompletionPanel(props: {
   };
   const publishToEcosystem = async () => {
     setPublicationBusy(true);
-    setPublicationMessage("正在发布到教师创作生态…");
+    setPublicationMessage("正在发布到教师资源广场…");
     try {
       const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, {
         method: "POST",
         body: JSON.stringify({})
       });
       setPublication(value);
-      setPublicationMessage("发布成功，作品已经出现在教师创作生态中。");
+      setPublicationMessage("发布成功，作品已经出现在教师资源广场中。");
     } catch (error) {
       setPublicationMessage(error instanceof Error ? error.message : "发布失败，请稍后重试。");
     } finally {
@@ -1795,13 +1797,13 @@ function CompletionPanel(props: {
     }
   };
   const removeFromEcosystem = async () => {
-    if (!await confirm("确定从教师创作生态中取消发布吗？游戏本身不会被删除。")) return;
+    if (!await confirm("确定从教师资源广场中取消发布吗？游戏本身不会被删除。")) return;
     setPublicationBusy(true);
     setPublicationMessage("正在取消发布…");
     try {
       const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, { method: "DELETE" });
       setPublication(value);
-      setPublicationMessage("已从教师创作生态中取消发布。");
+      setPublicationMessage("已从教师资源广场中取消发布。");
     } catch (error) {
       setPublicationMessage(error instanceof Error ? error.message : "取消发布失败，请稍后重试。");
     } finally {

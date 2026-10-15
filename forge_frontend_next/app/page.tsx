@@ -1,6 +1,7 @@
 "use client";
 
-import { AdminLink } from "../components/admin-link";
+import { ReturnLink } from "../components/navigation-return";
+
 
 import { ModalFrame } from "../components/ui/modal";
 import * as RadioGroup from "@radix-ui/react-radio-group";
@@ -230,12 +231,8 @@ function ClassroomGeneratorPage() {
           </div>
         </div>
         <nav className="nav-links" aria-label="主导航">
-          <Link className="nav-back" href="/">← 返回创作入口</Link>
-          <Link href="/history">我的游戏库</Link>
-          <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
-          <Link href="/history">生成记录</Link>
-          <AdminLink />
-          <AccountMenu className="nav-login" tour="invite" />
+          <ReturnLink />
+          <AccountMenu className="nav-login" tour="invite" includeAdmin />
         </nav>
         <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
@@ -246,11 +243,8 @@ function ClassroomGeneratorPage() {
 
       {mobileOpen && (
         <nav className="mobile-menu" aria-label="移动端导航">
-          <Link href="/">← 返回创作入口</Link>
-          <Link href="/history">我的游戏库</Link>
-          <a aria-disabled="true" className="nav-disabled" title="资源模板即将开放">资源模板</a>
-          <Link href="/history">生成记录</Link>
-          <AccountMenu className="mobile-login" tour="invite" />
+          <ReturnLink />
+          <AccountMenu className="mobile-login" tour="invite" includeAdmin />
         </nav>
       )}
 
@@ -406,7 +400,7 @@ const narrativeScenes: NarrativeScene[] = [
   { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: ossImage("scene-ip-narrative.png") },
   { id: "culture", title: "文旅体验", description: "把场所、文化和记忆变成可探索的旅程", icon: "⌂", ready: true, tone: "orange", image: ossImage("scene-cultural-experience.png") },
   { id: "science", title: "科普解谜", description: "在任务和线索中理解科学知识", icon: "⟡", ready: true, tone: "sky", image: ossImage("scene-science-mystery.png") },
-  { id: "assets", title: "素材仓库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
+  { id: "assets", title: "素材库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
 ];
 
 function NarrativeRouterPage() {

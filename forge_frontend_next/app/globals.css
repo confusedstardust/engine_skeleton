@@ -6225,7 +6225,9 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .account-credit-mark{position:absolute;top:20px;right:16px;color:var(--gold);font-size:25px}
 .account-credits p{margin:8px 0 0;color:var(--ink-muted);font-size:11px}
 .account-actions{display:grid;gap:3px;padding:10px 0}
-.account-actions a{display:flex;align-items:center;gap:12px;padding:12px 15px;border-radius:10px;color:var(--ink-light);text-decoration:none;font-size:13px;transition:background .15s,color .15s}
+.account-actions :is(a,button){display:flex;align-items:center;gap:12px;padding:12px 15px;border:0;border-radius:10px;background:transparent;color:var(--ink-light);text-decoration:none;font:inherit;font-size:13px;text-align:left;transition:background .15s,color .15s}
+.account-actions button:disabled{color:var(--ink-muted);cursor:not-allowed}
+.account-actions small{margin-left:auto;font-size:11px;white-space:nowrap}
 .account-actions a:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
 .account-actions svg,.account-footer svg{flex-shrink:0;width:20px;height:20px}
 .account-actions b{margin-left:auto;font-size:20px;font-weight:400;color:var(--ink-muted)}
@@ -6666,3 +6668,15 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .admin-status-filter{width:175px;padding:6px}
 .admin-status-filter>button{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:0;border-radius:7px;background:transparent;text-align:left;color:inherit;font:inherit;font-size:13px;cursor:pointer}
 .admin-status-filter>button:hover,.admin-status-filter>button.is-selected{background:var(--cinnabar-glow);color:var(--cinnabar)}
+
+/* Keep page navigation and the return destination visible on small screens. */
+.asset-library-filters[hidden] { display: none; }
+@media (max-width: 768px) {
+  .top-nav { height: auto; min-height: 64px; flex-wrap: wrap; gap: 8px; padding-block: 10px; }
+  .top-nav .nav-links { display: flex; flex-wrap: wrap; margin-left: auto; gap: 10px; }
+  .top-nav .workspace-back { width: auto; padding: 6px 10px; gap: 4px; }
+  .top-nav .workspace-back span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .top-nav .hamburger { display: none; }
+}
+
+.asset-library-feed-status { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; min-height: 80px; padding: 20px 0; color: var(--ink-muted); font-size: 13px; }

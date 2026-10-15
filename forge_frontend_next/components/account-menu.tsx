@@ -4,8 +4,9 @@ import Link from "next/link";
 import { withBasePath } from "../app/base-path";
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useId, useRef, useState } from "react";
-import { clearStoredInviteCode, getCurrentUser, getCreditBalance, ssoLoginUrl, type AuthUser, type CreditBalance } from "../app/invite-identity";
+import { teacherResourcePlazaUrl, clearStoredInviteCode, getCurrentUser, getCreditBalance, ssoLoginUrl, type AuthUser, type CreditBalance } from "../app/invite-identity";
 import { creditBalanceChangedEvent } from "./credit-balance";
+import { AdminLink } from "./admin-link";
 
 function Icon({ kind }: { kind: "person" | "works" | "assets" | "logout" }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -13,7 +14,7 @@ function Icon({ kind }: { kind: "person" | "works" | "assets" | "logout" }) {
   </svg>;
 }
 
-export function AccountMenu({ className = "", tour }: { className?: string; tour?: string }) {
+export function AccountMenu({ className = "", tour, includeAdmin = false }: { className?: string; tour?: string; includeAdmin?: boolean }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
@@ -112,7 +113,10 @@ export function AccountMenu({ className = "", tour }: { className?: string; tour
       </section> : null}
       <nav className="account-actions" aria-label="我的空间">
         <Link href="/history" onClick={() => setOpen(false)}><Icon kind="works" /><span>我的作品</span><b aria-hidden="true">›</b></Link>
-        <Link href="/assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>素材仓库</span><b aria-hidden="true">›</b></Link>
+        <Link href="/assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>素材库</span><b aria-hidden="true">›</b></Link>
+        <a href={teacherResourcePlazaUrl()} onClick={() => setOpen(false)}><Icon kind="assets" /><span>教师资源广场</span><b aria-hidden="true">›</b></a>
+        <Link href="/my-assets" onClick={() => setOpen(false)}><Icon kind="assets" /><span>我的资产</span><b aria-hidden="true">›</b></Link>
+        {includeAdmin ? <AdminLink onClick={() => setOpen(false)}><Icon kind="person" /><span>平台管理</span><b aria-hidden="true">›</b></AdminLink> : null}
       </nav>
       <div className="account-footer"><div><span>账号 ID</span><code>{user?.id}</code></div><button className="account-logout" type="button" disabled={loggingOut} onClick={() => void logout()} aria-label="登出账户"><Icon kind="logout" /><span>{loggingOut ? "登出中…" : "登出"}</span></button></div>
       {logoutError ? <span className="account-copy-status" role="alert">{logoutError}</span> : null}

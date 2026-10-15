@@ -1,5 +1,9 @@
 "use client";
 
+import { AccountMenu } from "../../../components/account-menu";
+
+import { ReturnLink } from "../../../components/navigation-return";
+
 import { ConfirmDialog } from "../../../components/ui/modal";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
@@ -133,15 +137,12 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
             <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
             <div className="brand-copy"><span className="brand-name">临场 · 习题</span><span className="brand-subtitle">PRACTICE</span></div>
           </Link>
-          <Link className="workspace-back" href={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-            <span>{data?.can_manage ? "返回作品" : "进入游戏"}</span>
-          </Link>
+
         </div>
-        <nav className="nav-links" aria-label="习题导航">
+        <nav className="nav-links" aria-label="习题导航"><ReturnLink fallback={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`} />
           {data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
           {data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => setConfirmRegenerate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
-          <Link href="/history">我的作品</Link>
+          <AccountMenu includeAdmin />
         </nav>
       </header>
 

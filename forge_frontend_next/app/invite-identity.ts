@@ -98,3 +98,10 @@ export async function getCreditBalance(): Promise<CreditBalance | null> {
     return null;
   }
 }
+
+export function teacherResourcePlazaUrl() {
+  if (typeof window === "undefined") return "/teacher-ecosystem/";
+  const url = new URL("/teacher-ecosystem/", ssoLoginUrl("/"));
+  url.searchParams.set("returnTo", window.location.origin + window.location.pathname + window.location.search);
+  return url.toString();
+}

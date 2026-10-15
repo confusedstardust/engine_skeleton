@@ -1,4 +1,6 @@
 "use client";
+
+import { ReturnLink } from "../../components/navigation-return";
 import { randomUUID } from "../random-uuid";
 
 import Link from "next/link";
@@ -181,7 +183,7 @@ export default function RechargePage() {
   const sortedProducts = products.filter((product) => !isCreditPack(product) && product.billing_period !== "year").sort((a, b) => { const rank = (name: string) => name === "Creator" ? 0 : name === "Pro" ? 1 : 2; return rank(a.name) - rank(b.name); });
   const pending = orders.some((row) => row.status === "PENDING");
   return <>
-    <header className="top-nav recharge-nav"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">临场 · 创作套餐</span><span className="brand-subtitle">CREATIVE CREDITS</span></div></Link><nav className="nav-links"><Link href="/">返回首页</Link><AccountMenu /></nav></header>
+    <header className="top-nav recharge-nav"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">临场 · 创作套餐</span><span className="brand-subtitle">CREATIVE CREDITS</span></div></Link><nav className="nav-links"><ReturnLink /><AccountMenu includeAdmin /></nav></header>
     <main className="recharge-page recharge-twilight">
       <div className="recharge-heading recharge-hero"><p className="recharge-hero-eyebrow">让每一份灵感，都有展开的空间</p><h1 aria-label="创建互动体验，按创作节奏付费">{["创建互动体验，", "按创作节奏付费"].map((line, lineIndex) => <span key={line} className={lineIndex ? "recharge-hero-accent" : undefined} aria-hidden="true">{Array.from(line).map((char, index) => <span key={index} className="recharge-title-char" style={{ animationDelay: `${0.12 + (lineIndex * 7 + index) * 0.045}s` }}>{char}</span>)}</span>)}</h1><p className="recharge-hero-description">从一次灵感到持续创作，选择适合你的方案。<br className="recharge-hero-break" />用积分开启互动叙事，让文本、知识与想象成为可参与的故事。</p></div>
       {loading ? <p role="status">正在加载账户…</p> : !signedIn ? <div className="recharge-empty"><p>请使用 NarrativeOS 账号登录后充值。</p><Link className="btn primary" href="/login">前往登录</Link></div> : <>

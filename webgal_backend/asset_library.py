@@ -181,6 +181,7 @@ class AssetLibrary:
         original_only: bool = False,
         include_favorite: bool = False,
         category: str | None = None,
+        pagination: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
         if collection == "personal":
             where = "a.status='ACTIVE' AND f.status='READY' AND ((a.owner_user_id=%s AND a.source_type='UPLOADED') OR ((a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)))"
@@ -212,6 +213,7 @@ class AssetLibrary:
             params.extend([search.strip()] * 3)
         if original_only:
             where += " AND f.variant='original'"
+        count_params = tuple(params)
         favorite_select = ", EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s) AS is_favorite" if include_favorite else ""
         if include_favorite:
             params.insert(0, user_id)
@@ -220,6 +222,17 @@ class AssetLibrary:
         if offset:
             params.append(max(0, offset))
         with self._transaction() as cursor:
+            if pagination is not None:
+                cursor.execute(f"""SELECT COUNT(*) AS total
+FROM assets a
+                JOIN asset_files f ON f.asset_id=a.id
+                JOIN (
+                    SELECT asset_id, variant, MAX(revision) revision
+                    FROM asset_files WHERE status='READY' GROUP BY asset_id, variant
+                ) latest ON latest.asset_id=f.asset_id AND latest.variant=f.variant AND latest.revision=f.revision
+                WHERE {where}
+                """, count_params)
+                pagination["total"] = int(cursor.fetchone()["total"])
             cursor.execute(
                 f"""
                 SELECT a.id, a.owner_user_id, a.name, a.kind, a.source_type, a.visibility,

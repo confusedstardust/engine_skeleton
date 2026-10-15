@@ -1,5 +1,7 @@
 "use client";
 
+import { ReturnLink } from "../../components/navigation-return";
+
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { withBasePath } from "../base-path";
@@ -73,18 +75,15 @@ export default function LoginPage() {
             <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
             <div className="brand-copy"><span className="brand-name">临场 · 邀请码</span><span className="brand-subtitle">INVITE ACCESS</span></div>
           </Link>
-          <Link className="workspace-back" href="/?workspace=1" aria-label="返回工作台">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-            <span>返回工作台</span>
-          </Link>
+
         </div>
-        <nav className="nav-links" aria-label="邀请码导航"><Link href="/?workspace=1">新建任务</Link><Link href="/history">生成记录</Link></nav>
+        <nav className="nav-links" aria-label="邀请码导航"><ReturnLink /><Link href="/?workspace=1">新建任务</Link><Link href="/history">我的作品</Link></nav>
       </header>
       <main className="main-wrapper auth-wrapper">
         <section className="auth-panel" aria-labelledby="login-title">
           <div className="auth-copy">
             <span>内测身份</span><h1 id="login-title">输入邀请码继续</h1>
-            <p>每个邀请码对应一个独立身份，生成记录和游戏库只显示这个邀请码下的内容。</p>
+            <p>每个邀请码对应一个独立身份，作品只显示这个邀请码下的内容。</p>
           </div>
           <form className="auth-form" onSubmit={submitInvite}>
             <label>邀请码<input autoComplete="off" onChange={(event) => { setInviteCode(event.target.value); setSaved(false); }} placeholder="输入你的内测邀请码" value={inviteCode} /></label>

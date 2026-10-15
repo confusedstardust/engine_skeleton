@@ -1,5 +1,9 @@
 "use client";
 
+import { AccountMenu } from "../../components/account-menu";
+
+import { ReturnLink } from "../../components/navigation-return";
+
 import Link from "next/link";
 import PaymentTestPanel from "../../components/payment-test-panel";
 import AdminUserDetail from "../../components/admin-user-detail";
@@ -103,7 +107,7 @@ export default function AdminPage() {
   const title = (item:Item) => item.name || item.nickname || item.email || item.id;
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
-    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">平台管理</span><span className="brand-subtitle">ADMINISTRATION</span></div></Link><Link className="workspace-back" href="/">返回首页</Link></div><nav className="nav-links"><Link href="/assets">素材仓库</Link><Link href="/history">我的作品</Link>{allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null}</nav></header>
+    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">平台管理</span><span className="brand-subtitle">ADMINISTRATION</span></div></Link></div><nav className="nav-links"><ReturnLink /><AccountMenu includeAdmin />{allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null}</nav></header>
     <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
       {error ? <div className="history-empty error" role="alert">{error}</div>:null}
       {!allowed?<form className="admin-login" onSubmit={login}><h2>管理员登录</h2><label>账号<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="btn primary" disabled={busy}>{busy?"正在登录…":"登录"}</button></form>:null}

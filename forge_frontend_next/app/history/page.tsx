@@ -1,6 +1,8 @@
 "use client";
 
-import { AdminLink } from "../../components/admin-link";
+import { ReturnLink } from "../../components/navigation-return";
+
+
 
 import Link from "next/link";
 import { AccountMenu } from "../../components/account-menu";
@@ -114,7 +116,7 @@ export default function HistoryPage() {
       })
       .catch((err) => {
         if (!active) return;
-        setError(err instanceof Error ? err.message : "生成记录加载失败");
+        setError(err instanceof Error ? err.message : "我的作品加载失败");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -148,26 +150,22 @@ export default function HistoryPage() {
               <img src={withBasePath("/icon.png")} alt="" />
             </div>
             <div className="brand-copy">
-              <span className="brand-name">临场 · 生成记录</span>
-              <span className="brand-subtitle">GENERATION HISTORY</span>
+              <span className="brand-name">临场 · 我的作品</span>
+              <span className="brand-subtitle">MY WORKS</span>
             </div>
           </Link>
-          <Link className="workspace-back" href="/?workspace=1" aria-label="返回工作台">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-            <span>返回工作台</span>
-          </Link>
+
         </div>
-        <nav className="nav-links" aria-label="记录导航">
-          <Link href="/">新建任务</Link>
-          <Link href="/assets">我的资产</Link>
-          <AdminLink />
-          <AccountMenu className="nav-login" />
+        <nav className="nav-links" aria-label="记录导航"><ReturnLink />
+          <Link href="/?workspace=1">新建任务</Link>
+
+          <AccountMenu className="nav-login" includeAdmin />
         </nav>
       </header>
 
       <main className="main-wrapper history-wrapper">
         <section className="page-header history-head" aria-labelledby="history-title">
-          <h1 id="history-title">生成记录</h1>
+          <h1 id="history-title">我的作品</h1>
         </section>
 
         <section className="history-toolbar" aria-label="记录筛选">
@@ -184,11 +182,11 @@ export default function HistoryPage() {
           ))}
         </section>
 
-        {loading ? <div className="history-empty">正在加载生成记录...</div> : null}
+        {loading ? <div className="history-empty">正在加载我的作品...</div> : null}
         {authMissing ? (
           <div className="history-empty">
             <strong>请先登录 NarrativeOS</strong>
-            <span>生成记录和游戏库会按登录账号隔离。</span>
+            <span>作品会按登录账号隔离。</span>
             <Link className="btn primary" href="/login">前往登录</Link>
           </div>
         ) : null}
@@ -196,8 +194,8 @@ export default function HistoryPage() {
         {!loading && !authMissing && !error && filteredJobs.length === 0 ? (
           <div className="history-empty">
             <strong>暂无记录</strong>
-            <span>新建任务后，生成记录会出现在这里。</span>
-            <Link className="btn primary" href="/">创建新任务</Link>
+            <span>新建任务后，我的作品会出现在这里。</span>
+            <Link className="btn primary" href="/?workspace=1">创建新任务</Link>
           </div>
         ) : null}
 
