@@ -76,6 +76,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
 from .platform_admin import router as admin_router, blocked as admin_blocked
+from .community import router as community_router
+app.include_router(community_router)
 app.include_router(admin_router)
 from .payments import router as payments_router
 app.include_router(payments_router)

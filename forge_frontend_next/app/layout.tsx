@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { NavigationReturnProvider } from "../components/navigation-return";
 import { ConfirmationProvider } from "../components/ui/modal";
+import SiteFooter from "../components/site-footer";
+import { AnnouncementsProvider } from "../components/announcements";
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
@@ -18,7 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <style>{`@font-face { font-family: "NarrativeOS Solution Serif"; src: url("${solutionTitleFontUrl}") format("truetype"); font-display: swap; }`}</style>
       </head>
-      <body><ConfirmationProvider><Suspense><NavigationReturnProvider>{children}</NavigationReturnProvider></Suspense></ConfirmationProvider></body>
+      <body><ConfirmationProvider><Suspense><NavigationReturnProvider><AnnouncementsProvider><div className="forge-page-content">{children}</div><SiteFooter /></AnnouncementsProvider></NavigationReturnProvider></Suspense></ConfirmationProvider></body>
     </html>
   );
 }
