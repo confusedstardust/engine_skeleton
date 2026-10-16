@@ -1999,14 +1999,14 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         )
         if not assets:
             return
-        if not settings.sound_effects_dir.exists():
-            raise PipelineError(f"sound effects directory does not exist: {settings.sound_effects_dir}")
         target_dir = job_dir / "public" / "game" / "bgm"
         target_dir.mkdir(parents=True, exist_ok=True)
         for filename in assets:
             draft_source = job_dir / "draft" / "game" / "bgm" / filename
             if draft_source.exists():
                 shutil.copy2(draft_source, target_dir / filename)
+                continue
+            if (target_dir / filename).is_file():
                 continue
             source = settings.sound_effects_dir / filename
             if not source.exists():

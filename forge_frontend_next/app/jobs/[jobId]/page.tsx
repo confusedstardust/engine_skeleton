@@ -213,6 +213,7 @@ type AssetReviewResponse = {
   available_voices: TTSVoiceOption[];
   scene_music: SceneMusicItem[];
   music_assets: string[];
+  music_asset_names?: Record<string, string>;
   particle_effects: ParticleEffectReview;
 };
 
@@ -1632,6 +1633,7 @@ export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: 
             buildGame={buildGameFromAssets}
             sceneMusic={assetReview?.scene_music || []}
             musicAssets={assetReview?.music_assets || []}
+            musicAssetNames={assetReview?.music_asset_names}
             sceneMusicEnabled={!autoMode}
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}
@@ -1941,6 +1943,7 @@ function AssetReviewPanel(props: {
   buildGame: (staged?: StagedScenePresentation) => Promise<boolean>;
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
+  musicAssetNames?: Record<string, string>;
   sceneMusicEnabled: boolean;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
@@ -2025,6 +2028,7 @@ function AssetReviewPanel(props: {
       voiceGeneratingSpeaker={props.voiceGeneratingSpeaker}
       sceneMusic={props.sceneMusic}
       musicAssets={props.musicAssets}
+      musicAssetNames={props.musicAssetNames}
       sceneMusicEnabled={props.sceneMusicEnabled}
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}

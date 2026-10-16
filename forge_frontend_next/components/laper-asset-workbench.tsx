@@ -136,6 +136,7 @@ type LaperAssetWorkbenchProps = {
   sceneDisplayName: (asset: AssetReviewItem) => string;
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
+  musicAssetNames?: Record<string, string>;
   sceneMusicEnabled: boolean;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
@@ -585,6 +586,7 @@ function DirectionDial(props: { value: number; disabled: boolean; onChange: (val
 }
 
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
+  const musicAssetLabel = (filename: string) => props.musicAssetNames?.[filename] || fallbackMusicAssetLabel(filename);
   const closeAsset = props.closeAsset;
   const [section, setSection] = useState<AssetSection>("figures");
   const [expandedSection, setExpandedSection] = useState<AssetSection | null>("figures");
@@ -1134,6 +1136,6 @@ function AssetHint({ text, children }: { text: string; children: React.ReactElem
   return <Tooltip.Provider delayDuration={250}><Tooltip.Root><Tooltip.Trigger asChild>{children}</Tooltip.Trigger><Tooltip.Portal><Tooltip.Content className="action-hint-content" sideOffset={6}>{text}<Tooltip.Arrow /></Tooltip.Content></Tooltip.Portal></Tooltip.Root></Tooltip.Provider>;
 }
 
-function musicAssetLabel(filename: string) {
+function fallbackMusicAssetLabel(filename: string) {
   return filename.replace(/\.[^.]+$/, "").replace(/^bgm[_\s-]*/i, "").replace(/[_-]+/g, " ").trim();
 }

@@ -213,6 +213,26 @@ def test_copy_bgm_files_uses_game_bgm_directory(tmp_path, monkeypatch):
     assert (job_dir / "public" / "game" / "bgm" / "Bgm_Opening_main.mp3").read_bytes() == b"opening"
 
 
+def test_copy_bgm_files_reuses_published_library_music_without_shared_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "webgal_backend.pipeline.settings",
+        SimpleNamespace(sound_effects_dir=tmp_path / "missing-sounds", workspace_root=tmp_path),
+    )
+    job_dir = tmp_path / "job"
+    bgm_dir = job_dir / "public" / "game" / "bgm"
+    bgm_dir.mkdir(parents=True)
+    published = bgm_dir / "library_example_library_asset.mp3"
+    published.write_bytes(b"published music")
+    pipeline = WebGALPipeline()
+    pipeline._copy_bgm_files(job_dir, {"inserted": [{"asset": published.name}]})
+    assert published.read_bytes() == b"published music"
+    draft = job_dir / "draft" / "game" / "bgm" / published.name
+    draft.parent.mkdir(parents=True)
+    draft.write_bytes(b"replacement music")
+    pipeline._copy_bgm_files(job_dir, {"inserted": [{"asset": published.name}]})
+    assert published.read_bytes() == b"replacement music"
+
+
 def test_completed_asset_regeneration_writes_draft_without_touching_published_game(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "jobs")
     job = store.create("source")
