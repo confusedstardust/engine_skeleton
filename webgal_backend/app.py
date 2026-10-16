@@ -1093,6 +1093,14 @@ def _job_music_assets(job_dir: Path) -> list[str]:
     return sorted(names, key=str.lower)
 
 
+def _job_music_asset_names(job_dir: Path) -> dict[str, str]:
+    return {
+        str(item["filename"]): str(item["display_name"])
+        for item in _uploaded_assets(job_dir)
+        if item.get("type") == "bgm" and item.get("filename") and item.get("display_name")
+    }
+
+
 def _uploaded_image_review_items(job_id: str, job_dir: Path) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for item in _uploaded_assets(job_dir):
@@ -1161,6 +1169,7 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
             "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
             "scene_music": scene_music,
             "music_assets": _job_music_assets(job_dir),
+            "music_asset_names": _job_music_asset_names(job_dir),
             "particle_effects": particle_effects,
             **voice_review,
         }
@@ -1179,6 +1188,7 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
         "image_enabled": bool(job.get("options", {}).get("generate_assets", False)),
         "scene_music": scene_music,
         "music_assets": _job_music_assets(job_dir),
+        "music_asset_names": _job_music_asset_names(job_dir),
         "particle_effects": particle_effects,
         **voice_review,
     }
