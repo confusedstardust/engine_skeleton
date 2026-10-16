@@ -50,9 +50,9 @@ def test_public_listing_excludes_private_content_and_author_identifiers(client, 
         def fetchall(self):
             return []
     @contextmanager
-    def transaction(self):
+    def transaction():
         yield Cursor()
-    monkeypatch.setattr(community.AssetLibrary, "_transaction", transaction)
+    monkeypatch.setattr(community, "database_transaction", transaction)
     assert client.get("/community").status_code == 200
     assert all("WHERE published=1" in sql for sql, _ in calls)
     assert all("user_id" not in sql and "author_name" not in sql for sql, _ in calls)
@@ -74,8 +74,8 @@ def test_duplicate_submission_returns_saved_record_without_insert(client, monkey
         def execute(self, sql, params=()): calls.append(sql)
         def fetchone(self): return {"id": "existing"}
     @contextmanager
-    def transaction(self): yield Cursor()
-    monkeypatch.setattr(community.AssetLibrary, "_transaction", transaction)
+    def transaction(): yield Cursor()
+    monkeypatch.setattr(community, "database_transaction", transaction)
     monkeypatch.setattr(community, "user_from_request", lambda *args: {"id": "alice", "auth_type": "sso"})
     response = client.post("/community/questions", json={"question": "How to create?"}, headers={"X-Forge-Community-Action": "1"})
     assert response.status_code == 200
@@ -99,8 +99,8 @@ def test_suggestions_cannot_be_published(client, monkeypatch):
         def fetchone(self):
             return {"id": "feedback", "kind": "SUGGESTION"}
     @contextmanager
-    def transaction(self): yield Cursor()
-    monkeypatch.setattr(community.AssetLibrary, "_transaction", transaction)
+    def transaction(): yield Cursor()
+    monkeypatch.setattr(community, "database_transaction", transaction)
     monkeypatch.setattr(community, "require_admin", lambda *args: {})
     response = client.put("/admin/community/questions/feedback", json={"answer": "谢谢你的建议", "published": True}, headers={"X-Forge-Admin-Action": "1"})
     assert response.status_code == 422
@@ -109,7 +109,7 @@ def test_suggestions_cannot_be_published(client, monkeypatch):
 @pytest.mark.parametrize("kind", ["QUESTION", "SUGGESTION"])
 @pytest.mark.parametrize("content", ["a", "是", "aa是", "  aa是  "])
 def test_short_messages_rejected_before_storage(client, monkeypatch, kind, content):
-    monkeypatch.setattr(community.AssetLibrary, "_transaction", lambda *args: pytest.fail("short content reached storage"))
+    monkeypatch.setattr(community, "database_transaction", lambda *args: pytest.fail("short content reached storage"))
     response = client.post("/community/questions", json={"question": content, "kind": kind}, headers={"X-Forge-Community-Action": "1"})
     assert response.status_code == 422
 

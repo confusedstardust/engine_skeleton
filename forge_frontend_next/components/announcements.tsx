@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import * as Dialog from "@radix-ui/react-dialog";
+import * as Dialog from "./ui/dialog";
 import { boardApi, type BoardData, type BoardNotice } from "../lib/community";
 
 const AnnouncementsContext = createContext<() => void>(() => {});
@@ -55,13 +55,13 @@ export function AnnouncementsProvider({ children }: { children: ReactNode }) {
   }, [open, revision]);
 
   return <AnnouncementsContext.Provider value={openAnnouncements}>{children}
-    <Dialog.Root open={open} onOpenChange={setOpen}><Dialog.Portal><Dialog.Overlay className="community-dialog-overlay" /><Dialog.Content className="community-notice-dialog" aria-describedby={undefined} onCloseAutoFocus={event => {
+    <Dialog.Root open={open} onOpenChange={setOpen}><Dialog.Surface overlayClassName="community-dialog-overlay" className="community-notice-dialog" aria-describedby={undefined} onCloseAutoFocus={event => {
       if (returnFocus.current?.isConnected) { event.preventDefault(); returnFocus.current.focus({ preventScroll: true }); }
     }}><Dialog.Close className="community-dialog-close" aria-label="关闭公告">×</Dialog.Close>
       <div className="community-notices"><div className="community-column-heading"><Dialog.Title className="community-notice-label">WHAT’S NEW</Dialog.Title></div>
         {notices.length ? notices.map(notice => <article className="community-sticky" key={notice.id}><span className="sticky-tape" aria-hidden="true" /><time>{notice.created_at.slice(0, 10).replaceAll("-", ".")}</time><h4>{notice.title}</h4><p>{notice.content}</p><span className="sticky-signature">NarrativeOS</span></article>) : <article className="community-sticky"><span className="sticky-tape" aria-hidden="true" /><span className="sticky-label">NOTE TO CREATORS</span><h4>{loading ? "正在查看新消息…" : "欢迎来到创作角落"}</h4><p>{error ? "公告暂时无法加载，请稍后重试。" : "新公告会贴在这里。创作中遇到问题，欢迎在问答区留言。"}</p><span className="sticky-signature">NarrativeOS</span></article>}
         {error && <p role="alert">{error} <button className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
       </div>
-    </Dialog.Content></Dialog.Portal></Dialog.Root>
+    </Dialog.Surface></Dialog.Root>
   </AnnouncementsContext.Provider>;
 }

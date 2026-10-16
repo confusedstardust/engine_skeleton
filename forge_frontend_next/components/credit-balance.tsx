@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCreditBalance, type CreditBalance as Balance } from "../app/invite-identity";
 
-export const creditBalanceChangedEvent = "narrativeos:credits-changed";
+export { creditBalanceChangedEvent } from "@narrativeos/ui/client";
+import { creditBalanceChangedEvent } from "@narrativeos/ui/client";
 
 export function CreditBalance() {
   const [balance, setBalance] = useState<Balance | null>(null);

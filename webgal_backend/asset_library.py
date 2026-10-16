@@ -4,11 +4,11 @@ import hashlib
 import json
 import mimetypes
 import uuid
-from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator
+from typing import Any
 
 from credit_system.config import CreditDatabaseConfig
+from forge_database import Database, mysql_connection_factory
 
 from .config import settings
 
@@ -30,25 +30,10 @@ class AssetLibrary:
 
     def __init__(self, config: CreditDatabaseConfig | None = None) -> None:
         self.config = config or CreditDatabaseConfig.from_env()
+        self._database = Database(mysql_connection_factory(self.config, dependency_error=AssetLibraryError))
 
-    @contextmanager
-    def _transaction(self) -> Iterator[Any]:
-        try:
-            import pymysql
-            from pymysql.cursors import DictCursor
-        except ImportError as exc:  # pragma: no cover
-            raise AssetLibraryError("PyMySQL is required") from exc
-        connection = pymysql.connect(cursorclass=DictCursor, **self.config.connect_kwargs())
-        try:
-            connection.begin()
-            with connection.cursor() as cursor:
-                yield cursor
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+    def _transaction(self):
+        return self._database.transaction()
 
     def _bucket(self):
         if not settings.oss_bucket or not settings.oss_access_key_id or not settings.oss_access_key_secret:

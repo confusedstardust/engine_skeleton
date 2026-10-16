@@ -1,4 +1,5 @@
 "use client";
+import { adminApi } from "../lib/api-client";
 
 import { useEffect, useRef, useState } from "react";
 import { init, use as registerECharts, type EChartsCoreOption } from "echarts/core";
@@ -6,7 +7,6 @@ import { LineChart, BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent, AriaComponent } from "echarts/components";
 import { SVGRenderer } from "echarts/renderers";
 import { FormSelect } from "./ui/form-controls";
-import { withBasePath } from "../app/base-path";
 
 registerECharts([LineChart,BarChart,GridComponent,TooltipComponent,LegendComponent,AriaComponent,SVGRenderer]);
 type Day = {date:string; tasks:number;completed:number;failed:number;new_users:number;active_users:number;input_tokens:number;output_tokens:number;cached_input_tokens:number;images:number;tts_characters:number;credits:number;settlements:number;settlements_with_usage:number};
@@ -38,8 +38,7 @@ export default function AdminDashboard() {
   useEffect(()=>{
     const controller=new AbortController();
     setLoading(true);setError("");
-    fetch(withBasePath(`/api/forge/admin/dashboard?days=${days}`),{credentials:"include",signal:controller.signal})
-      .then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.detail||"看板加载失败");return body as Metrics;})
+    adminApi<Metrics>(`/dashboard?days=${days}`, {signal:controller.signal})
       .then(setData).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
   },[days,revision]);

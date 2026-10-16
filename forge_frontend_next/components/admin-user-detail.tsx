@@ -1,16 +1,12 @@
 "use client";
+import { adminApi } from "../lib/api-client";
 
 import { useEffect, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
-import { withBasePath } from "../app/base-path";
-import { jsonAuthHeaders } from "../app/invite-identity";
+import * as Dialog from "./ui/dialog";
 
 type Detail = { user: { id: string; email?: string; nickname?: string; created_at: string; blocked: boolean }; subscription: { name: string; expires_at: string; billing_period: string } | null; revision: number };
-async function request(path: string, init?: RequestInit): Promise<Detail> {
-  const response = await fetch(withBasePath(`/api/forge/admin/users/${path}`), { ...init, credentials: "include", cache: "no-store", headers: { ...jsonAuthHeaders(), "Content-Type": "application/json", "X-Forge-Admin-Action": "1" } });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || "用户信息加载失败");
-  return data;
+function request(path: string, init?: RequestInit): Promise<Detail> {
+  return adminApi<Detail>(`/users/${path}`, init);
 }
 function localDate(iso: string) {
   const value = new Date(iso);
@@ -42,9 +38,7 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
     } catch (e) { setError(e instanceof Error ? e.message : "保存失败"); }
     finally { setBusy(false); }
   }
-  return <Dialog.Root open onOpenChange={open => { if (!open && !busy) onClose(); }}><Dialog.Portal>
-    <Dialog.Overlay className="recharge-payment-overlay" />
-    <Dialog.Content className="admin-user-dialog" aria-describedby={undefined} onEscapeKeyDown={e => { if (busy) e.preventDefault(); }} onPointerDownOutside={e => { if (busy) e.preventDefault(); }}>
+  return <Dialog.Root busy={busy} open onOpenChange={open => { if (!open && !busy) onClose(); }}><Dialog.Surface overlayClassName="recharge-payment-overlay" className="admin-user-dialog" aria-describedby={undefined} onEscapeKeyDown={e => { if (busy) e.preventDefault(); }} onPointerDownOutside={e => { if (busy) e.preventDefault(); }}>
       <Dialog.Title>用户详情与订阅</Dialog.Title><Dialog.Close className="recharge-payment-dismiss" disabled={busy} aria-label="关闭用户详情">×</Dialog.Close>
       {error ? <p role="alert" className="recharge-error">{error}</p> : null}
       {!detail ? <p role="status">正在加载用户信息…</p> : <>
@@ -59,6 +53,5 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
           <button className="btn primary" disabled={busy || !reason.trim()}>{busy ? "正在保存…" : "保存订阅"}</button>
         </form>
       </>}
-    </Dialog.Content>
-  </Dialog.Portal></Dialog.Root>;
+    </Dialog.Surface></Dialog.Root>;
 }

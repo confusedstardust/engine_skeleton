@@ -1,10 +1,13 @@
 "use client";
+import { WorkbenchHeader } from "../../components/workbench-header";
+import { adminApi as api } from "../../lib/api-client";
 
-import { AccountMenu } from "../../components/account-menu";
 
-import { ReturnLink } from "../../components/navigation-return";
 
-import Link from "next/link";
+
+
+
+
 import AdminCommunity from "../../components/admin-community";
 import PaymentTestPanel from "../../components/payment-test-panel";
 import AdminUserDetail from "../../components/admin-user-detail";
@@ -14,10 +17,9 @@ import * as Popover from "@radix-ui/react-popover";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import * as Dialog from "@radix-ui/react-dialog";
+import * as Dialog from "../../components/ui/dialog";
 import { ConfirmDialog } from "../../components/ui/modal";
 import { withBasePath } from "../base-path";
-import { jsonAuthHeaders } from "../invite-identity";
 
 type Item = { id: string; name?: string; nickname?: string; email?: string; kind?: string; status?: string; owner_user_id?: string; owner_email?: string; phase?: string; blocked: boolean; created_at: string; url?: string };
 type GameDetail = Item & { source_material: string; progress_percent: number; draft_revision: number; published_revision: number; build_state: string; options: Record<string,unknown>; error_code?: string; error_message?: string; updated_at: string; scene_count: number; image_count: number; can_preview: boolean };
@@ -34,15 +36,7 @@ const resources = [{value:"dashboard",label:"看板"},{value:"games",label:"游�
 function FilterIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/></svg>;
 }
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge/admin${path}`), { ...init, credentials:"include", headers:{...jsonAuthHeaders(), "Content-Type":"application/json", "X-Forge-Admin-Action":"1"} });
-  const text = await response.text();
-  let body;
-  try { body = JSON.parse(text); }
-  catch { throw new Error(response.ok ? "服务器响应格式异常，请稍后重试" : `管理服务暂时不可用（HTTP ${response.status}），请稍后重试`); }
-  if (!response.ok) throw new Error(body.detail || "管理操作失败");
-  return body;
-}
+
 
 export default function AdminPage() {
   const [allowed,setAllowed] = useState(false);
@@ -108,7 +102,7 @@ export default function AdminPage() {
   const title = (item:Item) => item.name || item.nickname || item.email || item.id;
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
-    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">平台管理</span><span className="brand-subtitle">ADMINISTRATION</span></div></Link></div><nav className="nav-links"><ReturnLink /><AccountMenu includeAdmin />{allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null}</nav></header>
+    <WorkbenchHeader title="平台管理" subtitle="ADMINISTRATION" afterAccount={<> {allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null} </>} />
     <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
       {error ? <div className="history-empty error" role="alert">{error}</div>:null}
       {!allowed?<form className="admin-login" onSubmit={login}><h2>管理员登录</h2><label>账号<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="btn primary" disabled={busy}>{busy?"正在登录…":"登录"}</button></form>:null}
@@ -135,8 +129,7 @@ export default function AdminPage() {
       {userDetailId?<AdminUserDetail key={userDetailId} userId={userDetailId} onClose={()=>setUserDetailId(null)}/>:null}
       <ConfirmDialog open={Boolean(target)} title={target?.blocked?"恢复此记录？":resource==="games"?"下架这个游戏？":"停用此记录？"} description={`“${target?title(target):""}”：${resource==="games"?"下架只禁止本平台播放，不删除游戏、不改变生成状态，作者仍可编辑；恢复后重新开放。":resource==="users"?"禁用后不能使用本平台，统一登录账号保留。":"停用后无法从素材库选用，已发布作品的文件保留。"}`} busy={busy} onCancel={()=>setTarget(null)} onConfirm={()=>{if(target)void change(target,target.blocked?"restore":"block");}}/>
       <Dialog.Root open={detailOpen} onOpenChange={setDetailOpen}>
-        <Dialog.Portal><Dialog.Overlay className="radix-confirm-overlay"/>
-          <Dialog.Content className="admin-detail" aria-describedby={undefined}>
+        <Dialog.Surface overlayClassName="radix-confirm-overlay" className="admin-detail" aria-describedby={undefined}>
             <div className="admin-detail-heading"><Dialog.Title>游戏详情</Dialog.Title><div className="admin-actions">{detail?.can_preview?<a className="btn primary" href={withBasePath(`/play/${detail.id}/`)} target="_blank" rel="noopener noreferrer">预览游戏</a>:null}<Dialog.Close className="admin-detail-close" aria-label="关闭详情">×</Dialog.Close></div></div>
             {detailLoading?<p>正在加载…</p>:detailError?<p role="alert">{detailError}</p>:detail?<>
               <section className="admin-detail-configuration"><h3>生成配置</h3><dl className="admin-detail-info">{["generation_mode","narrative_mode","duration","text_model","image_model","generate_assets","voice_enabled","output_packages"].filter(key=>detail.options?.[key]!==undefined).map(key=><div key={key}><dt>{optionLabels[key]}</dt><dd>{typeof detail.options[key]==="boolean"?(detail.options[key]?"开启":"关闭"):Array.isArray(detail.options[key])?(detail.options[key] as string[]).join("、"):String(detail.options[key])}</dd></div>)}</dl></section><div className="admin-detail-overview"><section className="admin-detail-input"><h3>用户填写内容</h3><dl className="admin-detail-source">{savedInputs(detail).map((row,index)=><div key={index} className={row.label?undefined:"admin-detail-source-text"}>{row.label?<dt>{row.label}</dt>:null}<dd>{row.value}</dd></div>)}</dl></section><section className="admin-detail-meta" aria-label="作品信息">
@@ -150,8 +143,7 @@ export default function AdminPage() {
               <details className="admin-detail-options"><summary>全部参数</summary><dl className="admin-detail-info">{Object.entries(detail.options||{}).map(([key,value])=><div key={key}><dt>{optionLabels[key]||key}</dt><dd>{typeof value==="boolean"?(value?"是":"否"):Array.isArray(value)?value.join("、"):typeof value==="object"?JSON.stringify(value):String(value??"—")}</dd></div>)}</dl></details>
               {!detail.can_preview?<p className="admin-detail-note">{detail.blocked?"作品已下架，恢复后可预览。":"作品尚未生成可预览内容。"}</p>:null}
             </>:null}
-          </Dialog.Content>
-        </Dialog.Portal>
+          </Dialog.Surface>
       </Dialog.Root>
     </main>
   </>;

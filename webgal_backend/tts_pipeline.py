@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from .scene_headers import scene_sections
 from .generation_limits import generation_limits
 from .storage import read_json, write_json
 from .tts import TTSSynthesisError, TTSOptions, synthesize_text_to_file
@@ -420,29 +421,7 @@ def _tts_instructions(item: dict[str, Any]) -> str:
 
 
 def _scene_sections(script_text: str) -> list[tuple[str, str]]:
-    matches = list(
-        re.finditer(
-            r"""^\s*
-            (?:
-                (?:Scene|Ending)\s*[:：]\s*
-                |
-                (?:[\[【「『]\s*)?
-                (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
-            )
-            ([A-Za-z0-9_-]+\.txt)
-            (?:\s*[\]】」』])?
-            \s*[:：]?\s*$
-            """,
-            script_text,
-            flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
-        )
-    )
-    sections: list[tuple[str, str]] = []
-    for index, match in enumerate(matches):
-        body_start = match.end()
-        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(script_text)
-        sections.append((match.group(1), script_text[body_start:body_end].strip()))
-    return sections
+    return scene_sections(script_text)
 
 
 def _character_lookup(narrative_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:

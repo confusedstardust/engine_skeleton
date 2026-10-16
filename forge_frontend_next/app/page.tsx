@@ -1,9 +1,14 @@
 "use client";
+import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
+import { forgeApi as api } from "../lib/api-client";
+import type { Job } from "../domain/jobs";
+import BrandLogo from '../components/brand-logo';
 
-import { ReturnLink } from "../components/navigation-return";
 
 
-import { ModalFrame } from "../components/ui/modal";
+
+
+import { ModalBody, ModalFrame } from "../components/ui/modal";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import * as Checkbox from "@radix-ui/react-checkbox";
@@ -15,19 +20,14 @@ import CommunityBoard from "../components/community-board";
 import { AccountMenu } from "../components/account-menu";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { withBasePath } from "./base-path";
-import { getCurrentUser, jsonAuthHeaders } from "./invite-identity";
+
+import { getCurrentUser } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
 import { creditBalanceChangedEvent } from "../components/credit-balance";
 
 type Choice = {
   name: string;
   desc: string;
-};
-
-type Job = {
-  id: string;
-  status: string;
 };
 
 type GenerationMode = "auto" | "advanced";
@@ -69,24 +69,7 @@ const defaultVoicePreset = "多角色配音";
 const ossSiteAssetUrl = "https://ecs-oss-ist.oss-cn-hangzhou.aliyuncs.com/site_asset";
 const ossImage = (name: string) => `${ossSiteAssetUrl}/${name}`;
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge${path}`), {
-    ...init,
-    credentials: "include",
-    headers: jsonAuthHeaders(init?.headers)
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const payload = JSON.parse(text) as { detail?: string };
-      throw new Error(payload.detail || text);
-    } catch (error) {
-      if (error instanceof SyntaxError) throw new Error(text);
-      throw error;
-    }
-  }
-  return response.json() as Promise<T>;
-}
+
 
 function fallbackText(value: string, fallback: string) {
   return value.trim() || fallback;
@@ -222,32 +205,14 @@ function ClassroomGeneratorPage() {
     <>
       <CloudDecorations />
 
-      <header className="top-nav">
-        <div className="brand">
-          <div className="brand-seal" aria-hidden="true">
-            <img src={withBasePath("/icon.png")} alt="" />
-          </div>
-          <div className="brand-copy">
-            <span className="brand-name">临场 · AI叙事课堂生成平台</span>
-            <span className="brand-subtitle">NarrativeOS</span>
-          </div>
-        </div>
-        <nav className="nav-links" aria-label="主导航">
-          <ReturnLink />
-          <AccountMenu className="nav-login" tour="invite" includeAdmin />
-        </nav>
-        <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
+      <WorkbenchHeader title="临场 · AI叙事课堂生成平台" subtitle="NarrativeOS" brandHref={null} wrapBrand={false} label="主导航" accountClassName="nav-login" accountTour="invite" afterNavigation={<> <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
           <span />
           <span />
-        </button>
-      </header>
+        </button> </>} />
 
       {mobileOpen && (
-        <nav className="mobile-menu" aria-label="移动端导航">
-          <ReturnLink />
-          <AccountMenu className="mobile-login" tour="invite" includeAdmin />
-        </nav>
+        <WorkbenchNavigation className="mobile-menu" label="移动端导航" accountClassName="mobile-login" accountTour="invite" />
       )}
 
       <main className="main-wrapper">
@@ -423,7 +388,7 @@ function NarrativeRouterPage() {
   return <main className="narrative-router">
     <section className="router-hero" aria-labelledby="router-title">
       <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
-      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><img src={withBasePath("/icon.png")} alt="" /></span><span>NarrativeOS</span></Link><nav aria-label="首页导航"><button type="button" className="router-notice-button" onClick={openAnnouncements}>公告</button><a href="#community" onClick={event => {
+      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><BrandLogo rounded={false} /></span><span>NarrativeOS</span></Link><nav aria-label="首页导航"><button type="button" className="router-notice-button" onClick={openAnnouncements}>公告</button><a href="#community" onClick={event => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         const section = document.getElementById("community");
         if (!section) return;
@@ -447,7 +412,7 @@ function NarrativeRouterPage() {
       <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><button type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
     </div></section>
     <CommunityBoard />
-    {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></div></ModalFrame>}
+    {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></ModalBody></div></ModalFrame>}
     {notice && <div className="router-toast" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="关闭提示">×</button></div>}
   </main>;
 }

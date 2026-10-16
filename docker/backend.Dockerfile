@@ -28,6 +28,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
 
+COPY forge_database.py ./
 COPY webgal_backend ./webgal_backend
 COPY credit_system ./credit_system
 COPY wechatpay_native ./wechatpay_native

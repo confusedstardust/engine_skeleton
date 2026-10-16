@@ -1,35 +1,11 @@
 "use client";
+import type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../domain/narrative";
+export type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../domain/narrative";
 import { randomUUID } from "../app/random-uuid";
 import { FormSelect } from "./ui/form-controls";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertionIndex, isTerminalLine, jumpTarget, keepContinuationLabelsTogether } from "./scene-connections";
-
-export type SceneLine = {
-  id: string;
-  kind: "narration" | "dialogue" | "command" | "choice" | "branch";
-  speaker: string;
-  text: string;
-  rawPrefix: string;
-  choices?: SceneChoice[];
-  branchLabel?: string;
-};
-
-export type SceneChoice = {
-  text: string;
-  target: string;
-  target_scene_file?: string;
-  targetSceneFile?: string;
-};
-
-export type EditableScene = {
-  header: string;
-  title: string;
-  lines: SceneLine[];
-  marker?: "Scene" | "Ending";
-  sourceNode?: string;
-  strtype?: string;
-};
 
 type TargetOption = { file: string; label: string };
 

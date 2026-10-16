@@ -1,198 +1,15 @@
-export type Job = {
-  id: string;
-  status: string;
-  phase?: string | null;
-  error?: string | null;
-  options?: {
-    generation_mode?: string;
-    [key: string]: unknown;
-  };
-};
+import type { NarrativePlan, ScenePlan, SceneDraft, GameDesignDraftScene, SceneLine, SceneChoice } from "../../../domain/narrative";
+import type { SceneConnectionReport } from "../../../domain/jobs";
+import { repairContinuationLabels } from "../../../components/scene-connections";
 
-export type NodeArtifact = {
-  key: string;
-  phase: string;
-  phase_status: string;
-  title: string;
-  description: string;
-  path: string;
-  content_type: "json" | "text";
-  exists: boolean;
-  content: string | null;
-};
-
-export type NodesResponse = {
-  job: Job;
-  nodes: NodeArtifact[];
-  scenes: NodeArtifact[];
-};
-
-export type AssetReviewItem = {
-  filename: string;
-  subdir: string;
-  kind: string;
-  display_name?: string;
-  size: string;
-  prompt: string;
-  available_scene: string;
-  scene_display_name?: string;
-  exists: boolean;
-  url: string;
-  avatar_exists: boolean;
-  avatar_url: string | null;
-};
-
-export type TTSVoiceOption = {
-  name: string;
-  gender: string;
-  description: string;
-};
-
-export type TTSVoiceReviewItem = {
-  speaker: string;
-  speaker_id: string;
-  gender: string;
-  voice: string;
-  tone: string;
-  scene: string;
-  line_no: number;
-  text: string;
-  filename: string;
-  status: string;
-  error?: string | null;
-  preview_exists: boolean;
-  preview_url: string | null;
-};
-
-export type AssetReviewResponse = {
-  job: Job;
-  assets: AssetReviewItem[];
-  image_enabled: boolean;
-  voice_enabled: boolean;
-  voices: TTSVoiceReviewItem[];
-  available_voices: TTSVoiceOption[];
-};
-
-export type StoryStep = {
-  id: string;
-  name: string;
-  content: string;
-  narrative_target: string;
-  strtype: string;
-};
-
-export type NarrativeCharacter = {
-  id: string;
-  name: string;
-  gender: string;
-  personality: string;
-  motivation: string;
-  speech_style: string;
-  emotional_arc: string;
-  relationships: { with: string; dynamic: string }[];
-};
-
-export type NarrativeEnding = {
-  ending_type: string;
-  description: string;
-};
-
-export type NarrativeNodeKind = "phase" | "ending" | "character";
-
-export type GeneratedNarrativeNodeResponse = {
-  kind: NarrativeNodeKind;
-  node: StoryStep | NarrativeEnding | NarrativeCharacter;
-};
-
-export type SyncNarrativeStructureResponse = {
-  narrative_plan: NarrativePlan;
-  narrative_structure: string;
-  issues: { node: string; reason: string }[];
-};
-
-export type SyncNarrativeStructureOptions = {
-  quiet?: boolean;
-  force?: boolean;
-};
-
-export type NarrativePlan = {
-  title: string;
-  theme: string;
-  emotion_tone: string;
-  conflict_structure: string;
-  story_progression: StoryStep[];
-  story_arc: string;
-  characters: NarrativeCharacter[];
-  touchable_points: string[];
-  must_avoid: string[];
-  endings: NarrativeEnding[];
-  beat_structure: string[];
-  narrative_structure: string;
-};
-
-export type ScenePlan = {
-  scenes: {
-    kind?: "Scene";
-    scene_file: string;
-    source_node: string;
-    node_name: string;
-    strtype: string;
-  }[];
-  endings: {
-    kind?: "Ending";
-    scene_file: string;
-    ending_type: string;
-    description: string;
-  }[];
-};
-
-export type SceneDraft = {
-  header: string;
-  title: string;
-  lines: SceneLine[];
-  marker?: "Scene" | "Ending";
-  sourceNode?: string;
-  strtype?: string;
-};
-
-export type GameDesignDraftScene = SceneDraft & {
-  marker: "Scene" | "Ending";
-  sourceNode: string;
-  endingType: string;
-};
-
-export type SceneLine = {
-  id: string;
-  kind: "narration" | "dialogue" | "command" | "choice" | "branch";
-  speaker: string;
-  text: string;
-  rawPrefix: string;
-  choices?: SceneChoice[];
-  branchLabel?: string;
-};
-
-export type SceneChoice = {
-  text: string;
-  target: string;
-  target_scene_file?: string;
-  targetSceneFile?: string;
-};
-
-type GameDesignJsonScene = Partial<GameDesignDraftScene> & {
-  scene_file?: string;
-  source_node?: string;
-  ending_type?: string;
-};
-
-type SceneMeta = {
-  title: string;
-  marker: "Scene" | "Ending";
-  sourceNode: string;
-  strtype: string;
-};
-
-export function compactId(id: string) {
-  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+export function parseSceneConnectionReport(content: string | null): SceneConnectionReport | null {
+  if (!content) return null;
+  try {
+    const report = JSON.parse(content) as SceneConnectionReport;
+    return Array.isArray(report.reachable) && Array.isArray(report.fixes) && Array.isArray(report.errors) ? report : null;
+  } catch {
+    return null;
+  }
 }
 
 export function parsePlan(content: string | null): NarrativePlan | null {
@@ -218,47 +35,6 @@ export function parsePlan(content: string | null): NarrativePlan | null {
   }
 }
 
-function flowNodeId(value: string) {
-  const normalized = value.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!normalized) return "";
-  return /^[A-Za-z_]/.test(normalized) ? normalized : `node_${normalized}`;
-}
-
-function flowNodeLabel(id: string, plan: NarrativePlan) {
-  const phase = plan.story_progression.find((step) => flowNodeId(step.id) === id || step.id === id || step.name === id);
-  if (phase) return phase.name || phase.id;
-  const ending = plan.endings.find((item) => flowNodeId(item.ending_type) === id || item.ending_type === id);
-  if (ending) return `结局：${ending.ending_type}`;
-  return id.replace(/_/g, " ");
-}
-
-export function parseFlowEdges(structure: string, plan: NarrativePlan) {
-  const edgePattern = /([A-Za-z_][A-Za-z0-9_-]*)(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?\s*(?:-->|==>|-\.->)\s*(?:\|[^|]+\|\s*)?([A-Za-z_][A-Za-z0-9_-]*)/g;
-  const edges: { source: string; target: string }[] = [];
-  for (const line of structure.split(/\r?\n/)) {
-    edgePattern.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = edgePattern.exec(line))) {
-      edges.push({ source: flowNodeLabel(match[1], plan), target: flowNodeLabel(match[2], plan) });
-    }
-  }
-  return edges;
-}
-
-export function flowNodes(plan: NarrativePlan) {
-  return [
-    ...plan.story_progression.map((step, index) => ({
-      id: flowNodeId(step.id || `phase${index}`),
-      label: step.name || step.id || `阶段 ${index + 1}`,
-      meta: step.strtype === "branch" ? "分支" : "主线"
-    })),
-    ...plan.endings.map((ending, index) => ({
-      id: flowNodeId(ending.ending_type || `ending_${index + 1}`),
-      label: `结局：${ending.ending_type || index + 1}`,
-      meta: "结局"
-    }))
-  ];
-}
 
 export function parseScenePlan(content: string | null): ScenePlan | null {
   if (!content) return null;
@@ -329,6 +105,12 @@ function normalizeSceneLine(line: Partial<SceneLine>, fallbackId: string): Scene
   };
 }
 
+type GameDesignJsonScene = Partial<GameDesignDraftScene> & {
+  scene_file?: string;
+  source_node?: string;
+  ending_type?: string;
+};
+
 function scenesFromGameDesignJson(content: string, plan: NarrativePlan | null, scenePlan: ScenePlan | null): GameDesignDraftScene[] | null {
   try {
     const parsed = JSON.parse(content) as { scenes?: GameDesignJsonScene[] };
@@ -366,7 +148,7 @@ export function serializeGameDesignJson(scenes: SceneDraft[]) {
   return JSON.stringify(
     {
       version: 1,
-      scenes: scenes.map((scene) => ({
+      scenes: repairContinuationLabels(scenes).map((scene) => ({
         marker: scene.marker || "Scene",
         scene_file: scene.header,
         source_node: scene.sourceNode || "",
@@ -487,10 +269,6 @@ export function sceneMarkerLabel(scene: Pick<SceneDraft, "marker">) {
   return scene.marker === "Ending" ? "结局" : "场景";
 }
 
-export function choiceTargetValue(choice: SceneChoice) {
-  return choice.target_scene_file || choice.targetSceneFile || choice.target || "";
-}
-
 export function sceneTargetOptions(scenePlan: ScenePlan | null, plan: NarrativePlan | null, scenes: SceneDraft[], currentHeader?: string) {
   const byHeader = scenePlanMetaByHeader(scenePlan, plan);
   scenes.forEach((scene) => {
@@ -504,7 +282,7 @@ export function sceneTargetOptions(scenePlan: ScenePlan | null, plan: NarrativeP
     }
   });
   return Array.from(byHeader.entries())
-    .filter(([file]) => file !== currentHeader)
+    .filter(([file]) => file !== currentHeader && scenes.some(scene => scene.header === file))
     .map(([file, meta]) => ({
       file,
       label: meta.marker === "Ending" ? `结局：${meta.title.replace(/^结局[:：]/, "")}` : meta.title || file
@@ -545,6 +323,13 @@ function parseChoiceOptions(text: string): SceneChoice[] {
     })
     .filter((choice): choice is SceneChoice => Boolean(choice));
 }
+
+type SceneMeta = {
+  title: string;
+  marker: "Scene" | "Ending";
+  sourceNode: string;
+  strtype: string;
+};
 
 function sceneMetaByHeader(rawDesignText: string | null | undefined, plan: NarrativePlan | null, scenePlan: ScenePlan | null) {
   const mapping = scenePlanMetaByHeader(scenePlan, plan);
@@ -605,6 +390,10 @@ function parseSceneLine(line: string, id: string): SceneLine {
   if (branchMatch) {
     return { id, kind: "branch", speaker: "分支", text: branchMatch[1], rawPrefix: "branch", branchLabel: branchMatch[1] };
   }
+  const labelMatch = original.match(/^label\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)\s*;?$/i);
+  if (labelMatch) {
+    return { id, kind: "branch", speaker: "分支", text: labelMatch[1], rawPrefix: "branch", branchLabel: labelMatch[1] };
+  }
 
   const trimmed = original.replace(/^>\s*/, "");
   const narrationMatch = trimmed.match(/^(旁白|intro)\s*[:：]\s*(.*?);?$/);
@@ -618,6 +407,56 @@ function parseSceneLine(line: string, id: string): SceneLine {
   }
 
   return { id, kind: "command", speaker: "指令", text: cleanEditableLineText(trimmed), rawPrefix: "" };
+}
+
+export function compactId(id: string) {
+  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+function flowNodeId(value: string) {
+  const normalized = value.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!normalized) return "";
+  return /^[A-Za-z_]/.test(normalized) ? normalized : `node_${normalized}`;
+}
+
+function flowNodeLabel(id: string, plan: NarrativePlan) {
+  const phase = plan.story_progression.find((step) => flowNodeId(step.id) === id || step.id === id || step.name === id);
+  if (phase) return phase.name || phase.id;
+  const ending = plan.endings.find((item) => flowNodeId(item.ending_type) === id || item.ending_type === id);
+  if (ending) return `结局：${ending.ending_type}`;
+  return id.replace(/_/g, " ");
+}
+
+export function parseFlowEdges(structure: string, plan: NarrativePlan) {
+  const edgePattern = /([A-Za-z_][A-Za-z0-9_-]*)(?:\[[^\]]*\]|\([^\)]*\)|\{[^\}]*\})?\s*(?:-->|==>|-\.->)\s*(?:\|[^|]+\|\s*)?([A-Za-z_][A-Za-z0-9_-]*)/g;
+  const edges: { source: string; target: string }[] = [];
+  for (const line of structure.split(/\r?\n/)) {
+    edgePattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = edgePattern.exec(line))) {
+      edges.push({ source: flowNodeLabel(match[1], plan), target: flowNodeLabel(match[2], plan) });
+    }
+  }
+  return edges;
+}
+
+export function flowNodes(plan: NarrativePlan) {
+  return [
+    ...plan.story_progression.map((step, index) => ({
+      id: flowNodeId(step.id || `phase${index}`),
+      label: step.name || step.id || `阶段 ${index + 1}`,
+      meta: step.strtype === "branch" ? "分支" : "主线"
+    })),
+    ...plan.endings.map((ending, index) => ({
+      id: flowNodeId(ending.ending_type || `ending_${index + 1}`),
+      label: `结局：${ending.ending_type || index + 1}`,
+      meta: "结局"
+    }))
+  ];
+}
+
+export function choiceTargetValue(choice: SceneChoice) {
+  return choice.target_scene_file || choice.targetSceneFile || choice.target || "";
 }
 
 export function draftLineRows(text: string) {

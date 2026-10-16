@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" fill="none">
+<defs>
+ <filter id="paper"><feTurbulence type="fractalNoise" baseFrequency=".62" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+ <radialGradient id="ink"><stop stop-color="#b7493e" stop-opacity=".16"/><stop offset="1" stop-color="#b7493e" stop-opacity="0"/></radialGradient>
+ <linearGradient id="edge"><stop stop-color="#937047" stop-opacity=".21"/><stop offset=".25" stop-color="#fffaf0" stop-opacity=".8"/><stop offset=".55" stop-color="#b99967" stop-opacity=".12"/><stop offset="1" stop-color="#b99967" stop-opacity="0"/></linearGradient>
+ <linearGradient id="mount" x2="0" y2="1"><stop stop-color="#897a60" stop-opacity=".12"/><stop offset="1" stop-color="#897a60" stop-opacity="0"/></linearGradient>
+</defs>
+<ellipse cx="790" cy="80" rx="560" ry="300" fill="url(#ink)"/>
+<path d="M0 0H46Q18 260 44 500T36 1000H0Z" fill="url(#edge)"/>
+<path d="M0 0H46Q18 260 44 500T36 1000H0Z" fill="url(#edge)" transform="translate(1600 0) scale(-1 1)"/>
+<g stroke="#9c7445" stroke-width="1" opacity=".32">
+<path d="M65 270V164Q65 144 85 144H170Q190 144 190 124V50M190 144H264Q284 144 284 164V203M1335 57V126Q1335 146 1355 146H1458Q1478 146 1478 166V287M1355 146H1300Q1280 146 1280 166V207"/>
+<circle cx="65" cy="278" r="6"/><circle cx="190" cy="43" r="6"/><circle cx="284" cy="211" r="6"/><circle cx="1335" cy="49" r="6"/><circle cx="1478" cy="295" r="6"/><circle cx="1280" cy="215" r="6"/>
+<path d="m88 66 5 13 13 5-13 5-5 13-5-13-13-5 13-5ZM1500 68l4 10 10 4-10 4-4 10-4-10-10-4 10-4Z"/>
+<path d="M108 202v27h30v-27l-15 5-15-5Zm15 5v22M1409 63v27h30V63l-15 5-15-5Zm15 5v22"/>
+</g>
+<g stroke="#a8453e" opacity=".16"><circle cx="114" cy="364" r="31"/><circle cx="114" cy="364" r="25"/><path d="m98 364 16-16 16 16-16 16Z"/><path d="M1490 380h34v34h-34zM1497 387h20v20h-20z"/></g>
+<path d="M0 850 100 805 155 822 260 735 330 780 460 710 600 820 740 772 890 840 1020 735 1100 778 1250 680 1380 780 1500 725 1600 810V1000H0Z" fill="url(#mount)"/>
+<path d="M0 891 155 836 260 868 400 797 550 881 720 840 850 906 1020 820 1160 877 1310 786 1480 856 1600 818" stroke="#a38e68" opacity=".15"/>
+<path d="M55 102H1545M55 109H365M1235 109H1545" stroke="#a18a60" opacity=".17"/>
+<rect width="1600" height="1000" filter="url(#paper)" opacity=".045" style="mix-blend-mode:multiply"/>
+</svg>

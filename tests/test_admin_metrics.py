@@ -19,8 +19,8 @@ def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
         def fetchall(self): return responses.pop(0)
         def fetchone(self): return {'users':1}
     @contextmanager
-    def transaction(self): yield Cursor()
-    with patch('webgal_backend.admin_metrics.AssetLibrary._transaction',transaction), patch('webgal_backend.admin_metrics.datetime') as clock:
+    def transaction(): yield Cursor()
+    with patch('webgal_backend.admin_metrics.database_transaction',transaction), patch('webgal_backend.admin_metrics.datetime') as clock:
         clock.now.return_value.date.return_value=date(2026,10,7)
         result=dashboard_metrics(7)
     assert len(result['daily'])==7

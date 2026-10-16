@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from contextlib import contextmanager
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Mapping
+
+from forge_database import ConnectionFactory, Database, mysql_connection_factory
 
 from .config import CreditDatabaseConfig
 from .errors import (
@@ -16,7 +17,6 @@ from .errors import (
 from .models import CreditBalance, CreditGrant, CreditReservation
 
 
-ConnectionFactory = Callable[[], Any]
 _ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _OPERATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
 _SIGNUP_SOURCE_KEY = "signup-credits:v1"
@@ -71,32 +71,18 @@ class MySQLCreditStore:
 
     def __init__(self, connection_factory: ConnectionFactory) -> None:
         self._connection_factory = connection_factory
+        self._database = Database(connection_factory)
 
     @classmethod
     def from_config(cls, config: CreditDatabaseConfig) -> "MySQLCreditStore":
-        def connect():
-            try:
-                import pymysql
-                from pymysql.cursors import DictCursor
-            except ImportError as exc:  # pragma: no cover - installation problem
-                raise RuntimeError("PyMySQL is required; install project requirements") from exc
-            return pymysql.connect(cursorclass=DictCursor, **config.connect_kwargs())
+        return cls(mysql_connection_factory(config))
 
-        return cls(connect)
+    def transaction(self):
+        return self._database.transaction()
 
-    @contextmanager
-    def _transaction(self) -> Iterator[Any]:
-        connection = self._connection_factory()
-        try:
-            connection.begin()
-            with connection.cursor() as cursor:
-                yield cursor
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+    def _transaction(self):
+        """Compatibility for existing store subclasses; new callers use transaction()."""
+        return self.transaction()
 
     def ensure_signup_grant(self, user_id: str, *, units: int = 200) -> CreditGrant:
         """Idempotently issue a promotional grant, without fabricating a payment."""

@@ -1,4 +1,8 @@
 "use client";
+import { useAudioPreview } from "../hooks/use-audio-preview";
+import { AssetPickerDialog } from "./assets/asset-picker-dialog";
+import type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
+export type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, AssetReviewResponse, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
@@ -9,106 +13,9 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { ModalFrame } from "./ui/modal";
+import { ModalBody, ModalFrame } from "./ui/modal";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 import { FormSelect, FormSlider } from "./ui/form-controls";
-
-export type AssetReviewItem = {
-  filename: string;
-  subdir: string;
-  kind: string;
-  display_name?: string;
-  size: string;
-  prompt: string;
-  available_scene: string;
-  scene_display_name?: string;
-  exists: boolean;
-  url: string;
-  crop_source_url?: string;
-  avatar_exists: boolean;
-  avatar_url: string | null;
-};
-
-export type TTSVoiceOption = {
-  name: string;
-  gender: string;
-  description: string;
-};
-
-export type TTSVoiceReviewItem = {
-  speaker: string;
-  speaker_id: string;
-  gender: string;
-  voice: string;
-  tone: string;
-  scene: string;
-  line_no: number;
-  text: string;
-  filename: string;
-  status: string;
-  error?: string | null;
-  preview_exists: boolean;
-  preview_url: string | null;
-};
-
-export type SceneMusicItem = {
-  scene_file: string;
-  label: string;
-  kind: "scene" | "ending";
-  system_asset: string | null;
-  selected_asset: string | null;
-  active_asset: string | null;
-};
-
-export type PersonalLibraryAsset = {
-  id: string;
-  file_id: string;
-  name: string;
-  kind: "FIGURE" | "BACKGROUND" | "BGM";
-  source_type: "GENERATED" | "UPLOADED";
-  revision: number;
-  variant: string;
-  mime_type: string;
-  width_px?: number | null;
-  height_px?: number | null;
-  duration_ms?: number | null;
-  created_at: string;
-  url: string;
-};
-
-export type ParticleEffectPreset = {
-  id: string;
-  label: string;
-  description: string;
-  asset: string;
-  preview_url: string;
-  count: number;
-  speed: number;
-  scale: number;
-  angle: number;
-  opacity: number;
-  drift: number;
-  gravity: number;
-  rotation_speed: number;
-  layer: "foreground" | "background";
-  blend_mode: "normal" | "add" | "screen";
-  sheet?: { frame_width: number; frame_height: number; frame_count: number; columns: number };
-};
-
-export type SceneEffectAssignment = Omit<ParticleEffectPreset, "id" | "label" | "description" | "preview_url"> & {
-  effect_id: string;
-};
-
-export type ParticleEffectReview = {
-  effects: ParticleEffectPreset[];
-  scenes: Array<{ scene_file: string; label: string; kind: "scene" | "ending"; assignment: SceneEffectAssignment | null }>;
-};
-
-export type StagedScenePresentation = {
-  music: Record<string, string | null>;
-  effects: Record<string, SceneEffectAssignment | null>;
-  avatarCrops: Record<string, { zoom: number; offsetX: number; offsetY: number }>;
-};
 
 type LaperAssetWorkbenchProps = {
   imageEnabled: boolean;
@@ -140,7 +47,7 @@ type LaperAssetWorkbenchProps = {
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
   uploadAsset: (file: File, assetType: "image" | "bgm", imageRole?: "figure" | "background", removeBackground?: boolean, replaceFilename?: string) => Promise<boolean>;
-  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], page: number) => Promise<{ assets: PersonalLibraryAsset[]; has_more: boolean }>;
+  loadLibraryAssets: (kind: PersonalLibraryAsset["kind"], page: number, signal?: AbortSignal) => Promise<{ assets: PersonalLibraryAsset[]; has_more: boolean }>;
   useLibraryAsset: (asset: PersonalLibraryAsset, target: "figure" | "background" | "bgm", replaceFilename?: string) => Promise<boolean>;
   removeAssetBackground: (asset: AssetReviewItem) => Promise<boolean>;
 };
@@ -264,9 +171,6 @@ type CharacterVoiceControlProps = {
   readonly: boolean;
   selectVoice: (voice: string) => void;
   previewVoice: (speaker: string, voice: string) => Promise<void>;
-  activeSpeaker: string | null;
-  playVoice: (speaker: string, audio: HTMLAudioElement) => Promise<void>;
-  stopVoice: (speaker: string, audio: HTMLAudioElement) => void;
   pickerOpen: boolean;
   setPickerOpen: (open: boolean) => void;
 };
@@ -279,8 +183,9 @@ function normalizedVoiceGender(value: string): "male" | "female" | null {
 }
 
 function CharacterVoiceControl(props: CharacterVoiceControlProps) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const preview = useAudioPreview(props.item.preview_url);
+  const { playing, stop: stopPreview } = preview;
+  useEffect(() => { if (props.generating) stopPreview(); }, [props.generating, stopPreview]);
   const assignedVoice = props.availableVoices.find((voice) => voice.name === props.item.voice);
   const characterGender = normalizedVoiceGender(props.item.gender) || normalizedVoiceGender(assignedVoice?.gender || "");
   const eligibleVoices = props.availableVoices.filter((voice) => normalizedVoiceGender(voice.gender) === characterGender);
@@ -296,58 +201,22 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
     }
   }, [props, selectedVoice]);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || props.activeSpeaker === props.item.speaker) return;
-    audio.pause();
-    setPlaying(false);
-  }, [props.activeSpeaker, props.item.speaker]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
-    setPlaying(false);
-  }, [props.item.preview_url]);
-
   const voiceOptions = eligibleVoices.map((voice, index) => ({
     value: voice.name,
     label: voice.description || `${genderLabel} ${index + 1}`
   }));
-
-  function togglePlayback() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (!audio.paused) {
-      props.stopVoice(props.item.speaker, audio);
-      setPlaying(false);
-      return;
-    }
-    void props.playVoice(props.item.speaker, audio).catch(() => setPlaying(false));
-  }
 
   return (
     <div className="character-card-voice" onClick={(event) => event.stopPropagation()}>
       <div className={`voice-preview-row ${props.item.preview_exists && props.item.preview_url ? "" : "missing"}`}>
         {props.item.preview_exists && props.item.preview_url ? (
           <div className="voice-preview-action">
-            <audio
-              ref={audioRef}
-              preload="none"
-              src={props.item.preview_url}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={(event) => {
-                event.currentTarget.currentTime = 0;
-                props.stopVoice(props.item.speaker, event.currentTarget);
-              }}
-            />
+            <audio {...preview.audioProps} />
             <AssetHint text={playing ? "暂停试听" : "播放试听"}><button
               className="voice-play-button"
               type="button"
               aria-label={playing ? `暂停 ${props.item.speaker} 的试听` : `播放 ${props.item.speaker} 的试听`}
-              onClick={togglePlayback}
+              onClick={preview.toggle}
             >
               {playing ? (
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zm6 0h4v14h-4z" /></svg>
@@ -359,6 +228,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
         ) : (
           <div className="voice-preview-missing">试听暂不可用</div>
         )}
+        {preview.error ? <small role="alert">{preview.error}</small> : null}
         <p className="character-voice-line">“{props.item.text}”</p>
       </div>
       {props.generating && <div className="voice-card-generating" role="status"><span className="pending-spinner" aria-hidden="true" />正在生成音色…</div>}
@@ -585,34 +455,24 @@ function DirectionDial(props: { value: number; disabled: boolean; onChange: (val
 }
 
 export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
-  const closeAsset = props.closeAsset;
   const [section, setSection] = useState<AssetSection>("figures");
   const [expandedSection, setExpandedSection] = useState<AssetSection | null>("figures");
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
-  const [activeVoiceSpeaker, setActiveVoiceSpeaker] = useState<string | null>(null);
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
+  const musicPreview = useAudioPreview();
+  const musicPreviewingAsset = musicPreview.activeKey;
+  const musicPreviewError = musicPreview.error;
+  const stopMusicPreview = musicPreview.stop;
   const [musicDrafts, setMusicDrafts] = useState<Record<string, string | null>>({});
-  const [musicPreviewingAsset, setMusicPreviewingAsset] = useState<string | null>(null);
-  const [musicPreviewError, setMusicPreviewError] = useState("");
   const [effectSceneFile, setEffectSceneFile] = useState("");
   const [effectDrafts, setEffectDrafts] = useState<Record<string, SceneEffectAssignment | null>>({});
   const [avatarCropDrafts, setAvatarCropDrafts] = useState<Record<string, { zoom: number; offsetX: number; offsetY: number }>>({});
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
-  const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const musicPreviewUrlRef = useRef<string | null>(null);
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const musicUploadRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageUpload, setPendingImageUpload] = useState<{ role: "figure" | "background"; removeBackground: boolean; replaceFilename?: string }>({ role: "background", removeBackground: false });
   const [uploadNotice, setUploadNotice] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [libraryPicker, setLibraryPicker] = useState<{ kind: PersonalLibraryAsset["kind"]; target: "figure" | "background" | "bgm"; replaceFilename?: string } | null>(null);
-  const [libraryPage, setLibraryPage] = useState(1);
-  const [libraryHasMore, setLibraryHasMore] = useState(false);
-  const [libraryAssets, setLibraryAssets] = useState<PersonalLibraryAsset[]>([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryError, setLibraryError] = useState("");
-  const [selectedLibraryFileId, setSelectedLibraryFileId] = useState("");
-  const [libraryApplying, setLibraryApplying] = useState(false);
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
   const currentList = section === "figures" ? figures : backgrounds;
@@ -668,114 +528,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
 
   async function openLibraryPicker(kind: PersonalLibraryAsset["kind"], target: "figure" | "background" | "bgm", replaceFilename?: string) {
     setLibraryPicker({ kind, target, replaceFilename });
-    setLibraryPage(1);
-  }
-
-  const libraryLoadPending = useRef(false);
-  const libraryScrollRef = useRef<HTMLDivElement>(null);
-  const libraryLoaderRef = useRef(props.loadLibraryAssets);
-  libraryLoaderRef.current = props.loadLibraryAssets;
-  useEffect(() => {
-    if (!libraryPicker) return;
-    let active = true;
-    if (libraryPage === 1) {
-      libraryScrollRef.current?.scrollTo({top: 0});
-      setLibraryAssets([]);
-      setSelectedLibraryFileId("");
-    }
-    libraryLoadPending.current = true;
-    setLibraryError("");
-    setLibraryLoading(true);
-    libraryLoaderRef.current(libraryPicker.kind, libraryPage).then((data) => {
-      if (!active) return;
-      setLibraryAssets(previous => libraryPage === 1 ? data.assets : [...previous, ...data.assets.filter(asset => !previous.some(item => item.file_id === asset.file_id))]);
-      setLibraryHasMore(data.has_more);
-    }).catch((error) => { if (active) setLibraryError(error instanceof Error ? error.message : "素材库加载失败"); })
-      .finally(() => { if (active) { setLibraryLoading(false); libraryLoadPending.current = false; } });
-    return () => { active = false; };
-  }, [libraryPicker, libraryPage]);
-
-  function loadNextLibraryBatch(element: HTMLDivElement) {
-    if (libraryLoading || libraryLoadPending.current || libraryError || !libraryHasMore || element.scrollHeight - element.scrollTop - element.clientHeight > 80) return;
-    libraryLoadPending.current = true;
-    setLibraryPage(value => value + 1);
-  }
-
-  async function applyLibraryAsset() {
-    if (!libraryPicker || !selectedLibraryFileId) return;
-    const asset = libraryAssets.find((item) => item.file_id === selectedLibraryFileId);
-    if (!asset) return;
-    setLibraryApplying(true);
-    setLibraryError("");
-    try {
-      const ok = await props.useLibraryAsset(asset, libraryPicker.target, libraryPicker.replaceFilename);
-      if (!ok) {
-        setLibraryError("素材调用失败，请重试");
-        return;
-      }
-      showUploadNotice(libraryPicker.target === "bgm" ? "素材库 BGM 已加入当前作品" : "素材库素材已替换当前预览");
-      setLibraryPicker(null);
-    } catch (error) {
-      setLibraryError(error instanceof Error ? error.message : "素材调用失败，请重试");
-    } finally {
-      setLibraryApplying(false);
-    }
-  }
-
-  async function playVoice(speaker: string, audio: HTMLAudioElement) {
-    if (activeAudioRef.current && activeAudioRef.current !== audio) {
-      activeAudioRef.current.pause();
-    }
-    activeAudioRef.current = audio;
-    setActiveVoiceSpeaker(speaker);
-    try {
-      await audio.play();
-    } catch (error) {
-      if (activeAudioRef.current === audio) {
-        activeAudioRef.current = null;
-        setActiveVoiceSpeaker(null);
-      }
-      throw error;
-    }
-  }
-
-  function stopVoice(speaker: string, audio: HTMLAudioElement) {
-    audio.pause();
-    if (activeAudioRef.current === audio) {
-      activeAudioRef.current = null;
-      setActiveVoiceSpeaker((current) => current === speaker ? null : current);
-    }
-  }
-
-  function stopMusicPreview() {
-    const audio = musicPreviewAudioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
-    }
-    musicPreviewAudioRef.current = null;
-    if (musicPreviewUrlRef.current) URL.revokeObjectURL(musicPreviewUrlRef.current);
-    musicPreviewUrlRef.current = null;
-    setMusicPreviewingAsset(null);
   }
 
   async function playMusicPreview(asset: string) {
-    if (!asset) return;
-    stopMusicPreview();
-    setMusicPreviewError("");
-    try {
-      const blob = await props.previewSceneMusic(asset);
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      musicPreviewUrlRef.current = url;
-      musicPreviewAudioRef.current = audio;
-      audio.onended = stopMusicPreview;
-      setMusicPreviewingAsset(asset);
-      await audio.play();
-    } catch (error) {
-      stopMusicPreview();
-      setMusicPreviewError(error instanceof Error ? error.message : "音乐试听加载失败。");
-    }
+    if (asset) await musicPreview.play(asset, () => props.previewSceneMusic(asset));
   }
 
   function showUploadNotice(message: string) {
@@ -783,21 +539,6 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     window.setTimeout(() => setUploadNotice((current) => current === message ? "" : current), 2000);
   }
 
-  useEffect(() => {
-    if (!props.voiceGeneratingSpeaker || !activeAudioRef.current) return;
-    activeAudioRef.current.pause();
-    activeAudioRef.current = null;
-    setActiveVoiceSpeaker(null);
-  }, [props.voiceGeneratingSpeaker]);
-
-  useEffect(() => () => stopMusicPreview(), []);
-
-  useEffect(() => {
-    if (!active) return;
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") closeAsset(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [active, closeAsset]);
 
   return (
     <Tabs.Root asChild value={section} onValueChange={(value) => setSection(value as typeof section)}><section className={`laper-shell laper-asset-shell ${props.readonly ? "readonly" : ""}`}>
@@ -1005,9 +746,6 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                             readonly={props.readonly}
                             selectVoice={(voice) => setVoiceSelections((current) => ({ ...current, [voiceItem.speaker]: voice }))}
                             previewVoice={props.previewVoice}
-                            activeSpeaker={activeVoiceSpeaker}
-                            playVoice={playVoice}
-                            stopVoice={stopVoice}
                             pickerOpen={openVoicePickerSpeaker === voiceItem.speaker}
                             setPickerOpen={(open) => {
                               setOpenVoicePickerSpeaker((current) => {
@@ -1090,7 +828,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       {active && (
         <ModalFrame title="素材详情" onClose={props.closeAsset}><div className="asset-modal-layer" role="presentation">
           <button className="asset-modal-backdrop" type="button" aria-label="关闭素材详情" onClick={props.closeAsset} />
-          <section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
+          <ModalBody><section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
             <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
             <div className="asset-modal-body">
               <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div>{(imageUploading || uploadNotice) && <div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice}</div>}</div>
@@ -1101,26 +839,18 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               </div>
             </div>
             <footer className="asset-modal-actions">{!props.readonly && <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</button>}<button className="btn primary" type="button" onClick={props.closeAsset}>关闭</button></footer>
-          </section>
+          </section></ModalBody>
         </div></ModalFrame>
       )}
-      {libraryPicker && (
-        <ModalFrame title="选择素材" onClose={() => { if (!libraryApplying) setLibraryPicker(null); }}><div className="asset-library-picker-layer" role="presentation">
-          <button className="asset-modal-backdrop" type="button" aria-label="关闭素材库" onClick={() => !libraryApplying && setLibraryPicker(null)} />
-          <section className="asset-library-picker" role="dialog" aria-modal="true" aria-labelledby="asset-library-picker-title">
-            <header className="asset-modal-head"><div><h2 id="asset-library-picker-title">选择{libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}</h2></div><button type="button" aria-label="关闭" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>×</button></header>
-            <div className="asset-library-picker-body" ref={libraryScrollRef} onScroll={event => loadNextLibraryBatch(event.currentTarget)} onWheel={event => { if (event.deltaY > 0) loadNextLibraryBatch(event.currentTarget); }}>
-              {libraryLoading && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><span className="pending-spinner" aria-hidden="true" /><strong>正在加载素材…</strong></div> : null}
-              {!libraryLoading && libraryError ? <div className="asset-library-picker-state error" role="alert"><strong>{libraryError}</strong><button className="btn outline" onClick={() => {setLibraryError(""); setLibraryPicker(value => value ? {...value} : value);}}>重试</button></div> : null}
-              {!libraryLoading && !libraryError && libraryAssets.length === 0 ? <div className="asset-library-picker-state"><strong>暂无可选素材</strong></div> : null}
-
-              {libraryAssets.length > 0 ? <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">{libraryAssets.map((asset) => { const selected = selectedLibraryFileId === asset.file_id; return <button className={`asset-library-picker-card ${selected ? "selected" : ""}`} type="button" role="option" aria-selected={selected} key={asset.file_id} onClick={() => setSelectedLibraryFileId(asset.file_id)}><div className="asset-library-picker-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt="" loading="lazy" decoding="async" /> : <span className="asset-library-audio-mark" aria-hidden="true">♫</span>}</div><div className="asset-library-picker-copy"><strong>{asset.name}</strong></div><i aria-hidden="true">✓</i></button>; })}</div> : null}
-              {libraryLoading && libraryAssets.length > 0 ? <div className="asset-library-picker-more" role="status">正在加载更多素材…</div> : null}
-            </div>
-            <footer className="asset-modal-actions"><button className="btn outline" type="button" disabled={libraryApplying} onClick={() => setLibraryPicker(null)}>取消</button><button className="btn primary" type="button" disabled={!selectedLibraryFileId || libraryApplying} onClick={() => void applyLibraryAsset()}>{libraryApplying ? "正在使用…" : "使用此素材"}</button></footer>
-          </section>
-        </div></ModalFrame>
-      )}
+      {libraryPicker && <AssetPickerDialog
+        title={`选择${libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}`}
+        load={(page, signal) => props.loadLibraryAssets(libraryPicker.kind, page, signal)}
+        onClose={() => setLibraryPicker(null)}
+        onSelect={async (asset: PersonalLibraryAsset) => {
+          const ok = await props.useLibraryAsset(asset, libraryPicker.target, libraryPicker.replaceFilename);
+          if (ok) showUploadNotice(libraryPicker.target === "bgm" ? "素材库 BGM 已加入当前作品" : "素材库素材已替换当前预览");
+          return ok;
+        }} />}
     </section></Tabs.Root>
   );
 }

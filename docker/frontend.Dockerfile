@@ -4,6 +4,7 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY forge_frontend_next/package.json forge_frontend_next/package-lock.json ./
+COPY forge_frontend_next/vendor ./vendor
 RUN npm ci --no-audit --no-fund
 
 

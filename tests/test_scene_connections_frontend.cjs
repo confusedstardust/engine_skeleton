@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const ts = require('../forge_frontend_next/node_modules/typescript');
+const { loadFrontendTs } = require('./helpers/load_frontend_ts.cjs');
 const filename = path.resolve(__dirname, '../forge_frontend_next/components/scene-connections.ts');
 const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
 const loaded = new Module(filename);
@@ -93,13 +94,7 @@ function editorHarness(lines) {
     useEffect() {}, useMemo: fn => fn(), useRef: value => ({ current: value })
   };
   const sourcePath = path.resolve(__dirname, '../forge_frontend_next/components/laper-scene-workbench.tsx');
-  const component = new Module(sourcePath);
-  component.paths = Module._nodeModulePaths(path.dirname(sourcePath));
-  const originalRequire = component.require.bind(component);
-  component.require = name => name === 'react' ? hooks : name === './scene-connections' ? loaded.exports : originalRequire(name);
-  component._compile(ts.transpileModule(fs.readFileSync(sourcePath, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX }
-  }).outputText, sourcePath);
+  const component = { exports: loadFrontendTs(sourcePath, { react: hooks, './scene-connections': loaded.exports }) };
   const props = {
     mode: 'complete', title: 'test', subtitle: '', plan: null,
     scenes: [{ header: 'start.txt', title: '开场', marker: 'Scene', lines }], activeScene: 0,
@@ -160,9 +155,9 @@ test('interactive choice inserts below selection without placeholder narration, 
   assert.equal(lines[2].kind, 'branch');
   assert.equal(lines[3].id, 'last');
   assert.equal(editor.all(editor.render(), node => node.type === 'article').length, 3);
-  const selects = editor.all(editor.render(), node => node.type === 'select' && node.props['aria-label'] === '跳转场景');
+  const selects = editor.all(editor.render(), node => node.props.ariaLabel === '跳转场景');
   assert.equal(selects.length, 2);
-  for (const select of selects) assert.ok(editor.all(select, node => node.type === 'option' && node.props.children === '留在当前场景（互动后继续）').length);
+  for (const select of selects) assert.ok(select.props.options.some(option => option.label === '留在当前场景（互动后继续）'));
 });
 
 test('duplicate jump gives feedback instead of silently disabling; selected exit stays final', () => {
@@ -184,13 +179,13 @@ test('existing cross-scene options also offer local continuation and can switch 
   const editor = editorHarness([{
     id: 'existing', kind: 'choice', text: '', choices: [{ text: '继续', target: 'end.txt', targetSceneFile: 'end.txt' }]
   }]);
-  const select = () => editor.all(editor.render(), node => node.type === 'select' && node.props['aria-label'] === '跳转场景')[0];
-  const option = editor.all(select(), node => node.type === 'option' && node.props.children === '留在当前场景（互动后继续）')[0];
+  const select = () => editor.all(editor.render(), node => node.props.ariaLabel === '跳转场景')[0];
+  const option = select().props.options.find(option => option.label === '留在当前场景（互动后继续）');
   assert.ok(option);
-  select().props.onChange({ target: { value: option.props.value } });
+  select().props.onValueChange(option.value);
   assert.equal(editor.props.scenes[0].lines[0].choices[0].targetSceneFile, undefined);
   assert.equal(editor.props.scenes[0].lines[1].kind, 'branch');
-  select().props.onChange({ target: { value: 'end.txt' } });
+  select().props.onValueChange('end.txt');
   assert.equal(editor.props.scenes[0].lines.length, 1);
   assert.equal(editor.props.scenes[0].lines[0].choices[0].target_scene_file, 'end.txt');
 });

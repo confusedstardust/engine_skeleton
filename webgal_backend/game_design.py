@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from .scene_headers import scene_header_matches, format_scene_header
+
 
 class GameDesignError(ValueError):
     pass
@@ -766,27 +768,3 @@ def is_branch_label(value: str) -> bool:
 
 def is_internal_scene_metadata(line: str) -> bool:
     return bool(re.match(r"^\s*;?\s*(source_node|ending_type)\s*[:：]", line.strip(), flags=re.IGNORECASE))
-
-
-def scene_header_matches(text: str):
-    pattern = re.compile(
-        r"""^\s*
-        (?:\#{1,6}\s*)?
-        (?:
-            (?P<kind>Scene|Ending)\s*[:：]\s*
-            |
-            (?:[\[【「『]\s*)?
-            (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
-        )
-        (?P<filename>[A-Za-z0-9_-]+\.txt)
-        (?:\s*[\]】」』])?
-        \s*[:：]?\s*$
-        """,
-        flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
-    )
-    return list(pattern.finditer(text))
-
-
-def format_scene_header(filename: str) -> str:
-    prefix = "Ending" if filename.replace("\\", "/").split("/")[-1].startswith("ending_") else "Scene"
-    return f"{prefix}:{filename}"

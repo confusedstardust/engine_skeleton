@@ -5,6 +5,7 @@ import SiteFooter from "../components/site-footer";
 import { AnnouncementsProvider } from "../components/announcements";
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
+import "@narrativeos/ui/styles.css";
 import "./globals.css";
 import { withBasePath } from "./base-path";
 

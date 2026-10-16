@@ -1,22 +1,23 @@
 "use client";
+import { WorkbenchHeader } from "../../components/workbench-header";
+import { usePaymentOrder } from "../../hooks/use-payment-order";
+import { standardPaymentOrders, isOrderFulfilled as paid } from "../../lib/payment-orders";
+import { PaymentCheckoutDialog } from "../../components/payment-checkout-dialog";
+import { paymentsApi as api } from "../../lib/api-client";
+import type { Product, Order } from "../../domain/payments";
 
-import { ReturnLink } from "../../components/navigation-return";
-import { randomUUID } from "../random-uuid";
+
+
 
 import Link from "next/link";
-import * as Dialog from "@radix-ui/react-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { PriceFace, PricePeel } from "../../components/price-peel";
-import { AccountMenu } from "../../components/account-menu";
-import { creditBalanceChangedEvent } from "../../components/credit-balance";
-import { withBasePath } from "../base-path";
-import { getCreditBalance, getCurrentUser, type CreditBalance } from "../invite-identity";
 
-type Product = { id: string; name: string; credits: number; price_fen: number; audience?: string; features?: string[]; billing_period?: string };
-type Order = { id: string; name: string; credits: number; payable_fen: number; status: string; fulfillment_status: string; payment_status: string; qr_ready: boolean; expires_at: string; billing_period?: string; credit_delivery?: string };
+import { useEffect, useState } from "react";
+import { PriceFace, PricePeel } from "../../components/price-peel";
+
+
+import { getCreditBalance, getCurrentUser } from "../invite-identity";
 const money = (fen: number) => (fen / 100).toFixed(2);
 const isCreditPack = (product: Product) => product.name.startsWith("加速体验包") || ["体验积分包", "标准积分包"].includes(product.name);
-const paid = (order: Order) => order.status === "PAID" && order.fulfillment_status === "FULFILLED";
 // Keep the approved copy visible while an older backend process is restarted.
 const approvedFeatures: Record<string, string[]> = {
   Creator: ["每月 600 积分", "每月 3 次游戏下载额度", "1 GB 云存储", "2000+ 素材，最低 1 折积分抵扣", "新增功能优先免费体验推送"],
@@ -29,49 +30,21 @@ function PlanIcon({ file }: { file: "rocket-launch" | "palette" | "crown" | "stu
   return <span className="pricing-plan-emblem" aria-hidden="true"><span className="pricing-plan-symbol" style={{ maskImage: source, WebkitMaskImage: source }} /></span>;
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge/payments${path}`), {
-    ...init, credentials: "include", cache: "no-store",
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(typeof payload?.detail === "string" ? payload.detail : "充值服务暂时不可用，请稍后重试");
-  }
-  return await response.json() as T;
-}
-
 export default function RechargePage() {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [selected, setSelected] = useState<Order | null>(null);
-  const [balance, setBalance] = useState<CreditBalance | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [subscription, setSubscription] = useState<{ name: string } | null>(null);
   const [historyReady, setHistoryReady] = useState(false);
-  const [qrError, setQrError] = useState(false);
-  const requestKey = useRef<string | null>(null);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [creditedBalance, setCreditedBalance] = useState<CreditBalance | null>(null);
-  const [balanceRefreshing, setBalanceRefreshing] = useState(false);
 
-  const updateOrder = useCallback((order: Order) => {
-    setSelected(order);
-    setOrders((current) => [order, ...current.filter((row) => row.id !== order.id)].slice(0, 20));
-    if (paid(order)) {
-      window.dispatchEvent(new Event(creditBalanceChangedEvent));
-      void api<{ subscription: { name: string } | null }>("/subscription").then((data) => setSubscription(data.subscription)).catch(() => {});
-      setCreditedBalance(null);
-      setBalanceRefreshing(true);
-      void getCreditBalance().then((value) => {
-        if (value) { setBalance(value); setCreditedBalance(value); }
-      }).finally(() => setBalanceRefreshing(false));
-    }
-  }, []);
+  const checkout = usePaymentOrder(standardPaymentOrders, {
+    onPaid: async (_order, signal) => {
+      const data = await api<{ subscription: { name: string } | null }>("/subscription", { signal }).catch(() => null);
+      if (!signal.aborted && data) setSubscription(data.subscription);
+    },
+  });
+  const { order: selected, orders, balance, setBalance, error, setError, busy, open: checkoutOpen, setOpen: setCheckoutOpen, creditedBalance, balanceRefreshing, restore, start: startOrder, refresh: refreshOrClose } = checkout;
 
   useEffect(() => {
     let active = true;
@@ -95,10 +68,7 @@ export default function RechargePage() {
           if (!result.value) throw result.error;
           const [history, currentSubscription] = result.value;
           setSubscription(currentSubscription.subscription);
-          setOrders(history);
-          const unfinished = history.find((row) => row.status === "PENDING") || null;
-          setSelected(unfinished);
-          if (unfinished) setCheckoutOpen(true);
+          restore(history);
           setHistoryReady(true);
         }).catch((failure) => {
           if (active) setError(failure instanceof Error ? failure.message : "订单记录加载失败，请刷新后重试");
@@ -114,61 +84,11 @@ export default function RechargePage() {
       } finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
-  }, []);
-
-  useEffect(() => { setQrError(false); }, [selected?.id]);
-
-  const selectedOrderId = selected?.id;
-  const selectedOrderStatus = selected?.status;
-  useEffect(() => {
-    if (!selectedOrderId || selectedOrderStatus !== "PENDING") return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const check = async () => {
-      try {
-        const order = await api<Order>(`/orders/${selectedOrderId}`);
-        if (!active) return;
-        updateOrder(order); setError("");
-        if (order.status !== "PENDING") return;
-      } catch (failure) {
-        if (active) setError(failure instanceof Error ? failure.message : "暂时无法确认支付状态");
-      }
-      if (active) timer = setTimeout(() => void check(), 5000);
-    };
-    void check();
-    return () => { active = false; clearTimeout(timer); };
-  }, [selectedOrderId, selectedOrderStatus, updateOrder]);
+  }, [restore, setBalance, setError]);
 
   async function create(product: Product) {
     if (!isCreditPack(product) && subscription) { setError("当前订阅仍在有效期内，可购买资源包补充积分。"); return; }
-    const unfinished = orders.find((row) => row.status === "PENDING");
-    if (unfinished) { setSelected(unfinished); setCheckoutOpen(true); return; }
-    setBusy(true); setError("");
-    const key = requestKey.current || randomUUID();
-    requestKey.current = key;
-    try {
-      const order = await api<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: product.id, request_key: key }) });
-      updateOrder(order); setCheckoutOpen(true); requestKey.current = null;
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "下单失败，请重试");
-      // Recover a durable order even if its creation response was lost.
-      try {
-        const history = await api<Order[]>("/orders");
-        setOrders(history);
-        const pending = history.find((row) => row.status === "PENDING");
-        if (pending) { setSelected(pending); setCheckoutOpen(true); requestKey.current = null; }
-      } catch { /* Keep the original error and idempotency key. */ }
-    } finally { setBusy(false); }
-  }
-
-  async function refreshOrClose(close = false) {
-    if (!selected) return;
-    setBusy(true); setError("");
-    try {
-      updateOrder(await api<Order>(`/orders/${selected.id}${close ? "/close" : ""}`, close ? { method: "POST" } : undefined));
-      if (close) requestKey.current = null;
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "操作失败，请重试"); }
-    finally { setBusy(false); }
+    await startOrder({ product_id: product.id });
   }
 
   const [catalogTab, setCatalogTab] = useState<"subscription" | "resources">("subscription");
@@ -183,7 +103,7 @@ export default function RechargePage() {
   const sortedProducts = products.filter((product) => !isCreditPack(product) && product.billing_period !== "year").sort((a, b) => { const rank = (name: string) => name === "Creator" ? 0 : name === "Pro" ? 1 : 2; return rank(a.name) - rank(b.name); });
   const pending = orders.some((row) => row.status === "PENDING");
   return <>
-    <header className="top-nav recharge-nav"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">临场 · 创作套餐</span><span className="brand-subtitle">CREATIVE CREDITS</span></div></Link><nav className="nav-links"><ReturnLink /><AccountMenu includeAdmin /></nav></header>
+    <WorkbenchHeader title="临场 · 创作套餐" subtitle="CREATIVE CREDITS" className="top-nav recharge-nav" wrapBrand={false} />
     <main className="recharge-page recharge-twilight">
       <div className="recharge-heading recharge-hero"><p className="recharge-hero-eyebrow">让每一份灵感，都有展开的空间</p><h1 aria-label="创建互动体验，按创作节奏付费">{["创建互动体验，", "按创作节奏付费"].map((line, lineIndex) => <span key={line} className={lineIndex ? "recharge-hero-accent" : undefined} aria-hidden="true">{Array.from(line).map((char, index) => <span key={index} className="recharge-title-char" style={{ animationDelay: `${0.12 + (lineIndex * 7 + index) * 0.045}s` }}>{char}</span>)}</span>)}</h1><p className="recharge-hero-description">从一次灵感到持续创作，选择适合你的方案。<br className="recharge-hero-break" />用积分开启互动叙事，让文本、知识与想象成为可参与的故事。</p></div>
       {loading ? <p role="status">正在加载账户…</p> : !signedIn ? <div className="recharge-empty"><p>请使用 NarrativeOS 账号登录后充值。</p><Link className="btn primary" href="/login">前往登录</Link></div> : <>
@@ -241,18 +161,11 @@ export default function RechargePage() {
             </div>}
           </section>
         </>}
-        {selected ? <Dialog.Root open={checkoutOpen} onOpenChange={setCheckoutOpen}><Dialog.Portal>
-          <Dialog.Overlay className="recharge-payment-overlay" />
-          <Dialog.Content className="recharge-checkout recharge-payment-modal" aria-describedby={undefined}>
-          <Dialog.Close className="recharge-payment-dismiss" aria-label="关闭支付窗口">×</Dialog.Close>
-          <div><Dialog.Title asChild><h2>{paid(selected) ? "充值成功" : selected.status === "CLOSED" ? "订单已关闭" : "微信扫码支付"}</h2></Dialog.Title><p>{selected.credit_delivery === "monthly" ? `每月 ${selected.credits} 积分 · 共 12 个月` : `${selected.credits} 积分`} · ¥ {money(selected.payable_fen)}</p></div>
-          {paid(selected) ? <div className="recharge-success-panel" role="status"><span className="recharge-success-mark" aria-hidden="true">✓</span><p className="recharge-success">{selected.credit_delivery === "monthly" ? "首月积分已到账，后续积分每月发放。" : "积分已到账，可继续创作。"}</p><strong className="recharge-credited-amount">本次到账 {selected.credits.toLocaleString("zh-CN")} 积分</strong><p>{balanceRefreshing ? "正在更新积分余额…" : creditedBalance ? `当前可用 ${creditedBalance.available.toLocaleString("zh-CN")} 积分` : "余额暂未刷新，可在右上角账户中查看。"}</p><Dialog.Close className="btn primary">完成</Dialog.Close></div> : selected.status === "PENDING" ? <>
-            {selected.qr_ready && new Date(selected.expires_at).getTime() > Date.now() && !qrError ? <img className="recharge-qr" src={withBasePath(`/api/forge/payments/orders/${selected.id}/qr`)} alt="使用微信扫描此二维码付款" onError={() => setQrError(true)} /> : <p role="status">{qrError ? "二维码加载失败，请刷新页面重试。" : "支付状态确认中，请稍后刷新；请勿重复付款。"}</p>}
-            <p className="recharge-expiry">微信扫一扫付款 · 有效至 {new Date(selected.expires_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</p>
-            <div className="recharge-buttons"><button className="btn primary" disabled={busy} onClick={() => void refreshOrClose()}>刷新支付状态</button><button className="btn outline" disabled={busy} onClick={() => void refreshOrClose(true)}>关闭订单</button></div>
-          </> : null}
-          {error ? <p className="recharge-error" role="alert">{error}</p> : null}
-        </Dialog.Content></Dialog.Portal></Dialog.Root> : null}
+        {selected ? <PaymentCheckoutDialog order={selected} open={checkoutOpen} onOpenChange={setCheckoutOpen} busy={busy} error={error} qrPath={standardPaymentOrders.qrPath} onRefresh={refreshOrClose}
+          title={paid(selected) ? "充值成功" : selected.status === "CLOSED" ? "订单已关闭" : "微信扫码支付"}
+          description={<>{selected.credit_delivery === "monthly" ? `每月 ${selected.credits} 积分 · 共 12 个月` : `${selected.credits} 积分`} · ¥ {money(selected.payable_fen)}</>}
+          success={<div className="recharge-success-panel" role="status"><span className="recharge-success-mark" aria-hidden="true">✓</span><p className="recharge-success">{selected.credit_delivery === "monthly" ? "首月积分已到账，后续积分每月发放。" : "积分已到账，可继续创作。"}</p><strong className="recharge-credited-amount">本次到账 {selected.credits.toLocaleString("zh-CN")} 积分</strong><p>{balanceRefreshing ? "正在更新积分余额…" : creditedBalance ? `当前可用 ${creditedBalance.available.toLocaleString("zh-CN")} 积分` : "余额暂未刷新，可在右上角账户中查看。"}</p></div>}
+        /> : null}
 
       </>}
       {error && !checkoutOpen ? <p className="recharge-error" role="alert">{error}</p> : null}

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('../forge_frontend_next/node_modules/typescript');
 
-const page = ts.createSourceFile('page.tsx', fs.readFileSync(`${__dirname}/../forge_frontend_next/app/jobs/[jobId]/page.tsx`, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const page = ts.createSourceFile('page.tsx', fs.readFileSync(`${__dirname}/../forge_frontend_next/app/jobs/[jobId]/use-job-workspace.ts`, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const workbench = ts.createSourceFile('workbench.tsx', fs.readFileSync(`${__dirname}/../forge_frontend_next/components/laper-asset-workbench.tsx`, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function find(root, predicate) {
   if (predicate(root)) return root;

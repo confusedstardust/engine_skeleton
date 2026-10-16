@@ -38,7 +38,7 @@ def issue_for_user(store, user_id, *, now=None):
     if now.tzinfo is not None:
         now = now.astimezone(timezone.utc).replace(tzinfo=None)
     issued = 0
-    with store._transaction() as cursor:
+    with store.transaction() as cursor:
         cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user_id,))
         if cursor.fetchone() is None:
             return 0
@@ -79,7 +79,7 @@ def issue_for_user(store, user_id, *, now=None):
 
 
 def issue_due(store, *, limit=100):
-    with store._transaction() as cursor:
+    with store.transaction() as cursor:
         cursor.execute("""SELECT s.user_id FROM subscription_credit_schedules s
             JOIN purchase_orders o ON o.id=s.order_id
             WHERE s.next_issue_at<=CURRENT_TIMESTAMP(3) AND o.status='PAID' AND o.fulfillment_status='FULFILLED'

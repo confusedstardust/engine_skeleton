@@ -3,6 +3,7 @@ const backend = process.env.FORGE_BACKEND_URL || "http://127.0.0.1:8010";
 const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || "").trim().replace(/\/+$/, "");
 
 const nextConfig = {
+  transpilePackages: ["@narrativeos/ui"],
   reactStrictMode: true,
   distDir: process.env.FORGE_NEXT_DIST_DIR || ".next",
   basePath: basePath || undefined,

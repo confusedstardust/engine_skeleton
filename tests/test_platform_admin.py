@@ -53,9 +53,9 @@ def ecosystem_game(client, monkeypatch, tmp_path):
         def fetchone(self):
             return dict(owner)
     @contextmanager
-    def transaction(self):
+    def transaction():
         yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
+    monkeypatch.setattr(admin, 'database_transaction', transaction)
     monkeypatch.setattr(admin, 'settings', SimpleNamespace(jobs_dir=tmp_path))
     monkeypatch.setattr(admin, 'blocked', lambda *args: False)
     monkeypatch.setenv('WEBGAL_FRONTEND_URL', 'https://example.com/narrativeos')
@@ -144,9 +144,9 @@ def test_filtered_listing_pagination(client, monkeypatch, total, requested, expe
             return [{'id': str(i), 'name': '月夜河畔', 'status': 'ACTIVE', 'object_key': None}
                     for i in range(item_count)]
     @contextmanager
-    def transaction(self):
+    def transaction():
         yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
+    monkeypatch.setattr(admin, 'database_transaction', transaction)
     response = client.get('/admin/assets', params={'search': '月夜', 'asset_kind': 'BACKGROUND', 'page': requested, 'owner_query': owner_query, 'asset_status': asset_status})
     assert response.status_code == 200
     data = response.json()
@@ -221,9 +221,9 @@ def test_asset_block_is_audited_in_same_transaction(client,monkeypatch):
         def fetchone(self):
             return self.results.pop(0)
     @contextmanager
-    def transaction(self):
+    def transaction():
         yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary, '_transaction', transaction)
+    monkeypatch.setattr(admin, 'database_transaction', transaction)
     response=client.patch('/admin/assets/asset',json={'action':'block'})
     assert response.status_code==200
     assert any(sql.startswith('UPDATE assets') and args==('BLOCKED','asset') for sql,args in calls)
@@ -268,8 +268,8 @@ def test_game_detail_returns_configuration_and_keeps_blocked_preview_disabled(cl
         def execute(self,*args): pass
         def fetchone(self): return dict(row)
     @contextmanager
-    def transaction(self): yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction(): yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     monkeypatch.setattr(admin,'blocked',lambda *args:True)
     monkeypatch.setattr(admin,'settings',SimpleNamespace(jobs_dir=tmp_path))
     scene=tmp_path/('a'*32)/'public/game/scene';scene.mkdir(parents=True)
@@ -300,8 +300,8 @@ def test_admin_upload_public_registration_and_failure_cleanup(client,monkeypatch
     class Cursor:
         def execute(self,sql,args=()):calls.append((sql,args))
     @contextmanager
-    def transaction(self):yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction():yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     response=client.post('/admin/assets/upload',data={'kind':'FIGURE','name':'人物','attributes':'{"era":["古代"],"clothing":["长袍"]}'},files={'file':('x.png',stream.getvalue(),'image/png')})
     assert response.status_code==200
     assert any("'UPLOADED','PUBLIC','ACTIVE'" in sql for sql,args in calls)
@@ -311,8 +311,8 @@ def test_admin_upload_public_registration_and_failure_cleanup(client,monkeypatch
     assert json.loads(stored[4])["attributes"]=={"era":["古代"],"clothing":["长袍"]}
     bucket.delete_object.assert_not_called()
     @contextmanager
-    def failure(self):raise RuntimeError('db failure');yield
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',failure)
+    def failure():raise RuntimeError('db failure');yield
+    monkeypatch.setattr(admin,'database_transaction',failure)
     with pytest.raises(RuntimeError):client.post('/admin/assets/upload',data={'kind':'FIGURE','name':'test'},files={'file':('x.png',stream.getvalue(),'image/png')})
     bucket.delete_object.assert_called_once()
 
@@ -325,8 +325,8 @@ def test_taxonomy_keeps_types_separate_and_reuses_saved_custom_labels(client,mon
             {'kind':'BGM','generation_metadata':{'category':'custom:片头','category_label':'片头','tags':['钢琴','循环']}},
             {'kind':'FIGURE','generation_metadata':'{"category":"ancient","category_label":"古代人物","tags":["男性"]}'}]
     @contextmanager
-    def transaction(self):yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction():yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     response=client.get('/admin/assets/taxonomy')
     assert response.status_code==200
     data=response.json()
@@ -346,8 +346,8 @@ def test_grouped_attributes_single_choice_validation_and_storage(client,monkeypa
         def execute(self,*args):pass
         def fetchall(self):return [{'kind':'BACKGROUND','generation_metadata':{'attributes':{'elements':['石头'],'time':['白天']},'tags':['石头','白天','无法确定的旧标签']}}]
     @contextmanager
-    def transaction(self):yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction():yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     grouped=client.get('/admin/assets/taxonomy').json()['BACKGROUND']['attributes']
     assert grouped=={'elements':['石头'],'time':['白天']}
 
@@ -358,8 +358,8 @@ def test_database_session_joins_current_role_and_block_state(monkeypatch):
         def execute(self,sql,args):calls.append((sql,args))
         def fetchone(self):return {'id':'db-admin'}
     @contextmanager
-    def transaction(self):yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction():yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     assert admin.lookup_session('a'*64)=={'id':'db-admin'}
     sql,args=calls[0]
     assert "u.platform_role='ADMIN'" in sql
@@ -373,8 +373,8 @@ def test_database_session_hash_storage_and_logout_revocation(monkeypatch):
     class Cursor:
         def execute(self,sql,args):calls.append((sql,args))
     @contextmanager
-    def transaction(self):yield Cursor()
-    monkeypatch.setattr(admin.AssetLibrary,'_transaction',transaction)
+    def transaction():yield Cursor()
+    monkeypatch.setattr(admin,'database_transaction',transaction)
     token='a'*64
     admin.save_session('user-id',token)
     admin.delete_session(token)

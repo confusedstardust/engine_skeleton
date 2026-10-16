@@ -1,10 +1,10 @@
 "use client";
-import * as Dialog from "@radix-ui/react-dialog";
+import * as Dialog from "./ui/dialog";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import * as Tabs from "@radix-ui/react-tabs";
 import {useEffect,useState} from "react";
 import {attributeGroups} from "./asset-attribute-groups";
-import {withBasePath} from "../app/base-path";
+import {adminApi} from "../lib/api-client";
 type Vocabulary=Record<string,{attributes:Record<string,string[]>}>;
 const kinds=[{value:"BACKGROUND",label:"背景"},{value:"FIGURE",label:"立绘"},{value:"BGM",label:"BGM"}];
 export default function AdminAssetUpload({onUploaded}:{onUploaded:()=>void}) {
@@ -12,7 +12,7 @@ export default function AdminAssetUpload({onUploaded}:{onUploaded:()=>void}) {
  const [kind,setKind]=useState("BACKGROUND"),[attributes,setAttributes]=useState<Record<string,string[]>>({}),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
  const [vocabulary,setVocabulary]=useState<Vocabulary>({}),[drafts,setDrafts]=useState<Record<string,string>>({}),[adding,setAdding]=useState("");
  useEffect(()=>{if(!open)return;let active=true;
-   fetch(withBasePath("/api/forge/admin/assets/taxonomy"),{credentials:"include"}).then(async r=>{if(!r.ok)throw new Error("属性选项加载失败");return r.json();}).then(data=>{if(active)setVocabulary(old=>{const next={...old};for(const k of kinds){const values={...(old[k.value]?.attributes||{})};for(const [key,options] of Object.entries(data[k.value]?.attributes||{}))values[key]=Array.from(new Set([...(values[key]||[]),...(options as string[])]));next[k.value]={attributes:values};}return next;});}).catch(e=>{if(active)setMessage(e.message);});return()=>{active=false;};
+   adminApi<Vocabulary>("/assets/taxonomy").then(data=>{if(active)setVocabulary(old=>{const next={...old};for(const k of kinds){const values={...(old[k.value]?.attributes||{})};for(const [key,options] of Object.entries(data[k.value]?.attributes||{}))values[key]=Array.from(new Set([...(values[key]||[]),...(options as string[])]));next[k.value]={attributes:values};}return next;});}).catch(e=>{if(active)setMessage(e.message);});return()=>{active=false;};
  },[open]);
  function choose(key:string,values:string[]) {setAttributes(old=>({...old,[key]:values}));}
  function addChoice(key:string,multiple:boolean) {
@@ -22,11 +22,11 @@ export default function AdminAssetUpload({onUploaded}:{onUploaded:()=>void}) {
  }
  async function submit(e:React.FormEvent<HTMLFormElement>) {
  e.preventDefault();const form=e.currentTarget;const data=new FormData(form);data.set("kind",kind);data.set("attributes",JSON.stringify(attributes));setBusy(true);setMessage("");
- try {const response=await fetch(withBasePath("/api/forge/admin/assets/upload"),{method:"POST",credentials:"include",headers:{"X-Forge-Admin-Action":"1"},body:data});const body=await response.json();if(!response.ok)throw new Error(body.detail||"上传失败");form.reset();setFilename("");setAttributes({});setMessage("上传成功，已加入公共素材库");onUploaded();setOpen(false);}catch(error){setMessage(error instanceof Error?error.message:"上传失败");}finally{setBusy(false);}
+ try {await adminApi("/assets/upload",{method:"POST",body:data});form.reset();setFilename("");setAttributes({});setMessage("上传成功，已加入公共素材库");onUploaded();setOpen(false);}catch(error){setMessage(error instanceof Error?error.message:"上传失败");}finally{setBusy(false);}
  }
- return <Dialog.Root open={open} onOpenChange={value=>{if(!busy){setOpen(value);if(value)setMessage("");}}}>
+ return <Dialog.Root busy={busy} open={open} onOpenChange={value=>{if(!busy){setOpen(value);if(value)setMessage("");}}}>
  <div className="admin-upload-entry"><Dialog.Trigger asChild><button className="btn outline" type="button"><span aria-hidden="true">＋</span> 上传公共素材</button></Dialog.Trigger>{message&&!open?<span role="status">{message}</span>:null}</div>
- <Dialog.Portal><Dialog.Overlay className="radix-confirm-overlay"/><Dialog.Content className="admin-upload-dialog" aria-describedby="admin-upload-description" onEscapeKeyDown={e=>{if(busy)e.preventDefault();}} onPointerDownOutside={e=>{if(busy)e.preventDefault();}}>
+ <Dialog.Surface overlayClassName="radix-confirm-overlay" className="admin-upload-dialog" aria-describedby="admin-upload-description" onEscapeKeyDown={e=>{if(busy)e.preventDefault();}} onPointerDownOutside={e=>{if(busy)e.preventDefault();}}>
  <header className="asset-modal-head"><Dialog.Title>上传公共素材</Dialog.Title><Dialog.Close asChild><button type="button" aria-label="关闭上传" disabled={busy}>×</button></Dialog.Close></header>
  <form onSubmit={submit}><div className="admin-upload-body"><Dialog.Description id="admin-upload-description">添加到平台素材库，供用户浏览、收藏和选用。</Dialog.Description><fieldset disabled={busy}>
  <Tabs.Root value={kind} onValueChange={v=>{setKind(v);setAttributes({});setFilename("");setDrafts({});setAdding("");}}><Tabs.List className="admin-upload-types" aria-label="素材类型">{kinds.map(k=><Tabs.Trigger key={k.value} value={k.value} disabled={busy}>{k.label}</Tabs.Trigger>)}</Tabs.List></Tabs.Root>
@@ -40,5 +40,5 @@ export default function AdminAssetUpload({onUploaded}:{onUploaded:()=>void}) {
  </div></div>;
  })}</section>
  </fieldset>{message?<p className="admin-upload-message" role="alert">{message}</p>:null}</div><footer className="asset-modal-actions"><Dialog.Close asChild><button className="btn outline" type="button" disabled={busy}>取消</button></Dialog.Close><button className="btn primary" disabled={busy}>{busy?"正在上传…":"上传素材"}</button></footer></form>
- </Dialog.Content></Dialog.Portal></Dialog.Root>;
+ </Dialog.Surface></Dialog.Root>;
 }

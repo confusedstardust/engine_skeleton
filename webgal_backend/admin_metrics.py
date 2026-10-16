@@ -1,7 +1,7 @@
 """Daily aggregates from registered jobs and immutable credit settlements."""
 from datetime import datetime, timedelta, timezone
 
-from .asset_library import AssetLibrary
+from .database import database_transaction
 
 
 def dashboard_metrics(days: int):
@@ -25,7 +25,7 @@ def dashboard_metrics(days: int):
         (f"SELECT {date('settled_at')} date,COUNT(*) settlements,SUM(JSON_EXTRACT(pricing_snapshot,'$.settlement.usage') IS NOT NULL) settlements_with_usage,{','.join(usage(field) for field in ('input_tokens','output_tokens','cached_input_tokens','images','tts_characters'))} FROM credit_reservations WHERE status='CAPTURED' AND {bounds('settled_at')} GROUP BY date", params),
         (f"SELECT {date('created_at')} date,COALESCE(SUM(delta_consumed),0) credits FROM credit_ledger WHERE action='CAPTURE' AND {bounds('created_at')} GROUP BY date", params),
     ]
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         for sql, args in queries:
             cursor.execute(sql,args)
             for row in cursor.fetchall():

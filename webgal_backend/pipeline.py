@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 import subprocess
@@ -40,6 +40,7 @@ from .runtime_assets import rewrite_webgal_asset_urls
 from .scene_plan import build_scene_plan, expected_scene_files
 from .scene_connections import check_scene_connections
 from .script_compiler import ScriptCompileError, compile_webgal_script
+from .scene_headers import scene_header_matches, scene_header_match, scene_header_kind, format_scene_header
 from .storage import JobStore, read_json, utc_now, write_json
 from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
 from .scene_validation import SceneValidationResult, validate_and_repair_scenes, validation_report
@@ -1533,8 +1534,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         headers = [
             {
                 "line_index": index,
-                "kind": match.group(1).lower(),
-                "scene_file": match.group(2),
+                "kind": scene_header_kind(match).lower(),
+                "scene_file": match.group("filename"),
             }
             for index, line in enumerate(lines)
             if (match := self._scene_header_match(line.strip()))
@@ -1766,9 +1767,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         return False
 
     def _scene_header_match(self, line: str):
-        import re
-
-        return re.match(r"^(Scene|Ending)\s*:\s*([A-Za-z0-9_-]+\.txt)\s*$", line, flags=re.IGNORECASE)
+        return scene_header_match(line)
 
     def _parse_sound_effect_plan_text(self, text: str) -> Any:
         import json
@@ -1939,9 +1938,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         return line.startswith(("end", "choose:", "changeScene:"))
 
     def _is_scene_header(self, line: str) -> bool:
-        import re
-
-        return bool(re.match(r"^(?:Scene|Ending)\s*:\s*[A-Za-z0-9_-]+\.txt\s*$", line, flags=re.IGNORECASE))
+        return scene_header_match(line) is not None
 
     def _is_sound_effect_story_line(self, line: str) -> bool:
         if not line or line.startswith((";", "//")) or self._is_scene_header(line):
@@ -2235,28 +2232,10 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         return written
 
     def _scene_header_matches(self, text: str):
-        import re
-
-        pattern = re.compile(
-            r"""^\s*
-            (?:\#{1,6}\s*)?
-            (?:
-                (?P<kind>Scene|Ending)\s*[:：]\s*
-                |
-                (?:[\[【「『]\s*)?
-                (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
-            )
-            (?P<filename>[A-Za-z0-9_-]+\.txt)
-            (?:\s*[\]】」』])?
-            \s*[:：]?\s*$
-            """,
-            flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
-        )
-        return list(pattern.finditer(text))
+        return scene_header_matches(text)
 
     def _format_scene_header(self, filename: str) -> str:
-        prefix = "Ending" if filename.replace("\\", "/").split("/")[-1].startswith("ending_") else "Scene"
-        return f"{prefix}:{filename}"
+        return format_scene_header(filename)
 
     def _scene_headers(self, text: str) -> list[str]:
         return [match.group("filename") for match in self._scene_header_matches(text)]
