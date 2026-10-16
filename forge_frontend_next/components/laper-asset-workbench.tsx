@@ -462,7 +462,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [voiceSelections, setVoiceSelections] = useState<Record<string, string>>({});
   const [openVoicePickerSpeaker, setOpenVoicePickerSpeaker] = useState<string | null>(null);
   const musicPreview = useAudioPreview();
-  const musicPreviewingAsset = musicPreview.activeKey;
+  const musicPreviewingScene = musicPreview.activeKey;
   const musicPreviewError = musicPreview.error;
   const stopMusicPreview = musicPreview.stop;
   const [musicDrafts, setMusicDrafts] = useState<Record<string, string | null>>({});
@@ -532,8 +532,8 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     setLibraryPicker({ kind, target, replaceFilename });
   }
 
-  async function playMusicPreview(asset: string) {
-    if (asset) await musicPreview.play(asset, () => props.previewSceneMusic(asset));
+  async function playMusicPreview(sceneFile: string, asset: string) {
+    if (asset) await musicPreview.play(sceneFile, () => props.previewSceneMusic(asset));
   }
 
   function showUploadNotice(message: string) {
@@ -682,12 +682,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 {props.sceneMusic.map((scene, index) => {
                   const selected = Object.hasOwn(musicDrafts, scene.scene_file) ? musicDrafts[scene.scene_file] || "" : scene.selected_asset || "";
                   const effective = selected || scene.system_asset || "";
-                  const playing = Boolean(effective && musicPreviewingAsset === effective);
+                  const playing = Boolean(effective && musicPreviewingScene === scene.scene_file);
                   return <article className="scene-music-row" role="listitem" key={scene.scene_file}>
                     <span className="scene-music-index">{String(index + 1).padStart(2, "0")}</span>
                     <div className="scene-music-scene"><small>{scene.kind === "ending" ? "结局" : "场景"}</small><strong>{scene.label}</strong><em>{scene.scene_file}</em></div>
                     <label className="scene-music-select"><span>背景音乐</span><FormSelect value={selected} disabled={props.readonly || props.busy} ariaLabel="背景音乐" onValueChange={(value) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: value || null })); }} options={[{ value: "", label: `系统自动 · ${scene.system_asset ? musicAssetLabel(scene.system_asset) : "暂无推荐"}` }, ...Array.from(new Set([...props.musicAssets, ...(selected ? [selected] : [])])).map((asset) => ({ value: asset, label: musicAssetLabel(asset) }))]} /></label>
-                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
+                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(scene.scene_file, effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
                   </article>;
                 })}
               </div>

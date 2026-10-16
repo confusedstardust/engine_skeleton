@@ -13,6 +13,7 @@ export function useJobResources(
 ) {
   const [data, setData] = useState<NodesResponse | null>(null);
   const [assetReview, setAssetReview] = useState<AssetReviewResponse | null>(null);
+  const [reviewFailed, setReviewFailed] = useState(false);
   const generation = useRef(0);
   const handlers = useRef({ onMessage, onError });
   useEffect(() => {
@@ -27,38 +28,46 @@ export function useJobResources(
   const load = useCallback(
     async (signal?: AbortSignal) => {
       const current = ++generation.current;
-      const [next, review] = await Promise.all([
+      const [nodes, review] = await Promise.allSettled([
         forgeApi<NodesResponse>(`/jobs/${jobId}/nodes`, { signal }),
         forgeApi<AssetReviewResponse>(`/jobs/${jobId}/assets/review`, { signal }),
       ]);
       if (!signal?.aborted && current === generation.current) {
-        setData(next);
-        setAssetReview(review);
+        if (nodes.status === 'fulfilled') setData(nodes.value);
+        if (review.status === 'fulfilled') setAssetReview(review.value);
+        setReviewFailed(review.status === 'rejected');
+        if (review.status === 'rejected') handlers.current.onError(review.reason instanceof Error ? review.reason.message : '素材审阅加载失败。');
       }
-      return next;
+      if (nodes.status === 'rejected') throw nodes.reason;
+      return { next: nodes.value, reviewFailed: review.status === 'rejected' };
     },
     [jobId],
   );
   const refresh = useCallback(
     async (silent = false) => {
       try {
-        await load();
-        if (!silent) handlers.current.onMessage('任务内容已更新。');
+        const result = await load();
+        if (!silent && !result.reviewFailed) handlers.current.onMessage('任务内容已更新。');
       } catch (error) {
         handlers.current.onError(error instanceof Error ? error.message : '读取任务失败。');
       }
     },
     [load],
   );
+  useEffect(() => {
+    const onFocus = () => { void refresh(true); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refresh]);
   usePolling(
     async (signal) => {
-      const next = await load(signal);
-      return ['RUNNING', 'QUEUED'].includes(next.job.status) || next.job.build_state === 'BUILDING';
+      const { next, reviewFailed } = await load(signal);
+      return reviewFailed || ['RUNNING', 'QUEUED'].includes(next.job.status) || next.job.build_state === 'BUILDING';
     },
     {
       intervalMs: 2200,
       resetKey: jobId,
-      enabled: !data || ['RUNNING', 'QUEUED'].includes(data.job.status) || data.job.build_state === 'BUILDING',
+      enabled: reviewFailed || !data || ['RUNNING', 'QUEUED'].includes(data.job.status) || data.job.build_state === 'BUILDING',
       onError: (error) => handlers.current.onError(error instanceof Error ? error.message : '读取任务失败。'),
     },
   );

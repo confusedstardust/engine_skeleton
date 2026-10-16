@@ -126,7 +126,7 @@ def test_suggestions_disabled_before_auth_or_storage(client, monkeypatch, authen
             raise HTTPException(401, "Login required")
         return {"id": "alice", "auth_type": "sso"}
     monkeypatch.setattr(community, "user_from_request", user)
-    monkeypatch.setattr(community.AssetLibrary, "_transaction", lambda *args: pytest.fail("disabled suggestions reached storage"))
+    monkeypatch.setattr(community, "database_transaction", lambda *args: pytest.fail("disabled suggestions reached storage"))
     assert client.get("/community/mine?kind=SUGGESTION").status_code == 404
     response = client.post("/community/questions", json={"question": "Please add this feature", "kind": "SUGGESTION"}, headers={"X-Forge-Community-Action": "1"})
     assert response.status_code == 404
