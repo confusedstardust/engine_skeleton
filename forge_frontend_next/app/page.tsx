@@ -430,14 +430,7 @@ function NarrativeRouterPage() {
         event.preventDefault();
         section.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
         if (window.location.hash !== "#community") window.history.pushState(window.history.state, "", "#community");
-      }}>Q&amp;A</a><a href="#feedback" onClick={event => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        const section = document.getElementById("feedback");
-        if (!section) return;
-        event.preventDefault();
-        section.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-        if (window.location.hash !== "#feedback") window.history.pushState(window.history.state, "", "#feedback");
-      }}>建议与批评</a><AccountMenu /></nav></header>
+      }}>Q&amp;A</a><AccountMenu /></nav></header>
       <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><button className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></button></div>
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>
