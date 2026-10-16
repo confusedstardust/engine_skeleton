@@ -599,6 +599,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const [avatarCropDrafts, setAvatarCropDrafts] = useState<Record<string, { zoom: number; offsetX: number; offsetY: number }>>({});
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicPreviewSessionRef = useRef(0);
   const musicPreviewUrlRef = useRef<string | null>(null);
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const musicUploadRef = useRef<HTMLInputElement | null>(null);
@@ -748,6 +749,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   }
 
   function stopMusicPreview() {
+    musicPreviewSessionRef.current++;
     const audio = musicPreviewAudioRef.current;
     if (audio) {
       audio.pause();
@@ -759,20 +761,23 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
     setMusicPreviewingAsset(null);
   }
 
-  async function playMusicPreview(asset: string) {
+  async function playMusicPreview(sceneFile: string, asset: string) {
     if (!asset) return;
     stopMusicPreview();
+    const session = musicPreviewSessionRef.current;
     setMusicPreviewError("");
+    setMusicPreviewingAsset(sceneFile);
     try {
       const blob = await props.previewSceneMusic(asset);
+      if (session !== musicPreviewSessionRef.current) return;
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       musicPreviewUrlRef.current = url;
       musicPreviewAudioRef.current = audio;
       audio.onended = stopMusicPreview;
-      setMusicPreviewingAsset(asset);
       await audio.play();
     } catch (error) {
+      if (session !== musicPreviewSessionRef.current) return;
       stopMusicPreview();
       setMusicPreviewError(error instanceof Error ? error.message : "音乐试听加载失败。");
     }
@@ -939,12 +944,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 {props.sceneMusic.map((scene, index) => {
                   const selected = Object.hasOwn(musicDrafts, scene.scene_file) ? musicDrafts[scene.scene_file] || "" : scene.selected_asset || "";
                   const effective = selected || scene.system_asset || "";
-                  const playing = Boolean(effective && musicPreviewingAsset === effective);
+                  const playing = Boolean(effective && musicPreviewingAsset === scene.scene_file);
                   return <article className="scene-music-row" role="listitem" key={scene.scene_file}>
                     <span className="scene-music-index">{String(index + 1).padStart(2, "0")}</span>
                     <div className="scene-music-scene"><small>{scene.kind === "ending" ? "结局" : "场景"}</small><strong>{scene.label}</strong><em>{scene.scene_file}</em></div>
                     <label className="scene-music-select"><span>背景音乐</span><FormSelect value={selected} disabled={props.readonly || props.busy} ariaLabel="背景音乐" onValueChange={(value) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: value || null })); }} options={[{ value: "", label: `系统自动 · ${scene.system_asset ? musicAssetLabel(scene.system_asset) : "暂无推荐"}` }, ...Array.from(new Set([...props.musicAssets, ...(selected ? [selected] : [])])).map((asset) => ({ value: asset, label: musicAssetLabel(asset) }))]} /></label>
-                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
+                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(scene.scene_file, effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
                   </article>;
                 })}
               </div>

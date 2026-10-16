@@ -1511,9 +1511,13 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         # User-uploaded BGM is project-local and selectable like dialog music.
         # It is deliberately not copied into the shared library.
         if job_dir:
+            known_assets = {name for group in assets.values() for name in group}
             for root in (job_dir / "draft" / "game" / "bgm", job_dir / "public" / "game" / "bgm"):
                 if root.exists():
-                    assets["dialog"].extend(path.name for path in root.iterdir() if path.is_file() and path.name not in assets["dialog"])
+                    for path in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+                        if path.is_file() and path.name not in known_assets:
+                            assets["dialog"].append(path.name)
+                            known_assets.add(path.name)
         return assets
 
     def _build_bgm_plan(
