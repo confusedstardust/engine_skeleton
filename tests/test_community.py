@@ -63,8 +63,8 @@ def test_public_listing_excludes_private_content_and_author_identifiers(client, 
     assert "WHERE user_id=%s" in calls[0][0]
     assert calls[0][1] == ("alice", "QUESTION", 0)
     calls.clear()
-    assert client.get("/community/mine?kind=SUGGESTION").status_code == 200
-    assert calls[0][1] == ("alice", "SUGGESTION", 0)
+    assert client.get("/community/mine?kind=SUGGESTION").status_code == 404
+    assert calls == []
     assert client.get("/community/mine?kind=INVALID").status_code == 422
 
 
@@ -117,3 +117,16 @@ def test_short_messages_rejected_before_storage(client, monkeypatch, kind, conte
 @pytest.mark.parametrize("content", ["这是五个字", "  这是五个字  "])
 def test_five_characters_pass_after_trimming(content):
     assert community.Question(question=content).question == "这是五个字"
+
+
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_suggestions_disabled_before_auth_or_storage(client, monkeypatch, authenticated):
+    def user(*args):
+        if not authenticated:
+            raise HTTPException(401, "Login required")
+        return {"id": "alice", "auth_type": "sso"}
+    monkeypatch.setattr(community, "user_from_request", user)
+    monkeypatch.setattr(community.AssetLibrary, "_transaction", lambda *args: pytest.fail("disabled suggestions reached storage"))
+    assert client.get("/community/mine?kind=SUGGESTION").status_code == 404
+    response = client.post("/community/questions", json={"question": "Please add this feature", "kind": "SUGGESTION"}, headers={"X-Forge-Community-Action": "1"})
+    assert response.status_code == 404

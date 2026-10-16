@@ -16,7 +16,7 @@ export default function SiteFooter() {
   useEffect(() => { setCasesHref(new URL("/#cases", ssoLoginUrl("/")).toString()); }, []);
   useEffect(() => {
     const hash = window.location.hash.slice(1);
-    if (!["community", "feedback"].includes(hash)) return;
+    if (hash !== "community") return;
     const frame = requestAnimationFrame(() => {
       document.getElementById(hash)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     });
@@ -39,7 +39,6 @@ export default function SiteFooter() {
         <nav aria-label="页脚导航">
           <a href={casesHref}>优质案例</a>
           <Link href="/#community" scroll={false} onClick={event => scrollTo(event, "community")}>Q&amp;A</Link>
-          <Link href="/#feedback" scroll={false} onClick={event => scrollTo(event, "feedback")}>建议与批评</Link>
           <button type="button" onClick={openAnnouncements}>公告</button>
         </nav>
         <div className="site-footer-legal"><a href="https://beian.miit.gov.cn" target="_blank" rel="noopener noreferrer"><span aria-hidden="true" />津ICP备2025028636号-2</a><small>© 2026 NarrativeOS</small></div>

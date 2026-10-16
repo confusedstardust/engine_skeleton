@@ -60,6 +60,8 @@ def public_board(offset: int = Query(0, ge=0)):
 
 @router.get("/community/mine")
 def my_questions(request: Request, offset: int = Query(0, ge=0), kind: Literal["QUESTION", "SUGGESTION"] = "QUESTION"):
+    if kind == "SUGGESTION":
+        raise HTTPException(404, "功能暂未开放")
     user = account(request)
     with AssetLibrary()._transaction() as cursor:
         cursor.execute("SELECT id,kind,question,answer,published,created_at FROM community_questions WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id DESC LIMIT 7 OFFSET %s", (user["id"], kind, offset))
@@ -69,6 +71,8 @@ def my_questions(request: Request, offset: int = Query(0, ge=0), kind: Literal["
 
 @router.post("/community/questions", status_code=201)
 def ask(payload: Question, request: Request, response: Response):
+    if payload.kind == "SUGGESTION":
+        raise HTTPException(404, "功能暂未开放")
     if request.headers.get("x-forge-community-action") != "1":
         raise HTTPException(403, "无效提问请求")
     user = account(request)
