@@ -47,6 +47,7 @@ export type AssetReviewResponse = {
   available_voices: TTSVoiceOption[];
   scene_music: SceneMusicItem[];
   music_assets: string[];
+  music_asset_names?: Record<string, string>;
   particle_effects: ParticleEffectReview;
 };
 

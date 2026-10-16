@@ -64,6 +64,17 @@ def test_load_bgm_assets_groups_files_from_sound_effects_directory(tmp_path, mon
         "ending": ["Bgm_ending_happy.mp3"],
     }
 
+    job_dir = tmp_path / "job"
+    for scope in ("draft", "public"):
+        bgm_dir = job_dir / scope / "game" / "bgm"
+        bgm_dir.mkdir(parents=True)
+        for filename in ("Bgm_Opening_main.mp3", "Bgm_ending_happy.mp3", "custom.mp3"):
+            (bgm_dir / filename).write_bytes(b"mp3")
+    project_assets = WebGALPipeline()._load_bgm_assets(job_dir)
+    assert project_assets["opening"] == assets["opening"]
+    assert project_assets["ending"] == assets["ending"]
+    assert project_assets["dialog"] == assets["dialog"] + ["custom.mp3"]
+
 
 def test_bgm_plan_uses_opening_dialog_and_priority_ending_assets():
     pipeline = WebGALPipeline()
@@ -200,6 +211,26 @@ def test_copy_bgm_files_uses_game_bgm_directory(tmp_path, monkeypatch):
     )
 
     assert (job_dir / "public" / "game" / "bgm" / "Bgm_Opening_main.mp3").read_bytes() == b"opening"
+
+
+def test_copy_bgm_files_reuses_published_library_music_without_shared_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "webgal_backend.pipeline.settings",
+        SimpleNamespace(sound_effects_dir=tmp_path / "missing-sounds", workspace_root=tmp_path),
+    )
+    job_dir = tmp_path / "job"
+    bgm_dir = job_dir / "public" / "game" / "bgm"
+    bgm_dir.mkdir(parents=True)
+    published = bgm_dir / "library_example_library_asset.mp3"
+    published.write_bytes(b"published music")
+    pipeline = WebGALPipeline()
+    pipeline._copy_bgm_files(job_dir, {"inserted": [{"asset": published.name}]})
+    assert published.read_bytes() == b"published music"
+    draft = job_dir / "draft" / "game" / "bgm" / published.name
+    draft.parent.mkdir(parents=True)
+    draft.write_bytes(b"replacement music")
+    pipeline._copy_bgm_files(job_dir, {"inserted": [{"asset": published.name}]})
+    assert published.read_bytes() == b"replacement music"
 
 
 def test_completed_asset_regeneration_writes_draft_without_touching_published_game(tmp_path, monkeypatch):

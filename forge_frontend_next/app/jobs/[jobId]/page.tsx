@@ -289,6 +289,7 @@ function JobWorkspace({ jobId }: { jobId: string }) {
             buildGame={buildGameFromAssets}
             sceneMusic={assetReview?.scene_music || []}
             musicAssets={assetReview?.music_assets || []}
+            musicAssetNames={assetReview?.music_asset_names}
             sceneMusicEnabled={!autoMode}
             previewSceneMusic={previewSceneMusic}
             particleEffects={assetReview?.particle_effects || { effects: [], scenes: [] }}

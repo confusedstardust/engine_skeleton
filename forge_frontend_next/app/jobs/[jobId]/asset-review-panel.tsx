@@ -28,6 +28,7 @@ export function AssetReviewPanel(props: {
   buildGame: (staged?: StagedScenePresentation) => Promise<boolean>;
   sceneMusic: SceneMusicItem[];
   musicAssets: string[];
+  musicAssetNames?: Record<string, string>;
   sceneMusicEnabled: boolean;
   previewSceneMusic: (asset: string) => Promise<Blob>;
   particleEffects: ParticleEffectReview;
@@ -126,6 +127,7 @@ export function AssetReviewPanel(props: {
       voiceGeneratingSpeaker={props.voiceGeneratingSpeaker}
       sceneMusic={props.sceneMusic}
       musicAssets={props.musicAssets}
+      musicAssetNames={props.musicAssetNames}
       sceneMusicEnabled={props.sceneMusicEnabled}
       previewSceneMusic={props.previewSceneMusic}
       particleEffects={props.particleEffects}

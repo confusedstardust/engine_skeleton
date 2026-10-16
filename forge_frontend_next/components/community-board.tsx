@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import CommunityMessageForm from "./community-message-form";
-import CommunityFeedback from "./community-feedback";
 import { getCurrentUser, type AuthUser } from "../app/invite-identity";
 
 import { boardApi, type BoardData, type BoardQuestion } from "../lib/community";
@@ -55,7 +54,7 @@ export default function CommunityBoard() {
     return () => { active = false; };
   }, [user?.id, user?.auth_type, mine, ownOffset, revision]);
 
-  return <section className="community-section" id="community" aria-label="提问与建议">
+  return <section className="community-section" id="community" aria-label="提问与答疑">
     <div className="community-layout">
       <section className="community-qa" aria-labelledby="community-qa-title"><div className="community-column-heading"><h2 id="community-qa-title">提问与答疑 <span>Q&A</span></h2><div className="community-tabs">{user?.auth_type === "sso" && <button type="button" aria-pressed={mine} onClick={() => { setMine(!mine); setOwnOffset(0); }}>{mine ? "收起我的提问" : "我的提问"}</button>}</div></div>
         <p className="community-invitation">你遇到的问题，也许正是另一个人还没问出口的疑惑。留在这里，让我们的回答，也能帮到后来的人。</p>
@@ -76,7 +75,6 @@ export default function CommunityBoard() {
         </div>}
         <CommunityMessageForm kind="QUESTION" onSent={() => { setMine(true); setOwnOffset(0); setRevision(value => value + 1); }} />
       </section>
-      <CommunityFeedback userId={user?.auth_type === "sso" ? user.id : null} />
     </div>
   </section>;
 }
