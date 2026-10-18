@@ -75,7 +75,11 @@ class AssetLibrary:
         suffix = path.suffix.lower()
         owner_key = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
         object_key = str(PurePosixPath(settings.oss_prefix) / "library" / owner_key / asset_id / file_id / f"{variant}{suffix}")
-        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        # Python 3.11 slim images may have no system MIME mapping for WebP.
+        # Recognize the file signature so registration and OSS headers agree
+        # regardless of the host's extension registry.
+        is_webp = content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+        mime_type = "image/webp" if is_webp else (mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         bucket = self._bucket()
         try:
             result = bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
