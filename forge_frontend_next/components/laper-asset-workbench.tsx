@@ -1,4 +1,7 @@
 "use client";
+import { useFileUpload } from "../hooks/use-file-upload";
+import { AssetFileInput, UploadStatus } from "./ui/file-upload";
+import { imageUploadPolicy, musicUploadPolicy } from "../lib/upload-policy";
 import { useAudioPreview } from "../hooks/use-audio-preview";
 import { AssetPickerDialog } from "./assets/asset-picker-dialog";
 import type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
@@ -9,7 +12,7 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as Accordion from "@radix-ui/react-accordion";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { ActionHint as AssetHint } from "./ui/action-hint";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
@@ -473,7 +476,9 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const musicUploadRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageUpload, setPendingImageUpload] = useState<{ role: "figure" | "background"; removeBackground: boolean; replaceFilename?: string }>({ role: "background", removeBackground: false });
   const [uploadNotice, setUploadNotice] = useState("");
-  const [imageUploading, setImageUploading] = useState(false);
+  const imageUpload = useFileUpload();
+  const musicUpload = useFileUpload();
+  const imageUploading = imageUpload.pending;
   const [libraryPicker, setLibraryPicker] = useState<{ kind: PersonalLibraryAsset["kind"]; target: "figure" | "background" | "bgm"; replaceFilename?: string } | null>(null);
   const figures = useMemo(() => props.assets.filter((asset) => asset.kind === "角色立绘"), [props.assets]);
   const backgrounds = useMemo(() => props.assets.filter((asset) => asset.kind !== "角色立绘"), [props.assets]);
@@ -599,8 +604,18 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       </aside>
 
       <section className="laper-canvas-wrap">
-        <input ref={imageUploadRef} className="asset-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { setImageUploading(true); try { const ok = await props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename); showUploadNotice(ok ? pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新" : "上传失败，请重试"); } finally { setImageUploading(false); } } event.currentTarget.value = ""; }} />
-        <input ref={musicUploadRef} className="asset-upload-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { const ok = await props.uploadAsset(file, "bgm"); showUploadNotice(ok ? "BGM 上传成功" : "BGM 上传失败，请重试"); } event.currentTarget.value = ""; }} />
+        <AssetFileInput ref={imageUploadRef} className="asset-upload-input" aria-label="上传作品图片" policy={imageUploadPolicy} resetAfterSelect disabled={props.busy || imageUploading || musicUpload.pending}
+          onValidationError={imageUpload.setError} onFileSelected={async file => {
+            const ok = await imageUpload.run(file, imageUploadPolicy, () => props.uploadAsset(file, "image", pendingImageUpload.role, pendingImageUpload.removeBackground, pendingImageUpload.replaceFilename));
+            if (ok) showUploadNotice(pendingImageUpload.removeBackground ? "上传成功，已完成抠图和头像生成" : "上传成功，预览已更新");
+          }} />
+        <AssetFileInput ref={musicUploadRef} className="asset-upload-input" aria-label="上传作品音乐" policy={musicUploadPolicy} resetAfterSelect disabled={props.busy || imageUploading || musicUpload.pending}
+          onValidationError={musicUpload.setError} onFileSelected={async file => {
+            const ok = await musicUpload.run(file, musicUploadPolicy, () => props.uploadAsset(file, "bgm"));
+            if (ok) showUploadNotice("BGM 上传成功");
+          }} />
+        <UploadStatus pending={false} error={imageUpload.error || musicUpload.error} className="error" />
+        <UploadStatus pending={musicUpload.pending} message="正在上传 BGM…" />
         <Tabs.List className="laper-toolbar" aria-label="素材分类">
           {props.sceneMusicEnabled && <Tabs.Trigger value="music" className={section === "music" ? "active" : ""}>场景音乐</Tabs.Trigger>}
           <Tabs.Trigger value="figures" className={section === "figures" ? "active" : ""}>
@@ -834,7 +849,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
             <div className="asset-modal-body">
               <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div>{(imageUploading || uploadNotice) && <div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice}</div>}</div>
-              <div className="asset-modal-editor">
+              <div className="asset-modal-editor"><UploadStatus pending={false} error={imageUpload.error} className="error" />
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>
                 {!props.readonly && <div className="asset-modal-source-actions"><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }}>{imageUploading ? "正在上传..." : "上传图片"}</button><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; void openLibraryPicker(isFigure ? "FIGURE" : "BACKGROUND", isFigure ? "figure" : "background", active.filename); }}>从素材库选择</button></div>}
@@ -855,10 +870,6 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         }} />}
     </section></Tabs.Root>
   );
-}
-
-function AssetHint({ text, children }: { text: string; children: React.ReactElement }) {
-  return <Tooltip.Provider delayDuration={250}><Tooltip.Root><Tooltip.Trigger asChild>{children}</Tooltip.Trigger><Tooltip.Portal><Tooltip.Content className="action-hint-content" sideOffset={6}>{text}<Tooltip.Arrow /></Tooltip.Content></Tooltip.Portal></Tooltip.Root></Tooltip.Provider>;
 }
 
 function fallbackMusicAssetLabel(filename: string) {

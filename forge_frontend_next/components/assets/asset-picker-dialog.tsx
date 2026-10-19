@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PersonalLibraryAsset } from '../../domain/assets';
 import { useIncrementalList } from '../../hooks/use-incremental-list';
+import { AssetPreview } from './asset-preview';
 import { ModalBody, ModalFrame } from '../ui/modal';
 
 export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id' | 'name' | 'mime_type' | 'url'>>({
@@ -113,13 +114,7 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
                     onClick={() => setSelected(asset.file_id)}
                   >
                     <div className="asset-library-picker-preview">
-                      {asset.mime_type.startsWith('image/') ? (
-                        <img src={asset.url} alt="" loading="lazy" decoding="async" />
-                      ) : (
-                        <span className="asset-library-audio-mark" aria-hidden="true">
-                          ♫
-                        </span>
-                      )}
+                      <AssetPreview asset={asset} interactive={false} decorative audioClassName="asset-library-audio-mark" />
                     </div>
                     <div className="asset-library-picker-copy">
                       <strong>{asset.name}</strong>

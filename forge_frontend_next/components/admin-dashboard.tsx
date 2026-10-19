@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "./ui/pagination";
 import { adminApi } from "../lib/api-client";
 
 import { useEffect, useRef, useState } from "react";
@@ -61,7 +62,7 @@ export default function AdminDashboard() {
       </div>
       <p className="admin-dashboard-coverage">统计口径：{visible.totals.settlements} 笔已结算操作，其中 {visible.totals.settlements_with_usage} 笔含用量记录。未记录、失败或尚未结算的用量未计入 Token；历史缺失数据不作估算。</p>
       <h3>每日明细</h3><div className="admin-table-wrap"><table className="admin-table"><thead><tr>{["日期","创建任务","已完成","发起用户","新增用户","输入 Token","输出 Token","图片","语音字符","积分"].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{tableRows.map(day=><tr key={day.date}>{[day.date,day.tasks,day.completed,day.active_users,day.new_users,day.input_tokens,day.output_tokens,day.images,day.tts_characters,day.credits].map((value,i)=><td key={i}>{typeof value==="number"?number(value):value}</td>)}</tr>)}</tbody></table></div>
-      <nav className="asset-library-pagination"><button className="btn outline" disabled={tablePage===1} onClick={()=>setTablePage(v=>v-1)}>上一页</button><span>第 {tablePage} 页</span><button className="btn outline" disabled={tablePage*10>=daily.length} onClick={()=>setTablePage(v=>v+1)}>下一页</button></nav>
+      <Pagination className="asset-library-pagination" buttonClassName="btn outline" page={tablePage} hasMore={tablePage * 10 < daily.length} onPageChange={setTablePage} ariaLabel="统计明细分页" />
     </>:null}
   </section>;
 }

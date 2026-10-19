@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "./ui/pagination";
 
 import { useEffect, useState } from "react";
 import CommunityMessageForm from "./community-message-form";
@@ -64,14 +65,14 @@ export default function CommunityBoard() {
           {loading && <p role="status">正在加载留言…</p>}
           {error && <p role="alert">{error} <button className="community-text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</button></p>}
         </div>
-        {(offset > 0 || more) && <div className="community-pagination"><button type="button" disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 6))}>上一页</button><span>第 {offset / 6 + 1} 页</span><button type="button" disabled={loading || !more} onClick={() => setOffset(value => value + 6)}>下一页</button></div>}
+        {(offset > 0 || more) && <Pagination ariaLabel="公开问答分页" className="community-pagination" page={offset / 6 + 1} hasMore={more} disabled={loading} onPageChange={page => setOffset((page - 1) * 6)} />}
         {user?.auth_type === "sso" && mine && <div className="community-own-questions" aria-busy={ownLoading}>
           <h3>我的提问</h3>
           {ownLoading && <p role="status">正在加载我的提问…</p>}
           {ownError && <p role="alert">{ownError} <button className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
           {!ownLoading && !ownError && !ownQuestions.length && <p className="community-empty">还没有提交过提问。</p>}
           {ownQuestions.map(item => <details className="community-question" key={item.id} open><summary><span className="qa-letter">Q</span><h4>{item.question}</h4>{item.answer ? <span className="qa-expand" aria-hidden="true">+</span> : <span className="community-pending">待答复</span>}</summary>{item.answer && <div className="community-answer"><span className="qa-letter">A</span><p>{item.answer}</p></div>}</details>)}
-          {(ownOffset > 0 || ownMore) && <div className="community-pagination"><button type="button" disabled={ownLoading || ownOffset === 0} onClick={() => setOwnOffset(value => Math.max(0, value - 6))}>上一页</button><span>第 {ownOffset / 6 + 1} 页</span><button type="button" disabled={ownLoading || !ownMore} onClick={() => setOwnOffset(value => value + 6)}>下一页</button></div>}
+          {(ownOffset > 0 || ownMore) && <Pagination ariaLabel="我的提问分页" className="community-pagination" page={ownOffset / 6 + 1} hasMore={ownMore} disabled={ownLoading} onPageChange={page => setOwnOffset((page - 1) * 6)} />}
         </div>}
         <CommunityMessageForm kind="QUESTION" onSent={() => { setMine(true); setOwnOffset(0); setRevision(value => value + 1); }} />
       </section>

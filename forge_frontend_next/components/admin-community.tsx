@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "./ui/pagination";
 
 import { useEffect, useState } from "react";
 import * as Switch from "@radix-ui/react-switch";
@@ -93,7 +94,7 @@ export default function AdminCommunity() {
         <div className={styles.columnHeading}><h3 id="admin-inbox-title">用户留言</h3><span>{loading && !data ? "正在加载…" : `本页 ${questions.length} 条 · ${pending} 条待回复`}</span></div>
         <div className={styles.filters} role="group" aria-label="筛选本页留言">{filters.map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <div className={styles.messageList} aria-busy={loading}>{visible.map(question => <ReplyEditor key={question.id} question={question} saved={saved} />)}{!loading && !error && !visible.length && <div className={styles.empty}><strong>{questions.length ? "本页没有符合条件的留言" : "暂时没有用户留言"}</strong><p>{questions.length ? "试试其他筛选，或查看下一页。" : "用户提交的提问和建议会显示在这里。"}</p></div>}</div>
-        <nav className={styles.pagination} aria-label="留言分页"><span>第 {offset / 20 + 1} 页</span><div><button className={styles.secondaryButton} type="button" disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 20))}>上一页</button><button className={styles.secondaryButton} type="button" disabled={loading || !data?.has_more} onClick={() => setOffset(value => value + 20)}>下一页</button></div></nav>
+        <Pagination className={styles.pagination} buttonClassName={styles.secondaryButton} ariaLabel="留言分页" layout="trailing-actions" page={offset / 20 + 1} hasMore={Boolean(data?.has_more)} disabled={loading} onPageChange={page => setOffset((page - 1) * 20)} />
       </section>
     </div>
   </section>;
