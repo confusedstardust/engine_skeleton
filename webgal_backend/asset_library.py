@@ -28,6 +28,31 @@ def _public_url(key: str) -> str:
 class AssetLibrary:
     """Immutable OSS registry: generated assets are shared, uploads stay private."""
 
+    def list_public_bgm(self) -> list[dict[str, Any]]:
+        """Return one current original file per public, active music asset."""
+        with self._transaction() as cursor:
+            cursor.execute("""SELECT a.id AS asset_id,a.name,a.generation_metadata,
+                f.id AS file_id,f.revision,f.mime_type
+                FROM assets a JOIN asset_files f ON f.asset_id=a.id
+                WHERE a.kind='BGM' AND a.visibility='PUBLIC' AND a.status='ACTIVE'
+                  AND f.status='READY' AND f.variant='original'
+                ORDER BY a.id,f.revision DESC,f.id""")
+            rows = cursor.fetchall()
+        result = []
+        seen = set()
+        for row in rows:
+            if row['asset_id'] in seen:
+                continue
+            seen.add(row['asset_id'])
+            metadata = row.get('generation_metadata') or {}
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            extension = {'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav',
+                         'audio/ogg': '.ogg', 'audio/flac': '.flac', 'audio/mp4': '.m4a'}.get(row['mime_type'], '.mp3')
+            result.append({**row, 'filename': f"bgm_{row['file_id']}{extension}",
+                           'moods': (metadata.get('attributes') or {}).get('mood', [])})
+        return result
+
     def __init__(self, config: CreditDatabaseConfig | None = None) -> None:
         self.config = config or CreditDatabaseConfig.from_env()
         self._database = Database(mysql_connection_factory(self.config, dependency_error=AssetLibraryError))
@@ -475,7 +500,7 @@ FROM assets a
                 (version_id, game_id),
             )
             cursor.execute(
-                "UPDATE generation_jobs SET draft_revision=%s,published_revision=%s,status='SUCCEEDED',progress_percent=100,finished_at=CURRENT_TIMESTAMP(3) WHERE id=%s",
+                "UPDATE generation_jobs SET draft_revision=%s,published_revision=%s,status='SUCCEEDED',phase=NULL,build_state='CURRENT',progress_percent=100,error_code=NULL,error_message=NULL,finished_at=CURRENT_TIMESTAMP(3) WHERE id=%s",
                 (max(0, draft_revision), max(0, draft_revision), job_id),
             )
         return version_id
