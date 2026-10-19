@@ -207,7 +207,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
 
   const voiceOptions = eligibleVoices.map((voice, index) => ({
     value: voice.name,
-    label: voice.description || `${genderLabel} ${index + 1}`
+    label: [voice.label, voice.description].filter(Boolean).join(" · ") || `${genderLabel} ${index + 1}`
   }));
 
   return (

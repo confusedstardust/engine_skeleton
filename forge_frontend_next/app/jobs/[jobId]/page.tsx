@@ -2,11 +2,9 @@
 import { WorkbenchHeader } from '../../../components/workbench-header';
 import type { MouseEvent } from 'react';
 
-import Link from 'next/link';
 import { use } from 'react';
 
 import { SceneScrollButton } from '../../../components/scene-scroll-button';
-import { CreditBalance } from '../../../components/credit-balance';
 
 import { withBasePath } from '../../base-path';
 import { useJobWorkspace } from './use-job-workspace';
@@ -121,17 +119,13 @@ function JobWorkspace({ jobId }: { jobId: string }) {
 
   return (
     <>
-      <WorkbenchHeader title="临场 · 生成工作台" label="任务导航" fallback="/history" onNavigate={handleNavigation}>
-        <Link href="/?workspace=1" onClick={handleNavigation}>
-          新建任务
-        </Link>
-        <CreditBalance />
-        {hasPublishedBuild && (
-          <a className="nav-login" href={withBasePath(`/play/${data.job.id}/`)} target="_blank">
-            打开游戏
-          </a>
-        )}
-      </WorkbenchHeader>
+      <WorkbenchHeader
+        title="临场 · 生成工作台"
+        label="任务导航"
+        returnHref="/history"
+        onNavigate={handleNavigation}
+        account={null}
+      />
 
       <main className="main-wrapper workspace-wrapper">
         <section className="workflow-head">

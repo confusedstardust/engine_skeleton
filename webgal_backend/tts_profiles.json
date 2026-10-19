@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "default_profile": "doubao-tts2",
+  "profiles": [
+    {
+      "id": "qwen-realtime",
+      "label": "Qwen 实时语音",
+      "enabled": true,
+      "provider": "qwen",
+      "endpoint": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+      "auth": {
+        "api_key_env": "DASHSCOPE_API_KEY"
+      },
+      "options": {
+        "model": "qwen3-tts-flash-realtime",
+        "max_workers": 1,
+        "volume": 50,
+        "speech_rate": 1.0,
+        "pitch_rate": 1.0,
+        "optimize_instructions": true
+      },
+      "default_voice": "Cherry",
+      "voices": [
+        {
+          "id": "Ethan",
+          "label": "Ethan",
+          "gender": "male",
+          "description": "青年男性；标准普通话，略带北方口音；阳光、温暖、活力充沛、亲切自然；适合热血青年、开朗主角、学生、伙伴型角色"
+        },
+        {
+          "id": "Moon",
+          "label": "Moon",
+          "gender": "male",
+          "description": "男性；英气俊朗、豪爽大方、自信外向；适合侠客、将领、爽朗青年、行动派角色"
+        },
+        {
+          "id": "Kai",
+          "label": "Kai",
+          "gender": "male",
+          "description": "男性；柔和舒缓、治愈放松、自然耐听；适合温柔青年、医生、陪伴者、沉静可靠的角色"
+        },
+        {
+          "id": "Eldric Sage",
+          "label": "Eldric Sage",
+          "gender": "male",
+          "description": "老年男性；冷静睿智、沉稳清醒、饱经世事；适合长者、智者、导师、老学者、谋士"
+        },
+        {
+          "id": "Mochi",
+          "label": "Mochi",
+          "gender": "male",
+          "description": "年轻男性；聪明机敏、反应灵活，保留童真但不幼稚；适合少年天才、机灵助手、聪慧青年、轻喜剧角色"
+        },
+        {
+          "id": "Vincent",
+          "label": "Vincent",
+          "gender": "male",
+          "description": "男性；沙哑烟嗓、粗粝沧桑、英雄史诗感强；适合将军、佣兵、硬汉、豪侠、战争题材角色"
+        },
+        {
+          "id": "Arthur",
+          "label": "Arthur",
+          "gender": "male",
+          "description": "成熟男性；质朴自然、饱经岁月、带烟火与乡土气息，叙述节奏舒缓；适合村中长者、父辈、乡野人物、民间故事讲述者"
+        },
+        {
+          "id": "Aiden",
+          "label": "Aiden",
+          "gender": "male",
+          "description": "年轻男性；带美式英语青年气质，轻松自然、生活化；适合海外青年、厨师、生活方式达人、现代都市角色"
+        },
+        {
+          "id": "Bodega",
+          "label": "Bodega",
+          "gender": "male",
+          "description": "男性；热情奔放、情绪外放，带西班牙文化气质；适合热情旅人、冒险家、艺术家、外向型异国角色"
+        },
+        {
+          "id": "Emilien",
+          "label": "Emilien",
+          "gender": "male",
+          "description": "男性；浪漫温柔、亲切成熟，带法式兄长气质；适合温柔兄长、浪漫绅士、艺术家、体贴可靠的男性角色"
+        },
+        {
+          "id": "Dylan",
+          "label": "Dylan",
+          "gender": "male",
+          "description": "年轻男性；北京胡同成长背景，京味鲜明、生活感强、自然接地气；适合北京青年、市井人物、幽默伙伴；中文主要适合北京方言内容"
+        },
+        {
+          "id": "Cherry",
+          "label": "Cherry",
+          "gender": "female",
+          "description": "年轻女性；阳光积极、亲切自然、温暖有活力；适合开朗女主、邻家女孩、学生、治愈型伙伴"
+        },
+        {
+          "id": "Serena",
+          "label": "Serena",
+          "gender": "female",
+          "description": "年轻女性；温柔柔和、安静亲切、情绪内敛；适合温柔女主、文静少女、体贴陪伴者、治愈系角色"
+        },
+        {
+          "id": "Chelsie",
+          "label": "Chelsie",
+          "gender": "female",
+          "description": "年轻女性；二次元虚拟女友风格，甜美亲昵、动漫感强；适合二次元少女、虚拟偶像、恋爱向女主、撒娇型角色"
+        },
+        {
+          "id": "Momo",
+          "label": "Momo",
+          "gender": "female",
+          "description": "年轻女性；调皮活泼、古灵精怪、善于活跃气氛；适合开心果、顽皮少女、元气伙伴、轻喜剧角色"
+        },
+        {
+          "id": "Vivian",
+          "label": "Vivian",
+          "gender": "female",
+          "description": "年轻女性；自信可爱、略带泼辣和小脾气，表现力鲜明；适合傲娇少女、强势女友、活泼女主、直率型角色"
+        },
+        {
+          "id": "Maia",
+          "label": "Maia",
+          "gender": "female",
+          "description": "女性；知性与温柔兼具，理性但不疏离；适合学者、医生、教师、成熟知性女性、温和领导者"
+        },
+        {
+          "id": "Bella",
+          "label": "Bella",
+          "gender": "female",
+          "description": "年轻女性；活泼轻快、开朗俏皮、带淘气感；适合元气少女、活跃同伴、校园角色、轻喜剧女主"
+        },
+        {
+          "id": "Katerina",
+          "label": "Katerina",
+          "gender": "female",
+          "description": "成熟女性；韵律丰富、节奏鲜明、声音辨识度高；适合成熟御姐、贵族女性、女领导者、具有舞台感的角色"
+        },
+        {
+          "id": "Bellona",
+          "label": "Bellona",
+          "gender": "female",
+          "description": "女性；力量感强、声音清晰、咬字出色，英雄气概与戏剧表现力突出，情绪跨度宽；适合女将军、英雄、战士、史诗题材主角"
+        },
+        {
+          "id": "Bunny",
+          "label": "Bunny",
+          "gender": "female",
+          "description": "幼年女性；小女孩声线，可爱感强、童真稚嫩；适合儿童、萌系角色、年幼妹妹、童话人物"
+        },
+        {
+          "id": "Elias",
+          "label": "Elias",
+          "gender": "female",
+          "description": "女性；知性严谨、表达清晰，擅长以故事化方式讲解复杂内容；适合教师、学者、研究员、解说者、理性顾问型角色"
+        },
+        {
+          "id": "Stella",
+          "label": "Stella",
+          "gender": "female",
+          "description": "少女；甜度很高、略带迷糊感，日常可爱软萌，高情绪时具有热血、正义和爆发力；适合魔法少女、甜系女主、热血少女、动漫角色"
+        },
+        {
+          "id": "Sohee",
+          "label": "Sohee",
+          "gender": "female",
+          "description": "成熟女性；温暖开朗、情绪表达丰富，带亲切的韩国姐姐气质；适合可靠姐姐、成熟朋友、韩系都市女性、情感丰富的角色"
+        }
+      ]
+    },
+    {
+      "id": "doubao-tts2",
+      "label": "豆包 TTS 2.0",
+      "enabled": true,
+      "provider": "doubao",
+      "endpoint": "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+      "auth": {
+        "api_key_env": "DOUBAO_TTS_API_KEY"
+      },
+      "options": {
+        "resource_id": "seed-tts-2.0",
+        "max_workers": 1,
+        "volume": 50,
+        "speech_rate": 1.0,
+        "pitch_rate": 1.0
+      },
+      "default_voice": "zh_female_vv_uranus_bigtts",
+      "voices": [
+        {
+          "id": "zh_female_vv_uranus_bigtts",
+          "label": "Vivi 2.0",
+          "gender": "female",
+          "description": "年轻女声；活泼可爱，适合甜美、治愈系角色"
+        },
+        {
+          "id": "zh_male_m191_uranus_bigtts",
+          "label": "云舟 2.0",
+          "gender": "male",
+          "description": "声音磁性的男生，成熟理性，做事有条理，让人信赖。"
+        },
+        {
+          "id": "zh_male_taocheng_uranus_bigtts",
+          "label": "小天 2.0",
+          "gender": "male",
+          "description": "眉目清朗男大，清澈温润有朝气，开朗真诚。"
+        },
+        {
+          "id": "zh_female_meilinvyou_uranus_bigtts",
+          "label": "魅力女友 2.0",
+          "description": "性感妩媚的御姐，成熟有魅力，风情十足",
+          "gender": "female"
+        },
+        {
+          "id": "zh_female_peiqi_uranus_bigtts",
+          "label": "佩奇猪 2.0",
+          "description": "幼年女性；小女孩声线，可爱感强，适合儿童、萌系角色、年幼妹妹、童话人物",
+          "gender": "female"
+        },
+        {
+          "id": "zh_male_qingshuangnanda_uranus_bigtts",
+          "label": "清爽男大 2.0",
+          "description": "青年男性；声音清晰、阳光，适合积极向上的角色",
+          "gender": "male"
+        },
+        {
+          "id": "zh_female_jitangmei_uranus_bigtts",
+          "label": "鸡汤妹妹 2.0",
+          "description": "女性；知性与温柔兼具，理性但不疏离；适合学者、医生、教师、成熟知性女性、温和领导者",
+          "gender": "female"
+        },
+        {
+          "id": "zh_female_mengyatou_uranus_bigtts",
+          "label": "萌丫头 2.0",
+          "description": "幼年女性；小女孩声线，可爱感强，适合儿童、萌系角色、年幼妹妹、童话人物",
+          "gender": "female"
+        },
+        {
+          "id": "zh_female_shaoergushi_uranus_bigtts",
+          "label": "少儿故事 2.0",
+          "description": "治愈女声；语调活泼、声线亲切",
+          "gender": "female"
+        },
+        {
+          "id": "zh_female_wenrouxiaoya_uranus_bigtts",
+          "label": "温柔小雅 2.0",
+          "gender": "female",
+          "description": "古风女声；温柔柔和，适合文静、年轻女性角色"
+        },
+        {
+          "id": "zh_female_tianmeiyueyue_uranus_bigtts",
+          "label": "甜美悦悦 2.0",
+          "gender": "female",
+          "description": "青年女声；适合开朗、沉稳的年轻女性角色"
+        },
+        {
+          "id": "zh_male_yangguangqingnian_uranus_bigtts",
+          "label": "阳光青年 2.0",
+          "gender": "male",
+          "description": "青年男声；阳光、有朝气，适合积极开朗的青年、学生和伙伴角色"
+        },
+        {
+          "id": "zh_male_yuanboxiaoshu_uranus_bigtts",
+          "label": "渊博小叔 2.0",
+          "gender": "male",
+          "description": "成熟男声；知性、稳重，适合有学识的叔辈、教师和顾问角色"
+        },
+        {
+          "id": "zh_female_zhixingnv_uranus_bigtts",
+          "label": "知性女声 2.0",
+          "gender": "female",
+          "description": "成熟女声；知性、理性，适合教师、学者和温和干练的女性角色"
+        },
+        {
+          "id": "zh_male_youyoujunzi_uranus_bigtts",
+          "label": "悠悠君子 2.0",
+          "gender": "male",
+          "description": "男声；儒雅、从容，适合温文尔雅的书生、文人和绅士角色"
+        },
+        {
+          "id": "zh_male_kailangxuezhang_uranus_bigtts",
+          "label": "开朗学长 2.0",
+          "gender": "male",
+          "description": "青年男声；开朗、亲切，适合学长、青年朋友和校园角色"
+        },
+        {
+          "id": "zh_male_zhuangzhou_uranus_bigtts",
+          "label": "庄周 2.0",
+          "gender": "male",
+          "description": "男声；古风角色，适合从容洒脱的文人、隐士和哲思型角色"
+        },
+        {
+          "id": "zh_female_chunribu_uranus_bigtts",
+          "label": "春日部姐姐 2.0",
+          "gender": "female",
+          "description": "女声；角色扮演音色，适合姐姐型人物和带动漫风格的女性角色"
+        },
+        {
+          "id": "zh_male_baqiqingshu_uranus_bigtts",
+          "label": "霸气青叔 2.0",
+          "gender": "male",
+          "description": "成熟男声；有力量感，适合威严、果断的叔辈、领袖和强势角色"
+        },
+        {
+          "id": "zh_female_gufengshaoyu_uranus_bigtts",
+          "label": "古风少御 2.0",
+          "gender": "female",
+          "description": "年轻女声；古风、带御姐气质，适合清冷自持的古装女性角色"
+        },
+        {
+          "id": "zh_male_lanyinmianbao_uranus_bigtts",
+          "label": "懒音绵宝 2.0",
+          "gender": "male",
+          "description": "男声；慵懒、绵软，适合放松随性的年轻男性和柔和陪伴型角色"
+        },
+        {
+          "id": "zh_female_popo_uranus_bigtts",
+          "label": "婆婆 2.0",
+          "gender": "female",
+          "description": "老年女声；适合祖母、婆婆和老年女性角色"
+        },
+        {
+          "id": "zh_male_naiqimengwa_uranus_bigtts",
+          "label": "奶气萌娃 2.0",
+          "gender": "male",
+          "description": "幼年男声；稚嫩、软萌，适合小男孩、幼童和童话角色"
+        },
+        {
+          "id": "zh_female_yingtaowanzi_uranus_bigtts",
+          "label": "樱桃丸子 2.0",
+          "gender": "female",
+          "description": "女声；卡通角色风格，适合活泼的小女孩和童趣角色"
+        },
+        {
+          "id": "zh_male_qingcang_uranus_bigtts",
+          "label": "擎苍 2.0",
+          "gender": "male",
+          "description": "男声；角色扮演风格，适合古风、玄幻题材中沉稳有力量感的男性角色"
+        }
+      ]
+    }
+  ]
+}

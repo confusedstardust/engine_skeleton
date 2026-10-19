@@ -44,6 +44,7 @@ from .scene_headers import scene_header_matches, scene_header_match, scene_heade
 from .storage import JobStore, read_json, utc_now, write_json
 from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
 from .scene_validation import SceneValidationResult, validate_and_repair_scenes, validation_report
+from .tts_config import job_tts_profile, tts_settings
 from .tts_pipeline import (
     build_tts_manifest,
     build_tts_voice_review,
@@ -1245,7 +1246,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         job_dir = self.store.job_dir(job["id"])
         preview_script = self._read_game_design_completed_text(job_dir)
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-        limits = generation_limits().get("tts", {})
+        limits = {**generation_limits().get("tts", {}), **tts_settings(job_tts_profile(job_dir))}
         review_path = job_dir / "state" / "tts_voice_review.json"
         existing_review = read_json(review_path) if review_path.exists() else None
         with self._trace_stage(
@@ -1277,12 +1278,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         if not review_path.exists():
             raise PipelineError("TTS voice review is not ready")
         review = read_json(review_path)
+        review.setdefault("tts_profile", job_tts_profile(job_dir))
         try:
             item = select_tts_review_voice(review, speaker, voice)
-            preview_path = job_dir / "public" / "game" / "vocal_preview" / str(item.get("filename") or "")
-            if preview_path.exists():
-                preview_path.unlink()
-            generate_tts_voice_previews(job_dir, review, speakers={speaker})
+            generate_tts_voice_previews(job_dir, review, speakers={speaker}, force=True)
         except ValueError as exc:
             raise PipelineError(str(exc)) from exc
         write_json(review_path, review)
@@ -1300,7 +1299,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         if not (job_dir / "state" / "narrative_plan.json").exists():
             raise PipelineError("narrative_plan.json is required before TTS generation")
 
-        limits = generation_limits().get("tts", {})
+        limits = {**generation_limits().get("tts", {}), **tts_settings(job_tts_profile(job_dir))}
         enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         review_path = job_dir / "state" / "tts_voice_review.json"
@@ -1311,23 +1310,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             character_voices = selected_character_voices(read_json(review_path))
         else:
             character_voices = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
-        previous_manifest_path = job_dir / "state" / "tts_manifest.json"
-        previous_manifest = read_json(previous_manifest_path) if previous_manifest_path.exists() else {}
         manifest = build_tts_manifest(job_dir, character_voices=character_voices, selection_options=job["options"])
-        previous_items = {
-            str(item.get("filename") or ""): item
-            for item in previous_manifest.get("items", [])
-            if isinstance(item, dict)
-        }
-        for item in manifest.get("items", []):
-            previous = previous_items.get(str(item.get("filename") or ""))
-            if not previous:
-                continue
-            if previous.get("voice") == item.get("voice") and previous.get("text") == item.get("text"):
-                continue
-            old_audio = job_dir / "public" / "game" / "vocal" / str(item.get("filename") or "")
-            if old_audio.exists():
-                old_audio.unlink()
         manifest = generate_tts_audio(job_dir, manifest, enabled=enabled)
         write_tts_manifest(job_dir, manifest)
         self.store.record_artifact(job, "tts_manifest", "state/tts_manifest.json")
@@ -1378,12 +1361,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
 - 顶层 JSON 直接使用角色名作为 key，不要包裹 character_voices 字段。
 - 返回 JSON，不要解释，不要 Markdown。
 
-返回格式:
-{{
-  "海瑞": ["Kai", "清正克制的中年男声，沉稳质朴"],
-  "徐阶": ["Eldric Sage", "岁月和茶烟浸泡过的温和老者嗓音"],
-  "王国师": ["Arthur", "温厚舒缓的中年男声，带旧友般的暖意"]
-}}"""
+返回格式示例:
+{json.dumps({"角色名": [next(iter(limits.get("voices", {}).get("male", {})), limits.get("voices", {}).get("default", "")), "沉稳自然、吐字清晰"]}, ensure_ascii=False, indent=2)}"""
         system_prompt = f"""{SYSTEM_PROMPT}
 
 Current phase: tts_voice_assignment

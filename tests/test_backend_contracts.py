@@ -34,6 +34,7 @@ from webgal_backend.scene_plan import build_scene_plan, expected_ending_types, e
 from webgal_backend.scene_validation import _character_name_set, _repair_scene_lines
 from webgal_backend.scene_validation import _parse_choose_options, _scene_targets
 from webgal_backend.storage import JobStore, read_json, write_json
+from webgal_backend.tts_config import default_tts_profile
 from webgal_backend.tts_pipeline import (
     available_tts_voices,
     build_tts_manifest,
@@ -1450,6 +1451,9 @@ class BackendContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             job_dir = Path(tmp)
             (job_dir / "state").mkdir()
+            write_json(job_dir / "state/tts_profile.json", {
+                "schema_version": 1, "profile": default_tts_profile("qwen-realtime"),
+            })
             plan = minimal_narrative_plan()
             plan["characters"] = [
                 {
@@ -1585,7 +1589,9 @@ class BackendContractTests(unittest.TestCase):
             self.assertEqual(store.get(job["id"])["status"], "ASSET_REVIEW_READY")
 
     def test_tts_voice_review_uses_current_selection_without_confirmation(self) -> None:
+        profile = default_tts_profile("qwen-realtime")
         review = {
+            "tts_profile": profile,
             "characters": [
                 {
                     "speaker": "Hero",
@@ -1603,11 +1609,13 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("moon", changed["filename"])
         self.assertEqual(
             selected_character_voices(review),
-            {"Hero": ["Moon", next(option["description"] for option in available_tts_voices() if option["name"] == "Moon")]},
+            {"Hero": ["Moon", next(option["description"] for option in available_tts_voices(profile) if option["name"] == "Moon")]},
         )
 
     def test_tts_voice_review_rejects_cross_gender_voice(self) -> None:
+        profile = default_tts_profile("qwen-realtime")
         review = {
+            "tts_profile": profile,
             "characters": [
                 {
                     "speaker": "Hero",

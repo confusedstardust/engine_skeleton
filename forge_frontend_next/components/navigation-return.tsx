@@ -46,9 +46,9 @@ export function NavigationReturnProvider({ children }: { children: ReactNode }) 
   return <ReturnContext.Provider value={previous}>{children}</ReturnContext.Provider>;
 }
 
-export function ReturnLink({ fallback = "/", onClick }: { fallback?: string; onClick?: MouseEventHandler<HTMLAnchorElement> }) {
+export function ReturnLink({ href: target, fallback = "/", onClick }: { href?: string; fallback?: string; onClick?: MouseEventHandler<HTMLAnchorElement> }) {
   const previous = useContext(ReturnContext);
-  const href = previous || fallback;
+  const href = target || previous || fallback;
   const label = `返回${labelFor(href)}`;
   return <Link className="workspace-back" href={href} aria-label={label} onClick={onClick}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span>{label}</span></Link>;
 }

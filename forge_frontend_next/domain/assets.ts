@@ -18,6 +18,7 @@ export type AssetReviewItem = {
 
 export type TTSVoiceOption = {
   name: string;
+  label?: string;
   gender: string;
   description: string;
 };

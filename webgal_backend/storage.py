@@ -77,6 +77,8 @@ class JobStore:
             "dirty_scopes": [],
             "has_published_build": False,
         }
+        from .tts_config import job_tts_profile
+        job_tts_profile(job_dir, new_job=True)
         self.save(job)
         return job
 

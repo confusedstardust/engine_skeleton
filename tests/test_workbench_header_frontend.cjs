@@ -41,6 +41,28 @@ test('invite navigation omits account and preserves custom actions', () => {
   assert.ok(all(tree, 'nav')[0].props.children.includes('新建任务'));
 });
 
+test('editor header can show only a guarded return to My Works regardless of navigation history', () => {
+  const guard = () => {};
+  const tree = render(WorkbenchHeader({ title: '生成工作台', returnHref: '/history', account: null, onNavigate: guard }));
+  const navigation = all(tree, 'nav')[0];
+  assert.equal(all(navigation, 'account').length, 0);
+  assert.equal(all(navigation, 'a').length, 0);
+  const link = all(navigation, 'return-link')[0];
+  assert.equal(link.props.href, '/history');
+  assert.equal(link.props.onClick, guard);
+
+  const { ReturnLink } = loadFrontendTs(path.resolve(__dirname, '../forge_frontend_next/components/navigation-return.tsx'), {
+    react: { ...require('../forge_frontend_next/node_modules/react'), useContext: () => '/assets' },
+    'next/link': { default: props => props },
+    'next/navigation': {},
+  });
+  const fixed = ReturnLink({ href: '/history', onClick: guard });
+  assert.equal(fixed.props.href, '/history');
+  assert.equal(fixed.props['aria-label'], '返回我的作品');
+  assert.equal(fixed.props.onClick, guard);
+  assert.equal(ReturnLink({ fallback: '/history' }).props.href, '/assets');
+});
+
 test('generator brand and hamburger keep their original layout and mobile account props', () => {
   const tree = render(WorkbenchHeader({ title: '生成平台', brandHref: null, wrapBrand: false, afterNavigation: { type: 'button', props: { children: '菜单' } } }));
   assert.equal(all(tree, 'a').length, 0);

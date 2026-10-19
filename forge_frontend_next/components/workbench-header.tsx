@@ -9,6 +9,7 @@ import { ReturnLink } from './navigation-return';
 type NavigationProps = {
   label?: string;
   fallback?: string;
+  returnHref?: string;
   onNavigate?: MouseEventHandler<HTMLAnchorElement>;
   children?: ReactNode;
   account?: ReactNode;
@@ -20,6 +21,7 @@ type NavigationProps = {
 export function WorkbenchNavigation({
   label,
   fallback,
+  returnHref,
   onNavigate,
   children,
   account,
@@ -30,7 +32,7 @@ export function WorkbenchNavigation({
 }: NavigationProps & { className?: string }) {
   return (
     <nav className={className} aria-label={label}>
-      <ReturnLink fallback={fallback} onClick={onNavigate} />
+      <ReturnLink href={returnHref} fallback={fallback} onClick={onNavigate} />
       {children}
       {account === undefined ? <AccountMenu className={accountClassName} tour={accountTour} includeAdmin /> : account}
       {afterAccount}
