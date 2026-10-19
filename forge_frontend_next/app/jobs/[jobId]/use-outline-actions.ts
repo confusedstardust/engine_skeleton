@@ -161,7 +161,7 @@ export function useOutlineActions(context: OutlineActionContext) {
   async function nextToScenes() {
     if (!plan) return;
     setBusy(true);
-    setMessage('正在启动场景草稿生成...');
+    setMessage('正在启动场景生成，将自动补全详细旁白和对话...');
     try {
       if (planDirty) {
         const result = await api<SyncNarrativeStructureResponse>(`/jobs/${jobId}/narrative-structure/sync`, {
@@ -172,14 +172,14 @@ export function useOutlineActions(context: OutlineActionContext) {
         planRef.current = result.narrative_plan;
         setPlanDirty(false);
       }
-      await api<Job>(`/jobs/${jobId}/phases/game_design_draft`, {
+      await api<Job>(`/jobs/${jobId}/phases/game_design`, {
         method: 'POST',
         body: JSON.stringify({ background: true }),
       });
       await refresh(true);
       setOutlineSubmitted(true);
       setStage('scenes');
-      setMessage('场景设计稿正在生成，完成后可以先审阅 game_design.json。');
+      setMessage('场景正在连续生成，详细旁白和对话完成后即可审阅。');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '进入下一步失败。');
     } finally {

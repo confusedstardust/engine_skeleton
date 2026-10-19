@@ -319,10 +319,10 @@ class WebGALPipeline:
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
 
     def run_game_design(self, job: dict[str, Any]) -> None:
-        self.run_game_design_draft(job)
+        self.run_game_design_draft(job, pause_for_review=False)
         self.run_game_design_completion(job)
 
-    def run_game_design_draft(self, job: dict[str, Any]) -> None:
+    def run_game_design_draft(self, job: dict[str, Any], *, pause_for_review: bool = True) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN")
         job_dir, narrative_plan, scene_plan = self._game_design_context(job)
         llm = self._make_llm(job, job_dir)
@@ -352,7 +352,8 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
                     )
             write_json(job_dir / "state" / "game_design.json", game_design_json)
             self.store.record_artifact(job, "game_design", "state/game_design.json")
-        self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
+        if pause_for_review:
+            self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
 
     def run_game_design_completion(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN_COMPLETION")

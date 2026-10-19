@@ -5,13 +5,12 @@ import {
   parsePlan,
   parseScenePlan,
   serializeGameDesignJson,
-  parseGameDesignDraft,
   parseScenes,
 } from './workspace-data';
 import { forgeApi as api } from '../../../lib/api-client';
 
 import type { StagedScenePresentation } from '../../../domain/assets';
-import type { NarrativePlan, SceneDraft, GameDesignDraftScene } from '../../../domain/narrative';
+import type { NarrativePlan, SceneDraft } from '../../../domain/narrative';
 import type { Job } from '../../../domain/jobs';
 
 import { useConfirmation } from '../../../components/ui/modal';
@@ -59,9 +58,6 @@ export function useJobWorkspace(jobId: string) {
     () => (connectionCheckAttempted ? validateSceneConnections(scenes) : {}),
     [scenes, connectionCheckAttempted],
   );
-  const [designDraft, setDesignDraft] = useState('');
-  const [designDraftScenes, setDesignDraftScenes] = useState<GameDesignDraftScene[]>([]);
-  const [designDraftDirty, setDesignDraftDirty] = useState(false);
   const [activeAssetFilename, setActiveAssetFilename] = useState<string | null>(null);
   const [assetPrompt, setAssetPrompt] = useState('');
   const [assetPromptDirty, setAssetPromptDirty] = useState(false);
@@ -84,8 +80,7 @@ export function useJobWorkspace(jobId: string) {
   const isGenerating = data?.job.status === 'RUNNING' || data?.job.status === 'QUEUED';
   const failedRetry = data ? failedPhaseRetry(data.job) : null;
   const activePhase = data?.job.phase || '';
-  const isDesignDraftRunning = isGenerating && activePhase === 'GAME_DESIGN' && !rawDesignNode?.exists;
-  const isDesignCompletionRunning = isGenerating && activePhase === 'GAME_DESIGN_COMPLETION' && !designNode?.exists;
+  const isDesignCompletionRunning = isGenerating && activePhase === 'GAME_DESIGN_COMPLETION';
   const assetGenerationPhases = new Set([
     'ASSET_REVIEW',
     'ASSET_PLANNING',
@@ -128,6 +123,7 @@ export function useJobWorkspace(jobId: string) {
     outlineSubmitted ||
     Boolean(designNode?.exists) ||
     activePhase === 'GAME_DESIGN' ||
+    activePhase === 'GAME_DESIGN_DRAFT' ||
     activePhase === 'GAME_DESIGN_COMPLETION' ||
     inAssetOrBuildStage;
   const scenesLocked = isGenerating || (hasPublishedBuild ? editScope === 'none' : autoMode || inAssetOrBuildStage);
@@ -158,13 +154,6 @@ export function useJobWorkspace(jobId: string) {
   }, [designNode?.content, scenesDirty, plan, rawDesignNode?.content, scenePlan]);
 
   useEffect(() => {
-    if (!designDraftDirty && rawDesignNode?.content) {
-      setDesignDraft(rawDesignNode.content);
-      setDesignDraftScenes(parseGameDesignDraft(rawDesignNode.content, plan, scenePlan));
-    }
-  }, [rawDesignNode?.content, designDraftDirty, plan, scenePlan]);
-
-  useEffect(() => {
     if (!data || stageHydrated) return;
     if (hasPublishedBuild) setStage('complete');
     else if (canOpenAssets) setStage('assets');
@@ -187,11 +176,11 @@ export function useJobWorkspace(jobId: string) {
   }, [hasPublishedBuild]);
 
   useEffect(() => {
-    if (!planDirty && !scenesDirty && !designDraftDirty && !assetPromptDirty) return;
+    if (!planDirty && !scenesDirty && !assetPromptDirty) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [assetPromptDirty, designDraftDirty, planDirty, scenesDirty]);
+  }, [assetPromptDirty, planDirty, scenesDirty]);
 
   function beginCompletedEdit() {
     setEditScope('draft');
@@ -202,10 +191,9 @@ export function useJobWorkspace(jobId: string) {
   }
 
   async function exitCompletedEdit() {
-    if ((scenesDirty || designDraftDirty || assetPromptDirty) && !(await confirm('还有未保存的修改，确定退出编辑吗？')))
+    if ((scenesDirty || assetPromptDirty) && !(await confirm('还有未保存的修改，确定退出编辑吗？')))
       return;
     setScenesDirty(false);
-    setDesignDraftDirty(false);
     setAssetPromptDirty(false);
     setEditScope('none');
     setStage('complete');
@@ -396,43 +384,18 @@ export function useJobWorkspace(jobId: string) {
     }
   }
 
-  async function saveDesignDraft() {
+  async function continueSceneGeneration() {
     setBusy(true);
-    setMessage('正在保存场景设计稿...');
+    setMessage('正在继续生成详细旁白和对话...');
     try {
-      await api(`/jobs/${jobId}/artifacts`, {
-        method: 'PATCH',
-        body: JSON.stringify({ path: 'state/game_design.json', content: designDraft }),
-      });
-      setDesignDraftDirty(false);
-      setMessage('场景设计稿已保存。');
-      await refresh(true);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '保存场景设计稿失败。');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function completeDesignDraft() {
-    setBusy(true);
-    setMessage('正在根据场景设计稿生成详细旁白和对话...');
-    try {
-      if (designDraftDirty) {
-        await api(`/jobs/${jobId}/artifacts`, {
-          method: 'PATCH',
-          body: JSON.stringify({ path: 'state/game_design.json', content: designDraft }),
-        });
-        setDesignDraftDirty(false);
-      }
       await api<Job>(`/jobs/${jobId}/phases/game_design_completion`, {
         method: 'POST',
         body: JSON.stringify({ background: true }),
       });
       await refresh(true);
-      setMessage('详细场景正在生成，完成后可以逐个场景审阅旁白和对话。');
+      setMessage('详细场景正在生成，完成后即可审阅。');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '生成详细场景失败。');
+      setErrorMessage(error instanceof Error ? error.message : '继续生成详细场景失败。');
     } finally {
       setBusy(false);
     }
@@ -469,12 +432,6 @@ export function useJobWorkspace(jobId: string) {
     setScenesDirty(true);
   }
 
-  function updateDesignDraftScenes(next: GameDesignDraftScene[]) {
-    setDesignDraftScenes(next);
-    setDesignDraft(serializeGameDesignJson(next));
-    setDesignDraftDirty(true);
-  }
-
   return {
     confirm,
     data,
@@ -504,8 +461,6 @@ export function useJobWorkspace(jobId: string) {
     scenesDirty,
     setScenesDirty,
     connectionErrors,
-    designDraftScenes,
-    designDraftDirty,
     setActiveAssetFilename,
     assetPrompt,
     setAssetPrompt,
@@ -518,7 +473,6 @@ export function useJobWorkspace(jobId: string) {
     scenePlan,
     isGenerating,
     failedRetry,
-    isDesignDraftRunning,
     isDesignCompletionRunning,
     isAssetGenerationRunning,
     isGameBuildRunning,
@@ -548,11 +502,9 @@ export function useJobWorkspace(jobId: string) {
     removeAssetBackground,
     previewCharacterVoice,
     buildGameFromAssets,
-    saveDesignDraft,
-    completeDesignDraft,
+    continueSceneGeneration,
     retryFailedPhase,
     retryPhase,
     updateScene,
-    updateDesignDraftScenes,
   };
 }

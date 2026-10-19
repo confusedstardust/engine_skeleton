@@ -2026,7 +2026,11 @@ def run_phase_background(
                 # The phase runner sets FAILED on every attempt. Move it back
                 # to QUEUED so polling clients do not expose a transient error.
                 try:
-                    store.transition(store.get(job_id), "QUEUED", phase.upper())
+                    failed_job = store.get(job_id)
+                    # A completed draft is still valid if only its completion failed.
+                    if phase == "game_design" and failed_job.get("phase") == "GAME_DESIGN_COMPLETION":
+                        phase = "game_design_completion"
+                    store.transition(failed_job, "QUEUED", phase.upper())
                 except Exception:
                     logger.exception("Could not queue Advanced retry for job_id=%s phase=%s", job_id, phase)
                     if reservation_id is not None:

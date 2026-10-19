@@ -1,16 +1,15 @@
 'use client';
-import { draftSceneRouteLabel, completedSceneRouteLabel, sceneMarkerLabel, sceneTargetOptions } from './workspace-data';
+import { completedSceneRouteLabel, sceneMarkerLabel, sceneTargetOptions } from './workspace-data';
 
 import type {
   SyncNarrativeStructureOptions,
   NarrativePlan,
   ScenePlan,
   SceneDraft,
-  GameDesignDraftScene,
 } from '../../../domain/narrative';
 
 import { ModalBody, ModalFrame } from '../../../components/ui/modal';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { StoryFlowView } from '../../../components/story-flow-view';
 import { planningGraph } from '../../../components/story-graph-data';
 
@@ -127,126 +126,38 @@ export function NarrativeFlowPreview(props: {
   return <StoryFlowView graph={graph} />;
 }
 
-export function DesignDraftEditor(props: {
-  plan: NarrativePlan | null;
-  scenes: GameDesignDraftScene[];
-  exists: boolean;
+export function SceneGenerationStatus(props: {
   busy: boolean;
-  dirty: boolean;
-  readonly: boolean;
-  generatingDraft: boolean;
   generatingCompletion: boolean;
-  onChange: (scenes: GameDesignDraftScene[]) => void;
-  saveDesignDraft: () => void;
-  completeDesignDraft: () => void;
+  resumeAction?: () => void;
   retryAction?: () => void;
   retryLabel?: string;
 }) {
-  const [activeDraftScene, setActiveDraftScene] = useState(0);
-  const activeSceneIndex = Math.min(activeDraftScene, Math.max(props.scenes.length - 1, 0));
-  const activeScene = props.scenes[activeSceneIndex];
-
-  useEffect(() => {
-    if (activeDraftScene > Math.max(props.scenes.length - 1, 0)) {
-      setActiveDraftScene(Math.max(props.scenes.length - 1, 0));
-    }
-  }, [activeDraftScene, props.scenes.length]);
-
-  if (props.generatingDraft || !props.exists) {
-    return (
-      <section className="node-detail">
-        {props.retryAction ? (
-          <FailedPlaceholder
-            title="场景设计稿生成失败。"
-            brief="自动重试仍未完成场景设计稿，可以直接重新执行这一阶段。"
-            action={props.retryAction}
-            actionLabel={props.retryLabel || '重试生成场景设计稿'}
-            busy={props.busy}
-          />
-        ) : (
-          <LoadingPlaceholder
-            title="场景设计稿还在生成。"
-            brief="生成完成后，这里会按场景卡片展示，确认后再生成详细旁白和对话。"
-          />
-        )}
-      </section>
-    );
-  }
-
-  if (props.generatingCompletion) {
-    return (
-      <section className="node-detail">
-        <LoadingPlaceholder
-          title="详细场景正在生成。"
-          brief="系统正在根据场景设计稿补全旁白、对话和分支内容，完成后会自动进入逐场景审阅。"
-        />
-      </section>
-    );
-  }
-
-  if (!activeScene) {
-    return (
-      <section className="node-detail">
-        <div className="node-placeholder">
-          <strong>场景设计稿还没有可展示的场景。</strong>
-          <span>请稍后刷新，或回到大纲重新生成场景设计稿。</span>
-        </div>
-      </section>
-    );
-  }
-
   return (
-    <LaperSceneWorkbench
-      mode="draft"
-      title={props.plan?.title || '场景设计稿'}
-      subtitle="先按阶段和结局审阅场景结构，确认后再生成详细旁白与对话。"
-      plan={props.plan}
-      scenes={props.scenes}
-      activeScene={activeDraftScene}
-      setActiveScene={setActiveDraftScene}
-      onScenesChange={(scenes) => props.onChange(scenes as GameDesignDraftScene[])}
-      readonly={props.readonly}
-      busy={props.busy}
-      routeLabel={(scene) => draftSceneRouteLabel(scene as GameDesignDraftScene, props.plan)}
-      markerLabel={(scene) => (scene.marker === 'Ending' ? '结局' : '场景')}
-      inspector={
-        <LaperInspectorShell
-          eyebrow="信息"
-          title="设计稿概览"
-          stats={[
-            { label: '场次', value: props.scenes.length },
-            { label: '结局', value: props.scenes.filter((s) => s.marker === 'Ending').length },
-            { label: '总行数', value: props.scenes.reduce((n, s) => n + s.lines.length, 0) },
-          ]}
-          note="确认场景结构与对白安排后，再生成详细旁白与对话。"
-          footer={
-            !props.readonly || props.retryAction ? (
-              <>
-                {!props.readonly ? (
-                  <button
-                    className="btn outline"
-                    type="button"
-                    disabled={props.busy || !props.dirty}
-                    onClick={props.saveDesignDraft}
-                  >
-                    保存设计稿
-                  </button>
-                ) : null}
-                <button
-                  className={`btn primary ${props.retryAction ? 'retry-action' : ''}`}
-                  type="button"
-                  disabled={props.busy || (!props.retryAction && props.scenes.length === 0)}
-                  onClick={props.retryAction || props.completeDesignDraft}
-                >
-                  {props.retryAction ? <span aria-hidden="true">↻</span> : null}
-                  {props.busy && props.retryAction ? '正在重试...' : props.retryLabel || '确认并生成详细场景'}
-                </button>
-              </>
-            ) : undefined
-          }
+    <section className="node-detail">
+      {props.retryAction ? (
+        <FailedPlaceholder
+          title="场景生成失败。"
+          brief="可以从失败阶段重试；详细场景完成后再统一审阅。"
+          action={props.retryAction}
+          actionLabel={props.retryLabel || '重试生成场景'}
+          busy={props.busy}
         />
-      }
-    />
+      ) : props.resumeAction ? (
+        <div className="node-placeholder">
+          <strong>详细场景尚未生成。</strong>
+          <span>此任务已保存场景设计稿，可以继续生成详细旁白和对话，无需再次确认设计稿。</span>
+          <button className="btn primary" type="button" disabled={props.busy} onClick={props.resumeAction}>
+            继续生成详细场景
+          </button>
+        </div>
+      ) : (
+        <LoadingPlaceholder
+          title={props.generatingCompletion ? '详细场景正在生成。' : '场景正在生成。'}
+          brief="系统会连续生成场景设计和详细旁白、对话，完成后自动进入逐场景审阅。"
+        />
+      )}
+    </section>
   );
 }
 

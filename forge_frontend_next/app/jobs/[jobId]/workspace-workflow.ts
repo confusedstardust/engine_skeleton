@@ -16,7 +16,7 @@ export function failedPhaseRetry(job: Job): FailedPhaseRetry | null {
   const stage: WorkflowStage =
     phase === 'NARRATIVE_PLANNING'
       ? 'outline'
-      : ['GAME_DESIGN', 'GAME_DESIGN_COMPLETION'].includes(phase)
+      : ['GAME_DESIGN', 'GAME_DESIGN_DRAFT', 'GAME_DESIGN_COMPLETION'].includes(phase)
       ? 'scenes'
       : 'assets';
 
@@ -39,12 +39,12 @@ export function failedPhaseRetry(job: Job): FailedPhaseRetry | null {
       stage,
     };
   }
-  if (phase === 'GAME_DESIGN') {
+  if (phase === 'GAME_DESIGN' || phase === 'GAME_DESIGN_DRAFT') {
     return {
-      path: 'phases/game_design_draft',
-      label: '重试生成场景设计稿',
-      pendingMessage: '正在重试场景设计稿生成...',
-      successMessage: '场景设计稿已重新加入生成队列。',
+      path: 'phases/game_design',
+      label: '重试生成场景',
+      pendingMessage: '正在重新生成场景及详细旁白和对话...',
+      successMessage: '场景已重新加入生成队列，将自动继续生成详细场景。',
       stage,
     };
   }

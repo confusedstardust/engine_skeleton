@@ -10,7 +10,7 @@ import { withBasePath } from '../../base-path';
 import { useJobWorkspace } from './use-job-workspace';
 import { CompletionPanel } from './completion-panel';
 import { AssetReviewPanel } from './asset-review-panel';
-import { OutlineEditor, DesignDraftEditor, SceneEditor } from './workspace-editors';
+import { OutlineEditor, SceneGenerationStatus, SceneEditor } from './workspace-editors';
 
 export default function JobWorkspacePage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params);
@@ -47,21 +47,17 @@ function JobWorkspace({ jobId }: { jobId: string }) {
     scenesDirty,
     setScenesDirty,
     connectionErrors,
-    designDraftScenes,
-    designDraftDirty,
     setActiveAssetFilename,
     assetPrompt,
     setAssetPrompt,
     assetPromptDirty,
     setAssetPromptDirty,
     voiceGeneratingSpeaker,
-    rawDesignNode,
     designNode,
     sceneConnectionReport,
     scenePlan,
     isGenerating,
     failedRetry,
-    isDesignDraftRunning,
     isDesignCompletionRunning,
     isAssetGenerationRunning,
     isGameBuildRunning,
@@ -91,16 +87,14 @@ function JobWorkspace({ jobId }: { jobId: string }) {
     removeAssetBackground,
     previewCharacterVoice,
     buildGameFromAssets,
-    saveDesignDraft,
-    completeDesignDraft,
+    continueSceneGeneration,
     retryFailedPhase,
     retryPhase,
     updateScene,
-    updateDesignDraftScenes,
   } = useJobWorkspace(jobId);
 
   const handleNavigation = async (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!(planDirty || scenesDirty || designDraftDirty || assetPromptDirty)) return;
+    if (!(planDirty || scenesDirty || assetPromptDirty)) return;
     event.preventDefault();
     const target = event.currentTarget.href;
     if (await confirm('还有未保存的修改，确定离开吗？')) window.location.assign(target);
@@ -321,18 +315,10 @@ function JobWorkspace({ jobId }: { jobId: string }) {
             published={hasPublishedBuild}
           />
         ) : (
-          <DesignDraftEditor
-            plan={plan}
-            scenes={designDraftScenes}
-            exists={Boolean(rawDesignNode?.exists)}
+          <SceneGenerationStatus
             busy={busy || isGenerating}
-            dirty={designDraftDirty}
-            readonly={autoMode}
-            generatingDraft={isDesignDraftRunning}
             generatingCompletion={isDesignCompletionRunning}
-            onChange={updateDesignDraftScenes}
-            saveDesignDraft={saveDesignDraft}
-            completeDesignDraft={completeDesignDraft}
+            resumeAction={data.job.status === 'GAME_DESIGN_DRAFT_READY' && !isGenerating && !autoMode ? continueSceneGeneration : undefined}
             retryAction={failedRetry?.stage === 'scenes' ? retryFailedPhase : undefined}
             retryLabel={failedRetry?.stage === 'scenes' ? failedRetry.label : undefined}
           />
