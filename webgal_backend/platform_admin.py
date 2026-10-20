@@ -462,7 +462,7 @@ def gift_user_credits(identifier: str, payload: CreditGift, request: Request):
     if not reason:
         raise HTTPException(422, '请填写赠送原因')
     # A retry of the same operation must never create a second grant.
-    source_key = 'admin-gift:' + hashlib.sha256(f"{actor['id']}:{payload.request_id}".encode()).hexdigest()
+    source_key = 'admin-gift:' + hashlib.sha256(f"{actor['id']}:{payload.request_id}".encode()).hexdigest()[:48]
     grant_id = hashlib.sha256(source_key.encode()).hexdigest()[:32]
     metadata = {'actor_user_id': actor['id'], 'reason': reason, 'request_id': payload.request_id}
     with database_transaction() as cursor:

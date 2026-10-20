@@ -396,6 +396,7 @@ def gift_db(monkeypatch):
             elif sql.startswith('SELECT user_id,units_granted'):
                 self.row = state['grants'].get(args[0])
             elif 'INSERT INTO entitlement_grants' in sql:
+                assert len(args[2]) <= 64, 'source_key exceeds database varchar(64)'
                 state['grants'][args[0]] = {'user_id': args[1], 'units_granted': args[3], 'metadata_json': args[5]}
             elif 'INSERT INTO credit_ledger' in sql:
                 state['ledger'].append(args)

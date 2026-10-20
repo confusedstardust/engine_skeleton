@@ -1,7 +1,7 @@
 'use client';
 import { adminApi } from '../lib/api-client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FormSelect } from './ui/form-controls';
 import * as Dialog from './ui/dialog';
 
@@ -25,6 +25,32 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [giftUnits, setGiftUnits] = useState('');
+  const [giftReason, setGiftReason] = useState('');
+  const [giftResult, setGiftResult] = useState('');
+  const giftRequest = useRef<{ signature: string; id: string } | null>(null);
+
+  async function giftCredits(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    const units = Number(giftUnits);
+    if (!Number.isSafeInteger(units) || units < 1 || units > 1000000 || !giftReason.trim()) return;
+    const signature = JSON.stringify([userId, units, giftReason.trim()]);
+    if (giftRequest.current?.signature !== signature) {
+      giftRequest.current = { signature, id: crypto.randomUUID().replaceAll('-', '') };
+    }
+    setBusy(true); setError(''); setGiftResult('');
+    try {
+      const result = await adminApi<{ units: number; created: boolean }>(`/users/${encodeURIComponent(userId)}/credits`, {
+        method: 'POST',
+        body: JSON.stringify({ units, reason: giftReason.trim(), request_id: giftRequest.current.id }),
+      });
+      setGiftResult(`已赠送 ${result.units} 积分`);
+      setGiftUnits(''); setGiftReason(''); giftRequest.current = null;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '赠送失败');
+    } finally { setBusy(false); }
+  }
   function apply(value: Detail) {
     setDetail(value);
     setPlan(value.subscription?.name || 'Free');
@@ -87,7 +113,7 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
           if (busy) e.preventDefault();
         }}
       >
-        <Dialog.Title>用户详情与订阅</Dialog.Title>
+        <Dialog.Title>用户详情与账户管理</Dialog.Title>
         <Dialog.Close className="recharge-payment-dismiss" disabled={busy} aria-label="关闭用户详情">
           ×
         </Dialog.Close>
@@ -129,6 +155,23 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
                 </dd>
               </div>
             </dl>
+            <form onSubmit={giftCredits} className="admin-subscription-form">
+              <h3>赠送积分</h3>
+              <label>赠送数量
+                <input type="number" min={1} max={1000000} step={1} required value={giftUnits}
+                  disabled={busy} onChange={(e) => { setGiftUnits(e.target.value); setGiftResult(''); }} />
+              </label>
+              <label>赠送原因
+                <textarea required maxLength={500} value={giftReason} disabled={busy}
+                  placeholder="例如：活动奖励、服务补偿"
+                  onChange={(e) => { setGiftReason(e.target.value); setGiftResult(''); }} />
+              </label>
+              <p className="admin-subscription-note">积分立即到账，长期有效，赠送操作会记录管理员和原因。</p>
+              {giftResult ? <p role="status" className="recharge-success">{giftResult}</p> : null}
+              <button className="btn primary" disabled={busy || !giftUnits || !giftReason.trim()}>
+                {busy ? '正在处理…' : '赠送积分'}
+              </button>
+            </form>
             <form onSubmit={save} className="admin-subscription-form">
               <h3>修改订阅</h3>
               <label>

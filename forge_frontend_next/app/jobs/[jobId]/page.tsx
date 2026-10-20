@@ -118,7 +118,6 @@ function JobWorkspace({ jobId }: { jobId: string }) {
         label="任务导航"
         returnHref="/history"
         onNavigate={handleNavigation}
-        account={null}
       />
 
       <main className="main-wrapper workspace-wrapper">
