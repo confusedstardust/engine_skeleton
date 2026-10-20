@@ -1,6 +1,9 @@
 "use client";
+import { WorkbenchHeader } from "../../components/workbench-header";
 
-import { ReturnLink } from "../../components/navigation-return";
+
+
+
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
@@ -69,16 +72,10 @@ export default function LoginPage() {
 
   return (
     <>
-      <header className="top-nav">
-        <div className="workspace-nav-leading">
-          <Link className="brand brand-link" href="/?workspace=1">
-            <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
-            <div className="brand-copy"><span className="brand-name">临场 · 邀请码</span><span className="brand-subtitle">INVITE ACCESS</span></div>
-          </Link>
-
-        </div>
-        <nav className="nav-links" aria-label="邀请码导航"><ReturnLink /><Link href="/?workspace=1">新建任务</Link><Link href="/history">我的作品</Link></nav>
-      </header>
+      <WorkbenchHeader title="临场 · 邀请码" subtitle="INVITE ACCESS" brandHref="/?workspace=1" label="邀请码导航" account={null}>
+<Link href="/?workspace=1">新建任务</Link>
+<Link href="/history">我的作品</Link>
+</WorkbenchHeader>
       <main className="main-wrapper auth-wrapper">
         <section className="auth-panel" aria-labelledby="login-title">
           <div className="auth-copy">

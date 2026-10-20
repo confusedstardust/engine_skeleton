@@ -40,40 +40,17 @@ def test_normalize_sound_effect_plan_ignores_unavailable_assets():
     assert plan == []
 
 
-def test_load_bgm_assets_groups_files_from_sound_effects_directory(tmp_path, monkeypatch):
-    sound_dir = tmp_path / "sound-effects"
-    sound_dir.mkdir()
-    for filename in [
-        "Bgm_Opening_main.mp3",
-        "Bgm_Dialog001.mp3",
-        "Bgm_Dialog002.mp3",
-        "Bgm_ending_happy.mp3",
-        "door-open.mp3",
-    ]:
-        (sound_dir / filename).write_bytes(b"mp3")
-    monkeypatch.setattr(
-        "webgal_backend.pipeline.settings",
-        SimpleNamespace(sound_effects_dir=sound_dir, workspace_root=tmp_path),
-    )
-
-    assets = WebGALPipeline()._load_bgm_assets()
-
-    assert assets == {
-        "opening": ["Bgm_Opening_main.mp3"],
-        "dialog": ["Bgm_Dialog001.mp3", "Bgm_Dialog002.mp3"],
-        "ending": ["Bgm_ending_happy.mp3"],
-    }
-
+def test_load_bgm_assets_uses_database_and_keeps_local_manual_candidates(tmp_path, monkeypatch):
+    catalog = [{"filename": "public.mp3", "file_id": "file", "asset_id": "asset", "moods": ["平静"]}]
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary.list_public_bgm", lambda self: catalog)
     job_dir = tmp_path / "job"
     for scope in ("draft", "public"):
-        bgm_dir = job_dir / scope / "game" / "bgm"
-        bgm_dir.mkdir(parents=True)
-        for filename in ("Bgm_Opening_main.mp3", "Bgm_ending_happy.mp3", "custom.mp3"):
-            (bgm_dir / filename).write_bytes(b"mp3")
-    project_assets = WebGALPipeline()._load_bgm_assets(job_dir)
-    assert project_assets["opening"] == assets["opening"]
-    assert project_assets["ending"] == assets["ending"]
-    assert project_assets["dialog"] == assets["dialog"] + ["custom.mp3"]
+        root = job_dir / scope / "game" / "bgm"
+        root.mkdir(parents=True)
+        (root / "custom.mp3").write_bytes(b"music")
+    assets = WebGALPipeline()._load_bgm_assets(job_dir)
+    assert assets == {"opening": [], "ending": [], "dialog": ["public.mp3", "custom.mp3"]}
+    assert read_json(job_dir / "state" / "bgm_catalog.json") == catalog
 
 
 def test_bgm_plan_uses_opening_dialog_and_priority_ending_assets():
@@ -195,22 +172,21 @@ def test_insert_bgm_adds_commands_after_scene_headers():
     assert [item["asset"] for item in report["inserted"]] == ["Bgm_Opening_main.mp3", "Bgm_Dialog001.mp3"]
 
 
-def test_copy_bgm_files_uses_game_bgm_directory(tmp_path, monkeypatch):
-    sound_dir = tmp_path / "sound-effects"
-    sound_dir.mkdir()
-    (sound_dir / "Bgm_Opening_main.mp3").write_bytes(b"opening")
-    monkeypatch.setattr(
-        "webgal_backend.pipeline.settings",
-        SimpleNamespace(sound_effects_dir=sound_dir, workspace_root=tmp_path),
-    )
-    job_dir = tmp_path / "job"
-
-    WebGALPipeline()._copy_bgm_files(
-        job_dir,
-        {"inserted": [{"asset": "Bgm_Opening_main.mp3"}]},
-    )
-
-    assert (job_dir / "public" / "game" / "bgm" / "Bgm_Opening_main.mp3").read_bytes() == b"opening"
+def test_copy_bgm_files_downloads_selected_database_asset(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create("source", identity={"type": "sso", "user_id": "owner"})
+    job_dir = store.job_dir(job["id"])
+    write_json(job_dir / "state" / "bgm_catalog.json", [{"filename": "public.mp3", "file_id": "file"}])
+    downloads, usages = [], []
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary.download_accessible_file", lambda self, user, file: (downloads.append(file) or {}, b"music"))
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary.record_draft_usage", lambda self, **kwargs: usages.append(kwargs))
+    pipeline = WebGALPipeline(store)
+    for _ in range(2):
+        pipeline._copy_bgm_files(job_dir, {"inserted": [{"asset": "public.mp3"}]})
+    assert downloads == ["file"]
+    assert len(usages) == 2
+    assert usages[0]["logical_path"] == "bgm/public.mp3"
+    assert (job_dir / "public/game/bgm/public.mp3").read_bytes() == b"music"
 
 
 def test_copy_bgm_files_reuses_published_library_music_without_shared_directory(tmp_path, monkeypatch):
@@ -413,6 +389,9 @@ def test_apply_music_draft_updates_only_selected_scene_without_script_rewrite(tm
     )
     store.mark_build_complete(job)
 
+    (game_dir / "bgm").mkdir(exist_ok=True)
+    (game_dir / "bgm" / "Bgm_ending_bad.mp3").write_bytes(b"selected")
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary.list_public_bgm", lambda self: [])
     pipeline = WebGALPipeline(store)
     pipeline._snapshot_published_edit_state(job_dir)
     write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {"start.txt": "Bgm_ending_bad.mp3"}})
@@ -452,6 +431,9 @@ def test_apply_scene_draft_writes_only_changed_scene_file(tmp_path, monkeypatch)
     write_json(job_dir / "state" / "scene_music_overrides.json", {"version": 1, "scene_overrides": {}})
     store.mark_build_complete(job)
 
+    (game_dir / "bgm").mkdir(exist_ok=True)
+    (game_dir / "bgm" / "Bgm_ending_bad.mp3").write_bytes(b"selected")
+    monkeypatch.setattr("webgal_backend.pipeline.AssetLibrary.list_public_bgm", lambda self: [])
     pipeline = WebGALPipeline(store)
     pipeline._snapshot_published_edit_state(job_dir)
     changed_design = json.loads(json.dumps(original_design, ensure_ascii=False))

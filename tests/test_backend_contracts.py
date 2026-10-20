@@ -34,6 +34,7 @@ from webgal_backend.scene_plan import build_scene_plan, expected_ending_types, e
 from webgal_backend.scene_validation import _character_name_set, _repair_scene_lines
 from webgal_backend.scene_validation import _parse_choose_options, _scene_targets
 from webgal_backend.storage import JobStore, read_json, write_json
+from webgal_backend.tts_config import default_tts_profile
 from webgal_backend.tts_pipeline import (
     available_tts_voices,
     build_tts_manifest,
@@ -1450,6 +1451,9 @@ class BackendContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             job_dir = Path(tmp)
             (job_dir / "state").mkdir()
+            write_json(job_dir / "state/tts_profile.json", {
+                "schema_version": 1, "profile": default_tts_profile("qwen-realtime"),
+            })
             plan = minimal_narrative_plan()
             plan["characters"] = [
                 {
@@ -1585,7 +1589,9 @@ class BackendContractTests(unittest.TestCase):
             self.assertEqual(store.get(job["id"])["status"], "ASSET_REVIEW_READY")
 
     def test_tts_voice_review_uses_current_selection_without_confirmation(self) -> None:
+        profile = default_tts_profile("qwen-realtime")
         review = {
+            "tts_profile": profile,
             "characters": [
                 {
                     "speaker": "Hero",
@@ -1603,11 +1609,13 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("moon", changed["filename"])
         self.assertEqual(
             selected_character_voices(review),
-            {"Hero": ["Moon", next(option["description"] for option in available_tts_voices() if option["name"] == "Moon")]},
+            {"Hero": ["Moon", next(option["description"] for option in available_tts_voices(profile) if option["name"] == "Moon")]},
         )
 
     def test_tts_voice_review_rejects_cross_gender_voice(self) -> None:
+        profile = default_tts_profile("qwen-realtime")
         review = {
+            "tts_profile": profile,
             "characters": [
                 {
                     "speaker": "Hero",
@@ -1656,6 +1664,98 @@ class BackendContractTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "draft revision changed") as revision_error:
             _require_job_editable({"status": "DONE", "draft_revision": 4}, 3)
         self.assertEqual(revision_error.exception.status_code, 409)
+
+
+class SceneContinuationTests(unittest.TestCase):
+    def make_scene_job(self, root: Path, *, fail_stage: str | None = None):
+        store = JobStore(root)
+        job = store.create("lesson", {**VALID_OPTIONS, "generation_mode": "advanced"})
+        job_dir = store.job_dir(job["id"])
+        write_json(job_dir / "state/narrative_plan.json", minimal_narrative_plan())
+        calls = []
+        observed = []
+
+        class FakeLLM:
+            def call_text(self, stage, *_args, **_kwargs):
+                calls.append(stage)
+                observed.append(store.get(job["id"])["status"])
+                if stage == fail_stage and calls.count(stage) == 1:
+                    raise PipelineError("temporary scene generation failure")
+                if stage == "game_design_text":
+                    return "Scene:start.txt\nintro:开场。;\n\nEnding:ending_1.txt\nintro:结局。;"
+                return json.dumps({"choices_group": [{
+                    "id": "start_choice_1", "scene_file": "start.txt", "insert_index": 1,
+                    "content": "决定如何继续。", "choices": ["继续前进", "稍作思考"],
+                }]})
+
+            def parse_json_text(self, text, _stage):
+                return json.loads(text)
+
+        pipeline = WebGALPipeline(store=store, llm_factory=lambda **_: FakeLLM())
+        return store, job, pipeline, calls, observed
+
+    def test_continuous_scene_phase_produces_details_without_draft_review_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, job, pipeline, calls, observed = self.make_scene_job(Path(tmp))
+            with patch.object(store, "transition", wraps=store.transition) as transition:
+                result = pipeline.run_phase(job["id"], "game_design")
+            self.assertEqual(calls, ["game_design_text", "game_design_choices"])
+            self.assertEqual(observed, ["RUNNING", "RUNNING"])
+            self.assertNotIn("GAME_DESIGN_DRAFT_READY", [call.args[1] for call in transition.call_args_list])
+            self.assertEqual(result["status"], "GAME_DESIGN_READY")
+            self.assertTrue((store.job_dir(job["id"]) / "state/game_design_completed.json").exists())
+
+    def test_legacy_draft_can_continue_without_regenerating_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, job, pipeline, calls, _ = self.make_scene_job(Path(tmp))
+            pipeline.run_phase(job["id"], "game_design_draft")
+            self.assertEqual(store.get(job["id"])["status"], "GAME_DESIGN_DRAFT_READY")
+            pipeline.run_phase(job["id"], "game_design_completion")
+            self.assertEqual(calls, ["game_design_text", "game_design_choices"])
+            self.assertEqual(store.get(job["id"])["status"], "GAME_DESIGN_READY")
+
+    def test_background_retry_resumes_failed_completion_only(self):
+        from types import SimpleNamespace
+        from webgal_backend import app as backend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store, job, pipeline, calls, _ = self.make_scene_job(Path(tmp), fail_stage="game_design_choices")
+            with patch.object(pipeline, "run_phase", wraps=pipeline.run_phase) as run_phase, patch.object(backend, "store", store), patch.object(backend, "pipeline", pipeline), patch.object(
+                backend, "settings", SimpleNamespace(max_advanced_phase_retries=1),
+            ):
+                backend.run_phase_background(job["id"], "game_design", None, None, None)
+            self.assertEqual(calls, ["game_design_text", "game_design_choices", "game_design_choices"])
+            self.assertEqual([call.args[1] for call in run_phase.call_args_list], ["game_design", "game_design_completion"])
+            self.assertEqual(store.get(job["id"])["status"], "GAME_DESIGN_READY")
+
+    def test_background_retry_of_failed_draft_still_completes_details(self):
+        from dataclasses import replace
+        from types import SimpleNamespace
+        from webgal_backend import app as backend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store, job, pipeline, calls, _ = self.make_scene_job(Path(tmp), fail_stage="game_design_text")
+            with patch("webgal_backend.pipeline.settings", replace(settings, max_text_retries=0)), patch.object(
+                pipeline, "run_phase", wraps=pipeline.run_phase,
+            ) as run_phase, patch.object(backend, "store", store), patch.object(backend, "pipeline", pipeline), patch.object(
+                backend, "settings", SimpleNamespace(max_advanced_phase_retries=1),
+            ):
+                backend.run_phase_background(job["id"], "game_design", None, None, None)
+            self.assertEqual(calls, ["game_design_text", "game_design_text", "game_design_choices"])
+            self.assertEqual([call.args[1] for call in run_phase.call_args_list], ["game_design", "game_design"])
+            self.assertEqual(store.get(job["id"])["status"], "GAME_DESIGN_READY")
+
+    def test_exhausted_completion_keeps_failure_phase_for_manual_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, job, pipeline, calls, _ = self.make_scene_job(Path(tmp), fail_stage="game_design_choices")
+            with self.assertRaisesRegex(PipelineError, "temporary scene"):
+                pipeline.run_phase(job["id"], "game_design")
+            failed = store.get(job["id"])
+            self.assertEqual((failed["status"], failed["phase"]), ("FAILED", "GAME_DESIGN_COMPLETION"))
+            self.assertTrue((store.job_dir(job["id"]) / "state/game_design.json").exists())
+            pipeline.run_phase(job["id"], "game_design_completion")
+            self.assertEqual(calls.count("game_design_text"), 1)
+            self.assertEqual(store.get(job["id"])["status"], "GAME_DESIGN_READY")
 
 
 if __name__ == "__main__":

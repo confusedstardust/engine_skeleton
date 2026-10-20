@@ -1,67 +1,23 @@
 "use client";
+import { WorkbenchHeader } from "../../../components/workbench-header";
+import { usePolling } from "../../../hooks/use-polling";
+import { forgeApi as api } from "../../../lib/api-client";
+import type { QuizResponse } from "../../../domain/quiz";
 
-import { AccountMenu } from "../../../components/account-menu";
 
-import { ReturnLink } from "../../../components/navigation-return";
+
+
+
 
 import { ConfirmDialog } from "../../../components/ui/modal";
-import Link from "next/link";
-import { use, useCallback, useEffect, useMemo, useState } from "react";
-import { withBasePath } from "../../base-path";
-import { jsonAuthHeaders } from "../../invite-identity";
-
-type QuizOption = {
-  id: string;
-  text: string;
-};
-
-type QuizQuestion = {
-  id: string;
-  type: "single_choice" | "judgement";
-  prompt: string;
-  options: QuizOption[];
-  correct_option_ids: string[];
-  explanation: string;
-  knowledge_point: string;
-  difficulty: "基础" | "进阶" | "挑战";
-  teaching_tip: string;
-};
-
-type QuizPlan = {
-  title: string;
-  introduction: string;
-  questions: QuizQuestion[];
-};
-
-type QuizResponse = {
-  status: "NOT_GENERATED" | "QUEUED" | "RUNNING" | "READY" | "FAILED";
-  error?: string | null;
-  quiz?: QuizPlan | null;
-  can_manage?: boolean;
-};
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge${path}`), {
-    ...init,
-    credentials: "include",
-    headers: jsonAuthHeaders(init?.headers),
-  });
-  if (!response.ok) {
-    const body = await response.text();
-    let detail = body;
-    try {
-      const payload = JSON.parse(body) as { detail?: string | string[] };
-      detail = Array.isArray(payload.detail) ? payload.detail.join("；") : payload.detail || body;
-    } catch {
-      // Keep the original response text when the backend did not return JSON.
-    }
-    throw new Error(detail || `请求失败（HTTP ${response.status}）`);
-  }
-  return response.json() as Promise<T>;
-}
+import { use, useMemo, useState } from "react";
 
 export default function PracticePage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params);
+  return <PracticeWorkspace key={jobId} jobId={jobId} />;
+}
+
+function PracticeWorkspace({ jobId }: { jobId: string }) {
   const [data, setData] = useState<QuizResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
@@ -70,27 +26,15 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
 
-  const refresh = useCallback(async () => {
-    try {
-      const value = await api<QuizResponse>(`/public/jobs/${jobId}/quiz`);
-      setData(value);
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "习题加载失败。");
-    } finally {
-      setLoading(false);
-    }
-  }, [jobId]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    if (data?.status !== "QUEUED" && data?.status !== "RUNNING") return;
-    const timer = window.setInterval(() => void refresh(), 2200);
-    return () => window.clearInterval(timer);
-  }, [data?.status, refresh]);
+  usePolling(async signal => {
+    const value = await api<QuizResponse>(`/public/jobs/${jobId}/quiz`, { signal });
+    if (!signal.aborted) { setData(value); setMessage(""); setLoading(false); }
+    return value.status === "QUEUED" || value.status === "RUNNING";
+  }, {
+    intervalMs: 2200, resetKey: jobId,
+    enabled: !data || data.status === "QUEUED" || data.status === "RUNNING",
+    onError: error => { setMessage(error instanceof Error ? error.message : "习题加载失败。"); setLoading(false); },
+  });
 
   const score = useMemo(() => {
     if (!data?.quiz) return 0;
@@ -131,20 +75,10 @@ export default function PracticePage({ params }: { params: Promise<{ jobId: stri
 
   return (
     <>
-      <header className="top-nav practice-nav">
-        <div className="workspace-nav-leading">
-          <Link className="brand brand-link" href="/">
-            <div className="brand-seal" aria-hidden="true"><img src={withBasePath("/icon.png")} alt="" /></div>
-            <div className="brand-copy"><span className="brand-name">临场 · 习题</span><span className="brand-subtitle">PRACTICE</span></div>
-          </Link>
-
-        </div>
-        <nav className="nav-links" aria-label="习题导航"><ReturnLink fallback={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`} />
-          {data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
-          {data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => setConfirmRegenerate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
-          <AccountMenu includeAdmin />
-        </nav>
-      </header>
+      <WorkbenchHeader title="临场 · 习题" subtitle="PRACTICE" className="top-nav practice-nav" label="习题导航" fallback={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>
+{data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
+{data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => setConfirmRegenerate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
+</WorkbenchHeader>
 
       <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description="重新生成会覆盖当前习题。" onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
       <main className="practice-page">

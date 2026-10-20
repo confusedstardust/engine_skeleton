@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "./ui/pagination";
 
 import { useEffect, useState } from "react";
 import { boardApi, type BoardQuestion } from "../lib/community";
@@ -31,7 +32,7 @@ export default function CommunityFeedback({ userId }: { userId: string | null })
       {error && <p role="alert">{error} <button className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
       {!loading && !error && !items.length && <p>还没有提交过建议。</p>}
       {items.map(item => <article key={item.id} className="community-feedback-item"><time>{item.created_at.slice(0, 10)}</time><p>{item.question}</p>{item.answer && <div><span>管理员回复</span><p>{item.answer}</p></div>}</article>)}
-      {(offset > 0 || more) && <div className="community-pagination"><button type="button" disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 6))}>上一页</button><span>第 {offset / 6 + 1} 页</span><button type="button" disabled={loading || !more} onClick={() => setOffset(value => value + 6)}>下一页</button></div>}
+      {(offset > 0 || more) && <Pagination ariaLabel="我的建议分页" className="community-pagination" page={offset / 6 + 1} hasMore={more} disabled={loading} onPageChange={page => setOffset((page - 1) * 6)} />}
     </div>}
   </section>;
 }

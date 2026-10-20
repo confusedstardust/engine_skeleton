@@ -140,6 +140,35 @@ def test_publish_file_sets_visibility_from_origin(tmp_path: Path, source_type: s
     assert expected_visibility in params
 
 
+def test_publish_webp_without_system_mime_mapping(tmp_path: Path, monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+
+    monkeypatch.setattr("webgal_backend.asset_library.mimetypes.guess_type", lambda _: (None, None))
+    cursor = RecordingCursor([{"id": "job"}, None, {"next_revision": 1}])
+    library = library_with_cursor(cursor)
+    uploads = []
+
+    class FakeBucket:
+        def put_object(self, key, content, headers):
+            uploads.append(headers)
+            return type("Result", (), {"etag": "etag"})()
+
+    library._bucket = lambda: FakeBucket()
+    source = tmp_path / "asset.webp"
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2)).save(buffer, format="WEBP")
+    source.write_bytes(buffer.getvalue())
+    library.publish_file(user_id="user", job_id="a" * 32, path=source,
+                         logical_path="background/asset.webp", kind="BACKGROUND",
+                         source_type="GENERATED", name="asset", usage_role="background",
+                         source_key="job:key")
+    assert uploads == [{"Content-Type": "image/webp"}]
+    _, params = next(call for call in cursor.calls if "INSERT INTO asset_files" in call[0])
+    assert "image/webp" in params
+    assert "application/octet-stream" not in params
+
+
 def test_visibility_migration_never_blocks_or_rewrites_generated_files():
     migration = (Path(__file__).parents[1] / "docs" / "database-plan" / "06_generated_asset_visibility.sql").read_text(encoding="utf-8")
 

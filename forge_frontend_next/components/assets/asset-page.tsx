@@ -1,40 +1,25 @@
 "use client";
+import { WorkbenchHeader } from "../workbench-header";
+import type { LibraryAsset as Asset } from "../../domain/assets";
+import { forgeApi as api } from "../../lib/api-client";
 
-import { AudioPreview } from "./audio-preview";
 
-import { ReturnLink } from "../../components/navigation-return";
+
+import { useIncrementalList } from "../../hooks/use-incremental-list";
+import { AssetPreview } from "./asset-preview";
+
+
 
 import { FormSelect } from "../../components/ui/form-controls";
 import { assetCategories } from "../../components/asset-categories";
 import { ConfirmDialog } from "../../components/ui/modal";
 import Link from "next/link";
-import { AccountMenu } from "../../components/account-menu";
+
 import { useEffect, useRef, useState } from "react";
-import { withBasePath } from "../../app/base-path";
-import { getCurrentUser, jsonAuthHeaders } from "../../app/invite-identity";
 
-type Asset = {
-  category_label?: string; is_favorite?: boolean; owner_user_id: string; id: string; name: string; kind: string; source_type: string; created_at: string;
-  file_id: string; revision: number; variant: string; mime_type: string; size_bytes: number;
-  width_px?: number | null; height_px?: number | null; duration_ms?: number | null; url: string;
-};
+import { getCurrentUser } from "../../app/invite-identity";
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge${path}`), {
-    ...init, credentials: "include", headers: { ...jsonAuthHeaders(), ...(init?.headers || {}), ...(init?.body ? { "Content-Type": "application/json" } : {}) },
-  });
-  if (!response.ok) {
-    const body = await response.text();
-    try {
-      const parsed = JSON.parse(body) as { detail?: string };
-      throw new Error(parsed.detail || body);
-    } catch (error) {
-      if (error instanceof SyntaxError) throw new Error(body || `请求失败（HTTP ${response.status}）`);
-      throw error;
-    }
-  }
-  return response.json() as Promise<T>;
-}
+
 
 const labels: Record<string, string> = { BACKGROUND: "场景", FIGURE: "角色", VOICE: "语音", BGM: "音乐", SFX: "音效", OTHER: "其他" };
 
@@ -51,18 +36,14 @@ function TrashIcon() {
 }
 
 export default function AssetsPage({ personal = false }: { personal?: boolean }) {
-  const [assets, setAssets] = useState<Asset[]>([]);
   const [collection, setCollection] = useState(personal ? "uploads" : "library");
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [userId, setUserId] = useState("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
   const [revision, setRevision] = useState(0);
   const [category, setCategory] = useState("");
   const [filter, setFilter] = useState("ALL");
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [editingId, setEditingId] = useState("");
@@ -71,55 +52,30 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
   const cancelEditRef = useRef(false);
   const gridRef = useRef<HTMLElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const loadNextRef = useRef<() => void>(() => {});
-  const [feedError, setFeedError] = useState("");
 
-  useEffect(() => {
-    let active = true;
-    let inFlight = false;
-    let offset = 0;
-    let more = true;
-    const controller = new AbortController();
-    const userPromise = getCurrentUser();
-    setAssets([]); setFavoriteIds([]); setTotal(0); setHasMore(false);
-    setEditingId(""); setDeleteTarget(null); setError(""); setFeedError("");
-    async function loadNext() {
-      if (!active || inFlight || !more) return;
-      inFlight = true;
-      setLoading(true); setFeedError("");
-      try {
-        const user = await userPromise;
-        if (!active) return;
-        if (!user) throw new Error("请先登录 NarrativeOS");
-        setUserId(user.id);
-        const columns = gridRef.current ? getComputedStyle(gridRef.current).gridTemplateColumns.split(" ").filter(Boolean).length : 1;
-        const size = Math.min(48, Math.max(1, columns) * (offset === 0 ? 2 : 3));
-        const params = new URLSearchParams({ offset: String(offset), page_size: String(size), search: query });
-        if (collection === "library") params.set("source_type", "GENERATED");
-        else params.set("collection", collection);
-        if (category) params.set("category", category);
-        if (filter !== "ALL") params.set("kind", filter);
-        const data = await api<{ assets: Asset[]; has_more: boolean; total: number; next_offset: number }>(`/assets?${params}`, { signal: controller.signal });
-        if (!active) return;
-        offset = data.next_offset;
-        more = data.has_more && data.assets.length > 0;
-        setAssets(current => {
-          const ids = new Set(current.map(asset => asset.file_id));
-          return [...current, ...data.assets.filter(asset => !ids.has(asset.file_id))];
-        });
-        setFavoriteIds(current => Array.from(new Set([...current, ...data.assets.filter(asset => asset.is_favorite).map(asset => asset.id)])));
-        setHasMore(more); setTotal(data.total);
-      } catch (reason) {
-        if (active) setFeedError(reason instanceof Error ? reason.message : "素材加载失败");
-      } finally {
-        inFlight = false;
-        if (active) setLoading(false);
-      }
+  const resetKey = JSON.stringify([collection, filter, category, query, revision]);
+  const identityRef = useRef<{ key: string; promise: ReturnType<typeof getCurrentUser> } | null>(null);
+  const list = useIncrementalList<Asset, number>({ resetKey, initialCursor: 0, keyOf: asset => asset.file_id,
+    load: async (offset, signal) => {
+      if (identityRef.current?.key !== resetKey) identityRef.current = { key: resetKey, promise: getCurrentUser() };
+      const user = await identityRef.current.promise;
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (!user) throw new Error("请先登录 NarrativeOS");
+      setUserId(user.id);
+      const columns = gridRef.current ? getComputedStyle(gridRef.current).gridTemplateColumns.split(" ").filter(Boolean).length : 1;
+      const size = Math.min(48, Math.max(1, columns) * (offset === 0 ? 2 : 3));
+      const params = new URLSearchParams({ offset: String(offset), page_size: String(size), search: query });
+      if (collection === "library") params.set("source_type", "GENERATED"); else params.set("collection", collection);
+      if (category) params.set("category", category);
+      if (filter !== "ALL") params.set("kind", filter);
+      const data = await api<{ assets: Asset[]; has_more: boolean; total: number; next_offset: number }>(`/assets?${params}`, { signal });
+      if (!signal.aborted) setFavoriteIds(current => Array.from(new Set([...current, ...data.assets.filter(asset => asset.is_favorite).map(asset => asset.id)])));
+      return { items: data.assets, next: data.next_offset, hasMore: data.has_more, total: data.total };
     }
-    loadNextRef.current = () => { void loadNext(); };
-    void loadNext();
-    return () => { active = false; controller.abort(); loadNextRef.current = () => {}; };
-  }, [collection, filter, category, query, revision]);
+  });
+  const { items: assets, setItems: setAssets, loading, error: feedError, hasMore, total } = list;
+  const loadNextRef = useRef(list.loadNext); loadNextRef.current = list.loadNext;
+  useEffect(() => { setFavoriteIds([]); setEditingId(""); setDeleteTarget(null); setError(""); }, [resetKey]);
 
   useEffect(() => {
     if (loading || feedError || !hasMore || !sentinelRef.current || !("IntersectionObserver" in window)) return;
@@ -179,7 +135,7 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
   }
 
   return <>
-    <header className="top-nav"><div className="workspace-nav-leading"><Link className="brand brand-link" href="/"><div className="brand-seal"><img src={withBasePath("/icon.png")} alt="" /></div><div className="brand-copy"><span className="brand-name">{personal ? "我的资产" : "素材库"}</span><span className="brand-subtitle">ASSET LIBRARY</span></div></Link></div><nav className="nav-links"><ReturnLink /><AccountMenu includeAdmin /></nav></header>
+    <WorkbenchHeader title={personal ? "我的资产" : "素材库"} subtitle="ASSET LIBRARY" />
     <main className="main-wrapper asset-library-wrapper asset-library-page">
       <section className="page-header asset-library-head"><div><p className="router-kicker">ASSET LIBRARY</p><h1>{personal ? "我的资产" : "素材库"}</h1></div></section>
       <section className="asset-library-filters" aria-label="素材来源" hidden={!personal}>{[["uploads", "我的上传"], ["favorites", "我的收藏"]].map(([value, label]) => <button key={value} className={collection === value ? "active" : ""} onClick={() => { setCollection(value); }}>{label}</button>)}</section>
@@ -187,7 +143,7 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
       <form className="asset-library-search" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}><FormSelect value={category} ariaLabel="素材分类" options={[{value:"",label:"全部分类"}, ...assetCategories.filter((item) => filter === "ALL" || item.kinds.includes(filter))]} onValueChange={(value) => {setCategory(value);}} /><input type="search" aria-label="搜索素材" placeholder="搜索名称、分类或标签" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value) { setQuery(""); } }} /><button className="btn primary" type="submit">搜索</button></form>
       {error ? <div className="history-empty error">{error}</div> : null}
       {!loading && !error && !feedError && visible.length === 0 ? <div className="history-empty"><strong>{query ? "没有找到匹配的素材" : "这里还没有素材"}</strong>{personal ? <span>上传或收藏对应素材后，可以在作品中选用。</span> : null}<Link className="btn primary" href="/?workspace=1">开始创作</Link></div> : null}
-      <section ref={gridRef} className="asset-library-grid" aria-busy={loading}>{visible.map((asset) => <article className="asset-library-card" key={asset.file_id}><div className="asset-library-preview">{asset.mime_type.startsWith("image/") ? <img src={asset.url} alt={asset.name} loading="lazy" decoding="async" /> : asset.mime_type.startsWith("audio/") ? <AudioPreview src={asset.url} name={asset.name} durationMs={asset.duration_ms} /> : <span>{labels[asset.kind] || "素材"}</span>}</div><div className="asset-library-card-body"><div className="asset-library-card-top"><span className="asset-kind">{asset.category_label || labels[asset.kind] || asset.kind}</span><div className="asset-library-card-actions"><button className="asset-delete asset-favorite" type="button" aria-label={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} aria-pressed={favoriteIds.includes(asset.id)} title={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} disabled={busy === asset.id} onClick={() => void toggleFavorite(asset)}><FavoriteIcon /></button>{asset.owner_user_id === userId ? <button className="asset-delete" type="button" aria-label={`删除素材 ${asset.name}`} title="删除素材" disabled={busy === asset.id} onClick={() => setDeleteTarget(asset)}><TrashIcon /></button> : null}</div></div><div className="asset-library-card-copy">{editingId === asset.id ? <input className="asset-name-input" value={nameDraft} maxLength={200} autoFocus aria-label="素材名称" disabled={busy === asset.id} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => { if (cancelEditRef.current) { cancelEditRef.current = false; return; } void saveName(asset); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { cancelEditRef.current = true; setNameDraft(asset.name); setEditingId(""); event.currentTarget.blur(); } }} /> : <div className="asset-name-display"><h2>{asset.name}</h2>{asset.owner_user_id === userId ? <button type="button" aria-label="修改素材名称" title="修改素材名称" onClick={() => { setEditingId(asset.id); setNameDraft(asset.name); setError(""); }}><EditIcon /></button> : null}</div>}</div></div></article>)}</section>
+      <section ref={gridRef} className="asset-library-grid" aria-busy={loading}>{visible.map((asset) => <article className="asset-library-card" key={asset.file_id}><div className="asset-library-preview"><AssetPreview asset={asset} fallback={labels[asset.kind] || "素材"} /></div><div className="asset-library-card-body"><div className="asset-library-card-top"><span className="asset-kind">{asset.category_label || labels[asset.kind] || asset.kind}</span><div className="asset-library-card-actions"><button className="asset-delete asset-favorite" type="button" aria-label={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} aria-pressed={favoriteIds.includes(asset.id)} title={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} disabled={busy === asset.id} onClick={() => void toggleFavorite(asset)}><FavoriteIcon /></button>{asset.owner_user_id === userId ? <button className="asset-delete" type="button" aria-label={`删除素材 ${asset.name}`} title="删除素材" disabled={busy === asset.id} onClick={() => setDeleteTarget(asset)}><TrashIcon /></button> : null}</div></div><div className="asset-library-card-copy">{editingId === asset.id ? <input className="asset-name-input" value={nameDraft} maxLength={200} autoFocus aria-label="素材名称" disabled={busy === asset.id} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => { if (cancelEditRef.current) { cancelEditRef.current = false; return; } void saveName(asset); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { cancelEditRef.current = true; setNameDraft(asset.name); setEditingId(""); event.currentTarget.blur(); } }} /> : <div className="asset-name-display"><h2>{asset.name}</h2>{asset.owner_user_id === userId ? <button type="button" aria-label="修改素材名称" title="修改素材名称" onClick={() => { setEditingId(asset.id); setNameDraft(asset.name); setError(""); }}><EditIcon /></button> : null}</div>}</div></div></article>)}</section>
       <div ref={sentinelRef} className="asset-library-feed-status" role="status" aria-live="polite">
         <span>已加载 {assets.length} / {total} 项</span>
         {loading ? <span>正在加载素材…</span> : feedError ? <><span className="error">{feedError}</span><button className="btn outline" type="button" onClick={() => loadNextRef.current()}>重试</button></> : hasMore ? <button className="btn outline" type="button" onClick={() => loadNextRef.current()}>加载更多</button> : assets.length ? <span>已加载全部素材</span> : null}

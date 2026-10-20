@@ -1,9 +1,10 @@
 "use client";
+import BrandLogo from './brand-logo';
+
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type MouseEvent } from "react";
-import { withBasePath } from "../app/base-path";
 import { ssoLoginUrl } from "../app/invite-identity";
 import { useAnnouncements } from "./announcements";
 
@@ -34,7 +35,7 @@ export default function SiteFooter() {
 
   return <footer className="site-footer">
     <div className="site-footer-inner">
-      <div className="site-footer-brand"><Link href="/" aria-label="临场首页"><img src={withBasePath("/icon.png")} width={34} height={34} alt="" /><span><strong>临场</strong><small>NARRATIVEOS</small></span></Link></div>
+      <div className="site-footer-brand"><Link href="/" aria-label="临场首页"><BrandLogo size={34} /><span><strong>临场</strong><small>NARRATIVEOS</small></span></Link></div>
       <div className="site-footer-links">
         <nav aria-label="页脚导航">
           <a href={casesHref}>优质案例</a>

@@ -4,11 +4,11 @@ import hashlib
 import json
 import mimetypes
 import uuid
-from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator
+from typing import Any
 
 from credit_system.config import CreditDatabaseConfig
+from forge_database import Database, mysql_connection_factory
 
 from .config import settings
 
@@ -28,27 +28,37 @@ def _public_url(key: str) -> str:
 class AssetLibrary:
     """Immutable OSS registry: generated assets are shared, uploads stay private."""
 
+    def list_public_bgm(self) -> list[dict[str, Any]]:
+        """Return one current original file per public, active music asset."""
+        with self._transaction() as cursor:
+            cursor.execute("""SELECT a.id AS asset_id,a.name,a.generation_metadata,
+                f.id AS file_id,f.revision,f.mime_type
+                FROM assets a JOIN asset_files f ON f.asset_id=a.id
+                WHERE a.kind='BGM' AND a.visibility='PUBLIC' AND a.status='ACTIVE'
+                  AND f.status='READY' AND f.variant='original'
+                ORDER BY a.id,f.revision DESC,f.id""")
+            rows = cursor.fetchall()
+        result = []
+        seen = set()
+        for row in rows:
+            if row['asset_id'] in seen:
+                continue
+            seen.add(row['asset_id'])
+            metadata = row.get('generation_metadata') or {}
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            extension = {'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav',
+                         'audio/ogg': '.ogg', 'audio/flac': '.flac', 'audio/mp4': '.m4a'}.get(row['mime_type'], '.mp3')
+            result.append({**row, 'filename': f"bgm_{row['file_id']}{extension}",
+                           'moods': (metadata.get('attributes') or {}).get('mood', [])})
+        return result
+
     def __init__(self, config: CreditDatabaseConfig | None = None) -> None:
         self.config = config or CreditDatabaseConfig.from_env()
+        self._database = Database(mysql_connection_factory(self.config, dependency_error=AssetLibraryError))
 
-    @contextmanager
-    def _transaction(self) -> Iterator[Any]:
-        try:
-            import pymysql
-            from pymysql.cursors import DictCursor
-        except ImportError as exc:  # pragma: no cover
-            raise AssetLibraryError("PyMySQL is required") from exc
-        connection = pymysql.connect(cursorclass=DictCursor, **self.config.connect_kwargs())
-        try:
-            connection.begin()
-            with connection.cursor() as cursor:
-                yield cursor
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+    def _transaction(self):
+        return self._database.transaction()
 
     def _bucket(self):
         if not settings.oss_bucket or not settings.oss_access_key_id or not settings.oss_access_key_secret:
@@ -90,7 +100,11 @@ class AssetLibrary:
         suffix = path.suffix.lower()
         owner_key = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
         object_key = str(PurePosixPath(settings.oss_prefix) / "library" / owner_key / asset_id / file_id / f"{variant}{suffix}")
-        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        # Python 3.11 slim images may have no system MIME mapping for WebP.
+        # Recognize the file signature so registration and OSS headers agree
+        # regardless of the host's extension registry.
+        is_webp = content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+        mime_type = "image/webp" if is_webp else (mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         bucket = self._bucket()
         try:
             result = bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
@@ -486,7 +500,7 @@ FROM assets a
                 (version_id, game_id),
             )
             cursor.execute(
-                "UPDATE generation_jobs SET draft_revision=%s,published_revision=%s,status='SUCCEEDED',progress_percent=100,finished_at=CURRENT_TIMESTAMP(3) WHERE id=%s",
+                "UPDATE generation_jobs SET draft_revision=%s,published_revision=%s,status='SUCCEEDED',phase=NULL,build_state='CURRENT',progress_percent=100,error_code=NULL,error_message=NULL,finished_at=CURRENT_TIMESTAMP(3) WHERE id=%s",
                 (max(0, draft_revision), max(0, draft_revision), job_id),
             )
         return version_id

@@ -1,8 +1,7 @@
 "use client";
+import { adminApi } from "../lib/api-client";
 
 import { useEffect, useState } from "react";
-import { withBasePath } from "../app/base-path";
-import { jsonAuthHeaders } from "../app/invite-identity";
 
 type Publication = { published: boolean; work?: { title: string }; owner_user_id?: string };
 
@@ -12,22 +11,12 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const url = withBasePath(`/api/forge/admin/games/${encodeURIComponent(jobId)}/ecosystem-publication`);
-
-  async function readResponse(response: Response): Promise<Publication> {
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); }
-    catch { throw new Error(`教师资源广场服务响应异常（HTTP ${response.status}）`); }
-    if (!response.ok) throw new Error(data.detail || "教师资源广场操作失败");
-    return data;
-  }
+  const url = `/games/${encodeURIComponent(jobId)}/ecosystem-publication`;
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError(""); setPublication(null);
-    fetch(url, { credentials: "include", headers: jsonAuthHeaders(), signal: controller.signal })
-      .then(readResponse).then(data => { if (!controller.signal.aborted) setPublication(data); })
+    adminApi<Publication>(url, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setPublication(data); })
       .catch(e => { if (!controller.signal.aborted) setError(e.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -38,7 +27,7 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     const method = publication.published ? "DELETE" : "POST";
     setBusy(true); setError("");
     try {
-      const data = await fetch(url, { method, credentials: "include", headers: { ...jsonAuthHeaders(), "X-Forge-Admin-Action": "1" } }).then(readResponse);
+      const data = await adminApi<Publication>(url, { method });
       setPublication(previous => ({ ...previous, ...data }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "操作失败，请重新查询发布状态");

@@ -6,9 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from .scene_headers import scene_sections
 from .generation_limits import generation_limits
 from .storage import read_json, write_json
-from .tts import TTSSynthesisError, TTSOptions, synthesize_text_to_file
+from .tts import TTSSynthesisError, synthesize_text_to_file, options_from_profile, cached_synthesis
+from .tts_config import default_tts_profile, job_tts_profile, tts_settings
 
 
 COMMAND_PREFIXES = (
@@ -32,13 +34,15 @@ def build_tts_manifest(
     character_voices: dict[str, list[str]] | None = None,
     selection_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    profile = job_tts_profile(job_dir)
     narrative_plan = read_json(job_dir / "state" / "narrative_plan.json")
     script_path = job_dir / "state" / "game_design_webgal.txt"
     script_text = script_path.read_text(encoding="utf-8")
     characters = _character_lookup(narrative_plan)
     character_voices = _sanitize_character_voices(
         narrative_plan,
-        character_voices or _character_voice_map(narrative_plan),
+        character_voices or _character_voice_map(narrative_plan, profile),
+        profile,
     )
 
     items: list[dict[str, Any]] = []
@@ -53,7 +57,7 @@ def build_tts_manifest(
             if not character:
                 continue
             speaker_id = _safe_filename(str(character.get("id") or speaker))
-            voice, tone = character_voices.get(speaker, [_default_voice(), ""])
+            voice, tone = character_voices.get(speaker, [_default_voice(profile), ""])
             filename = f"{scene_stem}_{line_no:03d}_{speaker_id}.wav"
             items.append(
                 {
@@ -77,13 +81,16 @@ def build_tts_manifest(
     return {
         "vocal_dir": "public/game/vocal",
         "character_voices": character_voices,
+        "tts_profile": profile,
         "selection": selection,
         "items": selected_items,
     }
 
 
-def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -> dict[str, Any]:
-    limits = generation_limits().get("tts", {})
+def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool, *, force: bool = False) -> dict[str, Any]:
+    profile = manifest.get("tts_profile") or job_tts_profile(job_dir)
+    manifest["tts_profile"] = profile
+    limits = {**generation_limits().get("tts", {}), **tts_settings(profile)}
     vocal_dir_value = str(manifest.get("vocal_dir") or "public/game/vocal").replace("\\", "/").strip("/")
     if not vocal_dir_value.startswith("public/game/") or ".." in vocal_dir_value.split("/"):
         raise ValueError("TTS vocal_dir must stay under public/game")
@@ -96,30 +103,19 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
             item["status"] = "skipped_disabled"
         return manifest
 
-    skip_existing = bool(limits.get("skip_existing", True))
+    skip_existing = bool(limits.get("skip_existing", True)) and not force
     max_workers = max(1, int(limits.get("max_workers", 4)))
-    volume = int(limits.get("volume", 50))
-    speech_rate = _rate_value(limits.get("speech_rate", limits.get("speed", 1.0)))
-    pitch_rate = _rate_value(limits.get("pitch_rate", limits.get("pitch", 1.0)))
-    model = str(limits.get("model", "qwen3-tts-flash-realtime"))
-    url = str(limits.get("url", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"))
-    optimize_instructions = bool(limits.get("optimize_instructions", True))
 
     def synthesize(item: dict[str, Any]) -> dict[str, Any]:
         output = vocal_dir / item["filename"]
-        if skip_existing and output.exists():
+        options = options_from_profile(
+            profile,
+            voice=str(item.get("voice") or _default_voice(profile)),
+            instructions=_tts_instructions(item),
+        )
+        if skip_existing and cached_synthesis(output, str(item["text"]), options):
             item["status"] = "skipped_existing"
             return item
-        options = TTSOptions(
-            voice=str(item.get("voice") or _default_voice()),
-            model=model,
-            url=url,
-            volume=volume,
-            speech_rate=speech_rate,
-            pitch_rate=pitch_rate,
-            instructions=_tts_instructions(item),
-            optimize_instructions=optimize_instructions,
-        )
         for attempt in range(4):
             try:
                 synthesize_text_to_file(str(item["text"]), output, options=options)
@@ -144,29 +140,17 @@ def generate_tts_audio(job_dir: Path, manifest: dict[str, Any], enabled: bool) -
     return manifest
 
 
-def available_tts_voices() -> list[dict[str, str]]:
+def available_tts_voices(profile: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """Return the configured voice library in stable display order."""
-    configured = generation_limits().get("tts", {}).get("voices", {})
-    result: list[dict[str, str]] = []
-    for gender in ("male", "female"):
-        entries = configured.get(gender, {})
-        if isinstance(entries, dict):
-            for name, description in entries.items():
-                clean_name = str(name).strip()
-                if clean_name:
-                    result.append(
-                        {
-                            "name": clean_name,
-                            "gender": gender,
-                            "description": str(description or "").strip(),
-                        }
-                    )
-        elif isinstance(entries, list):
-            for name in entries:
-                clean_name = str(name).strip()
-                if clean_name:
-                    result.append({"name": clean_name, "gender": gender, "description": ""})
-    return result
+    selected = profile or default_tts_profile()
+    return [
+        {
+            "name": voice["id"], "label": voice["label"],
+            "gender": voice["gender"], "description": voice["description"],
+        }
+        for gender in ("male", "female")
+        for voice in selected["voices"] if voice["gender"] == gender
+    ]
 
 
 def build_tts_voice_review(
@@ -180,11 +164,12 @@ def build_tts_voice_review(
     Only speakers declared as characters in the narrative plan are included, so
     narrator/system lines never enter the review.
     """
+    profile = job_tts_profile(job_dir)
     narrative_plan = read_json(job_dir / "state" / "narrative_plan.json")
     if script_text is None:
         script_text = (job_dir / "state" / "game_design_webgal.txt").read_text(encoding="utf-8")
     characters = _character_lookup(narrative_plan)
-    sanitized_voices = _sanitize_character_voices(narrative_plan, character_voices)
+    sanitized_voices = _sanitize_character_voices(narrative_plan, character_voices, profile)
     existing_by_speaker = {
         str(item.get("speaker") or ""): item
         for item in (existing_review or {}).get("characters", [])
@@ -211,10 +196,9 @@ def build_tts_voice_review(
         suggested_voice, suggested_tone = sanitized_voices[speaker]
         previous = existing_by_speaker.get(speaker, {})
         previous_voice = str(previous.get("voice") or "").strip()
-        voice = previous_voice if _voice_matches_gender(previous_voice, character.get("gender")) else suggested_voice
+        voice = previous_voice if _voice_matches_gender(previous_voice, character.get("gender"), profile) else suggested_voice
         tone = str(previous.get("tone") or suggested_tone).strip()
         filename = _preview_filename(speaker_id, voice)
-        output = job_dir / "public" / "game" / "vocal_preview" / filename
         review_items.append(
             {
                 "speaker": speaker,
@@ -226,14 +210,15 @@ def build_tts_voice_review(
                 "line_no": preview_line["line_no"],
                 "text": preview_line["text"],
                 "filename": filename,
-                "status": "skipped_existing" if output.exists() else "pending",
+                "status": "pending",
                 "error": None,
             }
         )
 
     return {
         "vocal_dir": "public/game/vocal_preview",
-        "available_voices": available_tts_voices(),
+        "available_voices": available_tts_voices(profile),
+        "tts_profile": profile,
         "characters": review_items,
     }
 
@@ -242,6 +227,7 @@ def generate_tts_voice_previews(
     job_dir: Path,
     review: dict[str, Any],
     speakers: set[str] | None = None,
+    *, force: bool = False,
 ) -> dict[str, Any]:
     items = review.get("characters", [])
     if not isinstance(items, list):
@@ -252,17 +238,20 @@ def generate_tts_voice_previews(
         if speakers is None or str(item.get("speaker") or "") in speakers:
             item["status"] = "pending"
             item["error"] = None
-    manifest = {"vocal_dir": "public/game/vocal_preview", "items": items}
-    generate_tts_audio(job_dir, manifest, enabled=True)
+    profile = review.get("tts_profile") or job_tts_profile(job_dir)
+    review["tts_profile"] = profile
+    manifest = {"vocal_dir": "public/game/vocal_preview", "items": items, "tts_profile": profile}
+    generate_tts_audio(job_dir, manifest, enabled=True, force=force)
     return review
 
 
 def select_tts_review_voice(review: dict[str, Any], speaker: str, voice: str) -> dict[str, Any]:
-    if voice not in _valid_voice_names():
+    profile = review.get("tts_profile") or default_tts_profile()
+    if voice not in _valid_voice_names(profile):
         raise ValueError(f"unknown TTS voice: {voice}")
     item = _review_character(review, speaker)
     selected_option = next(
-        (option for option in available_tts_voices() if option.get("name") == voice),
+        (option for option in available_tts_voices(profile) if option.get("name") == voice),
         None,
     )
     character_gender = _normalize_gender(item.get("gender"))
@@ -402,7 +391,7 @@ def write_tts_manifest(job_dir: Path, manifest: dict[str, Any]) -> None:
 
 def _is_rate_limit_error(error: str) -> bool:
     lowered = error.lower()
-    return "rate limit" in lowered or "1007" in lowered
+    return "rate limit" in lowered or "1007" in lowered or "concurrency" in lowered or "too many requests" in lowered
 
 
 def _rate_value(value: Any) -> float:
@@ -420,29 +409,7 @@ def _tts_instructions(item: dict[str, Any]) -> str:
 
 
 def _scene_sections(script_text: str) -> list[tuple[str, str]]:
-    matches = list(
-        re.finditer(
-            r"""^\s*
-            (?:
-                (?:Scene|Ending)\s*[:：]\s*
-                |
-                (?:[\[【「『]\s*)?
-                (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
-            )
-            ([A-Za-z0-9_-]+\.txt)
-            (?:\s*[\]】」』])?
-            \s*[:：]?\s*$
-            """,
-            script_text,
-            flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
-        )
-    )
-    sections: list[tuple[str, str]] = []
-    for index, match in enumerate(matches):
-        body_start = match.end()
-        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(script_text)
-        sections.append((match.group(1), script_text[body_start:body_end].strip()))
-    return sections
+    return scene_sections(script_text)
 
 
 def _character_lookup(narrative_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -454,11 +421,11 @@ def _character_lookup(narrative_plan: dict[str, Any]) -> dict[str, dict[str, Any
     return lookup
 
 
-def _character_voice_map(narrative_plan: dict[str, Any]) -> dict[str, list[str]]:
-    voices = generation_limits().get("tts", {}).get("voices", {})
-    male_voices = _voice_pool(voices.get("male"), [_default_voice()])
-    female_voices = _voice_pool(voices.get("female"), [_default_voice()])
-    fallback = str(voices.get("default") or _default_voice())
+def _character_voice_map(narrative_plan: dict[str, Any], profile: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    voices = tts_settings(profile or default_tts_profile()).get("voices", {})
+    male_voices = _voice_pool(voices.get("male"), [_default_voice(profile)])
+    female_voices = _voice_pool(voices.get("female"), [_default_voice(profile)])
+    fallback = str(voices.get("default") or _default_voice(profile))
     gender_counts = {"male": 0, "female": 0}
     mapping: dict[str, list[str]] = {}
 
@@ -479,8 +446,8 @@ def _character_voice_map(narrative_plan: dict[str, Any]) -> dict[str, list[str]]
     return mapping
 
 
-def _sanitize_character_voices(narrative_plan: dict[str, Any], character_voices: dict[str, list[str]]) -> dict[str, list[str]]:
-    valid_voices = _valid_voice_names()
+def _sanitize_character_voices(narrative_plan: dict[str, Any], character_voices: dict[str, list[str]], profile: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    valid_voices = _valid_voice_names(profile)
     sanitized: dict[str, list[str]] = {}
     for character in narrative_plan.get("characters", []):
         name = str(character.get("name", "")).strip()
@@ -491,8 +458,8 @@ def _sanitize_character_voices(narrative_plan: dict[str, Any], character_voices:
             assignment = ["", ""]
         voice = str(assignment[0]).strip()
         tone = str(assignment[1]).strip()
-        if voice not in valid_voices or not _voice_matches_gender(voice, character.get("gender")):
-            voice = _fallback_voice_for_gender(character.get("gender"))
+        if voice not in valid_voices or not _voice_matches_gender(voice, character.get("gender"), profile):
+            voice = _fallback_voice_for_gender(character.get("gender"), profile)
         sanitized[name] = [voice, tone]
     return sanitized
 
@@ -520,42 +487,42 @@ def _voice_pool(value: Any, fallback: list[str]) -> list[str]:
     return fallback
 
 
-def _default_voice() -> str:
-    voices = generation_limits().get("tts", {}).get("voices", {})
-    default = str(voices.get("default") or generation_limits().get("tts", {}).get("voice") or "").strip()
-    if default and default in _valid_voice_names():
+def _default_voice(profile: dict[str, Any] | None = None) -> str:
+    voices = tts_settings(profile or default_tts_profile()).get("voices", {})
+    default = str(voices.get("default") or "").strip()
+    if default and default in _valid_voice_names(profile):
         return default
-    for voice in _voice_names_in_config_order():
+    for voice in _voice_names_in_config_order(profile):
         return voice
     return "Cherry"
 
 
-def _fallback_voice_for_gender(gender_value: Any) -> str:
-    voices = generation_limits().get("tts", {}).get("voices", {})
+def _fallback_voice_for_gender(gender_value: Any, profile: dict[str, Any] | None = None) -> str:
+    voices = tts_settings(profile or default_tts_profile()).get("voices", {})
     gender = _normalize_gender(gender_value)
     if gender == "male":
-        return _voice_pool(voices.get("male"), [_default_voice()])[0]
+        return _voice_pool(voices.get("male"), [_default_voice(profile)])[0]
     if gender == "female":
-        return _voice_pool(voices.get("female"), [_default_voice()])[0]
-    return _default_voice()
+        return _voice_pool(voices.get("female"), [_default_voice(profile)])[0]
+    return _default_voice(profile)
 
 
-def _voice_matches_gender(voice: str, gender_value: Any) -> bool:
-    if voice not in _valid_voice_names():
+def _voice_matches_gender(voice: str, gender_value: Any, profile: dict[str, Any] | None = None) -> bool:
+    if voice not in _valid_voice_names(profile):
         return False
     character_gender = _normalize_gender(gender_value)
     if character_gender not in {"male", "female"}:
         return True
-    option = next((item for item in available_tts_voices() if item.get("name") == voice), None)
+    option = next((item for item in available_tts_voices(profile) if item.get("name") == voice), None)
     return _normalize_gender((option or {}).get("gender")) == character_gender
 
 
-def _valid_voice_names() -> set[str]:
-    return set(_voice_names_in_config_order())
+def _valid_voice_names(profile: dict[str, Any] | None = None) -> set[str]:
+    return set(_voice_names_in_config_order(profile))
 
 
-def _voice_names_in_config_order() -> list[str]:
-    voices = generation_limits().get("tts", {}).get("voices", {})
+def _voice_names_in_config_order(profile: dict[str, Any] | None = None) -> list[str]:
+    voices = tts_settings(profile or default_tts_profile()).get("voices", {})
     names: list[str] = []
     for key in ("male", "female"):
         value = voices.get(key)

@@ -1,54 +1,14 @@
 "use client";
+import type { SyncNarrativeStructureOptions as SyncOptions, StoryStep, NarrativePlan } from "../domain/narrative";
+export type { StoryStep, NarrativeCharacter, NarrativeEnding, NarrativePlan } from "../domain/narrative";
 import { FormSelect } from "./ui/form-controls";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 
-export type StoryStep = {
-  id: string;
-  name: string;
-  content: string;
-  narrative_target: string;
-  strtype: string;
-};
-
-export type NarrativeCharacter = {
-  id: string;
-  name: string;
-  gender: string;
-  personality: string;
-  motivation: string;
-  speech_style: string;
-  emotional_arc: string;
-  relationships: { with: string; dynamic: string }[];
-};
-
-export type NarrativeEnding = {
-  ending_type: string;
-  description: string;
-};
-
-export type NarrativePlan = {
-  title: string;
-  theme: string;
-  emotion_tone: string;
-  conflict_structure: string;
-  story_progression: StoryStep[];
-  story_arc: string;
-  characters: NarrativeCharacter[];
-  touchable_points: string[];
-  must_avoid: string[];
-  endings: NarrativeEnding[];
-  beat_structure: string[];
-  narrative_structure: string;
-};
-
 type OutlineSection = "phases" | "endings" | "characters";
 
-type SyncOptions = {
-  quiet?: boolean;
-  force?: boolean;
-};
+
 
 type LaperOutlineWorkbenchProps = {
   plan: NarrativePlan;

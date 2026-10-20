@@ -281,7 +281,7 @@ def test_admin_subscription_save_audit_and_revision(billing, monkeypatch):
         cursor.execute("ALTER TABLE users ADD email varchar(191), ADD nickname varchar(191), ADD created_at datetime DEFAULT CURRENT_TIMESTAMP")
         cursor.execute("CREATE TEMPORARY TABLE platform_admin_audit (id varchar(32),actor_user_id varchar(191),resource_type varchar(20),resource_id varchar(191),action varchar(50),before_json json,after_json json)")
     connection.commit()
-    monkeypatch.setattr(admin, 'AssetLibrary', lambda: SimpleNamespace(_transaction=store._transaction))
+    monkeypatch.setattr(admin, 'database_transaction', store.transaction)
     monkeypatch.setattr(admin, 'require_admin', lambda _: {'id':'admin'})
     monkeypatch.setattr(payments, 'get_payment_store', lambda: store)
     app = FastAPI(); app.include_router(admin.router)

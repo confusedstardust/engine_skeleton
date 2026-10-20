@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import json
 import os
+import tempfile
 import threading
 import wave
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +43,10 @@ class TTSSynthesisError(RuntimeError):
 
 @dataclass(frozen=True)
 class TTSOptions:
+    provider: str = "qwen"
+    profile_id: str = "qwen-realtime"
+    api_key_env: str = "DASHSCOPE_API_KEY"
+    resource_id: str = ""
     voice: str = DEFAULT_QWEN_TTS_VOICE
     model: str = DEFAULT_QWEN_TTS_MODEL
     url: str = DEFAULT_QWEN_TTS_URL
@@ -89,29 +96,88 @@ class _QwenSingleCallCallback(QwenTtsRealtimeCallback):
         return bytes(self.audio)
 
 
-def synthesize_text_to_file(
-    text: str,
-    output_path: Path | str,
-    *,
-    options: TTSOptions | None = None,
-    timeout: int = 60,
-) -> Path:
-    """Synthesize one text line with Qwen realtime TTS and save it as WAV."""
-    if _IMPORT_ERROR is not None:
-        raise TTSConfigError("dashscope is required for Qwen TTS. Install it with: pip install dashscope") from _IMPORT_ERROR
+def options_from_profile(profile: dict[str, Any], *, voice: str | None = None, instructions: str = "") -> TTSOptions:
+    config = profile.get("options", {})
+    selected = voice or profile["default_voice"]
+    if selected not in {item["id"] for item in profile["voices"]}:
+        raise TTSConfigError(f"Unknown voice for TTS profile {profile['id']}: {selected}")
+    return TTSOptions(
+        provider=profile["provider"],
+        profile_id=profile["id"],
+        api_key_env=profile["auth"]["api_key_env"],
+        voice=selected,
+        model=config.get("model", ""),
+        resource_id=config.get("resource_id", ""),
+        url=profile["endpoint"],
+        volume=config.get("volume", 50),
+        speech_rate=config.get("speech_rate", 1.0),
+        pitch_rate=config.get("pitch_rate", 1.0),
+        instructions=instructions,
+        optimize_instructions=config.get("optimize_instructions", True),
+    )
 
-    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        raise TTSConfigError("DASHSCOPE_API_KEY is required for Qwen TTS")
 
+def synthesis_fingerprint(text: str, options: TTSOptions) -> str:
+    value = {"text": text.strip(), "options": asdict(options), "schema_version": 1}
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def cached_synthesis(output: Path, text: str, options: TTSOptions) -> bool:
+    try:
+        metadata = json.loads(output.with_suffix(output.suffix + ".tts.json").read_text(encoding="utf-8"))
+        return (
+            metadata["fingerprint"] == synthesis_fingerprint(text, options)
+            and metadata["audio_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def synthesize_text_to_file(text: str, output_path: Path | str, *, options: TTSOptions | None = None, timeout: int = 60) -> Path:
+    """Provider-independent synthesis; commit only complete, validated WAV audio."""
+    if options is None:
+        from .tts_config import default_tts_profile
+        options = options_from_profile(default_tts_profile())
     text = text.strip()
     if not text:
         raise TTSSynthesisError("TTS text must not be empty")
-
-    options = options or TTSOptions()
+    if (options.sample_rate, options.channels, options.sample_width) != (24000, 1, 2):
+        raise TTSConfigError("TTS output must be 24 kHz mono 16-bit WAV")
+    api_key = os.getenv(options.api_key_env, "").strip()
+    if not api_key:
+        raise TTSConfigError(f"{options.api_key_env} is required for {options.provider} TTS")
+    metadata: dict[str, Any] = {}
+    if options.provider == "qwen":
+        pcm = _synthesize_qwen_pcm(text, options, api_key, timeout)
+    elif options.provider == "doubao":
+        from .tts_doubao import synthesize_pcm
+        pcm, metadata = synthesize_pcm(text, options, api_key, timeout)
+    else:
+        raise TTSConfigError(f"Unsupported TTS provider: {options.provider}")
+    if not pcm or len(pcm) % (options.channels * options.sample_width):
+        raise TTSSynthesisError("TTS returned empty or unaligned PCM audio")
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".wav.tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+        _write_wav(temporary, pcm, options)
+        temporary.replace(output)
+        from .storage import write_json
+        write_json(output.with_suffix(output.suffix + ".tts.json"), {
+            **metadata, "provider": options.provider, "profile_id": options.profile_id,
+            "fingerprint": synthesis_fingerprint(text, options), "audio_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+        })
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return output
 
+
+def _synthesize_qwen_pcm(text: str, options: TTSOptions, api_key: str, timeout: int) -> bytes:
+    if _IMPORT_ERROR is not None:
+        raise TTSConfigError("dashscope is required for Qwen TTS. Install it with: pip install dashscope") from _IMPORT_ERROR
     dashscope.api_key = api_key
     callback = _QwenSingleCallCallback()
     tts = QwenTtsRealtime(model=options.model, callback=callback, url=options.url)
@@ -142,10 +208,7 @@ def synthesize_text_to_file(
             raise
         raise TTSSynthesisError(str(exc)) from exc
 
-    tmp_output = output.with_suffix(output.suffix + ".tmp")
-    _write_wav(tmp_output, pcm, options)
-    tmp_output.replace(output)
-    return output
+    return pcm
 
 
 def _write_wav(path: Path, pcm: bytes, options: TTSOptions) -> None:
@@ -157,27 +220,28 @@ def _write_wav(path: Path, pcm: bytes, options: TTSOptions) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Synthesize one text line with Qwen realtime TTS.")
+    parser = argparse.ArgumentParser(description="Synthesize one line using a configured TTS profile.")
     parser.add_argument("--text", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--voice", default=DEFAULT_QWEN_TTS_VOICE)
-    parser.add_argument("--model", default=DEFAULT_QWEN_TTS_MODEL)
-    parser.add_argument("--url", default=DEFAULT_QWEN_TTS_URL)
+    parser.add_argument("--profile", help="Profile ID in tts_profiles.json (otherwise uses default_profile)")
+    parser.add_argument("--voice")
+    parser.add_argument("--model")
+    parser.add_argument("--url")
     parser.add_argument("--instructions", default="")
     parser.add_argument("--no-optimize-instructions", action="store_true")
     args = parser.parse_args()
 
-    synthesize_text_to_file(
-        args.text,
-        Path(args.output),
-        options=TTSOptions(
-            voice=args.voice,
-            model=args.model,
-            url=args.url,
-            instructions=args.instructions,
-            optimize_instructions=not args.no_optimize_instructions,
-        ),
-    )
+    from .tts_config import default_tts_profile
+    options = options_from_profile(default_tts_profile(args.profile), voice=args.voice, instructions=args.instructions)
+    if args.model:
+        if options.provider != "qwen":
+            parser.error("--model is only supported by Qwen; Doubao uses resource_id in its profile")
+        options = replace(options, model=args.model)
+    if args.url:
+        options = replace(options, url=args.url)
+    if args.no_optimize_instructions:
+        options = replace(options, optimize_instructions=False)
+    synthesize_text_to_file(args.text, Path(args.output), options=options)
     return 0
 
 

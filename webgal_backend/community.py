@@ -7,8 +7,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
-from .asset_library import AssetLibrary
 from .auth import user_from_request
+from .database import database_transaction
 from .config import settings
 from .platform_admin import require_action_header, require_admin
 
@@ -50,7 +50,7 @@ def account(request: Request):
 
 @router.get("/community")
 def public_board(offset: int = Query(0, ge=0)):
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT id,title,content,created_at FROM community_announcements WHERE published=1 ORDER BY created_at DESC,id DESC LIMIT 3")
         notices = cursor.fetchall()
         cursor.execute("SELECT id,question,answer,created_at FROM community_questions WHERE published=1 AND kind='QUESTION' ORDER BY created_at DESC,id DESC LIMIT 7 OFFSET %s", (offset,))
@@ -63,7 +63,7 @@ def my_questions(request: Request, offset: int = Query(0, ge=0), kind: Literal["
     if kind == "SUGGESTION":
         raise HTTPException(404, "功能暂未开放")
     user = account(request)
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT id,kind,question,answer,published,created_at FROM community_questions WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id DESC LIMIT 7 OFFSET %s", (user["id"], kind, offset))
         rows = cursor.fetchall()
     return {"questions": rows[:6], "has_more": len(rows) > 6}
@@ -77,7 +77,7 @@ def ask(payload: Question, request: Request, response: Response):
         raise HTTPException(403, "无效提问请求")
     user = account(request)
     identifier = uuid.uuid4().hex
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         # Serialize submissions for the same account across workers.
         cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user["id"],))
         if not cursor.fetchone():
@@ -94,7 +94,7 @@ def ask(payload: Question, request: Request, response: Response):
 @router.get("/admin/community")
 def admin_board(request: Request, offset: int = Query(0, ge=0)):
     require_admin(request)
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT * FROM community_announcements ORDER BY created_at DESC,id DESC LIMIT 50")
         notices = cursor.fetchall()
         cursor.execute("SELECT * FROM community_questions ORDER BY (answer IS NULL) DESC,created_at DESC,id DESC LIMIT 21 OFFSET %s", (offset,))
@@ -109,7 +109,7 @@ def reply(identifier: str, payload: Answer, request: Request):
     answer = payload.answer.strip()
     if payload.published and not answer:
         raise HTTPException(422, "填写答复后才能公开问答")
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT id,kind FROM community_questions WHERE id=%s FOR UPDATE", (identifier,))
         row = cursor.fetchone()
         if not row:
@@ -125,7 +125,7 @@ def create_notice(payload: Announcement, request: Request):
     require_action_header(request)
     require_admin(request)
     identifier = uuid.uuid4().hex
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("INSERT INTO community_announcements (id,title,content,published) VALUES (%s,%s,%s,%s)", (identifier, payload.title, payload.content, payload.published))
     return {"id": identifier}
 
@@ -134,7 +134,7 @@ def create_notice(payload: Announcement, request: Request):
 def edit_notice(identifier: str, payload: Announcement, request: Request):
     require_action_header(request)
     require_admin(request)
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT id FROM community_announcements WHERE id=%s FOR UPDATE", (identifier,))
         if not cursor.fetchone():
             raise HTTPException(404, "公告不存在")

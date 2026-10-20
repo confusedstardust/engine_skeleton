@@ -1,4 +1,4 @@
-import type { EditableScene, SceneLine } from "./laper-scene-workbench";
+import type { SceneDraft as EditableScene, SceneLine } from "../domain/narrative";
 
 export function repairContinuationLabels<T extends EditableScene>(scenes: T[]): T[] {
   return scenes.map(scene => {

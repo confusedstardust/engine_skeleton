@@ -1,5 +1,5 @@
 "use client";
-import * as Dialog from "@radix-ui/react-dialog";
+import * as Dialog from "./ui/dialog";
 
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 

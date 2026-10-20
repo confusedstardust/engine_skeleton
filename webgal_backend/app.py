@@ -926,7 +926,7 @@ def _scene_music_review(job_dir: Path) -> tuple[list[dict[str, Any]], list[str]]
         *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
         *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
     ]
-    plan = pipeline._build_bgm_plan("\n".join(script_lines), bgm_assets, scene_plan, overrides)
+    plan = pipeline._build_bgm_plan("\n".join(script_lines), bgm_assets, scene_plan, overrides, pipeline._read_bgm_catalog(job_dir))
     planned_by_scene = {str(item.get("scene_file", "")): item for item in plan}
     entries: list[dict[str, Any]] = []
     for collection, kind in ((scene_plan.get("scenes", []), "scene"), (scene_plan.get("endings", []), "ending")):
@@ -1095,9 +1095,10 @@ def _job_music_assets(job_dir: Path) -> list[str]:
 
 def _job_music_asset_names(job_dir: Path) -> dict[str, str]:
     return {
-        str(item["filename"]): str(item["display_name"])
+        **{item["filename"]: item["name"] for item in pipeline._read_bgm_catalog(job_dir)},
+        **{str(item["filename"]): str(item["display_name"])
         for item in _uploaded_assets(job_dir)
-        if item.get("type") == "bgm" and item.get("filename") and item.get("display_name")
+        if item.get("type") == "bgm" and item.get("filename") and item.get("display_name")},
     }
 
 
@@ -1547,7 +1548,15 @@ def preview_music_library_asset(job_id: str, asset_name: str, request: Request) 
         raise HTTPException(status_code=404, detail="music asset not found")
     for path in (job_dir / "draft" / "game" / "bgm" / clean_name, job_dir / "public" / "game" / "bgm" / clean_name):
         if path.exists(): return FileResponse(path)
-    return _file_response_under_root(root=settings.sound_effects_dir, file_path=clean_name, missing_detail="music asset not found")
+    record = next((item for item in pipeline._read_bgm_catalog(job_dir) if item["filename"] == clean_name), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="music asset not found")
+    job = store.get(job_id)
+    _, content = get_asset_library().download_accessible_file(str((job.get("identity") or {}).get("user_id") or ""), record["file_id"])
+    path = job_dir / "draft" / "game" / "bgm" / clean_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return FileResponse(path)
 
 
 @app.get("/effect-library/{asset_name}")
@@ -2026,7 +2035,11 @@ def run_phase_background(
                 # The phase runner sets FAILED on every attempt. Move it back
                 # to QUEUED so polling clients do not expose a transient error.
                 try:
-                    store.transition(store.get(job_id), "QUEUED", phase.upper())
+                    failed_job = store.get(job_id)
+                    # A completed draft is still valid if only its completion failed.
+                    if phase == "game_design" and failed_job.get("phase") == "GAME_DESIGN_COMPLETION":
+                        phase = "game_design_completion"
+                    store.transition(failed_job, "QUEUED", phase.upper())
                 except Exception:
                     logger.exception("Could not queue Advanced retry for job_id=%s phase=%s", job_id, phase)
                     if reservation_id is not None:

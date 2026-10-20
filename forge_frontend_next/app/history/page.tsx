@@ -1,35 +1,19 @@
 "use client";
+import { WorkbenchHeader } from "../../components/workbench-header";
+import { forgeApi as api } from "../../lib/api-client";
+import type { Job } from "../../domain/jobs";
 
-import { ReturnLink } from "../../components/navigation-return";
+
+
+
 
 
 
 import Link from "next/link";
-import { AccountMenu } from "../../components/account-menu";
+
 import { useEffect, useMemo, useState } from "react";
 import { withBasePath } from "../base-path";
-import { getCurrentUser, jsonAuthHeaders } from "../invite-identity";
-
-type Job = {
-  id: string;
-  title?: string;
-  status: string;
-  phase?: string | null;
-  error?: string | null;
-  build_state?: string;
-  has_published_build?: boolean;
-  source_material?: string;
-  created_at?: string;
-  updated_at?: string;
-  options?: {
-    classroom_topic?: string;
-    generation_mode?: string;
-    voice_enabled?: boolean;
-    generate_assets?: boolean;
-    [key: string]: unknown;
-  };
-  artifacts?: Record<string, string>;
-};
+import { getCurrentUser } from "../invite-identity";
 
 type JobsResponse = {
   jobs: Job[];
@@ -49,16 +33,7 @@ const statusLabels: Record<string, string> = {
   VALIDATION_PASSED: "校验通过",
 };
 
-async function api<T>(path: string): Promise<T> {
-  const response = await fetch(withBasePath(`/api/forge${path}`), {
-    credentials: "include",
-    headers: jsonAuthHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json() as Promise<T>;
-}
+
 
 function jobTitle(job: Job) {
   const title = String(job.title || "").trim();
@@ -143,25 +118,9 @@ export default function HistoryPage() {
 
   return (
     <>
-      <header className="top-nav">
-        <div className="workspace-nav-leading">
-          <Link className="brand brand-link" href="/?workspace=1">
-            <div className="brand-seal" aria-hidden="true">
-              <img src={withBasePath("/icon.png")} alt="" />
-            </div>
-            <div className="brand-copy">
-              <span className="brand-name">临场 · 我的作品</span>
-              <span className="brand-subtitle">MY WORKS</span>
-            </div>
-          </Link>
-
-        </div>
-        <nav className="nav-links" aria-label="记录导航"><ReturnLink />
-          <Link href="/?workspace=1">新建任务</Link>
-
-          <AccountMenu className="nav-login" includeAdmin />
-        </nav>
-      </header>
+      <WorkbenchHeader title="临场 · 我的作品" subtitle="MY WORKS" brandHref="/?workspace=1" label="记录导航" accountClassName="nav-login">
+<Link href="/?workspace=1">新建任务</Link>
+</WorkbenchHeader>
 
       <main className="main-wrapper history-wrapper">
         <section className="page-header history-head" aria-labelledby="history-title">

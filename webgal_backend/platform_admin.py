@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Query, UploadFi
 from pydantic import BaseModel, Field
 
 from .asset_library import AssetLibrary, _public_url, _location_hash
+from .database import database_transaction
 from .config import settings
 from .storage import JobStore
 from .teacher_ecosystem import TeacherEcosystemError, build_publication_payload, publication_status, publish_work, unpublish_work
@@ -43,25 +44,25 @@ def password_matches(password, value):
 
 def admin_account(*, username=None, user_id=None):
     field,value=('username',username) if username is not None else ('id',user_id)
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute(f"SELECT u.id,u.username,u.password_hash FROM users u LEFT JOIN platform_resource_controls c ON c.resource_type='USER' AND BINARY c.resource_id=BINARY u.id WHERE u.{field}=%s AND u.platform_role='ADMIN' AND COALESCE(c.blocked,0)=0",(value,))
         return cursor.fetchone()
 
 
 def save_session(user_id, token):
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('DELETE FROM auth_sessions WHERE user_id=%s AND expires_at<=CURRENT_TIMESTAMP(3)',(user_id,))
         cursor.execute('INSERT INTO auth_sessions (id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 8 HOUR))',(uuid.uuid4().hex,user_id,hashlib.sha256(token.encode()).hexdigest()))
 
 
 def delete_session(token):
     if not token:return
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('DELETE FROM auth_sessions WHERE token_hash=%s',(hashlib.sha256(token.encode()).hexdigest(),))
 
 
 def lookup_session(token):
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT u.id FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_resource_controls c ON c.resource_type='USER' AND BINARY c.resource_id=BINARY u.id WHERE s.token_hash=%s AND s.expires_at>CURRENT_TIMESTAMP(3) AND u.platform_role='ADMIN' AND COALESCE(c.blocked,0)=0",(hashlib.sha256(token.encode()).hexdigest(),))
         row=cursor.fetchone()
     return row
@@ -130,7 +131,7 @@ def require_admin(request):
 
 
 def blocked(kind, identifier):
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('SELECT blocked FROM platform_resource_controls WHERE resource_type=%s AND resource_id=%s', (kind, identifier))
         row = cursor.fetchone()
         return bool(row and row['blocked'])
@@ -154,7 +155,7 @@ def game_detail(identifier: str, request: Request):
     require_admin(request)
     if not re.fullmatch(r'[0-9a-f]{32}', identifier):
         raise HTTPException(422, '无效作品 ID')
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('''SELECT id,owner_user_id,source_material,status,phase,progress_percent,
             draft_revision,published_revision,build_state,options_json,error_code,error_message,
             created_at,updated_at,started_at,finished_at FROM generation_jobs WHERE id=%s''', (identifier,))
@@ -174,7 +175,7 @@ def game_detail(identifier: str, request: Request):
 def ecosystem_owner(identifier: str):
     if not re.fullmatch(r'[0-9a-f]{32}', identifier):
         raise HTTPException(422, '无效作品 ID')
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('''SELECT g.owner_user_id,u.id AS author_id,u.nickname,u.email
             FROM generation_jobs g LEFT JOIN users u ON u.id=g.owner_user_id WHERE g.id=%s''', (identifier,))
         row = cursor.fetchone()
@@ -198,7 +199,7 @@ def admin_ecosystem_status(identifier: str, request: Request):
 def ecosystem_change(actor, identifier, owner, action, operation):
     # Record the attempt before calling the remote service, including uncertain outcomes.
     audit_id = uuid.uuid4().hex
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                        (audit_id, actor['id'], 'JOB', identifier, action, '{}', json.dumps({'owner_user_id': owner['id'], 'status': 'REQUESTED'})))
     try:
@@ -206,7 +207,7 @@ def ecosystem_change(actor, identifier, owner, action, operation):
     except TeacherEcosystemError as exc:
         raise HTTPException(503, str(exc)) from exc
     try:
-        with AssetLibrary()._transaction() as cursor:
+        with database_transaction() as cursor:
             cursor.execute('UPDATE platform_admin_audit SET after_json=%s WHERE id=%s',
                            (json.dumps({'owner_user_id': owner['id'], 'status': 'SUCCEEDED', 'published': result.get('published')}), audit_id))
     except Exception:
@@ -247,7 +248,7 @@ def admin_unpublish_ecosystem(identifier: str, request: Request):
 def asset_taxonomy(request: Request):
     require_admin(request)
     result={kind:{'categories':[], 'tags':[], 'attributes':{}} for kind in ('BACKGROUND','FIGURE','BGM')}
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT DISTINCT kind, generation_metadata FROM assets WHERE visibility='PUBLIC' AND status<>'DELETED' AND generation_metadata IS NOT NULL")
         rows=cursor.fetchall()
     for row in rows:
@@ -334,7 +335,7 @@ async def upload_asset(request: Request, file: UploadFile = File(...), kind: str
     result=bucket.put_object(key,content,headers={'Content-Type':mime})
     metadata={'library_scope':'PLATFORM','category':category[:80],'category_label':category_label[:80],'tags':labels,'attributes':grouped,'uploaded_by':actor['id']}
     try:
-        with library._transaction() as cursor:
+        with database_transaction() as cursor:
             owner='platform-public-assets'
             cursor.execute("INSERT INTO users (id,nickname,updated_at) VALUES (%s,'平台素材库',CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE id=id",(owner,))
             cursor.execute("INSERT INTO assets (id,owner_user_id,name,kind,source_type,visibility,status,generation_metadata,source_key) VALUES (%s,%s,%s,%s,'UPLOADED','PUBLIC','ACTIVE',%s,%s)",(aid,owner,name.strip(),kind,json.dumps(metadata,ensure_ascii=False),'admin-upload:'+aid))
@@ -376,7 +377,7 @@ def listing(resource: str, request: Request, page: int = 1, search: str = '', as
     if asset_status:
         where += ' AND r.status=%s'
         filters.append(asset_status)
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute(f"SELECT COUNT(*) AS total FROM {table} r{owner_join} WHERE {where}", filters)
         total = cursor.fetchone()['total']
         total_pages = max(1, (total + 19) // 20)
@@ -412,7 +413,7 @@ def change(resource: str, identifier: str, payload: Change, request: Request):
         raise HTTPException(422, '请输入有效名称')
     if resource == 'users' and payload.action == 'rename' and len(payload.name.strip()) > 191:
         raise HTTPException(422, '用户名称最长 191 字')
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute(f'SELECT id FROM {table} WHERE id=%s FOR UPDATE', (identifier,))
         if cursor.fetchone() is None:
             raise HTTPException(404, '资源不存在')
@@ -445,9 +446,56 @@ class SubscriptionChange(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class CreditGift(BaseModel):
+    units: int = Field(strict=True, ge=1, le=1000000)
+    reason: str = Field(min_length=1, max_length=500)
+    request_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+
+@router.post('/users/{identifier}/credits')
+def gift_user_credits(identifier: str, payload: CreditGift, request: Request):
+    from credit_system.store import MySQLCreditStore
+
+    actor = require_admin(request)
+    require_action_header(request)
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(422, '请填写赠送原因')
+    # A retry of the same operation must never create a second grant.
+    source_key = 'admin-gift:' + hashlib.sha256(f"{actor['id']}:{payload.request_id}".encode()).hexdigest()[:48]
+    grant_id = hashlib.sha256(source_key.encode()).hexdigest()[:32]
+    metadata = {'actor_user_id': actor['id'], 'reason': reason, 'request_id': payload.request_id}
+    with database_transaction() as cursor:
+        cursor.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (identifier,))
+        if not cursor.fetchone():
+            raise HTTPException(404, '用户不存在')
+        cursor.execute('SELECT user_id,units_granted,metadata_json FROM entitlement_grants WHERE id=%s FOR UPDATE', (grant_id,))
+        existing = cursor.fetchone()
+        if existing:
+            previous = existing['metadata_json']
+            if isinstance(previous, str):
+                previous = json.loads(previous)
+            if existing['user_id'] != identifier or int(existing['units_granted']) != payload.units or previous != metadata:
+                raise HTTPException(409, '赠送请求已使用，请刷新后重试')
+            return {'grant_id': grant_id, 'units': payload.units, 'created': False}
+        cursor.execute("""INSERT INTO entitlement_grants
+            (id,user_id,source,source_key,order_id,benefit_key,kind,status,
+             units_granted,units_available,units_reserved,units_consumed,units_revoked,
+             starts_at,expires_at,metadata_json)
+            VALUES (%s,%s,'ADMIN',%s,NULL,'credits','CREDITS','ACTIVE',%s,%s,0,0,0,CURRENT_TIMESTAMP(3),NULL,%s)""",
+            (grant_id, identifier, source_key, payload.units, payload.units, json.dumps(metadata, ensure_ascii=False)))
+        MySQLCreditStore._insert_ledger(cursor, event_key=f'grant:{grant_id}', grant_id=grant_id,
+            reservation_id=None, user_id=identifier, action='GRANT',
+            deltas=(payload.units, 0, 0, 0), after=(payload.units, 0, 0, 0))
+        cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (uuid.uuid4().hex, actor['id'], 'USER', identifier, 'credit_gift', '{}',
+             json.dumps({**metadata, 'units': payload.units, 'grant_id': grant_id}, ensure_ascii=False)))
+    return {'grant_id': grant_id, 'units': payload.units, 'created': True}
+
+
 def user_subscription_detail(identifier):
     from webgal_backend.payments import get_payment_store
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute("SELECT id,email,nickname,created_at FROM users WHERE id=%s", (identifier,))
         user = cursor.fetchone()
         if not user:
@@ -487,7 +535,7 @@ def edit_user_subscription(identifier: str, payload: SubscriptionChange, request
                 raise ValueError('expired')
         except ValueError:
             raise HTTPException(422, '请设置未来的订阅到期时间')
-    with AssetLibrary()._transaction() as cursor:
+    with database_transaction() as cursor:
         cursor.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (identifier,))
         if not cursor.fetchone():
             raise HTTPException(404, '用户不存在')

@@ -6225,57 +6225,6 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 @media(max-width:600px) { .admin-dashboard-toolbar { flex-direction: column; align-items: stretch; } .admin-metric { padding: 14px; } .admin-metric strong { font-size: 24px; } }
 
 /* Floating account card */
-.account-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--ink-muted);font:inherit;font-size:12px;font-weight:600;white-space:nowrap}
-.account-trigger:hover,.account-trigger[data-state=open]{background:var(--cinnabar-glow);color:var(--cinnabar);border-color:var(--cinnabar)}
-.account-trigger:disabled{cursor:wait;opacity:.65}
-.account-trigger-avatar{display:grid;place-items:center;width:22px;height:22px;overflow:hidden;border-radius:50%;color:var(--cinnabar);background:var(--rice-dark);font-size:11px}
-.account-trigger-avatar img,.account-avatar img{width:100%;height:100%;object-fit:cover}
-.account-trigger-avatar svg{width:16px;height:16px}
-.account-chevron{width:12px;height:12px;transition:transform .18s}
-.account-trigger[data-state=open] .account-chevron{transform:rotate(180deg)}
-.router-nav .account-trigger{color:rgba(255,255,255,.85);border-color:rgba(255,255,255,.25)}
-.account-popover{z-index:1200;width:344px;max-width:calc(100vw - 32px);max-height:var(--radix-popover-content-available-height);overflow-y:auto;padding:10px;border:1px solid var(--border);border-radius:20px;color:var(--ink);background:var(--paper);box-shadow:0 24px 64px rgba(46,33,24,.18),0 4px 12px rgba(46,33,24,.06);transform-origin:var(--radix-popover-content-transform-origin);animation:account-reveal .18s ease-out}
-.account-popover :is(a,button):focus-visible,.account-trigger:focus-visible{outline:2px solid var(--cinnabar);outline-offset:3px}
-.account-profile{padding:12px 14px 18px;border-radius:12px;background:linear-gradient(120deg,#eee5d6,#f6f0e5 75%)}
-.account-profile-top{display:flex;align-items:center;justify-content:flex-end;margin-bottom:4px}
-.account-close{display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--ink-muted);font-size:22px;line-height:1}
-.account-close:hover{background:#e7ddcd}
-.account-identity{display:flex;align-items:center;gap:13px}
-.account-avatar{position:relative;display:grid;place-items:center;flex:0 0 52px;height:52px;border:3px solid var(--paper);border-radius:50%;background:var(--cinnabar);color:var(--paper);font-family:"NarrativeOS Solution Serif",serif;font-size:24px;box-shadow:0 3px 8px var(--shadow)}
-.account-identity>div{min-width:0}
-.account-identity h2{margin:0 0 5px;font-size:18px;font-weight:600;overflow-wrap:anywhere}
-.account-identity p{margin:0;color:var(--ink-muted);font-size:12px;overflow-wrap:anywhere}
-.account-avatar img{border-radius:50%}
-.account-status-dot{position:absolute;right:-3px;bottom:-2px;width:12px;height:12px;border:2px solid var(--paper);border-radius:50%;background:#2ea66a}
-.account-credits{position:relative;margin:14px 6px 5px;padding:15px 16px;border:1px solid var(--border-light);border-radius:12px;background:#fffdf9}
-.account-credits>div{display:flex;align-items:baseline;justify-content:space-between;padding-right:35px}
-.account-credits div>span{color:var(--ink-muted);font-size:12px}
-.account-credits strong{color:var(--cinnabar);font-size:27px;font-weight:600;font-variant-numeric:tabular-nums}
-.account-credit-mark{position:absolute;top:20px;right:16px;color:var(--gold);font-size:25px}
-.account-credits p{margin:8px 0 0;color:var(--ink-muted);font-size:11px}
-.account-actions{display:grid;gap:3px;padding:10px 0}
-.account-actions :is(a,button){display:flex;align-items:center;gap:12px;padding:12px 15px;border:0;border-radius:10px;background:transparent;color:var(--ink-light);text-decoration:none;font:inherit;font-size:13px;text-align:left;transition:background .15s,color .15s}
-.account-actions button:disabled{color:var(--ink-muted);cursor:not-allowed}
-.account-actions small{margin-left:auto;font-size:11px;white-space:nowrap}
-.account-actions a:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
-.account-actions svg,.account-footer svg{flex-shrink:0;width:20px;height:20px}
-.account-actions b{margin-left:auto;font-size:20px;font-weight:400;color:var(--ink-muted)}
-.account-footer{display:flex;align-items:center;gap:10px;margin:0 6px;padding:13px 8px 5px;border-top:1px solid var(--border-light)}
-.account-footer>div{flex:1;min-width:0}
-.account-footer span{display:block;margin-bottom:4px;color:var(--ink-muted);font-size:10px}
-.account-footer code{display:block;color:var(--ink-muted);font-size:10px;overflow-wrap:anywhere;user-select:all}
-.account-footer button{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;padding:0;border:0;border-radius:7px;color:var(--ink-muted);background:transparent}
-.account-footer button:hover{color:var(--cinnabar);background:var(--cinnabar-glow)}
-.account-footer .account-logout{display:inline-flex;align-items:center;gap:5px;width:auto;padding:0 8px;white-space:nowrap}
-.account-footer .account-logout span{margin:0;color:inherit;font-size:12px}
-.account-footer .account-logout svg{width:17px;height:17px}
-.account-footer .account-logout:disabled{opacity:.6;cursor:wait}
-.account-copy-status{display:block;padding:2px 14px;color:var(--cinnabar);font-size:11px}
-.account-copy-status:empty{padding:0}
-@keyframes account-reveal{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
-@media(prefers-reduced-motion:reduce){.account-popover{animation:none}.account-chevron{transition:none}}
-.account-trigger.mobile-login { background: var(--cinnabar); padding: 11px 14px; font-size: 14px; }
-.account-trigger.mobile-login:hover, .account-trigger.mobile-login[data-state=open] { background: var(--cinnabar-deep); }
 @media (max-width: 520px) {
   .router-nav nav { align-items: center; gap: 10px; }
   .router-nav nav > a { white-space: nowrap; }
@@ -6283,9 +6232,6 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 }
 
 /* Recharge follows the account card's paper and cinnabar palette. */
-.account-credits>div{padding-right:62px}
-.account-recharge{position:absolute;right:14px;top:19px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;color:var(--cinnabar);background:var(--paper);font-size:12px;text-decoration:none}
-.account-recharge:hover{background:var(--cinnabar);color:var(--paper)}
 /* Four plan comparison, with cinnabar actions and soft red interaction. */
 .recharge-page{position:relative;z-index:1;max-width:1500px;margin:0 auto;padding:36px 28px 70px;color:#202020;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
 .recharge-page::before{content:"";position:fixed;inset:0;z-index:-1;background:#f5f5f5;pointer-events:none}
@@ -6672,8 +6618,6 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 .admin-user-name{padding:0;border:0;background:none;color:#842d40;font:inherit;font-weight:700;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:4px}
 
 /* Subscription belongs to the lower-right corner of the profile header. */
-.account-profile{position:relative;padding-bottom:29px}
-.account-plan-label{position:absolute;right:16px;bottom:10px;color:#8a6653;font-size:14px;font-weight:600;line-height:1.2;letter-spacing:.025em}
 
 .private-payment-test{max-width:800px;margin:0 auto;padding:48px 24px 80px;color:#49333d}
 .private-payment-test h1{font-family:STSong,SimSun,serif;font-size:42px;margin:12px 0}
@@ -6709,7 +6653,6 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 }
 
 .asset-library-feed-status { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; min-height: 80px; padding: 20px 0; color: var(--ink-muted); font-size: 13px; }
-.account-actions-divider { height: 1px; margin: 8px 10px; background: #e9dfd0; }
 .asset-audio { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; width: 100%; height: 100%; padding: 20px; background: radial-gradient(ellipse at 25% 15%, #f8e7cc, transparent 70%), #e6edeb; }
 .asset-vinyl { display: grid; place-items: center; width: 112px; height: 112px; border-radius: 50%; background: repeating-radial-gradient(circle, #293d3e 0 2px, #34494a 3px 4px); box-shadow: 5px 8px 14px #253e3e25; animation: asset-record-turn 12s linear infinite paused; }
 .asset-vinyl span { display: grid; place-items: center; width: 42px; height: 42px; background: #e9b67e; color: #293d3e; border-radius: 50%; font: 24px Georgia, serif; }

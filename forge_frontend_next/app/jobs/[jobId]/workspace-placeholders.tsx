@@ -1,0 +1,32 @@
+'use client';
+export function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
+  return (
+    <div className="node-placeholder loading">
+      <div className="pending-spinner" aria-hidden="true" />
+      <strong>{title}</strong>
+      <span>{brief}</span>
+    </div>
+  );
+}
+
+export function FailedPlaceholder(props: {
+  title: string;
+  brief: string;
+  action: () => void;
+  actionLabel: string;
+  busy: boolean;
+}) {
+  return (
+    <div className="node-placeholder failed-placeholder">
+      <span className="failed-mark" aria-hidden="true">
+        !
+      </span>
+      <strong>{props.title}</strong>
+      <span>{props.brief}</span>
+      <button className="btn primary retry-action" type="button" disabled={props.busy} onClick={props.action}>
+        <span aria-hidden="true">↻</span>
+        {props.busy ? '正在重试...' : props.actionLabel}
+      </button>
+    </div>
+  );
+}

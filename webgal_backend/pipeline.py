@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 import subprocess
@@ -15,7 +15,9 @@ from typing import Any, Callable, Iterator
 
 from .config import settings
 from . import game_design
+from .bgm_selection import select_bgm
 from .asset_library import AssetLibrary
+from .database import database_transaction
 from .job_options import validate_generation_options
 from .contract_context import build_phase_context
 from .generation_limits import generation_limits
@@ -40,9 +42,11 @@ from .runtime_assets import rewrite_webgal_asset_urls
 from .scene_plan import build_scene_plan, expected_scene_files
 from .scene_connections import check_scene_connections
 from .script_compiler import ScriptCompileError, compile_webgal_script
+from .scene_headers import scene_header_matches, scene_header_match, scene_header_kind, format_scene_header
 from .storage import JobStore, read_json, utc_now, write_json
 from .particle_effects import EFFECT_PRESETS, PUBLISHED_STATE_FILE, STATE_FILE, load_state as load_particle_effect_state, runtime_config
 from .scene_validation import SceneValidationResult, validate_and_repair_scenes, validation_report
+from .tts_config import job_tts_profile, tts_settings
 from .tts_pipeline import (
     build_tts_manifest,
     build_tts_voice_review,
@@ -232,14 +236,37 @@ class WebGALPipeline:
             self.store.mark_build_started(job)
             validate_generation_options(job.get("options", {}))
             for phase in RUN_ALL_PHASE_ORDER:
+                self._sync_auto_job_status(job, "RUNNING", phase)
                 self._phase_handler(phase)(job)
+            self._rewrite_runtime_asset_urls(job)
+            self._publish_asset_version(job)
             self.store.transition(job, "DONE", None)
             self.store.mark_build_complete(job)
             return self.store.get(job_id)
         except Exception as exc:
             self.store.mark_build_failed(job)
             self.store.set_error(job, str(exc))
+            try:
+                self._sync_auto_job_status(job, "FAILED", job.get("phase"), str(exc))
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception("Failed to sync job failure: %s", job_id)
             raise
+
+    def _sync_auto_job_status(self, job: dict[str, Any], status: str, phase: str | None, error: str | None = None) -> None:
+        identity = job.get("identity") or {}
+        if identity.get("type") != "sso" or not identity.get("user_id"):
+            return
+        with database_transaction() as cursor:
+            cursor.execute(
+                """UPDATE generation_jobs SET status=%s,phase=%s,build_state=%s,
+                   started_at=COALESCE(started_at,CURRENT_TIMESTAMP(3)),
+                   finished_at=CASE WHEN %s='FAILED' THEN CURRENT_TIMESTAMP(3) ELSE NULL END,
+                   error_message=%s WHERE id=%s AND owner_user_id=%s""",
+                (status, phase, "FAILED" if status == "FAILED" else "BUILDING", status,
+                 error, job["id"], identity["user_id"]),
+            )
 
     def phase_names(self) -> set[str]:
         return set(PHASE_SPECS)
@@ -317,10 +344,10 @@ class WebGALPipeline:
         self.store.transition(job, "NARRATIVE_READY", "NARRATIVE_PLANNING")
 
     def run_game_design(self, job: dict[str, Any]) -> None:
-        self.run_game_design_draft(job)
+        self.run_game_design_draft(job, pause_for_review=False)
         self.run_game_design_completion(job)
 
-    def run_game_design_draft(self, job: dict[str, Any]) -> None:
+    def run_game_design_draft(self, job: dict[str, Any], *, pause_for_review: bool = True) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN")
         job_dir, narrative_plan, scene_plan = self._game_design_context(job)
         llm = self._make_llm(job, job_dir)
@@ -350,7 +377,8 @@ Return plain text only. Do not call tools. Do not wrap the result in Markdown fe
                     )
             write_json(job_dir / "state" / "game_design.json", game_design_json)
             self.store.record_artifact(job, "game_design", "state/game_design.json")
-        self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
+        if pause_for_review:
+            self.store.transition(job, "GAME_DESIGN_DRAFT_READY", "GAME_DESIGN")
 
     def run_game_design_completion(self, job: dict[str, Any]) -> None:
         self.store.transition(job, "RUNNING", "GAME_DESIGN_COMPLETION")
@@ -662,7 +690,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             *[f"Scene:{item.get('scene_file', '')}" for item in scene_plan.get("scenes", []) if isinstance(item, dict)],
             *[f"Ending:{item.get('scene_file', '')}" for item in scene_plan.get("endings", []) if isinstance(item, dict)],
         ]
-        plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(job_dir), scene_plan, overrides)
+        plan = self._build_bgm_plan("\n".join(headers), self._load_bgm_assets(job_dir), scene_plan, overrides, self._read_bgm_catalog(job_dir))
         # Incremental music edits bypass run_sound_effects(), which normally
         # writes this plan. Keep the persisted scene configuration aligned with
         # the rewritten WebGAL scene files.
@@ -1169,7 +1197,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             raise PipelineError("game_design_webgal.txt is required before sound effect insertion")
 
         assets = self._load_sound_effect_assets()
-        bgm_assets = self._load_bgm_assets()
+        bgm_assets = self._load_bgm_assets(job_dir)
         available_assets = [item for item in assets if isinstance(item, dict) and bool(item.get("available"))]
         available_bgm = any(bgm_assets.get(kind) for kind in ("opening", "dialog", "ending"))
         write_json(job_dir / "state" / "sound_effect_assets.json", assets)
@@ -1188,7 +1216,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
                 "音效编排",
                 "sound_effect_plan",
                 "skipped",
-                f"sound effects and bgm directory unavailable or empty: {settings.sound_effects_dir}",
+                "No available sound effects or public BGM assets",
             )
             self.store.transition(job, "SOUND_EFFECTS_READY", "SOUND_EFFECT_PLANNING")
             return
@@ -1219,7 +1247,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             overrides_path = job_dir / "state" / "scene_music_overrides.json"
             overrides_payload = read_json(overrides_path) if overrides_path.exists() else {}
             overrides = overrides_payload.get("scene_overrides", {}) if isinstance(overrides_payload, dict) else {}
-            bgm_plan = self._build_bgm_plan(script_text, bgm_assets, scene_plan, overrides)
+            bgm_plan = self._build_bgm_plan(script_text, bgm_assets, scene_plan, overrides, self._read_bgm_catalog(job_dir))
             write_json(job_dir / "state" / "bgm_plan.json", bgm_plan)
             self.store.record_artifact(job, "bgm_plan", "state/bgm_plan.json")
 
@@ -1244,7 +1272,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         job_dir = self.store.job_dir(job["id"])
         preview_script = self._read_game_design_completed_text(job_dir)
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
-        limits = generation_limits().get("tts", {})
+        limits = {**generation_limits().get("tts", {}), **tts_settings(job_tts_profile(job_dir))}
         review_path = job_dir / "state" / "tts_voice_review.json"
         existing_review = read_json(review_path) if review_path.exists() else None
         with self._trace_stage(
@@ -1276,12 +1304,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         if not review_path.exists():
             raise PipelineError("TTS voice review is not ready")
         review = read_json(review_path)
+        review.setdefault("tts_profile", job_tts_profile(job_dir))
         try:
             item = select_tts_review_voice(review, speaker, voice)
-            preview_path = job_dir / "public" / "game" / "vocal_preview" / str(item.get("filename") or "")
-            if preview_path.exists():
-                preview_path.unlink()
-            generate_tts_voice_previews(job_dir, review, speakers={speaker})
+            generate_tts_voice_previews(job_dir, review, speakers={speaker}, force=True)
         except ValueError as exc:
             raise PipelineError(str(exc)) from exc
         write_json(review_path, review)
@@ -1299,7 +1325,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         if not (job_dir / "state" / "narrative_plan.json").exists():
             raise PipelineError("narrative_plan.json is required before TTS generation")
 
-        limits = generation_limits().get("tts", {})
+        limits = {**generation_limits().get("tts", {}), **tts_settings(job_tts_profile(job_dir))}
         enabled = bool(job["options"].get("generate_tts", job["options"].get("voice_enabled", False)))
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
         review_path = job_dir / "state" / "tts_voice_review.json"
@@ -1310,23 +1336,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             character_voices = selected_character_voices(read_json(review_path))
         else:
             character_voices = self._assign_tts_voices(job, job_dir, narrative_plan, limits)
-        previous_manifest_path = job_dir / "state" / "tts_manifest.json"
-        previous_manifest = read_json(previous_manifest_path) if previous_manifest_path.exists() else {}
         manifest = build_tts_manifest(job_dir, character_voices=character_voices, selection_options=job["options"])
-        previous_items = {
-            str(item.get("filename") or ""): item
-            for item in previous_manifest.get("items", [])
-            if isinstance(item, dict)
-        }
-        for item in manifest.get("items", []):
-            previous = previous_items.get(str(item.get("filename") or ""))
-            if not previous:
-                continue
-            if previous.get("voice") == item.get("voice") and previous.get("text") == item.get("text"):
-                continue
-            old_audio = job_dir / "public" / "game" / "vocal" / str(item.get("filename") or "")
-            if old_audio.exists():
-                old_audio.unlink()
         manifest = generate_tts_audio(job_dir, manifest, enabled=enabled)
         write_tts_manifest(job_dir, manifest)
         self.store.record_artifact(job, "tts_manifest", "state/tts_manifest.json")
@@ -1377,12 +1387,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
 - 顶层 JSON 直接使用角色名作为 key，不要包裹 character_voices 字段。
 - 返回 JSON，不要解释，不要 Markdown。
 
-返回格式:
-{{
-  "海瑞": ["Kai", "清正克制的中年男声，沉稳质朴"],
-  "徐阶": ["Eldric Sage", "岁月和茶烟浸泡过的温和老者嗓音"],
-  "王国师": ["Arthur", "温厚舒缓的中年男声，带旧友般的暖意"]
-}}"""
+返回格式示例:
+{json.dumps({"角色名": [next(iter(limits.get("voices", {}).get("male", {})), limits.get("voices", {}).get("default", "")), "沉稳自然、吐字清晰"]}, ensure_ascii=False, indent=2)}"""
         system_prompt = f"""{SYSTEM_PROMPT}
 
 Current phase: tts_voice_assignment
@@ -1498,16 +1504,11 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
 
     def _load_bgm_assets(self, job_dir: Path | None = None) -> dict[str, list[str]]:
         assets: dict[str, list[str]] = {"opening": [], "dialog": [], "ending": []}
-        if settings.sound_effects_dir.exists():
-            for path in sorted(settings.sound_effects_dir.glob("*.mp3"), key=lambda item: item.name.lower()):
-                name = path.name
-                lower = name.lower()
-                if lower.startswith("bgm_opening_"):
-                    assets["opening"].append(name)
-                elif lower.startswith("bgm_dialog"):
-                    assets["dialog"].append(name)
-                elif lower.startswith("bgm_ending_"):
-                    assets["ending"].append(name)
+        catalog = AssetLibrary().list_public_bgm()
+        for item in catalog:
+            assets["dialog"].append(item["filename"])
+        if job_dir:
+            write_json(job_dir / "state" / "bgm_catalog.json", catalog)
         # User-uploaded BGM is project-local and selectable like dialog music.
         # It is deliberately not copied into the shared library.
         if job_dir:
@@ -1520,13 +1521,20 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                             known_assets.add(path.name)
         return assets
 
+    def _read_bgm_catalog(self, job_dir: Path) -> list[dict[str, Any]]:
+        path = job_dir / "state" / "bgm_catalog.json"
+        return read_json(path) if path.exists() else []
+
     def _build_bgm_plan(
         self,
         script_text: str,
         bgm_assets: dict[str, list[str]],
         scene_plan: dict[str, Any] | None = None,
         scene_overrides: dict[str, Any] | None = None,
+        catalog: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
+        if catalog is not None:
+            return self._build_catalog_bgm_plan(script_text, bgm_assets, scene_plan or {}, scene_overrides or {}, catalog)
         opening_assets = bgm_assets.get("opening", [])
         dialog_assets = bgm_assets.get("dialog", [])
         ending_assets = bgm_assets.get("ending", [])
@@ -1537,8 +1545,8 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         headers = [
             {
                 "line_index": index,
-                "kind": match.group(1).lower(),
-                "scene_file": match.group(2),
+                "kind": scene_header_kind(match).lower(),
+                "scene_file": match.group("filename"),
             }
             for index, line in enumerate(lines)
             if (match := self._scene_header_match(line.strip()))
@@ -1640,9 +1648,52 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
                 item["asset"] = override
                 item["source"] = "user.scene_override"
                 item["override"] = True
+                item.pop("asset_id", None)
+                item.pop("asset_file_id", None)
+                selected = next((entry for entry in catalog or [] if entry["filename"] == override), None)
+                if selected:
+                    item.update(asset_id=selected["asset_id"], asset_file_id=selected["file_id"])
             else:
                 item["override"] = False
         return plan
+
+    def _build_catalog_bgm_plan(self, script_text, assets, scene_plan, overrides, catalog):
+        metadata = {str(item.get("scene_file", "")).lower(): item
+                    for group in ("scenes", "endings") for item in scene_plan.get(group, [])}
+        available = {name for group in assets.values() for name in group}
+        by_name = {item["filename"]: item for item in catalog}
+        headers = [(index + 1, match.group("filename"), scene_header_kind(match).lower())
+                   for index, line in enumerate(script_text.splitlines())
+                   if (match := self._scene_header_match(line.strip()))]
+        headers = headers or [(0, "", "scene")]
+        usage = {}
+        result = []
+        for index, (line_index, scene_file, kind) in enumerate(headers):
+            ending = kind == "ending" or scene_file.lower().startswith("ending")
+            info = metadata.get(scene_file.lower(), {})
+            mood = str(info.get("music_mood") or "").strip().lower()
+            if not mood:
+                text = " ".join(str(info.get(key) or "") for key in ("node_name", "summary", "content", "ending_type", "description"))
+                mood = self._infer_ending_mood(text + " " + scene_file) if ending else self._infer_opening_mood(text)
+            selected, fallback = select_bgm(catalog, mood, usage)
+            system_asset = selected["filename"] if selected else ""
+            override = str(overrides.get(scene_file) or "").strip()
+            manual = bool(override and override in available)
+            asset = override if manual else system_asset
+            if not asset:
+                continue
+            entry = {"line_index": line_index, "scene_file": scene_file, "asset": asset,
+                     "role": "ending" if ending else ("opening" if index == 0 else "dialog"),
+                     "requested_mood": mood, "resolved_mood": (by_name.get(asset) or {}).get("moods", []),
+                     "source": "user.scene_override" if manual else "library.mood",
+                     "fallback": fallback if not manual else False, "override": manual}
+            if manual:
+                entry["system_asset"] = system_asset
+            if asset in by_name:
+                entry.update(asset_id=by_name[asset]["asset_id"], asset_file_id=by_name[asset]["file_id"])
+            usage[asset] = usage.get(asset, 0) + 1
+            result.append(entry)
+        return result
 
     def _select_mood_bgm(
         self,
@@ -1770,9 +1821,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         return False
 
     def _scene_header_match(self, line: str):
-        import re
-
-        return re.match(r"^(Scene|Ending)\s*:\s*([A-Za-z0-9_-]+\.txt)\s*$", line, flags=re.IGNORECASE)
+        return scene_header_match(line)
 
     def _parse_sound_effect_plan_text(self, text: str) -> Any:
         import json
@@ -1943,9 +1992,7 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         return line.startswith(("end", "choose:", "changeScene:"))
 
     def _is_scene_header(self, line: str) -> bool:
-        import re
-
-        return bool(re.match(r"^(?:Scene|Ending)\s*:\s*[A-Za-z0-9_-]+\.txt\s*$", line, flags=re.IGNORECASE))
+        return scene_header_match(line) is not None
 
     def _is_sound_effect_story_line(self, line: str) -> bool:
         if not line or line.startswith((";", "//")) or self._is_scene_header(line):
@@ -2001,17 +2048,30 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
             return
         target_dir = job_dir / "public" / "game" / "bgm"
         target_dir.mkdir(parents=True, exist_ok=True)
+        catalog = {item["filename"]: item for item in self._read_bgm_catalog(job_dir)}
         for filename in assets:
+            if Path(filename).name != filename:
+                raise PipelineError("Invalid BGM filename")
+            record = catalog.get(filename)
+            library = None
+            user_id = ""
+            if record:
+                job = self.store.get(job_dir.name)
+                identity = job.get("identity") or {}
+                user_id = str(identity.get("user_id") or "")
+                library = AssetLibrary()
             draft_source = job_dir / "draft" / "game" / "bgm" / filename
-            if draft_source.exists():
-                shutil.copy2(draft_source, target_dir / filename)
-                continue
-            if (target_dir / filename).is_file():
-                continue
-            source = settings.sound_effects_dir / filename
-            if not source.exists():
-                raise PipelineError(f"bgm file is missing: {source}")
-            shutil.copy2(source, target_dir / filename)
+            target = target_dir / filename
+            if draft_source.is_file():
+                shutil.copy2(draft_source, target)
+            elif not target.is_file():
+                if not record:
+                    raise PipelineError(f"bgm file is missing from asset library: {filename}")
+                _, content = library.download_accessible_file(user_id, record["file_id"])
+                target.write_bytes(content)
+            if record and identity.get("type") == "sso" and user_id:
+                library.record_draft_usage(user_id=user_id, job_id=job_dir.name,
+                                           logical_path=f"bgm/{filename}", file_id=record["file_id"], usage_role="bgm")
 
     def _call_with_validation(
         self,
@@ -2239,28 +2299,10 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
         return written
 
     def _scene_header_matches(self, text: str):
-        import re
-
-        pattern = re.compile(
-            r"""^\s*
-            (?:\#{1,6}\s*)?
-            (?:
-                (?P<kind>Scene|Ending)\s*[:：]\s*
-                |
-                (?:[\[【「『]\s*)?
-                (?:(?:场景|文件|scene|file)(?:\s*[:：]\s*|\s+))?
-            )
-            (?P<filename>[A-Za-z0-9_-]+\.txt)
-            (?:\s*[\]】」』])?
-            \s*[:：]?\s*$
-            """,
-            flags=re.IGNORECASE | re.MULTILINE | re.VERBOSE,
-        )
-        return list(pattern.finditer(text))
+        return scene_header_matches(text)
 
     def _format_scene_header(self, filename: str) -> str:
-        prefix = "Ending" if filename.replace("\\", "/").split("/")[-1].startswith("ending_") else "Scene"
-        return f"{prefix}:{filename}"
+        return format_scene_header(filename)
 
     def _scene_headers(self, text: str) -> list[str]:
         return [match.group("filename") for match in self._scene_header_matches(text)]
