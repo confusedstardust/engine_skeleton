@@ -8,6 +8,7 @@ import { creditBalanceChangedEvent } from '../../../components/credit-balance';
 
 import { assetDisplayName } from './workspace-assets';
 type AssetActionContext = {
+  notify?: (message: string, tone?: "info" | "success" | "error") => void;
   jobId: string;
   data: NodesResponse | null;
   setBusy: (value: boolean) => void;
@@ -18,7 +19,7 @@ type AssetActionContext = {
   setVoiceGeneratingSpeaker: (value: string | null) => void;
 };
 export function createJobAssetActions(context: AssetActionContext) {
-  const { jobId, data, setBusy, setMessage, setErrorMessage, refresh, setAssetPromptDirty, setVoiceGeneratingSpeaker } =
+  const { notify, jobId, data, setBusy, setMessage, setErrorMessage, refresh, setAssetPromptDirty, setVoiceGeneratingSpeaker } =
     context;
   async function regenerateAsset(asset: AssetReviewItem, prompt: string) {
     setBusy(true);
@@ -36,6 +37,7 @@ export function createJobAssetActions(context: AssetActionContext) {
       window.dispatchEvent(new Event(creditBalanceChangedEvent));
       setAssetPromptDirty(false);
       setMessage('单个素材已加入生成队列。');
+      notify?.('单个素材已加入生成队列。', 'success');
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '重新生成素材失败。');
@@ -104,10 +106,11 @@ export function createJobAssetActions(context: AssetActionContext) {
         }),
       });
       setMessage(target === 'bgm' ? '素材库音乐已加入当前作品。' : '素材库图片已替换当前草稿素材。');
+      notify?.(target === 'bgm' ? '素材库音乐已加入当前作品。' : '素材库图片已替换当前草稿素材。', 'success');
       await refresh(true);
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '调用素材库失败。');
+      setErrorMessage(error instanceof Error ? error.message : '调用素材库失败。');
       return false;
     } finally {
       setBusy(false);
@@ -123,10 +126,11 @@ export function createJobAssetActions(context: AssetActionContext) {
         body: JSON.stringify({ filename: asset.filename, base_revision: data?.job.draft_revision ?? 0 }),
       });
       setMessage('立绘背景已移除。');
+      notify?.('立绘背景已移除。', 'success');
       await refresh(true);
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '一键抠图失败。');
+      setErrorMessage(error instanceof Error ? error.message : '一键抠图失败。');
       return false;
     } finally {
       setBusy(false);
@@ -143,6 +147,7 @@ export function createJobAssetActions(context: AssetActionContext) {
         body: JSON.stringify({ speaker, voice }),
       });
       setMessage(`${speaker} 的新试听已生成，可以直接播放比较。`);
+      notify?.(`${speaker} 的新试听已生成，可以直接播放比较。`, "success");
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '语音试听生成失败。');

@@ -12,7 +12,9 @@ from .storage import read_json
 
 
 class TeacherEcosystemError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _configuration() -> tuple[str, str]:
@@ -50,7 +52,7 @@ def _request(method: str, *, query: dict[str, str] | None = None, payload: dict[
             message = json.loads(body).get("error") or body
         except json.JSONDecodeError:
             message = body
-        raise TeacherEcosystemError(f"教师生态服务返回 HTTP {exc.code}: {message}") from exc
+        raise TeacherEcosystemError(f"教师生态服务返回 HTTP {exc.code}: {message}", status_code=exc.code) from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise TeacherEcosystemError(f"无法连接教师生态服务: {exc}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

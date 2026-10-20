@@ -1,4 +1,6 @@
 'use client';
+import { useToast } from '../../../components/ui/toast';
+import { useRouter } from 'next/navigation';
 import { useOutlineActions } from './use-outline-actions';
 import {
   parseSceneConnectionReport,
@@ -24,7 +26,9 @@ import { createJobAssetActions } from './job-asset-actions';
 import { failedPhaseRetry, type WorkflowStage } from './workspace-workflow';
 
 export function useJobWorkspace(jobId: string) {
+  const notify = useToast();
   const confirm = useConfirmation();
+  const router = useRouter();
   const [message, setMessageValue] = useState('正在读取任务...');
   const [operationError, setOperationError] = useState(false);
   const setMessage = useCallback((value: string) => {
@@ -132,7 +136,11 @@ export function useJobWorkspace(jobId: string) {
   const canOpenAssets = inAssetOrBuildStage;
   const activeAsset = assetReview?.assets.find((asset) => asset.filename === activeAssetFilename) || null;
 
+  const observedNarrativeContent = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    // Saving changes dirty state, but must never rehydrate an unchanged cache.
+    if (observedNarrativeContent.current === narrativeNode?.content) return;
+    observedNarrativeContent.current = narrativeNode?.content;
     if (!planDirty) {
       const parsed = parsePlan(narrativeNode?.content || null);
       if (parsed) setPlan(parsed);
@@ -170,10 +178,11 @@ export function useJobWorkspace(jobId: string) {
   useEffect(() => {
     if (hasPublishedBuild && !publishedSeenRef.current) {
       publishedSeenRef.current = true;
-      setEditScope('none');
-      setStage('complete');
+      const directEdit = new URLSearchParams(window.location.search).get('edit') === '1' && !isGenerating && data?.job.build_state !== 'BUILDING';
+      setEditScope(directEdit ? 'draft' : 'none');
+      setStage(directEdit ? 'assets' : 'complete');
     }
-  }, [hasPublishedBuild]);
+  }, [hasPublishedBuild, isGenerating, data?.job.build_state]);
 
   useEffect(() => {
     if (!planDirty && !scenesDirty && !assetPromptDirty) return;
@@ -191,12 +200,13 @@ export function useJobWorkspace(jobId: string) {
   }
 
   async function exitCompletedEdit() {
-    if ((scenesDirty || assetPromptDirty) && !(await confirm('还有未保存的修改，确定退出编辑吗？')))
+    if ((planDirty || scenesDirty || assetPromptDirty) && !(await confirm('还有未保存的修改，确定退出编辑吗？')))
       return;
     setScenesDirty(false);
     setAssetPromptDirty(false);
+    setPlanDirty(false);
     setEditScope('none');
-    setStage('complete');
+    router.push('/history');
   }
 
   const { updatePlan, syncNarrativeStructure, savePlan, nextToScenes, addPhase, addEnding, addCharacter } =
@@ -206,10 +216,12 @@ export function useJobWorkspace(jobId: string) {
       planDirty,
       outlineLocked,
       planRef,
+      setData,
       setPlan,
       setStage,
       refresh,
       setPlanDirty,
+      notify,
       setBusy,
       setFlowSyncing,
       setOutlineSubmitted,
@@ -268,8 +280,10 @@ export function useJobWorkspace(jobId: string) {
           setEditScope('none');
           setStage('complete');
           setMessage('正在把已保存的场景修改应用到当前游戏；未修改内容会保持原样。');
+          notify('场景修改已提交，正在应用到游戏。', 'success');
         } else {
           setMessage('场景草稿已保存；当前游戏仍是上一次发布版本。');
+          notify('场景草稿已保存；当前游戏仍是上一次发布版本。', 'success');
         }
         await refresh(true);
         return;
@@ -280,6 +294,7 @@ export function useJobWorkspace(jobId: string) {
       });
       setStage('assets');
       setMessage('素材规划和生成已启动，完成后可以审阅角色卡和场景卡。');
+      notify('素材规划和生成已启动。', 'success');
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '启动素材阶段失败。');
@@ -297,6 +312,7 @@ export function useJobWorkspace(jobId: string) {
     removeAssetBackground,
     previewCharacterVoice,
   } = createJobAssetActions({
+    notify,
     jobId,
     data,
     setBusy,

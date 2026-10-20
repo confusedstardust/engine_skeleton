@@ -329,7 +329,7 @@ FROM assets a
         # remove the logical asset from the owner's active personal library.
         with self._transaction() as cursor:
             cursor.execute(
-                "UPDATE assets SET status='DELETED' WHERE id=%s AND owner_user_id=%s AND status='ACTIVE'",
+                "UPDATE assets SET status='DELETED' WHERE id=%s AND owner_user_id=%s AND source_type='UPLOADED' AND visibility='PRIVATE' AND status='ACTIVE'",
                 (asset_id, user_id),
             )
             if cursor.rowcount != 1:

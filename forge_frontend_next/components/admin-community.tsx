@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "./ui/toast";
 import { Pagination } from "./ui/pagination";
 
 import { useEffect, useState } from "react";
@@ -15,6 +16,7 @@ function SaveStatus({ message, error }: { message: string; error: boolean }) {
 }
 
 function NoticeEditor({ notice, saved }: { notice?: BoardNotice; saved: () => void }) {
+  const notify = useToast();
   const [title, setTitle] = useState(notice?.title || "");
   const [content, setContent] = useState(notice?.content || "");
   const [published, setPublished] = useState(notice?.published ?? true);
@@ -26,7 +28,7 @@ function NoticeEditor({ notice, saved }: { notice?: BoardNotice; saved: () => vo
     try {
       await boardApi(`/admin/community/announcements${notice ? `/${notice.id}` : ""}`, { method: notice ? "PUT" : "POST", body: JSON.stringify({ title: title.trim(), content: content.trim(), published }) });
       if (!notice) { setTitle(""); setContent(""); }
-      setStatus(published ? "公告已发布" : "公告已保存，仅管理员可见"); saved();
+      notify(published ? "公告已发布" : "公告已保存，仅管理员可见", "success"); saved();
     } catch (reason) { setFailed(true); setStatus(reason instanceof Error ? reason.message : "保存失败，请重试"); }
     finally { setBusy(false); }
   }}><fieldset disabled={busy}>
@@ -38,6 +40,7 @@ function NoticeEditor({ notice, saved }: { notice?: BoardNotice; saved: () => vo
 }
 
 function ReplyEditor({ question, saved }: { question: BoardQuestion; saved: () => void }) {
+  const notify = useToast();
   const suggestion = question.kind === "SUGGESTION";
   const [answer, setAnswer] = useState(question.answer || "");
   const [published, setPublished] = useState(!suggestion && Boolean(question.published));
@@ -50,7 +53,7 @@ function ReplyEditor({ question, saved }: { question: BoardQuestion; saved: () =
     <p className={styles.messageText}>{question.question}</p>
     <form aria-label={`回复：${question.question}`} onSubmit={async event => {
       event.preventDefault(); setBusy(true); setStatus(""); setFailed(false);
-      try { await boardApi(`/admin/community/questions/${question.id}`, { method: "PUT", body: JSON.stringify({ answer, published: !suggestion && published }) }); setStatus("答复已保存"); saved(); }
+      try { await boardApi(`/admin/community/questions/${question.id}`, { method: "PUT", body: JSON.stringify({ answer, published: !suggestion && published }) }); notify("答复已保存", "success"); saved(); }
       catch (reason) { setFailed(true); setStatus(reason instanceof Error ? reason.message : "保存失败，请重试"); }
       finally { setBusy(false); }
     }}><fieldset disabled={busy}><label className={styles.field}><span>管理员答复</span><textarea value={answer} maxLength={4000} placeholder="写下你的答复…" onChange={event => setAnswer(event.target.value)} /></label>

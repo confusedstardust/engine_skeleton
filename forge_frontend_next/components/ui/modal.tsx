@@ -58,6 +58,7 @@ export function ModalBody({ children }: { children: ReactElement<{ children?: Re
 }
 
 export function ConfirmDialog({
+  error,
   open,
   title,
   description,
@@ -65,6 +66,7 @@ export function ConfirmDialog({
   onCancel,
   onConfirm,
 }: {
+  error?: string;
   open: boolean;
   title: string;
   description: string;
@@ -89,6 +91,7 @@ export function ConfirmDialog({
         >
           <AlertDialog.Title>{title}</AlertDialog.Title>
           <AlertDialog.Description>{description}</AlertDialog.Description>
+          {error && <p role="alert" className="error">{error}</p>}
           <div className="asset-confirm-actions">
             <AlertDialog.Cancel asChild>
               <button className="btn outline" disabled={busy}>

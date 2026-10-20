@@ -1,3 +1,4 @@
+import { ToastProvider } from "../components/ui/toast";
 import { Suspense } from "react";
 import { NavigationReturnProvider } from "../components/navigation-return";
 import { ConfirmationProvider } from "../components/ui/modal";
@@ -21,7 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <style>{`@font-face { font-family: "NarrativeOS Solution Serif"; src: url("${solutionTitleFontUrl}") format("truetype"); font-display: swap; }`}</style>
       </head>
-      <body><ConfirmationProvider><Suspense><NavigationReturnProvider><AnnouncementsProvider><div className="forge-page-content">{children}</div><SiteFooter /></AnnouncementsProvider></NavigationReturnProvider></Suspense></ConfirmationProvider></body>
+      <body><ToastProvider><ConfirmationProvider><Suspense><NavigationReturnProvider><AnnouncementsProvider><div className="forge-page-content">{children}</div><SiteFooter /></AnnouncementsProvider></NavigationReturnProvider></Suspense></ConfirmationProvider></ToastProvider></body>
     </html>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "./ui/toast";
 import { useFileUpload } from "../hooks/use-file-upload";
 import { AssetFileInput, UploadStatus } from "./ui/file-upload";
 import { imageUploadPolicy, musicUploadPolicy } from "../lib/upload-policy";
@@ -475,7 +476,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const musicUploadRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageUpload, setPendingImageUpload] = useState<{ role: "figure" | "background"; removeBackground: boolean; replaceFilename?: string }>({ role: "background", removeBackground: false });
-  const [uploadNotice, setUploadNotice] = useState("");
+  const notify = useToast();
   const imageUpload = useFileUpload();
   const musicUpload = useFileUpload();
   const imageUploading = imageUpload.pending;
@@ -542,8 +543,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
   }
 
   function showUploadNotice(message: string) {
-    setUploadNotice(message);
-    window.setTimeout(() => setUploadNotice((current) => current === message ? "" : current), 2000);
+    notify(message, "success");
   }
 
 
@@ -691,7 +691,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             <div className="scene-music-workbench">
               <header className="laper-canvas-head music-workbench-head">
                 <div><h2>场景音乐</h2></div>
-                {!props.readonly && <div className="music-upload-actions">{uploadNotice && <span className={uploadNotice.includes("失败") ? "failed" : "success"}>{uploadNotice}</span>}<button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</button></div>}
+                {!props.readonly && <div className="music-upload-actions"><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</button></div>}
               </header>
               <div className="scene-music-table" role="list">
                 {props.sceneMusic.map((scene, index) => {
@@ -848,7 +848,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           <ModalBody><section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
             <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
             <div className="asset-modal-body">
-              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div>{(imageUploading || uploadNotice) && <div className={`asset-upload-inline-result ${uploadNotice.includes("失败") ? "failed" : "success"}`} role="status">{imageUploading ? "正在上传图片" : uploadNotice}</div>}</div>
+              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div></div>
               <div className="asset-modal-editor"><UploadStatus pending={false} error={imageUpload.error} className="error" />
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>

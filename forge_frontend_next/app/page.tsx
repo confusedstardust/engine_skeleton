@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../components/ui/toast";
 import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
 import { forgeApi as api } from "../lib/api-client";
 import type { Job } from "../domain/jobs";
@@ -19,7 +20,7 @@ import { useAnnouncements } from "../components/announcements";
 import CommunityBoard from "../components/community-board";
 import { AccountMenu } from "../components/account-menu";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 
 import { getCurrentUser } from "./invite-identity";
 import { OnboardingTour } from "../components/onboarding-tour";
@@ -374,12 +375,9 @@ function NarrativeRouterPage() {
   const router = useRouter();
   const openAnnouncements = useAnnouncements();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [notice, setNotice] = useState("");
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(""), 3000);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
+  const notify = useToast();
+  const setNotice = (message: string) => notify(message, "info", 3000);
+
   function selectScene(scene: NarrativeScene) {
     if (scene.id === "assets") { router.push("/assets"); return; }
     if (scene.ready) { router.push("/?workspace=1"); return; }
@@ -406,7 +404,6 @@ function NarrativeRouterPage() {
     </div></section>
     <CommunityBoard />
     {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></ModalBody></div></ModalFrame>}
-    {notice && <div className="router-toast" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="关闭提示">×</button></div>}
   </main>;
 }
 

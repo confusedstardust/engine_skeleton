@@ -83,12 +83,17 @@ class JobStore:
         return job
 
     def job_dir(self, job_id: str) -> Path:
-        if not JOB_ID_RE.fullmatch(job_id):
+        if not JOB_ID_RE.fullmatch(job_id) or (self.jobs_dir / ".deleted" / f"{job_id}.json").exists():
             raise FileNotFoundError(f"job not found: {job_id}")
         return self.jobs_dir / job_id
 
     def job_file(self, job_id: str) -> Path:
         return self.job_dir(job_id) / "job.json"
+
+    def delete(self, job_id: str) -> None:
+        # Keep accounting and source files, and prevent stale writers reopening a deleted job.
+        self.get(job_id)
+        write_json(self.jobs_dir / ".deleted" / f"{job_id}.json", {"deleted_at": utc_now()})
 
     def get(self, job_id: str) -> dict[str, Any]:
         path = self.job_file(job_id)

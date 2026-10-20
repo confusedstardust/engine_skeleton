@@ -38,11 +38,11 @@ export const Content = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<typeo
         }}
         onPointerDownOutside={(event) => {
           onPointerDownOutside?.(event);
-          if (busy) event.preventDefault();
+          if (busy || (event.target instanceof Element && event.target.closest(".app-toast"))) event.preventDefault();
         }}
         onInteractOutside={(event) => {
           onInteractOutside?.(event);
-          if (busy) event.preventDefault();
+          if (busy || (event.target instanceof Element && event.target.closest(".app-toast"))) event.preventDefault();
         }}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
