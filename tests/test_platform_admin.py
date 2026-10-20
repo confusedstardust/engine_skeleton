@@ -381,3 +381,84 @@ def test_database_session_hash_storage_and_logout_revocation(monkeypatch):
     insert=next(args for sql,args in calls if sql.startswith('INSERT'))
     assert insert[1]=='user-id' and insert[2]==hashlib.sha256(token.encode()).hexdigest()
     assert calls[-1][0].startswith('DELETE FROM auth_sessions WHERE token_hash')
+
+
+@pytest.fixture
+def gift_db(monkeypatch):
+    import json
+    from copy import deepcopy
+    state = {'grants': {}, 'ledger': [], 'audit': [], 'fail_audit': False}
+    class Cursor:
+        def execute(self, sql, args=()):
+            self.row = None
+            if sql.startswith('SELECT id FROM users'):
+                self.row = {'id': args[0]} if args[0] == 'recipient' else None
+            elif sql.startswith('SELECT user_id,units_granted'):
+                self.row = state['grants'].get(args[0])
+            elif 'INSERT INTO entitlement_grants' in sql:
+                state['grants'][args[0]] = {'user_id': args[1], 'units_granted': args[3], 'metadata_json': args[5]}
+            elif 'INSERT INTO credit_ledger' in sql:
+                state['ledger'].append(args)
+            elif 'INSERT INTO platform_admin_audit' in sql:
+                if state['fail_audit']:
+                    raise RuntimeError('audit unavailable')
+                state['audit'].append(args)
+        def fetchone(self):
+            return self.row
+    @contextmanager
+    def transaction():
+        before = deepcopy(state)
+        try:
+            yield Cursor()
+        except Exception:
+            state.clear(); state.update(before)
+            raise
+    monkeypatch.setattr(admin, 'database_transaction', transaction)
+    return state
+
+
+def gift_payload(**updates):
+    return {'units': 200, 'reason': '服务补偿', 'request_id': 'a' * 32, **updates}
+
+
+def test_credit_gift_is_audited_and_idempotent(client, gift_db):
+    import json
+    login(client)
+    path = '/admin/users/recipient/credits'
+    first = client.post(path, json=gift_payload())
+    assert first.status_code == 200 and first.json()['created'] is True
+    second = client.post(path, json=gift_payload())
+    assert second.status_code == 200 and second.json()['created'] is False
+    assert first.json()['grant_id'] == second.json()['grant_id']
+    assert len(gift_db['grants']) == len(gift_db['ledger']) == len(gift_db['audit']) == 1
+    assert gift_db['ledger'][0][4] == 'GRANT'
+    audit = gift_db['audit'][0]
+    assert audit[1] == 'test-admin-id' and audit[3] == 'recipient'
+    assert json.loads(audit[6])['reason'] == '服务补偿'
+    assert client.post(path, json=gift_payload(units=300)).status_code == 409
+    assert client.post(path, json=gift_payload(reason='different')).status_code == 409
+
+
+@pytest.mark.parametrize('units', [0, -1, 1.5, True, '200', 1000001])
+def test_credit_gift_rejects_invalid_units(client, gift_db, units):
+    login(client)
+    assert client.post('/admin/users/recipient/credits', json=gift_payload(units=units)).status_code == 422
+    assert not gift_db['grants']
+
+
+def test_credit_gift_requires_admin_header_reason_and_existing_user(client, gift_db, monkeypatch):
+    assert client.post('/admin/users/recipient/credits', json=gift_payload()).status_code in (401, 403)
+    login(client)
+    assert client.post('/admin/users/recipient/credits', json=gift_payload(reason='  ')).status_code == 422
+    assert client.post('/admin/users/missing/credits', json=gift_payload()).status_code == 404
+    del client.headers['X-Forge-Admin-Action']
+    assert client.post('/admin/users/recipient/credits', json=gift_payload()).status_code == 403
+    assert not gift_db['grants']
+
+
+def test_credit_gift_rolls_back_if_audit_fails(client, gift_db):
+    login(client)
+    gift_db['fail_audit'] = True
+    with pytest.raises(RuntimeError, match='audit unavailable'):
+        client.post('/admin/users/recipient/credits', json=gift_payload())
+    assert not gift_db['grants'] and not gift_db['ledger'] and not gift_db['audit']

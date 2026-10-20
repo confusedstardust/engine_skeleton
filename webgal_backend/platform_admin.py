@@ -446,6 +446,53 @@ class SubscriptionChange(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class CreditGift(BaseModel):
+    units: int = Field(strict=True, ge=1, le=1000000)
+    reason: str = Field(min_length=1, max_length=500)
+    request_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+
+@router.post('/users/{identifier}/credits')
+def gift_user_credits(identifier: str, payload: CreditGift, request: Request):
+    from credit_system.store import MySQLCreditStore
+
+    actor = require_admin(request)
+    require_action_header(request)
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(422, '请填写赠送原因')
+    # A retry of the same operation must never create a second grant.
+    source_key = 'admin-gift:' + hashlib.sha256(f"{actor['id']}:{payload.request_id}".encode()).hexdigest()
+    grant_id = hashlib.sha256(source_key.encode()).hexdigest()[:32]
+    metadata = {'actor_user_id': actor['id'], 'reason': reason, 'request_id': payload.request_id}
+    with database_transaction() as cursor:
+        cursor.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (identifier,))
+        if not cursor.fetchone():
+            raise HTTPException(404, '用户不存在')
+        cursor.execute('SELECT user_id,units_granted,metadata_json FROM entitlement_grants WHERE id=%s FOR UPDATE', (grant_id,))
+        existing = cursor.fetchone()
+        if existing:
+            previous = existing['metadata_json']
+            if isinstance(previous, str):
+                previous = json.loads(previous)
+            if existing['user_id'] != identifier or int(existing['units_granted']) != payload.units or previous != metadata:
+                raise HTTPException(409, '赠送请求已使用，请刷新后重试')
+            return {'grant_id': grant_id, 'units': payload.units, 'created': False}
+        cursor.execute("""INSERT INTO entitlement_grants
+            (id,user_id,source,source_key,order_id,benefit_key,kind,status,
+             units_granted,units_available,units_reserved,units_consumed,units_revoked,
+             starts_at,expires_at,metadata_json)
+            VALUES (%s,%s,'ADMIN',%s,NULL,'credits','CREDITS','ACTIVE',%s,%s,0,0,0,CURRENT_TIMESTAMP(3),NULL,%s)""",
+            (grant_id, identifier, source_key, payload.units, payload.units, json.dumps(metadata, ensure_ascii=False)))
+        MySQLCreditStore._insert_ledger(cursor, event_key=f'grant:{grant_id}', grant_id=grant_id,
+            reservation_id=None, user_id=identifier, action='GRANT',
+            deltas=(payload.units, 0, 0, 0), after=(payload.units, 0, 0, 0))
+        cursor.execute('INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (uuid.uuid4().hex, actor['id'], 'USER', identifier, 'credit_gift', '{}',
+             json.dumps({**metadata, 'units': payload.units, 'grant_id': grant_id}, ensure_ascii=False)))
+    return {'grant_id': grant_id, 'units': payload.units, 'created': True}
+
+
 def user_subscription_detail(identifier):
     from webgal_backend.payments import get_payment_store
     with database_transaction() as cursor:
