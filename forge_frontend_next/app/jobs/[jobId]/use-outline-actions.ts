@@ -12,7 +12,7 @@ import type {
   SyncNarrativeStructureOptions,
   NarrativePlan,
 } from '../../../domain/narrative';
-import type { Job } from '../../../domain/jobs';
+import type { Job, NodesResponse } from '../../../domain/jobs';
 
 import { useCallback, useEffect } from 'react';
 
@@ -20,11 +20,13 @@ import { type WorkflowStage } from './workspace-workflow';
 
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 type OutlineActionContext = {
+  notify?: (message: string, tone?: "info" | "success" | "error") => void;
   jobId: string;
   plan: NarrativePlan | null;
   planDirty: boolean;
   outlineLocked: boolean;
   planRef: RefObject<NarrativePlan | null>;
+  setData: Dispatch<SetStateAction<NodesResponse | null>>;
   setPlan: Dispatch<SetStateAction<NarrativePlan | null>>;
   setStage: (value: WorkflowStage) => void;
   refresh: (silent?: boolean) => Promise<void>;
@@ -47,11 +49,13 @@ type OutlineActionContext = {
 export function useOutlineActions(context: OutlineActionContext) {
   const {
     jobId,
+    notify,
     plan,
     planDirty,
     outlineLocked,
     planRef,
     setPlan,
+    setData,
     setStage,
     refresh,
     setPlanDirty,
@@ -70,7 +74,17 @@ export function useOutlineActions(context: OutlineActionContext) {
     endingBrief,
     characterBrief,
   } = context;
+  const cachePlan = useCallback((next: NarrativePlan) => {
+    setData(current => current ? {
+      ...current,
+      nodes: current.nodes.map(node => node.key === 'narrative_plan'
+        ? { ...node, content: JSON.stringify(next) }
+        : node),
+    } : current);
+  }, [setData]);
+
   function updatePlan(next: NarrativePlan) {
+    cachePlan(next);
     setPlan(next);
     planRef.current = next;
     setPlanDirty(true);
@@ -93,14 +107,16 @@ export function useOutlineActions(context: OutlineActionContext) {
           body: JSON.stringify({ narrative_plan: nextTarget }),
         });
         const latestPlan = planRef.current;
-        const canApply = !options.quiet || JSON.stringify(latestPlan) === snapshot;
+        const canApply = JSON.stringify(latestPlan) === snapshot;
         if (canApply) {
+          cachePlan(result.narrative_plan);
           setPlan(result.narrative_plan);
           planRef.current = result.narrative_plan;
           setPlanDirty(false);
         }
         if (!options.quiet) {
           setMessage(result.issues.length > 0 ? '流程图已同步，但仍有节点需要检查。' : '流程图已同步。');
+          notify?.(result.issues.length > 0 ? '流程图已同步，仍有节点需要检查。' : '流程图已同步。', 'success');
           await refresh(true);
         }
       } catch (error) {
@@ -117,6 +133,8 @@ export function useOutlineActions(context: OutlineActionContext) {
     },
     [
       jobId,
+      cachePlan,
+      notify,
       outlineLocked,
       refresh,
       planRef,
@@ -133,12 +151,13 @@ export function useOutlineActions(context: OutlineActionContext) {
     if (!plan || !planDirty || outlineLocked) return;
     const timer = window.setTimeout(() => {
       void syncNarrativeStructure(plan, { quiet: true });
-    }, 900);
+    }, 8000);
     return () => window.clearTimeout(timer);
   }, [outlineLocked, plan, planDirty, syncNarrativeStructure]);
 
   async function savePlan() {
     if (!plan) return;
+    const snapshot = JSON.stringify(plan);
     setBusy(true);
     setMessage('正在保存大纲并同步流程图...');
     try {
@@ -146,10 +165,14 @@ export function useOutlineActions(context: OutlineActionContext) {
         method: 'POST',
         body: JSON.stringify({ narrative_plan: plan }),
       });
-      setPlan(result.narrative_plan);
-      planRef.current = result.narrative_plan;
-      setPlanDirty(false);
+      if (JSON.stringify(planRef.current) === snapshot) {
+        cachePlan(result.narrative_plan);
+        setPlan(result.narrative_plan);
+        planRef.current = result.narrative_plan;
+        setPlanDirty(false);
+      }
       setMessage(result.issues.length > 0 ? '大纲已保存，流程图仍有节点需要检查。' : '大纲和流程图已保存。');
+      notify?.(result.issues.length > 0 ? '大纲已保存，流程图仍有节点需要检查。' : '大纲和流程图已保存。', 'success');
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '保存大纲失败。');
@@ -168,6 +191,7 @@ export function useOutlineActions(context: OutlineActionContext) {
           method: 'POST',
           body: JSON.stringify({ narrative_plan: plan }),
         });
+        cachePlan(result.narrative_plan);
         setPlan(result.narrative_plan);
         planRef.current = result.narrative_plan;
         setPlanDirty(false);
@@ -219,6 +243,7 @@ export function useOutlineActions(context: OutlineActionContext) {
         });
       } catch (error) {
         // Preserve successful AI output locally so the user can retry without regenerating it.
+        cachePlan(nextPlan);
         setPlan(nextPlan);
         planRef.current = nextPlan;
         setPlanDirty(true);
@@ -228,6 +253,7 @@ export function useOutlineActions(context: OutlineActionContext) {
           }`,
         );
       }
+      cachePlan(synced.narrative_plan);
       setPlan(synced.narrative_plan);
       planRef.current = synced.narrative_plan;
       setPlanDirty(false);
@@ -239,6 +265,7 @@ export function useOutlineActions(context: OutlineActionContext) {
           result.provider === 'mimo' ? 'MiMo' : result.provider === 'kimi' ? 'Kimi' : 'DeepSeek'
         } 新增${nodeLabel}并同步流程图。`,
       );
+      notify?.('节点已新增并同步流程图。', 'success');
       await refresh(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '新增节点失败。');

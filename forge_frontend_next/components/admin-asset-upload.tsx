@@ -1,4 +1,5 @@
 'use client';
+import { useToast } from "./ui/toast";
 import * as Dialog from './ui/dialog';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -17,6 +18,7 @@ const kinds = [
 export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => void }) {
   const upload = useFileUpload();
   const busy = upload.pending;
+  const notify = useToast();
   const [open, setOpen] = useState(false),
     [filename, setFilename] = useState('');
   const [kind, setKind] = useState('BACKGROUND'),
@@ -88,7 +90,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
       form.reset();
       setFilename('');
       setAttributes({});
-      setMessage('上传成功，已加入公共素材库');
+      notify('上传成功，已加入公共素材库', 'success');
       onUploaded();
       setOpen(false);
     }
@@ -113,7 +115,6 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
             <span aria-hidden="true">＋</span> 上传公共素材
           </button>
         </Dialog.Trigger>
-        {message && !open ? <span role="status">{message}</span> : null}
       </div>
       <Dialog.Surface
         overlayClassName="radix-confirm-overlay"

@@ -260,3 +260,48 @@ def test_asset_pagination_total_uses_same_filters_without_limit_or_favorite_para
     assert count_query.split("FROM assets a", 1)[1].strip() == page_query.split("FROM assets a", 1)[1].split("ORDER BY", 1)[0].strip()
     assert count_params == ("viewer", "viewer", "FIGURE", "ancient", "hero", "hero", "hero")
     assert page_params == ("viewer", *count_params, 13, 12)
+
+@pytest.mark.parametrize("operation", ["rename", "delete"])
+@pytest.mark.parametrize("owner,source,visibility,allowed", [
+    ("viewer", "UPLOADED", "PRIVATE", True),
+    ("other", "UPLOADED", "PRIVATE", False),
+    ("viewer", "GENERATED", "PUBLIC", False),
+    ("viewer", "GENERATED", "PRIVATE", False),
+    ("viewer", "UPLOADED", "PUBLIC", False),
+])
+def test_personal_mutations_protect_shared_assets(operation, owner, source, visibility, allowed):
+    import sqlite3
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("CREATE TABLE assets (id TEXT, owner_user_id TEXT, name TEXT, kind TEXT, source_type TEXT, visibility TEXT, status TEXT)")
+    connection.execute("INSERT INTO assets VALUES (?, ?, 'Original', 'FIGURE', ?, ?, 'ACTIVE')", ("asset", owner, source, visibility))
+
+    class SQLCursor:
+        def __init__(self):
+            self.cursor = connection.cursor()
+        def execute(self, query, params=()):
+            self.cursor.execute(query.replace("%s", "?"), params)
+        @property
+        def rowcount(self):
+            return self.cursor.rowcount
+        def fetchone(self):
+            return self.cursor.fetchone()
+
+    allowed = owner == "viewer" if operation == "rename" else allowed
+    library = library_with_cursor(SQLCursor())
+    def mutate():
+        if operation == "rename":
+            library.rename_asset("viewer", "asset", "Renamed")
+        else:
+            library.delete_asset("viewer", "asset")
+    try:
+        if allowed:
+            mutate()
+        else:
+            with pytest.raises(AssetLibraryError):
+                mutate()
+        row = connection.execute("SELECT name,status FROM assets").fetchone()
+        assert row["name"] == ("Renamed" if allowed and operation == "rename" else "Original")
+        assert row["status"] == ("DELETED" if allowed and operation == "delete" else "ACTIVE")
+    finally:
+        connection.close()

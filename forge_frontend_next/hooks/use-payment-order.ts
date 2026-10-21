@@ -19,6 +19,7 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pollingError, setPollingError] = useState('');
   const [balance, setBalance] = useState<CreditBalance | null>(null);
   const [creditedBalance, setCreditedBalance] = useState<CreditBalance | null>(null);
   const [balanceRefreshing, setBalanceRefreshing] = useState(false);
@@ -78,12 +79,15 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
     }
   }
 
-  async function read(id: string, signal: AbortSignal, expected: number) {
+  async function read(id: string, signal: AbortSignal, expected: number, quiet = false) {
     const next = await adapter.read(id, signal);
     if (signal.aborted || lifecycle.current.signal.aborted || expected !== revision.current) return false;
     try {
       await currentCallbacks.current.onRead?.(next, signal);
-      if (!signal.aborted && expected === revision.current) setError('');
+      if (!signal.aborted && expected === revision.current) {
+        setPollingError('');
+        if (!quiet) setError('');
+      }
     } finally {
       await apply(next, signal, expected);
     }
@@ -93,13 +97,13 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
   usePolling(
     async (signal) => {
       if (operation.current) return true;
-      return order ? read(order.id, signal, revision.current) : false;
+      return order ? read(order.id, signal, revision.current, true) : false;
     },
     {
       enabled: !!order && shouldPollOrder(order) && adapter.accepts(order),
       resetKey: order?.id,
       intervalMs: 5000,
-      onError: (failure) => setError(failure instanceof Error ? failure.message : '暂时无法确认支付状态'),
+      onError: (failure) => setPollingError(failure instanceof Error ? failure.message : '暂时无法确认支付状态'),
     },
   );
 
@@ -126,6 +130,7 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
     operation.current = true;
     setBusy(true);
     setError('');
+    setPollingError('');
     setCreditedBalance(null);
     try {
       let next: Order;
@@ -175,6 +180,7 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
     operation.current = true;
     setBusy(true);
     setError('');
+    setPollingError('');
     try {
       if (close) {
         await apply(await adapter.close(order.id, signal), signal, expected);
@@ -193,7 +199,8 @@ export function usePaymentOrder(adapter: PaymentOrderAdapter, callbacks: Callbac
     open,
     setOpen,
     busy,
-    error,
+    error: error || pollingError,
+    operationError: error,
     setError,
     balance,
     setBalance,

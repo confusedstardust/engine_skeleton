@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "./ui/toast";
 import { adminApi } from "../lib/api-client";
 
 import { useEffect, useState } from "react";
@@ -6,6 +7,7 @@ import { useEffect, useState } from "react";
 type Publication = { published: boolean; work?: { title: string }; owner_user_id?: string };
 
 export default function AdminGamePublication({ jobId, canPublish, blocked }: { jobId: string; canPublish: boolean; blocked: boolean }) {
+  const notify = useToast();
   const [publication, setPublication] = useState<Publication | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -29,13 +31,14 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     try {
       const data = await adminApi<Publication>(url, { method });
       setPublication(previous => ({ ...previous, ...data }));
+      notify(data.published ? "已发布到教师资源广场" : "已取消生态发布", "success");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "操作失败，请重新查询发布状态");
+      notify(e instanceof Error ? e.message : "操作失败，请重新查询发布状态", "error");
     } finally { setBusy(false); }
   }
 
   if (loading) return <button className="btn outline" type="button" disabled>正在查询教师资源广场…</button>;
-  if (!publication) return <button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</button>;
+  if (!publication) return <><p role="alert">{error}</p><button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</button></>;
   const disabled = busy || (!publication.published && !canPublish);
   const unavailableReason = blocked ? "作品已下架，请先恢复作品再发布" : "作品尚未生成可播放版本，暂时不能发布";
   return <button

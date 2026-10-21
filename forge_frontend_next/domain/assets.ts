@@ -101,6 +101,7 @@ export type StagedScenePresentation = {
 };
 
 export type LibraryAsset = {
+  visibility?: string;
   category_label?: string; is_favorite?: boolean; owner_user_id: string; id: string; name: string; kind: string; source_type: string; created_at: string;
   file_id: string; revision: number; variant: string; mime_type: string; size_bytes: number;
   width_px?: number | null; height_px?: number | null; duration_ms?: number | null; url: string;

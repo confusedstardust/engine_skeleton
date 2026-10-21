@@ -1,15 +1,15 @@
 'use client';
 
+import { useToast } from '../../../components/ui/toast';
 import { forgeApi as api } from '../../../lib/api-client';
 import type { QuizResponse } from '../../../domain/quiz';
 
 import type { Job } from '../../../domain/jobs';
 
-import { ModalBody, ModalFrame, useConfirmation } from '../../../components/ui/modal';
+import { useConfirmation } from '../../../components/ui/modal';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { StoryFlowView } from '../../../components/story-flow-view';
-import { type StoryGraph } from '../../../components/story-graph-data';
+import { PublishedFlowModal } from '../../../components/published-flow-modal';
 
 import { withBasePath } from '../../base-path';
 
@@ -23,14 +23,10 @@ type PublicationResponse = {
 
 export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolean; editDraft: () => void }) {
   const [flowOpen, setFlowOpen] = useState(false);
-  const [graph, setGraph] = useState<StoryGraph | null>(null);
-  const [flowError, setFlowError] = useState('');
-  const [flowNotice, setFlowNotice] = useState('');
-  const [flowFullscreen, setFlowFullscreen] = useState(false);
   const [publication, setPublication] = useState<PublicationResponse | null>(null);
   const [quiz, setQuiz] = useState<QuizResponse | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
-  const [publicationMessage, setPublicationMessage] = useState('');
+  const notify = useToast();
   const [gameTitle, setGameTitle] = useState(
     props.job.title?.trim() ||
       String(props.job.options?.classroom_topic || '').trim() ||
@@ -43,7 +39,6 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
   const [titleBusy, setTitleBusy] = useState(false);
   const [titleMessage, setTitleMessage] = useState('');
   const titleCancelRef = useRef(false);
-  const flowModalRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     let active = true;
     api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`)
@@ -79,67 +74,17 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
       active = false;
     };
   }, [props.job.id]);
-  useEffect(() => {
-    if (!flowOpen) return;
-    let active = true;
-    setGraph(null);
-    setFlowError('');
-    setFlowNotice('');
-    api<StoryGraph>(`/jobs/${props.job.id}/published-flow`)
-      .then((value) => {
-        if (active) setGraph(value);
-      })
-      .catch((error) => {
-        if (active) setFlowError(error instanceof Error ? error.message : '流程图加载失败');
-      });
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.fullscreenElement) setFlowOpen(false);
-    };
-    const fullscreenChange = () => setFlowFullscreen(document.fullscreenElement === flowModalRef.current);
-    window.addEventListener('keydown', escape);
-    document.addEventListener('fullscreenchange', fullscreenChange);
-    return () => {
-      active = false;
-      window.removeEventListener('keydown', escape);
-      document.removeEventListener('fullscreenchange', fullscreenChange);
-    };
-  }, [flowOpen, props.job.id, props.job.published_revision]);
-  const closeFlow = () => {
-    if (document.fullscreenElement === flowModalRef.current) {
-      void document
-        .exitFullscreen()
-        .catch(() => undefined)
-        .finally(() => setFlowOpen(false));
-      return;
-    }
-    setFlowOpen(false);
-  };
-  const toggleFlowFullscreen = () => {
-    const modal = flowModalRef.current;
-    if (!modal) return;
-    setFlowNotice('');
-    if (document.fullscreenElement === modal) {
-      void document.exitFullscreen().catch(() => setFlowNotice('退出全屏失败，请按 Esc 重试。'));
-      return;
-    }
-    if (!modal.requestFullscreen) {
-      setFlowNotice('当前浏览器不支持全屏查看。可以使用浏览器自身的全屏功能。');
-      return;
-    }
-    void modal.requestFullscreen().catch(() => setFlowNotice('浏览器未允许进入全屏，请检查权限后重试。'));
-  };
   const publishToEcosystem = async () => {
     setPublicationBusy(true);
-    setPublicationMessage('正在发布到教师资源广场…');
     try {
       const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
       setPublication(value);
-      setPublicationMessage('发布成功，作品已经出现在教师资源广场中。');
+      notify('发布成功，作品已经出现在教师资源广场中。', 'success');
     } catch (error) {
-      setPublicationMessage(error instanceof Error ? error.message : '发布失败，请稍后重试。');
+      notify(error instanceof Error ? error.message : '发布失败，请稍后重试。', 'error');
     } finally {
       setPublicationBusy(false);
     }
@@ -147,13 +92,12 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
   const removeFromEcosystem = async () => {
     if (!(await confirm('确定从教师资源广场中取消发布吗？游戏本身不会被删除。'))) return;
     setPublicationBusy(true);
-    setPublicationMessage('正在取消发布…');
     try {
       const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, { method: 'DELETE' });
       setPublication(value);
-      setPublicationMessage('已从教师资源广场中取消发布。');
+      notify('已从教师资源广场中取消发布。', 'success');
     } catch (error) {
-      setPublicationMessage(error instanceof Error ? error.message : '取消发布失败，请稍后重试。');
+      notify(error instanceof Error ? error.message : '取消发布失败，请稍后重试。', 'error');
     } finally {
       setPublicationBusy(false);
     }
@@ -297,54 +241,11 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
         <Link className="btn outline" href={`/practice/${props.job.id}`}>
           {quiz?.quiz || quiz?.status === 'READY' ? '打开习题' : '生成习题'}
         </Link>
-        {publicationMessage ? (
-          <span className="publication-message" role="status">
-            {publicationMessage}
-          </span>
-        ) : null}
         <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>
           流程图
         </button>
       </div>
-      {flowOpen && (
-        <ModalFrame title="最新流程图" onClose={closeFlow}>
-          <div className="flow-modal-layer">
-            <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={closeFlow} />
-            <ModalBody><section className="flow-modal" ref={flowModalRef}>
-              <div className="flow-modal-head">
-                <div>
-                  <span>已发布版本 · R{graph?.revision ?? props.job.published_revision ?? 0}</span>
-                  <h3>最新剧情流程图</h3>
-                </div>
-                <div className="flow-modal-actions">
-                  <button className="btn outline" type="button" autoFocus onClick={closeFlow}>
-                    关闭
-                  </button>
-                </div>
-              </div>
-              {flowNotice && (
-                <p className="flow-fullscreen-notice" role="alert">
-                  {flowNotice}
-                </p>
-              )}
-              <div className="flow-modal-body">
-                {flowError ? (
-                  <p className="error">{flowError}</p>
-                ) : graph ? (
-                  <StoryFlowView
-                    graph={graph}
-                    viewportVersion={flowFullscreen ? 1 : 0}
-                    fullscreen={flowFullscreen}
-                    onToggleFullscreen={toggleFlowFullscreen}
-                  />
-                ) : (
-                  <p>正在加载流程图…</p>
-                )}
-              </div>
-            </section></ModalBody>
-          </div>
-        </ModalFrame>
-      )}
+      {flowOpen && <PublishedFlowModal job={props.job} onClose={() => setFlowOpen(false)} />}
     </section>
   );
 }

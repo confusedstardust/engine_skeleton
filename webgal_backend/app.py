@@ -681,6 +681,23 @@ def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, An
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.delete("/jobs/{job_id}")
+def delete_owned_job(job_id: str, request: Request) -> dict[str, bool]:
+    job = _get_owned_job_or_404(job_id, request)
+    if job.get("status") in {"RUNNING", "QUEUED"} or job.get("build_state") == "BUILDING":
+        raise HTTPException(status_code=409, detail="任务正在生成，请完成后再删除。")
+    owner = str(job.get("identity", {}).get("user_id") or "")
+    if owner and job.get("has_published_build") and os.getenv("TEACHER_ECOSYSTEM_API_URL", "").strip():
+        try:
+            unpublish_work(owner, job_id)
+        except TeacherEcosystemError as exc:
+            # A playable build can exist without ever being listed in the ecosystem.
+            if exc.status_code != 404:
+                raise HTTPException(status_code=503, detail=f"下架失败，任务尚未删除：{exc}") from exc
+    store.delete(job_id)
+    return {"deleted": True}
+
+
 def _quiz_response(job_id: str) -> dict[str, Any]:
     job_dir = _job_dir_or_404(job_id)
     quiz_path = job_dir / "state" / "quiz_plan.json"

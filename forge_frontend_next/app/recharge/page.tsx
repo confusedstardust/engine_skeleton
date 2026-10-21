@@ -1,4 +1,5 @@
 "use client";
+import { useErrorToast, useToast } from "../../components/ui/toast";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { usePaymentOrder } from "../../hooks/use-payment-order";
 import { standardPaymentOrders, isOrderFulfilled as paid } from "../../lib/payment-orders";
@@ -31,6 +32,8 @@ function PlanIcon({ file }: { file: "rocket-launch" | "palette" | "crown" | "stu
 }
 
 export default function RechargePage() {
+  const notify = useToast();
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [enabled, setEnabled] = useState(false);
@@ -44,10 +47,13 @@ export default function RechargePage() {
       if (!signal.aborted && data) setSubscription(data.subscription);
     },
   });
-  const { order: selected, orders, balance, setBalance, error, setError, busy, open: checkoutOpen, setOpen: setCheckoutOpen, creditedBalance, balanceRefreshing, restore, start: startOrder, refresh: refreshOrClose } = checkout;
+  const { order: selected, orders, balance, setBalance, error, busy, open: checkoutOpen, setOpen: setCheckoutOpen, creditedBalance, balanceRefreshing, restore, start: startOrder, refresh: refreshOrClose } = checkout;
+
+  useErrorToast(checkout.operationError, checkoutOpen);
 
   useEffect(() => {
     let active = true;
+    setLoadError("");
     // All reads authenticate independently on the server; avoid a client waterfall.
     // Capture failures immediately so a slow auth response cannot leave a rejected promise unhandled.
     const catalogRequest = api<{ enabled: boolean; products: Product[] }>("/products")
@@ -71,7 +77,7 @@ export default function RechargePage() {
           restore(history);
           setHistoryReady(true);
         }).catch((failure) => {
-          if (active) setError(failure instanceof Error ? failure.message : "订单记录加载失败，请刷新后重试");
+          if (active) setLoadError(failure instanceof Error ? failure.message : "订单记录加载失败，请刷新后重试");
         });
         const result = await catalogRequest;
         if (!active) return;
@@ -80,14 +86,14 @@ export default function RechargePage() {
         setEnabled(catalog.enabled);
         setProducts(catalog.products);
       } catch (failure) {
-        if (active) setError(failure instanceof Error ? failure.message : "加载失败，请重试");
+        if (active) setLoadError(failure instanceof Error ? failure.message : "加载失败，请重试");
       } finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
-  }, [restore, setBalance, setError]);
+  }, [restore, setBalance]);
 
   async function create(product: Product) {
-    if (!isCreditPack(product) && subscription) { setError("当前订阅仍在有效期内，可购买资源包补充积分。"); return; }
+    if (!isCreditPack(product) && subscription) { notify("当前订阅仍在有效期内，可购买资源包补充积分。", "info"); return; }
     await startOrder({ product_id: product.id });
   }
 
@@ -168,7 +174,7 @@ export default function RechargePage() {
         /> : null}
 
       </>}
-      {error && !checkoutOpen ? <p className="recharge-error" role="alert">{error}</p> : null}
+      {loadError ? <p className="recharge-error" role="alert">{loadError}</p> : null}
     </main>
   </>;
 }

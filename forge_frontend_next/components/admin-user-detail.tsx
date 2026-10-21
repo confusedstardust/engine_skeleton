@@ -1,4 +1,5 @@
 'use client';
+import { useToast } from './ui/toast';
 import { adminApi } from '../lib/api-client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -18,16 +19,15 @@ function localDate(iso: string) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 export default function AdminUserDetail({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const notify = useToast();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [plan, setPlan] = useState('Free');
   const [expiry, setExpiry] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
   const [giftUnits, setGiftUnits] = useState('');
   const [giftReason, setGiftReason] = useState('');
-  const [giftResult, setGiftResult] = useState('');
   const giftRequest = useRef<{ signature: string; id: string } | null>(null);
 
   async function giftCredits(event: React.FormEvent) {
@@ -39,13 +39,13 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
     if (giftRequest.current?.signature !== signature) {
       giftRequest.current = { signature, id: crypto.randomUUID().replaceAll('-', '') };
     }
-    setBusy(true); setError(''); setGiftResult('');
+    setBusy(true); setError('');
     try {
       const result = await adminApi<{ units: number; created: boolean }>(`/users/${encodeURIComponent(userId)}/credits`, {
         method: 'POST',
         body: JSON.stringify({ units, reason: giftReason.trim(), request_id: giftRequest.current.id }),
       });
-      setGiftResult(`已赠送 ${result.units} 积分`);
+      notify(`已赠送 ${result.units} 积分`, "success");
       setGiftUnits(''); setGiftReason(''); giftRequest.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : '赠送失败');
@@ -74,7 +74,6 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
     if (!detail) return;
     setBusy(true);
     setError('');
-    setSaved(false);
     try {
       const value = await request(`${encodeURIComponent(userId)}/subscription`, {
         method: 'PATCH',
@@ -87,7 +86,7 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
       });
       apply(value);
       setReason('');
-      setSaved(true);
+      notify("订阅已保存", "success");
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
     } finally {
@@ -159,15 +158,14 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
               <h3>赠送积分</h3>
               <label>赠送数量
                 <input type="number" min={1} max={1000000} step={1} required value={giftUnits}
-                  disabled={busy} onChange={(e) => { setGiftUnits(e.target.value); setGiftResult(''); }} />
+                  disabled={busy} onChange={(e) => { setGiftUnits(e.target.value); }} />
               </label>
               <label>赠送原因
                 <textarea required maxLength={500} value={giftReason} disabled={busy}
                   placeholder="例如：活动奖励、服务补偿"
-                  onChange={(e) => { setGiftReason(e.target.value); setGiftResult(''); }} />
+                  onChange={(e) => { setGiftReason(e.target.value); }} />
               </label>
               <p className="admin-subscription-note">积分立即到账，长期有效，赠送操作会记录管理员和原因。</p>
-              {giftResult ? <p role="status" className="recharge-success">{giftResult}</p> : null}
               <button className="btn primary" disabled={busy || !giftUnits || !giftReason.trim()}>
                 {busy ? '正在处理…' : '赠送积分'}
               </button>
@@ -182,7 +180,6 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
                   disabled={busy}
                   onValueChange={(value) => {
                     setPlan(value);
-                    setSaved(false);
                   }}
                   options={['Free', 'Creator', 'Pro', 'School'].map((name) => ({ value: name, label: name }))}
                 />
@@ -197,7 +194,6 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
                     disabled={busy}
                     onChange={(e) => {
                       setExpiry(e.target.value);
-                      setSaved(false);
                     }}
                   />
                 </label>
@@ -212,18 +208,12 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
                   placeholder="例如：试用授权、订阅调整"
                   onChange={(e) => {
                     setReason(e.target.value);
-                    setSaved(false);
                   }}
                 />
               </label>
               <p className="admin-subscription-note">
                 这里只调整订阅身份与有效期，不扣款、不发放或回收积分，也不改变已付款订单的按月积分发放计划。
               </p>
-              {saved ? (
-                <p role="status" className="recharge-success">
-                  订阅已保存
-                </p>
-              ) : null}
               <button className="btn primary" disabled={busy || !reason.trim()}>
                 {busy ? '正在保存…' : '保存订阅'}
               </button>

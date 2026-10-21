@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../../components/ui/toast";
 import { WorkbenchHeader } from "../../../components/workbench-header";
 import { usePolling } from "../../../hooks/use-polling";
 import { forgeApi as api } from "../../../lib/api-client";
@@ -22,18 +23,19 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   const [loading, setLoading] = useState(true);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const notify = useToast();
+  const [loadError, setLoadError] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
 
   usePolling(async signal => {
     const value = await api<QuizResponse>(`/public/jobs/${jobId}/quiz`, { signal });
-    if (!signal.aborted) { setData(value); setMessage(""); setLoading(false); }
+    if (!signal.aborted) { setData(value); setLoadError(""); setLoading(false); }
     return value.status === "QUEUED" || value.status === "RUNNING";
   }, {
     intervalMs: 2200, resetKey: jobId,
     enabled: !data || data.status === "QUEUED" || data.status === "RUNNING",
-    onError: error => { setMessage(error instanceof Error ? error.message : "习题加载失败。"); setLoading(false); },
+    onError: error => { setLoadError(error instanceof Error ? error.message : "习题加载失败。"); setLoading(false); },
   });
 
   const score = useMemo(() => {
@@ -46,19 +48,19 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   async function generate(regenerate: boolean) {
     setConfirmRegenerate(false);
     setActionBusy(true);
-    setMessage("习题已进入生成队列，请稍候…");
     try {
       const value = await api<QuizResponse>(`/jobs/${jobId}/quiz`, {
         method: "POST",
         body: JSON.stringify({ regenerate }),
       });
       setData(value);
+      notify(value.status === "READY" ? "习题已生成" : "习题已进入生成队列，请稍候…", "success");
       if (regenerate) {
         setAnswers({});
         setRevealed(new Set());
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "习题生成失败。");
+      notify(error instanceof Error ? error.message : "习题生成失败。", "error");
     } finally {
       setActionBusy(false);
     }
@@ -67,7 +69,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   function resetPractice() {
     setAnswers({});
     setRevealed(new Set());
-    setMessage("");
+    setLoadError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -82,9 +84,10 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
 
       <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description="重新生成会覆盖当前习题。" onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
       <main className="practice-page">
+        {loadError && <p role="alert" className="error">{loadError}</p>}
         {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
 
-        {!loading && (!data || data.status === "NOT_GENERATED") ? (
+        {!loading && !loadError && (!data || data.status === "NOT_GENERATED") ? (
           <section className="practice-state">
             <span className="practice-state-mark">练</span>
             <p className="practice-kicker">TEACHER REVIEW KIT</p>
@@ -179,7 +182,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
           </>
         ) : null}
 
-        {message ? <div className="practice-toast" role="status">{message}</div> : null}
+
       </main>
     </>
   );

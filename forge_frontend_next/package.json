@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
-    "@narrativeos/ui": "file:vendor/narrativeos-ui-0.1.0.tgz",
+    "@narrativeos/ui": "file:vendor/narrativeos-ui-0.1.1.tgz",
     "@radix-ui/react-accordion": "^1.2.21",
     "@radix-ui/react-alert-dialog": "^1.1.24",
     "@radix-ui/react-checkbox": "^1.3.12",
