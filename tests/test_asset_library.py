@@ -244,6 +244,19 @@ def test_upload_collection_excludes_generated_assets():
     assert params == ("viewer", 100)
 
 
+@pytest.mark.parametrize("collection", [None, "uploads", "favorites"])
+def test_exclude_voice_applies_before_pagination_and_count(collection):
+    cursor = RecordingCursor(fetches=[{"total": 0}])
+    pagination = {}
+    library_with_cursor(cursor).list_assets(
+        "viewer", collection=collection, exclude_voice=True, pagination=pagination,
+    )
+    assert pagination["total"] == 0
+    for query, _ in cursor.calls:
+        assert "a.kind<>'VOICE'" in query
+        assert "LOWER(f.object_key) NOT LIKE" in query
+
+
 def test_asset_pagination_total_uses_same_filters_without_limit_or_favorite_parameter():
     cursor = RecordingCursor(fetches=[{"total": 25}])
     pagination = {}

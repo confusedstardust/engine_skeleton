@@ -492,6 +492,7 @@ def list_personal_assets(
     page_size: int = 12,
     offset: int | None = None,
     category: str | None = None,
+    exclude_voice: bool = False,
 ) -> dict[str, Any]:
     user = user_from_request(request, settings.workspace_root)
     if user.get("auth_type") != "sso":
@@ -510,6 +511,8 @@ def list_personal_assets(
         raise HTTPException(status_code=422, detail="unsupported asset source type")
     try:
         options: dict[str, Any] = {}
+        if exclude_voice:
+            options["exclude_voice"] = True
         if category:
             options["category"] = category
         pagination: dict[str, int] = {}

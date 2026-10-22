@@ -62,6 +62,7 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
       const columns = gridRef.current ? getComputedStyle(gridRef.current).gridTemplateColumns.split(" ").filter(Boolean).length : 1;
       const size = Math.min(48, Math.max(1, columns) * (offset === 0 ? 2 : 3));
       const params = new URLSearchParams({ offset: String(offset), page_size: String(size), search: query });
+      params.set("exclude_voice", "true");
       if (collection === "library") params.set("source_type", "GENERATED"); else params.set("collection", collection);
       if (category) params.set("category", category);
       if (filter !== "ALL") params.set("kind", filter);
@@ -120,8 +121,8 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
     <main className="main-wrapper asset-library-wrapper asset-library-page">
       <section className="page-header asset-library-head"><div><p className="router-kicker">ASSET LIBRARY</p><h1>{personal ? "我的资产" : "素材库"}</h1></div></section>
       <section className="asset-library-filters" aria-label="素材来源" hidden={!personal}>{[["uploads", "我的上传"], ["favorites", "我的收藏"]].map(([value, label]) => <button key={value} className={collection === value ? "active" : ""} onClick={() => { setCollection(value); }}>{label}</button>)}</section>
-      <section className="asset-library-filters" aria-label="素材筛选">{["ALL", "BACKGROUND", "FIGURE", "VOICE", "BGM"].map((kind) => <button className={filter === kind ? "active" : ""} key={kind} onClick={() => { setFilter(kind); setCategory(""); }}>{kind === "ALL" ? "全部" : labels[kind]}</button>)}</section>
-      <form className="asset-library-search" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}><FormSelect value={category} ariaLabel="素材分类" options={[{value:"",label:"全部分类"}, ...assetCategories.filter((item) => filter === "ALL" || item.kinds.includes(filter))]} onValueChange={(value) => {setCategory(value);}} /><input type="search" aria-label="搜索素材" placeholder="搜索名称、分类或标签" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value) { setQuery(""); } }} /><button className="btn primary" type="submit">搜索</button></form>
+      <section className="asset-library-filters" aria-label="素材筛选">{["ALL", "BACKGROUND", "FIGURE", "BGM"].map((kind) => <button className={filter === kind ? "active" : ""} key={kind} onClick={() => { setFilter(kind); setCategory(""); }}>{kind === "ALL" ? "全部" : labels[kind]}</button>)}</section>
+      <form className="asset-library-search" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}><FormSelect value={category} ariaLabel="素材分类" options={[{value:"",label:"全部分类"}, ...assetCategories.filter((item) => item.kinds.some(kind => kind !== "VOICE") && (filter === "ALL" || item.kinds.includes(filter)))]} onValueChange={(value) => {setCategory(value);}} /><input type="search" aria-label="搜索素材" placeholder="搜索名称、分类或标签" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value) { setQuery(""); } }} /><button className="btn primary" type="submit">搜索</button></form>
       {!loading && !feedError && visible.length === 0 ? <div className="history-empty"><strong>{query ? "没有找到匹配的素材" : "这里还没有素材"}</strong>{personal ? <span>上传或收藏对应素材后，可以在作品中选用。</span> : null}<Link className="btn primary" href="/?workspace=1">开始创作</Link></div> : null}
       <section ref={gridRef} className="asset-library-grid" aria-busy={loading}>{visible.map((asset) => <CollectionCard className="asset-library-card" key={asset.file_id} menuLabel={`素材操作：${asset.name}`} actions={[
         { id: "favorite", label: favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材", disabled: busy === asset.id, onSelect: () => void toggleFavorite(asset) },
@@ -137,3 +138,4 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
     </main>
   </>;
 }
+

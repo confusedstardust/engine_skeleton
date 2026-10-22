@@ -196,6 +196,7 @@ class AssetLibrary:
         include_favorite: bool = False,
         category: str | None = None,
         pagination: dict[str, int] | None = None,
+        exclude_voice: bool = False,
     ) -> list[dict[str, Any]]:
         if collection == "personal":
             where = "a.status='ACTIVE' AND f.status='READY' AND ((a.owner_user_id=%s AND a.source_type='UPLOADED') OR ((a.owner_user_id=%s OR a.source_type='GENERATED' OR a.visibility='PUBLIC') AND EXISTS (SELECT 1 FROM asset_favorites af WHERE af.asset_id=a.id AND af.user_id=%s)))"
@@ -216,6 +217,8 @@ class AssetLibrary:
         if kind:
             where += " AND a.kind=%s"
             params.append(kind)
+        if exclude_voice:
+            where += " AND a.kind<>'VOICE' AND LOWER(f.object_key) NOT LIKE '%%.tts'"
         if category:
             where += " AND JSON_UNQUOTE(JSON_EXTRACT(a.generation_metadata, '$.category'))=%s"
             params.append(category)
