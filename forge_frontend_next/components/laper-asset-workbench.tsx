@@ -15,7 +15,6 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ActionHint as AssetHint } from "./ui/action-hint";
 import * as Popover from "@radix-ui/react-popover";
-import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import { ModalBody, ModalFrame } from "./ui/modal";
 import { LaperInspectorShell } from "./laper-inspector-shell";
@@ -265,7 +264,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
   );
 }
 
-type ScenePickerOption = { value: string; label: string; kind: "scene" | "ending"; configured?: boolean };
+type ScenePickerOption = { value: string; label: string; kind: "scene" | "ending"; effectLabel?: string };
 
 function ScenePicker(props: { value: string; options: ScenePickerOption[]; disabled?: boolean; onChange: (value: string) => void }) {
   const [query, setQuery] = useState("");
@@ -281,19 +280,19 @@ function ScenePicker(props: { value: string; options: ScenePickerOption[]; disab
         <Popover.Content className="scene-picker-popover" side="left" align="start" sideOffset={10} collisionPadding={16}>
           <div className="scene-picker-head"><strong>切换场景</strong><span>{props.options.length} 个场景</span></div>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索场景名称或文件…" aria-label="搜索场景" autoFocus />
-          <ScrollArea.Root className="scene-picker-scroll"><ScrollArea.Viewport>
+          <div className="scene-picker-scroll">
             <div className="scene-picker-list">
               {filtered.map((item) => (
                 <Popover.Close asChild key={item.value}>
                   <button type="button" className={item.value === props.value ? "active" : ""} onClick={() => props.onChange(item.value)}>
                     <span><small>{item.kind === "ending" ? "结局" : "场景"}</small><strong>{item.label}</strong><em>{item.value}</em></span>
-                    {item.configured ? <i>已配置</i> : null}
+                    {item.effectLabel ? <i>{item.effectLabel}</i> : null}
                   </button>
                 </Popover.Close>
               ))}
               {filtered.length === 0 ? <p>没有匹配的场景</p> : null}
             </div>
-          </ScrollArea.Viewport><ScrollArea.Scrollbar className="scene-picker-scrollbar" orientation="vertical"><ScrollArea.Thumb /></ScrollArea.Scrollbar></ScrollArea.Root>
+          </div>
           <Popover.Arrow className="scene-picker-arrow" />
         </Popover.Content>
       </Popover.Portal>
@@ -654,7 +653,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 </div>
                 <section className="particle-effect-controls">
                   <div className="ui-form-field"><span>场景</span>
-                    <ScenePicker value={selectedEffectScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.particleEffects.scenes.map((item) => ({ value: item.scene_file, label: item.label, kind: item.kind, configured: Boolean(item.assignment) }))} onChange={(value) => {
+                    <ScenePicker value={selectedEffectScene?.scene_file || ""} disabled={props.readonly || props.busy} options={props.particleEffects.scenes.map((item) => {
+                      const assignment = Object.prototype.hasOwnProperty.call(effectDrafts, item.scene_file) ? effectDrafts[item.scene_file] : item.assignment;
+                      return { value: item.scene_file, label: item.label, kind: item.kind, effectLabel: assignment ? (props.particleEffects.effects.find(effect => effect.id === assignment.effect_id)?.label || assignment.effect_id) : undefined };
+                    })} onChange={(value) => {
                       setEffectSceneFile(value);
                     }} />
                   </div>

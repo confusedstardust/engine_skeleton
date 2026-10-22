@@ -1098,7 +1098,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             vocal_dir = job_dir / "public" / "game" / "vocal"
             if vocal_dir.exists():
                 for path in sorted(vocal_dir.glob("*")):
-                    if not path.is_file():
+                    if not path.is_file() or path.suffix.lower() not in {".wav", ".mp3", ".ogg", ".m4a", ".flac", ".aac"}:
                         continue
                     logical_path = f"vocal/{path.name}"
                     library.publish_file(

@@ -2249,8 +2249,7 @@ a {
 .scene-picker-head span { color: var(--ink-muted); font-size: 10px; }
 .scene-picker-popover > input { width: 100%; height: 38px; padding: 0 11px; color: var(--ink); background: #f8f1e6; border: 1px solid transparent; border-radius: 9px; outline: none; }
 .scene-picker-popover > input:focus { background: #fff; border-color: rgba(166,32,52,.38); box-shadow: 0 0 0 3px rgba(166,32,52,.08); }
-.scene-picker-scroll { height: min(330px, var(--radix-popover-content-available-height)); margin-top: 8px; overflow: hidden; }
-.scene-picker-scroll > div:first-child { width: 100%; height: 100%; }
+.scene-picker-scroll { max-height: min(330px, calc(var(--radix-popover-content-available-height, 430px) - 100px)); margin-top: 8px; overflow-y: auto; overscroll-behavior: contain; }
 .scene-picker-list { display: grid; gap: 4px; padding-right: 8px; }
 .scene-picker-list button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 10px; color: var(--ink); text-align: left; cursor: pointer; background: transparent; border: 1px solid transparent; border-radius: 9px; transition: background 140ms ease, border-color 140ms ease, transform 140ms ease; }
 .scene-picker-list button:hover { background: #f8f0e2; transform: translateX(2px); }
@@ -2259,7 +2258,7 @@ a {
 .scene-picker-list small { align-self: center; color: var(--cinnabar); font-size: 9px; font-weight: 800; }
 .scene-picker-list strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .scene-picker-list em { grid-column: 2; color: var(--ink-muted); font-family: ui-monospace, Consolas, monospace; font-size: 9px; font-style: normal; }
-.scene-picker-list i { flex: 0 0 auto; padding: 2px 6px; color: #527052; font-size: 8px; font-style: normal; background: #e8f0e5; border-radius: 999px; }
+.scene-picker-list i { flex: 0 0 auto; align-self: flex-end; max-width: 100px; padding: 2px 6px; color: #527052; font-size: 9px; font-style: normal; background: #e8f0e5; border-radius: 999px; }
 .scene-picker-list > p { padding: 22px 10px; color: var(--ink-muted); text-align: center; }
 .scene-picker-scrollbar { display: flex; width: 6px; padding: 1px; background: transparent; }
 .scene-picker-scrollbar > div { flex: 1; background: rgba(105,76,41,.22); border-radius: 999px; }
