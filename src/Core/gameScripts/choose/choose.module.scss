@@ -52,27 +52,3 @@
   color: #000;
   min-width: 50%;
 }
-.rubyOptionOuter {
-  max-width: 90%;
-}
-
-.rubyOption {
-  line-height: 1.8;
-  padding-top: 0.65em;
-  padding-bottom: 0.4em;
-  white-space: normal;
-  overflow-wrap: anywhere;
-
-  ruby {
-    ruby-position: over;
-    ruby-align: center;
-  }
-
-  rt {
-    font-family: system-ui, sans-serif;
-    font-size: 0.5em;
-    font-weight: 500;
-    line-height: 1.2;
-    letter-spacing: 0;
-  }
-}

@@ -6825,4 +6825,3 @@ html:has(.admin-page, .asset-library-page) { scrollbar-gutter: stable; }
 @media(max-width: 600px) { .app-toast { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); } }
 
 .app-toast { pointer-events: auto; }
-.laper-choice-row textarea.scene-choice-text { min-height: 40px; margin: 0; padding: 9px 11px; border: 1px solid rgba(105,76,41,.2); border-radius: 8px; background: #fffdf8; color: var(--ink); font: inherit; line-height: 1.5; resize: vertical; box-sizing: border-box; }

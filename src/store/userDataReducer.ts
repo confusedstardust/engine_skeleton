@@ -36,7 +36,6 @@ const initialOptionSet: IOptionData = {
   voiceInterruption: voiceOption.no,
   fullScreen: fullScreenOption.off,
   skipAll: false,
-  dialoguePinyin: false,
 };
 
 // 初始化用户数据

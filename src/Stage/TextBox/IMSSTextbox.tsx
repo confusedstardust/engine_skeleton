@@ -9,8 +9,6 @@ import { useSelector } from 'react-redux';
 import { RootState } from '@/store/store';
 
 export default function IMSSTextbox(props: ITextboxProps) {
-  const userDataState = useSelector((state: RootState) => state.userData);
-  const showPinyin = !!userDataState.optionData.dialoguePinyin;
   const {
     textArray,
     textDelay,
@@ -148,16 +146,6 @@ export default function IMSSTextbox(props: ITextboxProps) {
       }
       const styleClassName = ' ' + css(style);
       const styleAllText = ' ' + css(style_alltext);
-      if (showPinyin) {
-        const settled = allTextIndex < prevLength;
-        return <span key={currentDialogKey + index}
-          className={settled
-            ? applyStyle('TextBox_textElement_Settled', styles.TextBox_textElement_Settled)
-            : `${applyStyle('TextBox_textElement_start', styles.TextBox_textElement_start)} Textelement_start`}
-          style={{ animationDelay: `${delay}ms`, position: 'relative' }}>
-          <span className={styles.pinyinGlyph + styleClassName + styleAllText} title={tips || undefined}>{e}</span>
-        </span>;
-      }
       if (allTextIndex < prevLength) {
         return (
           <span
@@ -216,10 +204,11 @@ export default function IMSSTextbox(props: ITextboxProps) {
     );
   });
 
+  const userDataState = useSelector((state: RootState) => state.userData);
   const lineHeightValue = textSizeState === textSize.medium ? 2.2 : 2;
   const textLineHeight = userDataState.globalGameVar.Line_height;
   const finalTextLineHeight = textLineHeight ? Number(textLineHeight) : lineHeightValue;
-  const lineHeightCssStr = `line-height: ${showPinyin ? 1.8 : finalTextLineHeight}em`;
+  const lineHeightCssStr = `line-height: ${finalTextLineHeight}em`;
   const lhCss = css(lineHeightCssStr);
 
   return (
@@ -238,7 +227,6 @@ export default function IMSSTextbox(props: ITextboxProps) {
             }
             style={{
               opacity: `${textboxOpacity / 100}`,
-              ...(showPinyin ? { minHeight: 430, maxHeight: 430 } : {}),
             }}
           />
           <div
@@ -252,7 +240,6 @@ export default function IMSSTextbox(props: ITextboxProps) {
             }
             style={{
               fontFamily: font,
-              ...(showPinyin ? { minHeight: 430, maxHeight: 430 } : {}),
             }}
           >
             <div id="miniAvatar" className={applyStyle('miniAvatarContainer', styles.miniAvatarContainer)}>
@@ -291,7 +278,6 @@ export default function IMSSTextbox(props: ITextboxProps) {
                 fontSize,
                 flexFlow: 'column',
                 overflow: 'hidden',
-                ...(showPinyin ? { overflowY: 'auto', paddingTop: '0.5em' } as const : {}),
                 paddingLeft: '0.1em',
                 // lineHeight: textSizeState === textSize.medium ? '2.2em' : '2em', // 不加的话上半拼音可能会被截断，同时保持排版整齐
               }}
