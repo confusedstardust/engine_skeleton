@@ -9,6 +9,7 @@ import IMSSTextbox from '@/Stage/TextBox/IMSSTextbox';
 import { compileSentence } from '@/Stage/TextBox/TextBox';
 import { useState } from 'react';
 import { useStageState } from '@/hooks/useStageState';
+import { addDialoguePinyin } from '@/Stage/TextBox/dialoguePinyin';
 
 export const TextPreview = (props: any) => {
   const t = useTrans('menu.options.pages.display.options.');
@@ -24,7 +25,8 @@ export const TextPreview = (props: any) => {
   const isFirefox = /firefox/i.test(userAgent);
   const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
   const previewText = t('textPreview.text');
-  const previewTextArray = compileSentence(previewText, 3);
+  const compiledPreview = compileSentence(previewText, 3);
+  const previewTextArray = userDataState.optionData.dialoguePinyin ? addDialoguePinyin(compiledPreview) : compiledPreview;
   const showNameText = t('textPreview.title');
   const showNameArray = compileSentence(showNameText, 3);
   const isHasName = showNameText !== '';

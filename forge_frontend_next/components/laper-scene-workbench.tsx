@@ -3,6 +3,7 @@ import type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../dom
 export type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../domain/narrative";
 import { randomUUID } from "../app/random-uuid";
 import { FormSelect } from "./ui/form-controls";
+import { ScenePinyinTextarea } from "./scene-pinyin-textarea";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertionIndex, isTerminalLine, jumpTarget, keepContinuationLabelsTogether } from "./scene-connections";
@@ -86,7 +87,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       card.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
       const field = pendingNavigation.choiceIndex !== undefined
-        ? card.querySelectorAll<HTMLInputElement>('input[aria-label="选项文本"]')[pendingNavigation.choiceIndex]
+        ? card.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[aria-label="选项文本"]')[pendingNavigation.choiceIndex]
         : card.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("textarea:not([readonly]), input:not([readonly]), select:not(:disabled)");
       field?.focus({ preventScroll: true });
       if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) field.select();
@@ -578,9 +579,11 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                       <div className="laper-choice-list">
                         {(line.choices || []).map((choice, choiceIndex) => (
                           <div className="laper-choice-row" key={`${line.id}-${choiceIndex}`}>
-                            <input
+                            <ScenePinyinTextarea
+                              className="scene-choice-text"
+                              rows={1}
                               value={choice.text}
-                              onChange={(event) => updateChoice(lineIndex, choiceIndex, { ...choice, text: event.target.value })}
+                              onValueChange={text => updateChoice(lineIndex, choiceIndex, { ...choice, text })}
                               aria-label="选项文本"
                               readOnly={disabled}
                             />
@@ -718,7 +721,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                         </button>
                       )}
                     </div>
-                    <textarea
+                    {line.kind === "command" ? <textarea
                       className="laper-block-body"
                       value={line.text}
                       rows={draftLineRows(line.text)}
@@ -726,7 +729,15 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                       spellCheck={false}
                       readOnly={disabled}
                       aria-label={`${scene.title} ${lineKindLabel(line)}`}
-                    />
+                    /> : <ScenePinyinTextarea
+                      className="laper-block-body"
+                      value={line.text}
+                      rows={draftLineRows(line.text)}
+                      onValueChange={text => updateLine(lineIndex, { ...line, text })}
+                      spellCheck={false}
+                      readOnly={disabled}
+                      aria-label={`${scene.title} ${lineKindLabel(line)}`}
+                    />}
                   </div>
                 </article>
               );

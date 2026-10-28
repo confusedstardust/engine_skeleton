@@ -67,6 +67,14 @@ export function Display() {
           currentChecked={currentFontIndex}
         />
       </NormalOption>
+      <NormalOption key="dialoguePinyin" title="对白拼音">
+        <NormalButton textList={['关闭', '开启']}
+          currentChecked={userDataState.optionData.dialoguePinyin ? 1 : 0}
+          functionList={[false, true].map(enabled => () => {
+            dispatch(setOptionData({ key: 'dialoguePinyin', value: enabled }));
+            setStorage();
+          })} />
+      </NormalOption>
       <NormalOption key="textSpeed" title={t('textSpeed.title')}>
         <OptionSlider
           initValue={userDataState.optionData.textSpeed}

@@ -47,6 +47,7 @@ export interface IOptionData {
   voiceInterruption: voiceOption; // 是否中断语音
   fullScreen: fullScreenOption;
   skipAll: boolean; // 快进已读/快进全文
+  dialoguePinyin?: boolean;
 }
 
 /**
