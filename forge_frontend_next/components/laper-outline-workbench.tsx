@@ -1,4 +1,5 @@
 "use client";
+import { Button } from './ui/button';
 import type { SyncNarrativeStructureOptions as SyncOptions, StoryStep, NarrativePlan } from "../domain/narrative";
 export type { StoryStep, NarrativeCharacter, NarrativeEnding, NarrativePlan } from "../domain/narrative";
 import { FormSelect } from "./ui/form-controls";
@@ -603,14 +604,15 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
           note={props.flowSyncing ? "流程图自动同步中..." : props.planDirty ? "修改后会自动同步流程图" : "流程图已同步"}
           footer={
             <>
-              <button className="btn outline" type="button" disabled={disabled || !props.planDirty} onClick={props.savePlan}>
+              <Button variant="outline" type="button" disabled={disabled || !props.planDirty} onClick={props.savePlan}>
                 保存大纲
-              </button>
-              <button className="btn outline" type="button" onClick={openFlowPreview}>
+              </Button>
+              <Button variant="outline" type="button" onClick={openFlowPreview}>
                 查看流程图
-              </button>
-              <button
-                className={`btn primary ${props.retryAction ? "retry-action" : ""}`}
+              </Button>
+              <Button
+                variant="primary" className={props.retryAction ? "retry-action" : undefined}
+                busy={props.busy}
                 type="button"
                 disabled={props.retryAction ? props.busy : disabled}
                 onClick={props.retryAction || props.nextToScenes}
@@ -619,7 +621,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                 {props.busy && props.retryAction
                   ? "正在重试..."
                   : props.retryLabel || (props.locked ? "大纲已确认" : "确认并生成下一步")}
-              </button>
+              </Button>
             </>
           }
         >

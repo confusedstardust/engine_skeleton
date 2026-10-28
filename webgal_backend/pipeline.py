@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .config import settings
+from .title_cover import title_image, set_title_image, fill_empty_title_image
 from . import game_design
 from .bgm_selection import select_bgm
 from .asset_library import AssetLibrary
@@ -500,6 +501,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             self.run_tts_generation(job)
             self.run_scenes(job)
             self._apply_particle_effect_changes(job_dir)
+            fill_empty_title_image(game_dir)
             self.run_validation(job)
             self._rewrite_runtime_asset_urls(job)
             self._publish_asset_version(job)
@@ -568,6 +570,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             if "effects" in dirty_scopes:
                 self._apply_particle_effect_changes(job_dir, self._changed_effect_scene_files(job_dir))
 
+            fill_empty_title_image(game_dir)
             self.run_validation(job)
             self._rewrite_runtime_asset_urls(job)
             self._publish_asset_version(job)
@@ -1430,7 +1433,10 @@ Return valid JSON only. Do not call tools. Do not wrap the result in Markdown fe
         write_json(job_dir / "state" / "scene_files.json", {"files": scene_files})
         self.store.record_artifact(job, "scene_files", "state/scene_files.json")
         narrative_plan = self._read_required(job_dir / "state" / "narrative_plan.json")
+        previous_title = title_image(job_dir / "public" / "game") if job.get("has_published_build") else ""
         self._generate_config(job_dir, narrative_plan)
+        if previous_title:
+            set_title_image(job_dir / "public" / "game", previous_title)
         self._copy_engine_skeleton(job_dir)
         self.store.transition(job, "SCENES_READY", "SCENE_WRITING")
 

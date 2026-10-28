@@ -1,4 +1,5 @@
 "use client";
+import { Button } from '../../../components/ui/button';
 import { useToast } from "../../../components/ui/toast";
 import { WorkbenchHeader } from "../../../components/workbench-header";
 import { usePolling } from "../../../hooks/use-polling";
@@ -94,7 +95,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
             <h1>为这份作品生成习题</h1>
             <p>系统会依据教学材料、学习目标和叙事大纲，生成单选与判断习题，并提供答案解析。</p>
             {data?.can_manage ? (
-              <button className="btn primary" type="button" disabled={actionBusy} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</button>
+              <Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</Button>
             ) : <small>这份作品暂未发布习题，请先体验游戏内容。</small>}
           </section>
         ) : null}
@@ -115,7 +116,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
             <p className="practice-kicker">GENERATION FAILED</p>
             <h1>习题生成失败</h1>
             <p>{data.error || "模型暂时没有返回有效题目，请重新生成。"}</p>
-            {data.can_manage ? <button className="btn primary" type="button" disabled={actionBusy} onClick={() => setConfirmRegenerate(true)}>重新生成</button> : null}
+            {data.can_manage ? <Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => setConfirmRegenerate(true)}>重新生成</Button> : null}
           </section>
         ) : null}
 

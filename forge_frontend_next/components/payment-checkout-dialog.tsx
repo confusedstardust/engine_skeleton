@@ -1,5 +1,6 @@
 'use client';
 
+import { Button } from './ui/button';
 import * as Dialog from './ui/dialog';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Order } from '../domain/payments';
@@ -51,7 +52,7 @@ export function PaymentCheckoutDialog({
           {isOrderFulfilled(order) ? (
             <>
               {success}
-              <Dialog.Close className="btn primary">完成</Dialog.Close>
+              <Dialog.Close asChild><Button variant="primary">完成</Button></Dialog.Close>
             </>
           ) : order.status === 'PENDING' ? (
             <>
@@ -72,12 +73,12 @@ export function PaymentCheckoutDialog({
                 {new Date(order.expires_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
               </p>
               <div className="recharge-buttons">
-                <button className="btn primary" disabled={busy} onClick={() => void onRefresh()}>
+                <Button variant="primary" busy={Boolean(busy)} onClick={() => void onRefresh()}>
                   刷新支付状态
-                </button>
-                <button className="btn outline" disabled={busy} onClick={() => void onRefresh(true)}>
+                </Button>
+                <Button variant="outline" busy={Boolean(busy)} onClick={() => void onRefresh(true)}>
                   关闭订单
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -86,9 +87,9 @@ export function PaymentCheckoutDialog({
             </p>
           )}
           {order.status === 'PAID' && !isOrderFulfilled(order) ? (
-            <button className="btn primary" disabled={busy} onClick={() => void onRefresh()}>
+            <Button variant="primary" busy={Boolean(busy)} onClick={() => void onRefresh()}>
               刷新支付状态
-            </button>
+            </Button>
           ) : null}
           {error ? (
             <p className="recharge-error" role="alert">

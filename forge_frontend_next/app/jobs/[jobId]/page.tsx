@@ -1,4 +1,5 @@
 'use client';
+import { Button } from '../../../components/ui/button';
 import { WorkbenchHeader } from '../../../components/workbench-header';
 import type { MouseEvent } from 'react';
 
@@ -180,9 +181,9 @@ function JobWorkspace({ jobId }: { jobId: string }) {
               <strong>草稿编辑中</strong>
               <span>当前可玩版本不会立即改变；点击应用后，只同步实际修改过的内容。</span>
             </div>
-            <button className="btn outline" type="button" onClick={exitCompletedEdit}>
+            <Button variant="outline" type="button" onClick={exitCompletedEdit}>
               退出编辑
-            </button>
+            </Button>
           </div>
         ) : null}
 

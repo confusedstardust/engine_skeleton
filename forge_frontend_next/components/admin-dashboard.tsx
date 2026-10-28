@@ -1,4 +1,5 @@
 "use client";
+import { Button } from './ui/button';
 import { Pagination } from "./ui/pagination";
 import { adminApi } from "../lib/api-client";
 
@@ -50,7 +51,7 @@ export default function AdminDashboard() {
   const daily=visible?.daily||[];
   const tableRows=[...daily].reverse().slice((tablePage-1)*10,tablePage*10);
   return <section className="admin-dashboard" aria-label="使用看板">
-    <div className="admin-dashboard-toolbar"><div><h2>使用看板</h2><p>{visible?`${visible.start} — ${visible.end}`:"每日使用情况"} · 北京时间</p></div><div className="admin-actions"><FormSelect ariaLabel="统计范围" value={days} options={[{value:"7",label:"最近 7 天"},{value:"30",label:"最近 30 天"},{value:"90",label:"最近 90 天"}]} onValueChange={value=>{setDays(value);setTablePage(1);}}/><button className="btn outline" disabled={loading} onClick={()=>setRevision(v=>v+1)}>刷新</button></div></div>
+    <div className="admin-dashboard-toolbar"><div><h2>使用看板</h2><p>{visible?`${visible.start} — ${visible.end}`:"每日使用情况"} · 北京时间</p></div><div className="admin-actions"><FormSelect ariaLabel="统计范围" value={days} options={[{value:"7",label:"最近 7 天"},{value:"30",label:"最近 30 天"},{value:"90",label:"最近 90 天"}]} onValueChange={value=>{setDays(value);setTablePage(1);}}/><Button variant="outline" disabled={loading} onClick={()=>setRevision(v=>v+1)}>刷新</Button></div></div>
     {loading?<div className="history-empty">正在加载看板…</div>:null}{error?<div className="history-empty error" role="alert">{error}</div>:null}
     {visible?<>
       <div className="admin-metric-grid">{[["创建任务",visible.totals.tasks,"数据库登记的生成任务"],["Token 消耗",visible.totals.tokens,"已结算输入 + 输出 Token"],["发起用户",visible.totals.active_users,"发起任务或生成操作的去重用户"],["积分消耗",visible.totals.credits,"已扣除积分，不包含冻结"]].map(([label,value,note])=><article className="admin-metric" key={String(label)}><h3>{label}</h3><strong>{number(Number(value))}</strong><p>{note}</p></article>)}</div>
@@ -62,7 +63,7 @@ export default function AdminDashboard() {
       </div>
       <p className="admin-dashboard-coverage">统计口径：{visible.totals.settlements} 笔已结算操作，其中 {visible.totals.settlements_with_usage} 笔含用量记录。未记录、失败或尚未结算的用量未计入 Token；历史缺失数据不作估算。</p>
       <h3>每日明细</h3><div className="admin-table-wrap"><table className="admin-table"><thead><tr>{["日期","创建任务","已完成","发起用户","新增用户","输入 Token","输出 Token","图片","语音字符","积分"].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{tableRows.map(day=><tr key={day.date}>{[day.date,day.tasks,day.completed,day.active_users,day.new_users,day.input_tokens,day.output_tokens,day.images,day.tts_characters,day.credits].map((value,i)=><td key={i}>{typeof value==="number"?number(value):value}</td>)}</tr>)}</tbody></table></div>
-      <Pagination className="asset-library-pagination" buttonClassName="btn outline" page={tablePage} hasMore={tablePage * 10 < daily.length} onPageChange={setTablePage} ariaLabel="统计明细分页" />
+      <Pagination className="asset-library-pagination" buttonVariant="outline" page={tablePage} hasMore={tablePage * 10 < daily.length} onPageChange={setTablePage} ariaLabel="统计明细分页" />
     </>:null}
   </section>;
 }

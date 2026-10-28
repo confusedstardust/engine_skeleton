@@ -1,4 +1,5 @@
 'use client';
+import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import * as Dialog from './ui/dialog';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
@@ -111,9 +112,9 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
     >
       <div className="admin-upload-entry">
         <Dialog.Trigger asChild>
-          <button className="btn outline" type="button">
+          <Button variant="outline" type="button">
             <span aria-hidden="true">＋</span> 上传公共素材
-          </button>
+          </Button>
         </Dialog.Trigger>
       </div>
       <Dialog.Surface
@@ -249,17 +250,17 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
                                 }
                               }}
                             />
-                            <button
-                              className="btn outline"
+                            <Button
+                              variant="outline"
                               type="button"
-                              disabled={busy || !drafts[group.key]?.trim()}
+                              busy={Boolean(busy)} disabled={busy || !drafts[group.key]?.trim()}
                               onClick={() => addChoice(group.key, group.multiple)}
                             >
                               添加
-                            </button>
-                            <button className="btn outline" type="button" onClick={() => setAdding('')}>
+                            </Button>
+                            <Button variant="outline" type="button" onClick={() => setAdding('')}>
                               取消
-                            </button>
+                            </Button>
                           </div>
                         ) : (
                           <button
@@ -286,13 +287,13 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
           </div>
           <footer className="asset-modal-actions">
             <Dialog.Close asChild>
-              <button className="btn outline" type="button" disabled={busy}>
+              <Button variant="outline" type="button" busy={Boolean(busy)}>
                 取消
-              </button>
+              </Button>
             </Dialog.Close>
-            <button className="btn primary" disabled={busy}>
+            <Button variant="primary" type="submit" busy={Boolean(busy)}>
               {busy ? '正在上传…' : '上传素材'}
-            </button>
+            </Button>
           </footer>
         </form>
       </Dialog.Surface>

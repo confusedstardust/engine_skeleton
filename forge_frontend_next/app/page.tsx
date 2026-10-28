@@ -1,4 +1,5 @@
 "use client";
+import { Button } from '../components/ui/button';
 import { useToast } from "../components/ui/toast";
 import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
 import { forgeApi as api } from "../lib/api-client";
@@ -299,19 +300,19 @@ function ClassroomGeneratorPage() {
             </FormSection>
 
             <div className="form-actions">
-              <ActionHint text="草稿箱即将开放"><button className="btn ghost" type="button" disabled>保存草稿</button></ActionHint>
-              <ActionHint text="预览方案尚未开放"><button className="btn outline" type="button" disabled>预览方案</button></ActionHint>
+              <ActionHint text="草稿箱即将开放"><Button variant="ghost" type="button" disabled>保存草稿</Button></ActionHint>
+              <ActionHint text="预览方案尚未开放"><Button variant="outline" type="button" disabled>预览方案</Button></ActionHint>
               <span />
               <div className="generate-control">
-                <ActionHint text={running ? "正在创建任务，请稍候" : !canGenerate ? generateBlockReason : undefined}><button
-                  className="btn primary"
+                <ActionHint text={running ? "正在创建任务，请稍候" : !canGenerate ? generateBlockReason : undefined}><Button
+                  variant="primary"
                   disabled={running || !canGenerate}
                   aria-busy={running}
                   type="button"
                   onClick={runGeneration}
                 >
                   {running ? "正在创建..." : "临场生成"}
-                </button></ActionHint>
+                </Button></ActionHint>
                 <ModelSelect value={textModel} onChange={setTextModel} items={textModels} disabled={running} label="文本生成模型" />
               </div>
             </div>

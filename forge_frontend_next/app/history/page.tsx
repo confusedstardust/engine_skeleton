@@ -1,11 +1,15 @@
 "use client";
+import { Button } from '../../components/ui/button';
+import { ImagePreview } from "../../components/ui/image-preview";
 import { useToast } from "../../components/ui/toast";
+import { EditCoverDialog } from "../../components/edit-cover-dialog";
 import { PublishedFlowModal } from "../../components/published-flow-modal";
 import { ConfirmDialog, ModalFrame, ModalBody, useConfirmation } from "../../components/ui/modal";
 import { CollectionCard } from "@narrativeos/ui/collection-card";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { forgeApi as api } from "../../lib/api-client";
 import type { Job } from "../../domain/jobs";
+import { useWorkActions, workTitle as jobTitle, workIsPlayable as playable, workIsBuilding as building } from "../../hooks/use-work-actions";
 
 
 
@@ -15,7 +19,7 @@ import type { Job } from "../../domain/jobs";
 
 import Link from "next/link";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { withBasePath } from "../base-path";
 import { getCurrentUser } from "../invite-identity";
 
@@ -39,16 +43,6 @@ const statusLabels: Record<string, string> = {
 
 
 
-function jobTitle(job: Job) {
-  const title = String(job.title || "").trim();
-  if (title) return title;
-  const topic = String(job.options?.classroom_topic || "").trim();
-  if (topic) return topic;
-  const source = String(job.source_material || "").trim();
-  const firstLine = source.split(/\r?\n/).find(Boolean);
-  return firstLine?.replace(/^课堂主题[:：]\s*/, "").slice(0, 36) || "未命名游戏";
-}
-
 function formatTime(value?: string) {
   if (!value) return "未知时间";
   const date = new Date(value);
@@ -70,80 +64,39 @@ function statusClass(status: string) {
   return "created";
 }
 
-type Publication = { published: boolean };
-function playable(job: Job) { return job.has_published_build ?? job.status === "DONE"; }
-function building(job: Job) { return job.status === "RUNNING" || job.status === "QUEUED" || job.build_state === "BUILDING"; }
 function editorHref(job: Job) { return `/jobs/${job.id}${playable(job) && !building(job) ? '?edit=1' : ''}`; }
 export default function HistoryPage() {
   const confirm = useConfirmation();
-  const [publications, setPublications] = useState<Record<string, Publication>>({});
-  const requests = useRef(new Set<string>());
-  const publicationVersions = useRef<Record<string, number>>({});
-  const mutationLock = useRef<string | null>(null);
-  const [actionBusy, setActionBusy] = useState("");
   const notify = useToast();
+  const actions = useWorkActions({ confirm, notify });
+  const { publications, loadPublication, changePublication } = actions;
+  const actionBusy = actions.busy?.jobId || '';
+  const [coverJob, setCoverJob] = useState<Job | null>(null);
   const [flowJob, setFlowJob] = useState<Job | null>(null);
   const [deleteJob, setDeleteJob] = useState<Job | null>(null);
-  const [deleteError, setDeleteError] = useState("");
+  const deleteError = deleteJob ? actions.errors[`${deleteJob.id}:delete`] || '' : '';
   async function removeJob() {
-    if (!deleteJob || mutationLock.current || building(deleteJob)) return;
-    mutationLock.current = deleteJob.id;
-    setActionBusy(deleteJob.id); setDeleteError("");
-    try {
-      await api(`/jobs/${deleteJob.id}`, { method: "DELETE" });
-      publicationVersions.current[deleteJob.id] = (publicationVersions.current[deleteJob.id] || 0) + 1;
+    if (!deleteJob) return;
+    const deleted = await actions.remove(deleteJob);
+    if (deleted) {
       setJobs(current => current.filter(job => job.id !== deleteJob.id));
       setDeleteJob(null);
-      notify("任务已删除。", "success");
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "删除失败，请重试。");
-    } finally { mutationLock.current = null; setActionBusy(""); }
+    }
   }
   const [renameJob, setRenameJob] = useState<Job | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
-  const [titleBusy, setTitleBusy] = useState(false);
-  const [titleError, setTitleError] = useState("");
+  const titleBusy = actions.busy?.action === 'title';
+  const titleError = renameJob ? actions.errors[`${renameJob.id}:title`] || '' : '';
   function beginRename(job: Job) {
-    setRenameJob(job); setTitleDraft(jobTitle(job)); setTitleError("");
+    setRenameJob(job); setTitleDraft(jobTitle(job)); actions.clearError(job.id, 'title');
   }
   async function saveTitle() {
-    if (!renameJob || titleBusy || !titleDraft.trim()) return;
-    setTitleBusy(true); setTitleError("");
-    try {
-      const result = await api<{ job: Job }>(`/jobs/${renameJob.id}/title`, { method: "PUT", body: JSON.stringify({ title: titleDraft.trim() }) });
-      setJobs(current => current.map(job => job.id === renameJob.id ? { ...job, ...result.job } : job));
+    if (!renameJob) return;
+    const updated = await actions.rename(renameJob, titleDraft);
+    if (updated) {
+      setJobs(current => current.map(job => job.id === updated.id ? { ...job, ...updated } : job));
       setRenameJob(null);
-    } catch (error) { setTitleError(error instanceof Error ? error.message : "作品重命名失败，请重试。"); }
-    finally { setTitleBusy(false); }
-  }
-  async function loadPublication(job: Job) {
-    if (!playable(job) || requests.current.has(job.id) || mutationLock.current === job.id) return;
-    requests.current.add(job.id);
-    const version = (publicationVersions.current[job.id] || 0) + 1;
-    publicationVersions.current[job.id] = version;
-    try {
-      const value = await api<Publication>(`/jobs/${job.id}/ecosystem-publication`);
-      if (publicationVersions.current[job.id] === version) setPublications(current => ({ ...current, [job.id]: value }));
-    } catch (error) {
-      if (publicationVersions.current[job.id] === version) { notify(error instanceof Error ? error.message : "发布状态读取失败，请重新打开菜单重试。", "error"); }
-    } finally { requests.current.delete(job.id); }
-  }
-  async function changePublication(job: Job, remove = false) {
-    if (mutationLock.current || building(job)) return;
-    // Reserve the operation before awaiting confirmation to prevent duplicate submissions.
-    mutationLock.current = job.id;
-    setActionBusy(job.id);
-    try {
-      if (remove && !(await confirm('确定从教师资源广场中取消发布吗？游戏本身不会被删除。'))) return;
-      publicationVersions.current[job.id] = (publicationVersions.current[job.id] || 0) + 1;
-      const value = await api<Publication>(`/jobs/${job.id}/ecosystem-publication`, {
-        method: remove ? "DELETE" : "POST", ...(remove ? {} : { body: JSON.stringify({}) }),
-      });
-      setPublications(current => ({ ...current, [job.id]: value }));
-      notify(remove ? "已取消生态发布。" : "已发布到教师资源广场。", "success");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "操作失败，请重试。", "error");
-    } finally { mutationLock.current = null; setActionBusy(""); }
+    }
   }
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -246,20 +199,21 @@ export default function HistoryPage() {
               actions={[
                 ...(playable(job) ? [{ id: "play", label: "开始游戏", href: withBasePath(`/play/${job.id}/`), newTab: true }] : []),
                 { id: "edit", label: building(job) ? "查看进度" : playable(job) ? "编辑" : "继续编辑", href: withBasePath(editorHref(job)) },
-                { id: "rename", label: "重命名", disabled: building(job) || titleBusy, onSelect: () => beginRename(job) },
+                ...(playable(job) ? [{ id: "cover", label: "编辑封面", disabled: building(job), onSelect: () => setCoverJob(job) }] : []),
+                { id: "rename", label: "重命名", disabled: building(job) || Boolean(actionBusy), onSelect: () => beginRename(job) },
                 ...(playable(job) ? [
                   { id: "publish", label: !publications[job.id] ? "读取发布状态…" : publications[job.id].published ? "更新发布" : "发布", disabled: !publications[job.id] || building(job) || Boolean(actionBusy), onSelect: () => void changePublication(job) },
                   ...(publications[job.id]?.published ? [{ id: "unpublish", label: "取消生态发布", disabled: building(job) || Boolean(actionBusy), onSelect: () => void changePublication(job, true) }] : []),
                   { id: "practice", label: "打开习题", href: withBasePath(`/practice/${job.id}`) },
                   { id: "flow", label: "流程图", onSelect: () => setFlowJob(job) },
                 ] : []),
-                { id: "delete", label: "删除任务", destructive: true, disabled: building(job) || Boolean(actionBusy), onSelect: () => { setDeleteError(""); setDeleteJob(job); } },
+                { id: "delete", label: "删除任务", destructive: true, disabled: building(job) || Boolean(actionBusy), onSelect: () => { actions.clearError(job.id, "delete"); setDeleteJob(job); } },
               ]}>
-              <div className="history-cover">{playable(job) ? <><span aria-hidden="true">封面暂不可用</span><img src={withBasePath(`/play/${job.id}/cover?revision=${job.published_revision ?? 0}`)} alt={`${jobTitle(job)}封面`} loading="lazy" onLoad={event => { event.currentTarget.style.visibility = "visible"; }} onError={event => { event.currentTarget.style.visibility = "hidden"; }} /></> : <span>封面待生成</span>}</div>
+              <div className="history-cover">{playable(job) ? <ImagePreview src={withBasePath(`/play/${job.id}/cover?revision=${job.published_revision ?? 0}&cover=${job.cover_revision ?? 0}`)} alt={`${jobTitle(job)}封面`} fallback="无封面" loading="lazy" /> : <span>封面待生成</span>}</div>
               <div className="history-row-main">
                 <div className="history-title-line">
                   <h2><Link className="history-card-link" href={editorHref(job)} aria-label={`打开作品：${jobTitle(job)}`}>{jobTitle(job)}</Link></h2>
-                  <button className="history-title-edit" type="button" aria-label={`重命名作品：${jobTitle(job)}`} title="重命名作品" disabled={building(job) || titleBusy} onClick={() => beginRename(job)}>
+                  <button className="history-title-edit" type="button" aria-label={`重命名作品：${jobTitle(job)}`} title="重命名作品" disabled={building(job) || Boolean(actionBusy)} onClick={() => beginRename(job)}>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" /><path d="m16 5 3 3M9 15l4-1 8-8a2.12 2.12 0 0 0-3-3l-8 8-1 4Z" /></svg>
                   </button>
                   <span className={`history-status ${statusClass(job.status)}`}>
@@ -282,10 +236,11 @@ export default function HistoryPage() {
               <label htmlFor="history-title-draft">作品名称</label>
               <input id="history-title-draft" autoFocus value={titleDraft} maxLength={160} disabled={titleBusy} onChange={event => setTitleDraft(event.target.value)} />
               {titleError && <p role="alert">{titleError}</p>}
-              <div className="asset-confirm-actions"><button className="btn outline" type="button" disabled={titleBusy} onClick={() => setRenameJob(null)}>取消</button><button className="btn primary" type="submit" disabled={titleBusy || !titleDraft.trim()}>保存</button></div>
+              <div className="asset-confirm-actions"><Button variant="outline" type="button" busy={Boolean(titleBusy)} onClick={() => setRenameJob(null)}>取消</Button><Button variant="primary" type="submit" busy={Boolean(titleBusy)} disabled={titleBusy || !titleDraft.trim()}>保存</Button></div>
             </form>
           </section></ModalBody></div>
         </ModalFrame>}
+        {coverJob && <EditCoverDialog job={coverJob} onClose={() => setCoverJob(null)} onSaved={updated => { setJobs(current => current.map(job => job.id === updated.id ? { ...job, ...updated } : job)); setCoverJob(null); }} />}
         {flowJob && <PublishedFlowModal job={flowJob} onClose={() => setFlowJob(null)} />}
       </main>
     </>

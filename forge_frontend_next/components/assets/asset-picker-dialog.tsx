@@ -1,9 +1,10 @@
 'use client';
+import { Button } from '../ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { PersonalLibraryAsset } from '../../domain/assets';
 import { useIncrementalList } from '../../hooks/use-incremental-list';
 import { AssetPreview } from './asset-preview';
-import { ModalBody, ModalFrame } from '../ui/modal';
+import { ContentDialog } from '../ui/content-dialog';
 
 export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id' | 'name' | 'mime_type' | 'url'>>({
   title,
@@ -62,30 +63,16 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
     }
   }
   return (
-    <ModalFrame title={title} busy={busy} onClose={onClose}>
-      <div className="asset-library-picker-layer" role="presentation">
-        <button
-          className="asset-modal-backdrop"
-          type="button"
-          aria-label="关闭素材库"
-          disabled={busy}
-          onClick={onClose}
-        />
-        <ModalBody>
-          <section className="asset-library-picker" role="dialog" aria-modal="true">
-            <header className="asset-modal-head">
-              <h2>{title}</h2>
-              <button type="button" aria-label="关闭" disabled={busy} onClick={onClose}>
-                ×
-              </button>
-            </header>
-            <div
-              className="asset-library-picker-body"
-              onScroll={(event) => more(event.currentTarget)}
-              onWheel={(event) => {
-                if (event.deltaY > 0) more(event.currentTarget);
-              }}
-            >
+    <ContentDialog title={title} busy={busy} onClose={onClose} closeInHeader={false} layerClassName="asset-library-picker-layer" className="asset-library-picker" bodyClassName="asset-library-picker-body"
+      bodyProps={{ onScroll: event => more(event.currentTarget), onWheel: event => { if (event.deltaY > 0) more(event.currentTarget); } }}
+      footer={<footer className="asset-modal-actions">
+              <Button variant="outline" busy={Boolean(busy)} onClick={onClose}>
+                取消
+              </Button>
+              <Button variant="primary" busy={Boolean(busy)} disabled={!selected || busy} onClick={() => void apply()}>
+                {busy ? '正在使用…' : '使用此素材'}
+              </Button>
+            </footer>}>
               {list.loading && !list.items.length ? (
                 <div className="asset-library-picker-state" role="status">
                   正在加载素材…
@@ -94,9 +81,9 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
               {list.error ? (
                 <div className="asset-library-picker-state error" role="alert">
                   {list.error}
-                  <button className="btn outline" onClick={() => void list.loadNext()}>
+                  <Button variant="outline" onClick={() => void list.loadNext()}>
                     重试
-                  </button>
+                  </Button>
                 </div>
               ) : null}
               {!list.loading && !list.error && !list.items.length ? (
@@ -129,23 +116,11 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
                 </div>
               ) : null}
               {!list.loading && !list.error && list.hasMore ? (
-                <button className="btn outline" onClick={() => void list.loadNext()}>
+                <Button variant="outline" onClick={() => void list.loadNext()}>
                   加载更多
-                </button>
+                </Button>
               ) : null}
               {error ? <p role="alert">{error}</p> : null}
-            </div>
-            <footer className="asset-modal-actions">
-              <button className="btn outline" disabled={busy} onClick={onClose}>
-                取消
-              </button>
-              <button className="btn primary" disabled={!selected || busy} onClick={() => void apply()}>
-                {busy ? '正在使用…' : '使用此素材'}
-              </button>
-            </footer>
-          </section>
-        </ModalBody>
-      </div>
-    </ModalFrame>
+    </ContentDialog>
   );
 }

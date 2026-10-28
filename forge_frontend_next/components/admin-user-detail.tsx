@@ -1,4 +1,5 @@
 'use client';
+import { Button } from './ui/button';
 import { useToast } from './ui/toast';
 import { adminApi } from '../lib/api-client';
 
@@ -166,9 +167,9 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
                   onChange={(e) => { setGiftReason(e.target.value); }} />
               </label>
               <p className="admin-subscription-note">积分立即到账，长期有效，赠送操作会记录管理员和原因。</p>
-              <button className="btn primary" disabled={busy || !giftUnits || !giftReason.trim()}>
+              <Button variant="primary" type="submit" busy={Boolean(busy)} disabled={busy || !giftUnits || !giftReason.trim()}>
                 {busy ? '正在处理…' : '赠送积分'}
-              </button>
+              </Button>
             </form>
             <form onSubmit={save} className="admin-subscription-form">
               <h3>修改订阅</h3>
@@ -214,9 +215,9 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
               <p className="admin-subscription-note">
                 这里只调整订阅身份与有效期，不扣款、不发放或回收积分，也不改变已付款订单的按月积分发放计划。
               </p>
-              <button className="btn primary" disabled={busy || !reason.trim()}>
+              <Button variant="primary" type="submit" busy={Boolean(busy)} disabled={busy || !reason.trim()}>
                 {busy ? '正在保存…' : '保存订阅'}
-              </button>
+              </Button>
             </form>
           </>
         )}

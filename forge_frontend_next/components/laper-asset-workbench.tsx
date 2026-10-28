@@ -1,9 +1,11 @@
 "use client";
+import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import { useFileUpload } from "../hooks/use-file-upload";
 import { AssetFileInput, UploadStatus } from "./ui/file-upload";
 import { imageUploadPolicy, musicUploadPolicy } from "../lib/upload-policy";
 import { useAudioPreview } from "../hooks/use-audio-preview";
+import { AssetSourceActions, AssetDialogActions } from "./assets/asset-dialog-actions";
 import { AssetPickerDialog } from "./assets/asset-picker-dialog";
 import type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 export type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, AssetReviewResponse, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
@@ -16,7 +18,8 @@ import * as Accordion from "@radix-ui/react-accordion";
 import { ActionHint as AssetHint } from "./ui/action-hint";
 import * as Popover from "@radix-ui/react-popover";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { ModalBody, ModalFrame } from "./ui/modal";
+import { ContentDialog } from "./ui/content-dialog";
+import { ImagePreview } from "./ui/image-preview";
 import { LaperInspectorShell } from "./laper-inspector-shell";
 import { FormSelect, FormSlider } from "./ui/form-controls";
 
@@ -66,8 +69,7 @@ type ContainedAssetImageProps = {
 
 function ContainedAssetImage({ src, alt, objectPosition = "bottom center" }: ContainedAssetImageProps) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img className="asset-contained-img" src={src} alt={alt} loading="lazy" style={{ objectPosition }} />
+    <ImagePreview className="asset-contained-img" src={src} alt={alt} fallback="图片暂不可用" loading="lazy" style={{ objectPosition }} />
   );
 }
 
@@ -249,14 +251,14 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
               <FormSelect ariaLabel={`选择${genderLabel}`} value={selectedVoice} disabled={props.busy} options={voiceOptions} onValueChange={props.selectVoice} />
             </label>
             <small>{selectedOption?.description || "选择适合角色的声音描述"}</small>
-            <button
-              className="btn outline"
+            <Button
+              variant="outline"
               type="button"
-              disabled={props.busy || !selectedVoice}
+              busy={Boolean(props.busy)} disabled={props.busy || !selectedVoice}
               onClick={() => void props.previewVoice(props.item.speaker, selectedVoice)}
             >
               {props.generating ? "正在生成音色…" : "生成并试听这个音色"}
-            </button>
+            </Button>
           </div>
         </details>
       )}
@@ -693,7 +695,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             <div className="scene-music-workbench">
               <header className="laper-canvas-head music-workbench-head">
                 <div><h2>场景音乐</h2></div>
-                {!props.readonly && <div className="music-upload-actions"><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</button><button className="btn outline music-upload-button" type="button" disabled={props.busy} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</button></div>}
+                {!props.readonly && <div className="music-upload-actions"><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</Button><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</Button></div>}
               </header>
               <div className="scene-music-table" role="list">
                 {props.sceneMusic.map((scene, index) => {
@@ -797,10 +799,10 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
           note={props.published ? "新素材会先进入草稿；应用修改时只替换实际改过的素材。" : props.imageEnabled ? "点击图片可查看大图并编辑 Prompt。" : "当前未开启图片生成，仍可查看规划与 Prompt。"}
           footer={
             props.retryAction ? (
-              <button
-                className="btn primary retry-action"
+              <Button
+                variant="primary" className="retry-action"
                 type="button"
-                disabled={props.busy}
+                busy={Boolean(props.busy)}
                 onClick={() => void (async () => {
                   const applied = await props.retryAction?.(hasStagedPresentation ? { music: musicDrafts, effects: effectDrafts, avatarCrops: avatarCropDrafts } : undefined);
                   if (applied) setAvatarCropDrafts({});
@@ -808,7 +810,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               >
                 <span aria-hidden="true">↻</span>
                 {props.busy ? "正在重试..." : props.retryLabel || "重试生成"}
-              </button>
+              </Button>
             ) : props.readonly ? (
               <span className="readonly-status">
                 <span className="inline-spinner" aria-hidden="true" />
@@ -817,14 +819,14 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             ) : (
               <div className="asset-build-actions">
                 {props.published && props.buildState === "FAILED" && (
-                  <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.buildGame()}>
+                  <Button variant="outline" type="button" busy={Boolean(props.busy)} onClick={() => void props.buildGame()}>
                     重试应用修改
-                  </button>
+                  </Button>
                 )}
-                <button
-                  className="btn primary"
+                <Button
+                  variant="primary"
                   type="button"
-                  disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection || (Boolean(props.published) && !props.hasDraftChanges && !hasStagedPresentation)}
+                  busy={Boolean(props.busy)} disabled={props.busy || props.assets.length === 0 || hasUnappliedVoiceSelection || (Boolean(props.published) && !props.hasDraftChanges && !hasStagedPresentation)}
                   title={
                     hasUnappliedVoiceSelection
                       ? "已选择新音色，请先生成试听或恢复原选择"
@@ -838,28 +840,22 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                   })()}
                 >
                   {props.published ? "应用修改到游戏" : "确认素材并生成游戏"}
-                </button>
+                </Button>
               </div>
             )
           }
         />
       </aside>
       {active && (
-        <ModalFrame title="素材详情" onClose={props.closeAsset}><div className="asset-modal-layer" role="presentation">
-          <button className="asset-modal-backdrop" type="button" aria-label="关闭素材详情" onClick={props.closeAsset} />
-          <ModalBody><section className="asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
-            <header className="asset-modal-head"><div><span>{active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"}</span><h2 id="asset-modal-title">{props.displayName(active)}</h2></div><button type="button" aria-label="关闭" onClick={props.closeAsset}>×</button></header>
-            <div className="asset-modal-body">
+        <ContentDialog title={props.displayName(active)} subtitle={active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"} onClose={props.closeAsset} busy={props.busy || imageUploading} layerClassName="asset-modal-layer" className="asset-modal" bodyClassName="asset-modal-body"
+          footer={<AssetDialogActions busy={props.busy || imageUploading} onClose={props.closeAsset}>{!props.readonly && <Button variant="outline" type="button" busy={Boolean(props.busy || imageUploading)} disabled={props.busy || imageUploading} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</Button>}</AssetDialogActions>}>
               <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div></div>
               <div className="asset-modal-editor"><UploadStatus pending={false} error={imageUpload.error} className="error" />
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>
-                {!props.readonly && <div className="asset-modal-source-actions"><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }}>{imageUploading ? "正在上传..." : "上传图片"}</button><button className="btn outline asset-modal-upload-button" type="button" disabled={props.busy || imageUploading} onClick={() => { const isFigure = active.kind === "角色立绘"; void openLibraryPicker(isFigure ? "FIGURE" : "BACKGROUND", isFigure ? "figure" : "background", active.filename); }}>从素材库选择</button></div>}
+                {!props.readonly && <AssetSourceActions busy={props.busy || imageUploading} onUpload={() => { const isFigure = active.kind === "角色立绘"; setPendingImageUpload({ role: isFigure ? "figure" : "background", removeBackground: isFigure, replaceFilename: active.filename }); imageUploadRef.current?.click(); }} onLibrary={() => { const isFigure = active.kind === "角色立绘"; void openLibraryPicker(isFigure ? "FIGURE" : "BACKGROUND", isFigure ? "figure" : "background", active.filename); }} />}
               </div>
-            </div>
-            <footer className="asset-modal-actions">{!props.readonly && <button className="btn outline" type="button" disabled={props.busy} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</button>}<button className="btn primary" type="button" onClick={props.closeAsset}>关闭</button></footer>
-          </section></ModalBody>
-        </div></ModalFrame>
+        </ContentDialog>
       )}
       {libraryPicker && <AssetPickerDialog
         title={`选择${libraryPicker.kind === "FIGURE" ? "角色立绘" : libraryPicker.kind === "BACKGROUND" ? "场景背景" : "背景音乐"}`}

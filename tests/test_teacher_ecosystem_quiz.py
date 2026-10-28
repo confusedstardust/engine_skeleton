@@ -74,6 +74,7 @@ class TeacherEcosystemQuizTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (background_dir / "title_cover.webp").write_bytes(b"cover")
+            (background_dir.parent / "config.txt").write_text("Title_img:title_cover.webp;\n", encoding="utf-8")
 
             payload = build_publication_payload(
                 job={
