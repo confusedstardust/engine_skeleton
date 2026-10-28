@@ -74,3 +74,4 @@ export class SteamIntegration {
     return window.electronFuncs?.steam;
   }
 }
+
