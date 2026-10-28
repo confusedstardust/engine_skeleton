@@ -104,7 +104,7 @@ export default function AdminPage() {
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
     <WorkbenchHeader title="平台管理" subtitle="ADMINISTRATION" afterAccount={<> {allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null} </>} />
-    <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
+    <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.6</p> : null}</section>
       {error ? <div className="history-empty error" role="alert">{error}</div>:null}
       {!allowed?<form className="admin-login" onSubmit={login}><h2>管理员登录</h2><label>账号<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="btn primary" disabled={busy}>{busy?"正在登录…":"登录"}</button></form>:null}
       {allowed ? <Tabs.Root value={resource} onValueChange={(value)=>{setResource(value);setPage(1);setSearch("");setQuery("");setEditing("");setAssetKind("");setOwnerSearch("");setOwnerQuery("");setAssetStatus("");}}>
