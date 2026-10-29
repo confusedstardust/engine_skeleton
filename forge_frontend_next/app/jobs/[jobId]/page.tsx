@@ -157,7 +157,7 @@ function JobWorkspace({ jobId }: { jobId: string }) {
               onClick={() => setStage('scenes')}
               disabled={!canOpenScenes}
             >
-              2 场景
+              2 剧情
             </Button>
             <Button variant="unstyled"
               className={stage === 'assets' ? 'active' : ''}
