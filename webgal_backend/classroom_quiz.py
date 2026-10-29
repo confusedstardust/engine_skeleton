@@ -123,13 +123,13 @@ class ClassroomQuiz:
             c.execute('SELECT id,name FROM quiz_classes WHERE owner_id=%s ORDER BY created_at DESC', (owner,))
             return c.fetchall()
 
-    def create(self, owner, job_id, quiz, class_id, class_name, title, verify_job=None, new_round=False):
+    def create(self, owner, job_id, quiz, class_id, class_name, title, verify_job=None):
         with self.job_guard(job_id):
             if verify_job is not None:
                 verify_job()
-            return self._create(owner, job_id, quiz, class_id, class_name, title, new_round)
+            return self._create(owner, job_id, quiz, class_id, class_name, title)
 
-    def _create(self, owner, job_id, quiz, class_id, class_name, title, new_round=False):
+    def _create(self, owner, job_id, quiz, class_id, class_name, title):
         validate_schema('quiz_plan.schema.json', quiz)
         semantic_quiz_plan(quiz)
         title = clean_name(title or quiz['title'], 120)
@@ -154,11 +154,9 @@ class ClassroomQuiz:
                       (version_id, job_id, digest(content), content, now()))
             c.execute('SELECT id FROM quiz_versions WHERE job_id=%s AND content_hash=%s', (job_id, digest(content)))
             version_id = c.fetchone()['id']
-            existing = None
-            if not new_round:
-                c.execute('SELECT id FROM quiz_assignments WHERE owner_id=%s AND job_id=%s AND class_id=%s AND quiz_version_id=%s AND name=%s ORDER BY created_at,id LIMIT 1 FOR UPDATE',
-                          (owner, job_id, class_id, version_id, title))
-                existing = c.fetchone()
+            c.execute('SELECT id FROM quiz_assignments WHERE owner_id=%s AND job_id=%s AND class_id=%s AND quiz_version_id=%s AND name=%s ORDER BY created_at,id LIMIT 1 FOR UPDATE',
+                      (owner, job_id, class_id, version_id, title))
+            existing = c.fetchone()
             aid = existing['id'] if existing else identifier()
             if not existing:
                 c.execute('INSERT INTO quiz_assignments (id,owner_id,job_id,class_id,quiz_version_id,name,status,data_revision,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s)',
@@ -189,7 +187,11 @@ class ClassroomQuiz:
         token, lid = secrets.token_urlsafe(32), identifier()
         with self.transaction() as c:
             self._assignment(c, aid, owner, True)
-            c.execute('INSERT INTO quiz_share_links (id,assignment_id,token_digest,created_at) VALUES (%s,%s,%s,%s)', (lid, aid, digest(token), now()))
+            c.execute('SELECT id,token_value FROM quiz_share_links WHERE assignment_id=%s AND revoked_at IS NULL AND token_value IS NOT NULL ORDER BY created_at DESC,id DESC LIMIT 1', (aid,))
+            existing = c.fetchone()
+            if existing:
+                return {'assignment_id': aid, 'link_id': existing['id'], 'token': existing['token_value']}
+            c.execute('INSERT INTO quiz_share_links (id,assignment_id,token_digest,token_value,created_at) VALUES (%s,%s,%s,%s,%s)', (lid, aid, digest(token), token, now()))
             self._audit(c, aid, owner, 'SHARE_CREATED', lid)
         return {'assignment_id': aid, 'link_id': lid, 'token': token}
 
@@ -347,7 +349,8 @@ class ClassroomQuiz:
                 return None
             row['snapshot'] = json.loads(row['snapshot'])
             row['result'] = json.loads(row['result']) if row['result'] else None
-            current = set(self._snapshot(c, a)['attempt_ids'])
+            c.execute("SELECT id FROM quiz_attempts WHERE assignment_id=%s AND status='SUBMITTED'", (aid,))
+            current = {attempt['id'] for attempt in c.fetchall()}
             old = set(row['snapshot']['attempt_ids'])
             row.update(stale=row['snapshot_revision'] != a['data_revision'], added_count=len(current - old), voided_count=len(old - current))
             # Keep the previous successful report visible while the latest task runs/fails.

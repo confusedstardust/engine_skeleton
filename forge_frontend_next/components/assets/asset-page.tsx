@@ -1,9 +1,10 @@
 "use client";
 import { EmptyState } from '../ui/state';
+import { LoadingState } from '../ui/state';
 
 import { Button } from '../ui/button';
 import { useToast } from "../ui/toast";
-import { CollectionCard } from "@narrativeos/ui/collection-card";
+import { AssetCard } from "./asset-card";
 import { WorkbenchHeader } from "../workbench-header";
 import type { LibraryAsset as Asset } from "../../domain/assets";
 import { forgeApi as api } from "../../lib/api-client";
@@ -127,15 +128,15 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
       <section className="asset-library-filters" aria-label="素材筛选">{["ALL", "BACKGROUND", "FIGURE", "BGM"].map((kind) => <Button variant="unstyled" className={filter === kind ? "active" : ""} key={kind} onClick={() => { setFilter(kind); setCategory(""); }}>{kind === "ALL" ? "全部" : labels[kind]}</Button>)}</section>
       <form className="asset-library-search" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}><FormSelect value={category} ariaLabel="素材分类" options={[{value:"",label:"全部分类"}, ...assetCategories.filter((item) => item.kinds.some(kind => kind !== "VOICE") && (filter === "ALL" || item.kinds.includes(filter)))]} onValueChange={(value) => {setCategory(value);}} /><input type="search" aria-label="搜索素材" placeholder="搜索名称、分类或标签" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value) { setQuery(""); } }} /><Button variant="primary" type="submit">搜索</Button></form>
       {!loading && !feedError && visible.length === 0 ? <EmptyState className="history-empty"><strong>{query ? "没有找到匹配的素材" : "这里还没有素材"}</strong>{personal ? <span>上传或收藏对应素材后，可以在作品中选用。</span> : null}<Link className="btn primary" href="/?workspace=1">开始创作</Link></EmptyState> : null}
-      <section ref={gridRef} className="asset-library-grid" aria-busy={loading}>{visible.map((asset) => <CollectionCard className="asset-library-card" key={asset.file_id} menuLabel={`素材操作：${asset.name}`} actions={[
+      <section ref={gridRef} className="asset-library-grid" aria-busy={loading}>{visible.map((asset) => <AssetCard variant="library" name={asset.name} kind={asset.kind} category={asset.category_label || labels[asset.kind] || asset.kind} preview={<AssetPreview asset={asset} fallback={labels[asset.kind] || "素材"} />} key={asset.file_id} actions={[
         { id: "favorite", label: favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材", disabled: busy === asset.id, onSelect: () => void toggleFavorite(asset) },
         ...(canManage(asset) ? [
           { id: "delete", label: "删除素材", destructive: true, disabled: busy === asset.id, onSelect: () => { setDeleteError(""); setDeleteTarget(asset); } },
         ] : []),
-      ]}><div className="asset-library-preview" data-asset-kind={asset.kind}><AssetPreview asset={asset} fallback={labels[asset.kind] || "素材"} /></div><div className="asset-library-card-body"><div className="asset-library-card-top"><span className="asset-kind">{asset.category_label || labels[asset.kind] || asset.kind}</span><div className="asset-library-card-actions"><Button variant="unstyled" className="asset-delete asset-favorite" type="button" aria-label={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} aria-pressed={favoriteIds.includes(asset.id)} title={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} disabled={busy === asset.id} onClick={() => void toggleFavorite(asset)}><FavoriteIcon /></Button>{canManage(asset) ? <Button variant="unstyled" className="asset-delete" type="button" aria-label={`删除素材 ${asset.name}`} title="删除素材" disabled={busy === asset.id} onClick={() => setDeleteTarget(asset)}><TrashIcon /></Button> : null}</div></div><div className="asset-library-card-copy"><div className="asset-name-display"><h2>{asset.name}</h2></div></div></div></CollectionCard>)}</section>
+      ]} controls={<><Button variant="unstyled" className="asset-delete asset-favorite" type="button" aria-label={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} aria-pressed={favoriteIds.includes(asset.id)} title={favoriteIds.includes(asset.id) ? "取消收藏" : "收藏素材"} disabled={busy === asset.id} onClick={() => void toggleFavorite(asset)}><FavoriteIcon /></Button>{canManage(asset) ? <Button variant="unstyled" className="asset-delete" type="button" aria-label={`删除素材 ${asset.name}`} title="删除素材" disabled={busy === asset.id} onClick={() => setDeleteTarget(asset)}><TrashIcon /></Button> : null}</>} />)}</section>
       <div ref={sentinelRef} className="asset-library-feed-status" role="status" aria-live="polite">
         <span>已加载 {assets.length} / {total} 项</span>
-        {loading ? <span>正在加载素材…</span> : feedError ? <><span className="error">{feedError}</span><Button variant="outline" type="button" onClick={() => loadNextRef.current()}>重试</Button></> : hasMore ? <Button variant="outline" type="button" onClick={() => loadNextRef.current()}>加载更多</Button> : assets.length ? <span>已加载全部素材</span> : null}
+        {loading ? <LoadingState as="span" inline>正在加载素材…</LoadingState> : feedError ? <><span className="error">{feedError}</span><Button variant="outline" type="button" onClick={() => loadNextRef.current()}>重试</Button></> : hasMore ? <Button variant="outline" type="button" onClick={() => loadNextRef.current()}>加载更多</Button> : assets.length ? <span>已加载全部素材</span> : null}
       </div>
       <ConfirmDialog error={deleteError} open={Boolean(deleteTarget)} title="删除这个素材？" description={`“${deleteTarget?.name || ""}”将从素材仓库中移除，已发布游戏不会受到影响。`} busy={Boolean(busy)} onCancel={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) void deleteAsset(deleteTarget); }} />
     </main>

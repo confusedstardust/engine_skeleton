@@ -1,5 +1,7 @@
 "use client";
 import { InlineFeedback } from './ui/feedback';
+import { DialogHeader } from './ui/dialog-header';
+import { DialogActions } from './ui/dialog-actions';
 
 import { Button } from './ui/button';
 
@@ -86,9 +88,7 @@ export function ScenePinyinTextarea({ value, onValueChange, readOnly, disabled, 
             pendingFocus.current = null;
           });
         }}>
-        <header className={styles.header}><div><Dialog.Title>为选中文字添加拼音</Dialog.Title>
-          <Dialog.Description id="scene-pinyin-description">校正多音字后插入。留空可让对应汉字不显示拼音。</Dialog.Description></div>
-          <Dialog.CloseButton type="button" aria-label="关闭拼音编辑" /></header>
+        <DialogHeader dialogTitle className={styles.header} title="为选中文字添加拼音" subtitle={<Dialog.Description id="scene-pinyin-description">校正多音字后插入。留空可让对应汉字不显示拼音。</Dialog.Description>} closeLabel="关闭拼音编辑" onClose={() => { setSelection(null); setError(''); }} />
         <div className={styles.preview} aria-label="注音预览">{selection?.characters.map((character, index) => readings[index]?.trim() && character.editable
           ? <ruby key={index}>{character.text}<rt>{readings[index]}</rt></ruby> : <span key={index}>{character.text}</span>)}</div>
         <div className={styles.grid}>{selection?.characters.map((character, index) => character.editable && <label key={index}>
@@ -96,11 +96,11 @@ export function ScenePinyinTextarea({ value, onValueChange, readOnly, disabled, 
             onChange={event => setReadings(values => values.map((reading, position) => position === index ? event.target.value : reading))} />
         </label>)}</div>
         {error && <InlineFeedback className={styles.error} >{error}</InlineFeedback>}
-        <footer className={styles.footer}>
+        <DialogActions as="footer" className={styles.footer}>
           <Button variant="outline" type="button" onClick={() => apply(true)}>移除所选注音</Button>
           <div><Dialog.Close asChild><Button variant="outline" type="button">取消</Button></Dialog.Close>
             <Button variant="ghost" type="button" onClick={() => apply()}>插入拼音</Button></div>
-        </footer>
+        </DialogActions>
       </Dialog.Surface>
     </Dialog.Root>
   </div>;

@@ -1,6 +1,6 @@
 import type { QuizPlan, QuizQuestion } from './quiz';
 
-export type Assignment = { id: string; job_id: string; class_id: string; name: string; class_name: string; status: 'OPEN' | 'CLOSED'; submitted_count: number; quiz_version_id: string; created_at: string };
+export type Assignment = { id: string; job_id: string; class_id: string; name: string; class_name: string; status: 'OPEN' | 'CLOSED'; submitted_count: number; data_revision?: number; quiz_version_id: string; created_at: string };
 export type ShareLink = { assignment_id: string; link_id: string; token: string; url: string; reused?: boolean };
 export type StudentSession = { id: string; credential: string };
 export type StudentQuestion = Pick<QuizQuestion, 'id' | 'type' | 'prompt' | 'options'> & Partial<QuizQuestion>;

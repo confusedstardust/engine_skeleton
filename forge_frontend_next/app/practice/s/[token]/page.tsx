@@ -1,4 +1,6 @@
 'use client';
+import { LoadingState } from '../../../../components/ui/state';
+import { QuestionCard, QuestionOptions, QuestionExplanation } from '../../../../components/quiz-question';
 import { InlineFeedback } from '../../../../components/ui/feedback';
 
 import { Button } from '../../../../components/ui/button';
@@ -139,7 +141,7 @@ function StudentWorkspace({ token }: { token: string }) {
     <header className="classroom-heading"><span className="practice-kicker">CLASSROOM PRACTICE</span><h1>{attempt?.assignment_name || info?.name || '班级习题'}</h1>
       {attempt && <p>{submitted ? '已提交' : `${attempt.display_name} · 作答中`} {!submitted && !invalidSession && <><Button variant="unstyled" type="button" className="classroom-link" disabled={busy} onClick={() => { setEditing(true); setError(''); }}>修改姓名</Button><Button variant="unstyled" type="button" className="classroom-link" disabled={busy} onClick={() => void switchStudent()}>更换作答人</Button></>}</p>}
     </header>
-    {loading && <p role="status">正在读取习题…</p>}
+    {loading && <LoadingState inline>正在读取习题…</LoadingState>}
     {storageWarning && <p role="status">{storageWarning}</p>}
     {error && <InlineFeedback  >{error}</InlineFeedback>}
     {invalidSession && <Button type="button" variant="outline" onClick={() => void clearInvalid()}>清除本设备失效记录</Button>}
@@ -150,7 +152,7 @@ function StudentWorkspace({ token }: { token: string }) {
         <Dialog.Title className="sr-only">{editing ? '修改姓名' : '姓名'}</Dialog.Title>
         <form onSubmit={e => { e.preventDefault(); void begin(); }}><label>姓名<input autoFocus required maxLength={40} autoComplete="name" value={name} disabled={busy} onChange={e => setName(e.target.value)} /></label>
           {error && <InlineFeedback  >{error}</InlineFeedback>}
-          <Button type="submit" variant="primary" disabled={busy || !name.trim()}>{busy ? '正在处理…' : editing ? '保存姓名' : '开始答题'}</Button>
+          <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()}>{busy ? '正在处理…' : editing ? '保存姓名' : '开始答题'}</Button>
           {editing && <Button type="button" variant="outline" disabled={busy} onClick={() => setEditing(false)}>取消</Button>}
         </form>
       </Dialog.Surface>
@@ -159,12 +161,12 @@ function StudentWorkspace({ token }: { token: string }) {
       {submitted ? <section className="classroom-notice" role="status"><strong>提交成功</strong><p>{attempt.submitted_at && new Date(attempt.submitted_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · 答卷已锁定</p></section> : <p className="classroom-notice">已完成 {completed} / {attempt.quiz.questions.length} 题 · 提交后显示答案与解析。{closed ? ' 练习已关闭，草稿已保留，请联系老师。' : ''}</p>}
       <section className="quiz-card-list">{attempt.quiz.questions.map((q, index) => {
         const selected = submitted ? attempt.answers[q.id]?.selected_option_id : answers[q.id];
-        return <article id={`question-${q.id}`} className="quiz-card" key={q.id}><header><span>{String(index + 1).padStart(2, '0')}</span><em>{q.type === 'judgement' ? '判断题' : '单选题'}</em></header><h2>{q.prompt}</h2>
-          <div className="quiz-options" role="radiogroup" aria-label={q.prompt}>{q.options.map(o => <Button variant="unstyled" key={o.id} type="button" role="radio" aria-checked={selected === o.id} disabled={submitted || busy || closed} className={`${selected === o.id ? 'selected' : ''} ${submitted && q.correct_option_ids?.includes(o.id) ? 'correct' : ''} ${submitted && selected === o.id && !attempt.answers[q.id]?.is_correct ? 'wrong' : ''}`} onClick={() => setAnswers(values => ({ ...values, [q.id]: o.id }))}><span>{o.id}</span><strong>{o.text}</strong></Button>)}</div>
-          {submitted && <div className="quiz-explanation"><strong>{attempt.answers[q.id]?.is_correct ? '回答正确' : `回答错误，正确答案：${q.correct_option_ids?.join('、')}`}</strong><p>{q.explanation}</p></div>}
-        </article>;
+        return <QuestionCard id={`question-${q.id}`} question={q} index={index} key={q.id}>
+          <QuestionOptions question={q} selected={selected} revealed={submitted} disabled={submitted || busy || closed} onSelect={id => setAnswers(values => ({ ...values, [q.id]: id }))} />
+          {submitted && <QuestionExplanation question={q} selected={selected} correct={Boolean(attempt.answers[q.id]?.is_correct)} />}
+        </QuestionCard>;
       })}</section>
-      {!submitted && <div className="classroom-submit-bar"><span>已完成 {completed} / {attempt.quiz.questions.length} 题</span><Button type="button" variant="primary" disabled={busy || closed} onClick={() => void submit()}>{busy ? '正在提交…' : '提交答卷'}</Button><small>提交成功后不可修改或重复提交。</small></div>}
+      {!submitted && <div className="classroom-submit-bar"><span>已完成 {completed} / {attempt.quiz.questions.length} 题</span><Button type="button" variant="primary" busy={busy} disabled={closed} onClick={() => void submit()}>{busy ? '正在提交…' : '提交答卷'}</Button><small>提交成功后不可修改或重复提交。</small></div>}
     </>}
   </main>;
 }

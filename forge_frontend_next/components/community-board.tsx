@@ -1,4 +1,5 @@
 "use client";
+import { LoadingState } from './ui/state';
 import { Button } from './ui/button';
 import { InlineFeedback } from './ui/feedback';
 import { EmptyState } from './ui/state';
@@ -66,13 +67,13 @@ export default function CommunityBoard() {
         <div className="community-question-list" aria-busy={loading}>
           {commonQuestions.map((item, index) => <details className="community-question" key={item.question} open={index === 0}><summary><span className="qa-letter">Q</span><h4>{item.question}</h4><span className="qa-expand" aria-hidden="true">+</span></summary><div className="community-answer"><span className="qa-letter">A</span><p>{item.answer}</p></div></details>)}
           {questions.map(item => <details className="community-question" key={item.id} open><summary><span className="qa-letter">Q</span><h4>{item.question}</h4><span className="qa-expand" aria-hidden="true">+</span></summary><div className="community-answer"><span className="qa-letter">A</span><p>{item.answer || "已收到你的问题，等待答复。"}</p></div></details>)}
-          {loading && <p role="status">正在加载留言…</p>}
+          {loading && <LoadingState as="p" inline withSpinner>正在加载留言…</LoadingState>}
           {error && <InlineFeedback >{error} <Button variant="unstyled" className="community-text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</Button></InlineFeedback>}
         </div>
         {(offset > 0 || more) && <Pagination ariaLabel="公开问答分页" className="community-pagination" page={offset / 6 + 1} hasMore={more} disabled={loading} onPageChange={page => setOffset((page - 1) * 6)} />}
         {user?.auth_type === "sso" && mine && <div className="community-own-questions" aria-busy={ownLoading}>
           <h3>我的提问</h3>
-          {ownLoading && <p role="status">正在加载我的提问…</p>}
+          {ownLoading && <LoadingState as="p" inline withSpinner>正在加载我的提问…</LoadingState>}
           {ownError && <InlineFeedback >{ownError} <Button variant="unstyled" className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</Button></InlineFeedback>}
           {!ownLoading && !ownError && !ownQuestions.length && <EmptyState as="p" className="community-empty">还没有提交过提问。</EmptyState>}
           {ownQuestions.map(item => <details className="community-question" key={item.id} open><summary><span className="qa-letter">Q</span><h4>{item.question}</h4>{item.answer ? <span className="qa-expand" aria-hidden="true">+</span> : <span className="community-pending">待答复</span>}</summary>{item.answer && <div className="community-answer"><span className="qa-letter">A</span><p>{item.answer}</p></div>}</details>)}

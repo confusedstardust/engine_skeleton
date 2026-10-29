@@ -8,6 +8,7 @@ import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-he
 import { forgeApi as api } from "../lib/api-client";
 import type { Job } from "../domain/jobs";
 import BrandLogo from '../components/brand-logo';
+import { SolutionCard, type Solution } from '../components/solution-card';
 
 
 
@@ -375,6 +376,12 @@ const narrativeScenes: NarrativeScene[] = [
   { id: "assets", title: "素材库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
 ];
 
+const solutions: Solution[] = [
+  { id: 'one', number: '01', name: 'One', image: ossImage('solution-narrativeos-one.png'), description: '适合学生、教师、家长和个人创作者的一站式互动叙事创作平台', actionLabel: '开始创作' },
+  { id: 'plus', number: '02', name: 'Plus', image: ossImage('solution-narrativeos-plus.png'), description: '适合企业、学校、IP 和专业人士的互动叙事解决方案', actionLabel: '了解解决方案' },
+  { id: 'go', number: '03', name: 'Go', image: ossImage('solution-narrativeos-go.png'), description: '适合政府、博物馆、文化产业的沉浸式互动数字孪生体验', actionLabel: '了解解决方案' },
+];
+
 function NarrativeRouterPage() {
   const router = useRouter();
   const openAnnouncements = useAnnouncements();
@@ -402,9 +409,10 @@ function NarrativeRouterPage() {
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>
     <section className="router-solutions" aria-labelledby="solutions-title"><div className="solutions-heading"><p>CHOOSE YOUR PATH</p><h2 id="solutions-title">选择最符合你需求的 NarrativeOS 解决方案</h2></div><div className="solution-grid">
-      <article className="solution-card one"><img className="solution-cover" src={ossImage("solution-narrativeos-one.png")} alt="" /><span className="solution-shade" /><span>01</span><h3>NarrativeOS <b>One</b></h3><p>适合学生、教师、家长和个人创作者的一站式互动叙事创作平台</p><Button variant="unstyled" type="button" onClick={() => setPickerOpen(true)}>开始创作 <i>→</i></Button></article>
-      <article className="solution-card plus"><img className="solution-cover" src={ossImage("solution-narrativeos-plus.png")} alt="" /><span className="solution-shade" /><span>02</span><h3>NarrativeOS <b>Plus</b></h3><p>适合企业、学校、IP 和专业人士的互动叙事解决方案</p><Button variant="unstyled" type="button" onClick={() => setNotice("NarrativeOS Plus 的专属方案正在筹备中。")}>了解解决方案 <i>→</i></Button></article>
-      <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><Button variant="unstyled" type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></Button></article>
+      {solutions.map(solution => <SolutionCard key={solution.id} solution={solution} onSelect={() => {
+        if (solution.id === 'one') setPickerOpen(true);
+        else setNotice(`NarrativeOS ${solution.name} 的${solution.id === 'plus' ? '专属' : '行业'}方案正在筹备中。`);
+      }} />)}
     </div></section>
     <CommunityBoard />
     {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><CloseButton className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭" /></div><div className="scene-grid">{narrativeScenes.map((scene) => <Button variant="unstyled" className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</Button>)}</div></section></ModalBody></div></ModalFrame>}

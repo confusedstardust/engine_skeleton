@@ -9,6 +9,9 @@ def main():
         for statement in source.read_text(encoding='utf-8').split(';'):
             if statement.strip():
                 cursor.execute(statement)
+        cursor.execute("SHOW COLUMNS FROM quiz_share_links LIKE 'token_value'")
+        if not cursor.fetchone():
+            cursor.execute('ALTER TABLE quiz_share_links ADD COLUMN token_value VARCHAR(100) NULL')
     print('Classroom quiz tables ready. MySQL DDL is additive and may commit implicitly.')
 
 

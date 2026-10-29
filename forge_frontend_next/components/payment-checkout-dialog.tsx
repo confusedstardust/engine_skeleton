@@ -1,4 +1,5 @@
 'use client';
+import { LoadingState } from './ui/state';
 import { InlineFeedback } from './ui/feedback';
 
 
@@ -64,9 +65,7 @@ export function PaymentCheckoutDialog({
                   onError={() => setQrError(true)}
                 />
               ) : (
-                <p role="status">
-                  {qrError ? '二维码加载失败，请刷新页面重试。' : '支付状态确认中，请稍后刷新；请勿重复付款。'}
-                </p>
+                qrError ? <InlineFeedback>二维码加载失败，请刷新页面重试。</InlineFeedback> : <LoadingState inline>支付状态确认中，请稍后刷新；请勿重复付款。</LoadingState>
               )}
               <p className="recharge-expiry">
                 微信扫一扫付款 · 有效至{' '}

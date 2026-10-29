@@ -1,5 +1,6 @@
 'use client';
 import { InlineFeedback } from './ui/feedback';
+import { LoadingState } from './ui/state';
 
 import { Button } from './ui/button';
 import { useToast } from './ui/toast';
@@ -108,12 +109,6 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
         overlayClassName="recharge-payment-overlay"
         className="admin-user-dialog"
         aria-describedby={undefined}
-        onEscapeKeyDown={(e) => {
-          if (busy) e.preventDefault();
-        }}
-        onPointerDownOutside={(e) => {
-          if (busy) e.preventDefault();
-        }}
       >
         <Dialog.Title>用户详情与账户管理</Dialog.Title>
         <Dialog.CloseButton className="recharge-payment-dismiss" disabled={busy} aria-label="关闭用户详情" />
@@ -123,7 +118,7 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
           </InlineFeedback>
         ) : null}
         {!detail ? (
-          <p role="status">正在加载用户信息…</p>
+          <LoadingState as="p" inline withSpinner>正在加载用户信息…</LoadingState>
         ) : (
           <>
             <dl className="admin-user-info">

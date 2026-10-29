@@ -11,6 +11,7 @@ import { imageUploadPolicy, musicUploadPolicy } from "../lib/upload-policy";
 import { useAudioPreview } from "../hooks/use-audio-preview";
 import { AssetSourceActions, AssetDialogActions } from "./assets/asset-dialog-actions";
 import { AssetPickerDialog } from "./assets/asset-picker-dialog";
+import { AssetCard } from "./assets/asset-card";
 import type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 export type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, AssetReviewResponse, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 
@@ -740,28 +741,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                       : undefined;
                     const selectedVoice = voiceItem ? voiceSelections[voiceItem.speaker] || voiceItem.voice : "";
                     return (
-                      <article className={`asset-card ${voiceItem ? "has-voice" : ""}`} key={`${asset.subdir}-${asset.filename}`}>
-                        <Button variant="unstyled" className="asset-card-open" type="button" onClick={() => props.openAsset(asset)}>
-                          <div className="asset-thumb">
-                            {asset.exists ? (
-                              <ContainedAssetImage
-                                src={asset.url}
-                                alt={asset.filename}
-                                objectPosition={asset.kind === "角色立绘" ? "bottom center" : "center"}
-                              />
-                            ) : (
-                              <span>待生成</span>
-                            )}
-                          </div>
-                          <div className="asset-card-body">
-                            <div className="asset-card-text">
-                              <strong>{props.displayName(asset)}</strong>
-                              {asset.kind !== "角色立绘" && <small>{props.sceneDisplayName(asset)}</small>}
-                            </div>
-                            <em className={asset.exists ? "ready" : ""}>{asset.exists ? "已生成" : "待生成"}</em>
-                          </div>
-                        </Button>
-                        {voiceItem && (
+                      <AssetCard variant="workbench" key={`${asset.subdir}-${asset.filename}`}
+                        name={props.displayName(asset)} ready={asset.exists}
+                        description={asset.kind !== "角色立绘" ? props.sceneDisplayName(asset) : undefined}
+                        onOpen={() => props.openAsset(asset)}
+                        preview={asset.exists ? <ContainedAssetImage src={asset.url} alt={asset.filename}
+                          objectPosition={asset.kind === "角色立绘" ? "bottom center" : "center"} /> : <span>待生成</span>}
+                        footer={voiceItem && (
                           <CharacterVoiceControl
                             item={voiceItem}
                             generating={props.voiceGeneratingSpeaker === voiceItem.speaker}
@@ -780,7 +766,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                             }}
                           />
                         )}
-                      </article>
+                      />
                     );
                   })}
                 </div>
@@ -817,7 +803,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               </Button>
             ) : props.readonly ? (
               <span className="readonly-status">
-                <span className="inline-spinner" aria-hidden="true" />
+                <Spinner size="sm" tone="current" />
                 {props.published ? "完成态默认只读" : "游戏自动生成中"}
               </span>
             ) : (

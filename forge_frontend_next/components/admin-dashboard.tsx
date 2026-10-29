@@ -5,6 +5,8 @@ import { DataTable } from './ui/table';
 
 import { Button } from './ui/button';
 import { Pagination } from "./ui/pagination";
+import { MetricCard } from './ui/metric-card';
+import { ChartCard } from './ui/chart-card';
 import { adminApi } from "../lib/api-client";
 
 import { useEffect, useRef, useState } from "react";
@@ -58,12 +60,12 @@ export default function AdminDashboard() {
     <div className="admin-dashboard-toolbar"><div><h2>使用看板</h2><p>{visible?`${visible.start} — ${visible.end}`:"每日使用情况"} · 北京时间</p></div><div className="admin-actions"><FormSelect ariaLabel="统计范围" value={days} options={[{value:"7",label:"最近 7 天"},{value:"30",label:"最近 30 天"},{value:"90",label:"最近 90 天"}]} onValueChange={value=>{setDays(value);setTablePage(1);}}/><Button variant="outline" disabled={loading} onClick={()=>setRevision(v=>v+1)}>刷新</Button></div></div>
     {loading?<LoadingState className="history-empty">正在加载看板…</LoadingState>:null}{error?<InlineFeedback as="div" className="feedback-block" >{error}</InlineFeedback>:null}
     {visible?<>
-      <div className="admin-metric-grid">{[["创建任务",visible.totals.tasks,"数据库登记的生成任务"],["Token 消耗",visible.totals.tokens,"已结算输入 + 输出 Token"],["发起用户",visible.totals.active_users,"发起任务或生成操作的去重用户"],["积分消耗",visible.totals.credits,"已扣除积分，不包含冻结"]].map(([label,value,note])=><article className="admin-metric" key={String(label)}><h3>{label}</h3><strong>{number(Number(value))}</strong><p>{note}</p></article>)}</div>
+      <div className="admin-metric-grid">{[["创建任务",visible.totals.tasks,"数据库登记的生成任务"],["Token 消耗",visible.totals.tokens,"已结算输入 + 输出 Token"],["发起用户",visible.totals.active_users,"发起任务或生成操作的去重用户"],["积分消耗",visible.totals.credits,"已扣除积分，不包含冻结"]].map(([label,value,note])=><MetricCard key={String(label)} variant="admin" label={String(label)} value={number(Number(value))} caption={String(note)} />)}</div>
       <div className="admin-dashboard-charts">
-        <article className="admin-chart-card"><h3>每日任务</h3><Chart label="每日创建任务和已完成任务趋势" option={option([{name:"创建任务",type:"bar",barMaxWidth:22,data:daily.map(d=>d.tasks)},{name:"已完成",type:"line",smooth:true,data:daily.map(d=>d.completed)}])}/><p>已完成任务按创建日期归组，以当前登记状态为准。</p></article>
-        <article className="admin-chart-card"><h3>每日 Token 消耗</h3><Chart label="每日已结算输入和输出 Token" option={option([{name:"输入 Token",type:"bar",stack:"tokens",barMaxWidth:22,data:daily.map(d=>d.input_tokens)},{name:"输出 Token",type:"bar",stack:"tokens",barMaxWidth:22,data:daily.map(d=>d.output_tokens)}])}/><p>按结算日期统计；缓存 Token 已包含在输入中。</p></article>
-        <article className="admin-chart-card"><h3>每日用户</h3><Chart label="每日发起用户与新增用户趋势" option={option([{name:"发起用户",type:"line",smooth:true,data:daily.map(d=>d.active_users)},{name:"新增用户",type:"line",smooth:true,data:daily.map(d=>d.new_users)}])}/><p>发起用户根据任务与生成操作统计，不代表登录活跃用户。</p></article>
-        <article className="admin-chart-card"><h3>每日积分消耗</h3><Chart label="每日已扣除积分趋势" option={option([{name:"积分",type:"bar",barMaxWidth:22,data:daily.map(d=>d.credits)}])}/><p>已结算图片 {number(visible.totals.images)} 张 · 语音 {number(visible.totals.tts_characters)} 字符</p></article>
+        <ChartCard title="每日任务" caption={<>已完成任务按创建日期归组，以当前登记状态为准。</>}> <Chart label="每日创建任务和已完成任务趋势" option={option([{name:"创建任务",type:"bar",barMaxWidth:22,data:daily.map(d=>d.tasks)},{name:"已完成",type:"line",smooth:true,data:daily.map(d=>d.completed)}])}/></ChartCard>
+        <ChartCard title="每日 Token 消耗" caption={<>按结算日期统计；缓存 Token 已包含在输入中。</>}> <Chart label="每日已结算输入和输出 Token" option={option([{name:"输入 Token",type:"bar",stack:"tokens",barMaxWidth:22,data:daily.map(d=>d.input_tokens)},{name:"输出 Token",type:"bar",stack:"tokens",barMaxWidth:22,data:daily.map(d=>d.output_tokens)}])}/></ChartCard>
+        <ChartCard title="每日用户" caption={<>发起用户根据任务与生成操作统计，不代表登录活跃用户。</>}> <Chart label="每日发起用户与新增用户趋势" option={option([{name:"发起用户",type:"line",smooth:true,data:daily.map(d=>d.active_users)},{name:"新增用户",type:"line",smooth:true,data:daily.map(d=>d.new_users)}])}/></ChartCard>
+        <ChartCard title="每日积分消耗" caption={<>已结算图片 {number(visible.totals.images)} 张 · 语音 {number(visible.totals.tts_characters)} 字符</>}> <Chart label="每日已扣除积分趋势" option={option([{name:"积分",type:"bar",barMaxWidth:22,data:daily.map(d=>d.credits)}])}/></ChartCard>
       </div>
       <p className="admin-dashboard-coverage">统计口径：{visible.totals.settlements} 笔已结算操作，其中 {visible.totals.settlements_with_usage} 笔含用量记录。未记录、失败或尚未结算的用量未计入 Token；历史缺失数据不作估算。</p>
       <h3>每日明细</h3><div className="admin-table-wrap"><DataTable className="admin-table"><thead><tr>{["日期","创建任务","已完成","发起用户","新增用户","输入 Token","输出 Token","图片","语音字符","积分"].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{tableRows.map(day=><tr key={day.date}>{[day.date,day.tasks,day.completed,day.active_users,day.new_users,day.input_tokens,day.output_tokens,day.images,day.tts_characters,day.credits].map((value,i)=><td key={i}>{typeof value==="number"?number(value):value}</td>)}</tr>)}</tbody></DataTable></div>

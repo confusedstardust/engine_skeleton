@@ -1,4 +1,5 @@
 "use client";
+import { LoadingState } from './ui/state';
 import { Button } from './ui/button';
 import { InlineFeedback } from './ui/feedback';
 import { EmptyState } from './ui/state';
@@ -98,7 +99,7 @@ export default function AdminCommunity() {
         {Boolean(data?.announcements.length) && <div className={styles.savedNotices}><h4>已保存的公告</h4>{data?.announcements.map(notice => <details className={styles.noticeItem} key={notice.id}><summary><div><strong>{notice.title}</strong><span>{notice.created_at.slice(0, 10)} · {notice.published ? "已公开" : "仅管理员可见"}</span></div><span className={styles.editLabel}>编辑</span></summary><NoticeEditor notice={notice} saved={saved} /></details>)}</div>}
       </aside>
       <section className={styles.inbox} aria-labelledby="admin-inbox-title">
-        <div className={styles.columnHeading}><h3 id="admin-inbox-title">用户留言</h3><span>{loading && !data ? "正在加载…" : `本页 ${questions.length} 条 · ${pending} 条待回复`}</span></div>
+        <div className={styles.columnHeading}><h3 id="admin-inbox-title">用户留言</h3><span>{loading && !data ? <LoadingState as="span" inline>正在加载…</LoadingState> : `本页 ${questions.length} 条 · ${pending} 条待回复`}</span></div>
         <div className={styles.filters} role="group" aria-label="筛选本页留言">{filters.map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</Button>)}</div>
         <div className={styles.messageList} aria-busy={loading}>{visible.map(question => <ReplyEditor key={question.id} question={question} saved={saved} />)}{!loading && !error && !visible.length && <EmptyState className={styles.empty}><strong>{questions.length ? "本页没有符合条件的留言" : "暂时没有用户留言"}</strong><p>{questions.length ? "试试其他筛选，或查看下一页。" : "用户提交的提问和建议会显示在这里。"}</p></EmptyState>}</div>
         <Pagination className={styles.pagination} buttonClassName={styles.secondaryButton} ariaLabel="留言分页" layout="trailing-actions" page={offset / 20 + 1} hasMore={Boolean(data?.has_more)} disabled={loading} onPageChange={page => setOffset((page - 1) * 20)} />

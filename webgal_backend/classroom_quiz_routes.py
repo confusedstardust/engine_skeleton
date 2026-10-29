@@ -22,7 +22,6 @@ class AssignmentInput(BaseModel):
     class_id: str | None = Field(None, max_length=32)
     class_name: str = Field('', max_length=100)
     name: str = Field('', max_length=120)
-    new_round: bool = False
 
 
 class AssignmentUpdate(BaseModel):
@@ -40,7 +39,7 @@ class Answer(BaseModel):
 
 
 class SubmissionInput(BaseModel):
-    answers: list[Answer] = Field(min_length=1, max_length=10)
+    answers: list[Answer] = Field(min_length=1, max_length=20)
 
 
 class VoidInput(BaseModel):
@@ -133,7 +132,7 @@ def create_router(*, service: ClassroomQuiz, owned_job, identity, job_dir, front
             raise HTTPException(409, '请先生成习题')
         try:
             result = service.create(owner(request), job_id, read_json(path), payload.class_id, payload.class_name, payload.name,
-                                    verify_job=lambda: owned_job(job_id, request), new_round=payload.new_round)
+                                    verify_job=lambda: owned_job(job_id, request))
         except ValidationFailure as exc:
             raise HTTPException(422, exc.errors) from exc
         return link_response(result)

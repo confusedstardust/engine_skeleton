@@ -1,5 +1,6 @@
 'use client';
 import { Button } from '../ui/button';
+import { DialogActions } from '../ui/dialog-actions';
 import type { ReactNode } from 'react';
 
 export function AssetSourceActions({ busy, onUpload, onLibrary }: {
@@ -18,8 +19,8 @@ export function AssetDialogActions({ children, busy, onClose }: {
   busy?: boolean;
   onClose: () => void;
 }) {
-  return <footer className="asset-modal-actions">
+  return <DialogActions as="footer" className="asset-modal-actions">
     {children}
     <Button variant="primary" type="button" busy={Boolean(busy)} onClick={onClose}>关闭</Button>
-  </footer>;
+  </DialogActions>;
 }

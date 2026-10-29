@@ -292,21 +292,28 @@ class WebGALPipeline:
             self.store.set_error(job, str(exc))
             raise
 
-    def generate_quiz(self, job_id: str) -> dict[str, Any]:
+    def generate_quiz(self, job_id: str, min_questions: int = 4, max_questions: int = 6) -> dict[str, Any]:
+        if not 4 <= min_questions <= max_questions <= 20:
+            raise PipelineError("习题数量范围须在 4–20 题之间，且最少题数不能大于最多题数")
         job = self.store.get(job_id)
         job_dir = self.store.job_dir(job_id)
         narrative_path = job_dir / "state" / "narrative_plan.json"
         if not narrative_path.exists():
             raise PipelineError("请先完成故事大纲，再生成讲评练")
         narrative_plan = read_json(narrative_path)
+        def validate_quiz(plan):
+            semantic_quiz_plan(plan)
+            if not min_questions <= len(plan['questions']) <= max_questions:
+                raise ValidationFailure([f'题目数量必须在 {min_questions}–{max_questions} 题之间'])
+
         quiz_plan = self._call_with_validation(
             job=job,
             job_dir=job_dir,
             function_name="emit_quiz_plan",
             artifact_key="quiz_plan",
             schema_name="quiz_plan.schema.json",
-            user_prompt=quiz_prompt(job, narrative_plan),
-            semantic_validator=semantic_quiz_plan,
+            user_prompt=quiz_prompt(job, narrative_plan, min_questions, max_questions),
+            semantic_validator=validate_quiz,
         )
         write_json(job_dir / "state" / "quiz_plan.json", quiz_plan)
         self.store.record_artifact(job, "quiz_plan", "state/quiz_plan.json")

@@ -101,6 +101,71 @@ def test_student_redaction_and_submission(service, exercise):
     assert not any(key in result for key in ('score', 'student_number', 'rank'))
 
 
+def test_twenty_question_assignment_can_be_submitted(service):
+    from copy import deepcopy
+    from webgal_backend.classroom_quiz_routes import SubmissionInput
+    plan = quiz()
+    plan['questions'].extend([{**deepcopy(plan['questions'][0]), 'id': f'q{i}'} for i in range(5, 21)])
+    exercise = service.create('owner', 'a' * 32, plan, None, '班级', '')
+    session = service.join(exercise['token'], '学生')
+    payload = SubmissionInput(answers=[{'question_id': q['id'], 'option_id': 'A'} for q in plan['questions']])
+    service.mutate_attempt(session['id'], credential=session['credential'], answers=[a.model_dump() for a in payload.answers])
+    assert len(service.attempt(session['id'], session['credential'])['answers']) == 20
+
+
+def test_latest_analysis_does_not_recompute_class_statistics(service, exercise, monkeypatch):
+    student = service.join(exercise['token'], '小明')
+    submit(service, student)
+    service.create_analysis(exercise['assignment_id'], 'owner')
+    monkeypatch.setattr(service, '_snapshot', lambda *args: pytest.fail('latest must not recompute statistics'))
+    report = service.latest_analysis(exercise['assignment_id'], 'owner')
+    assert report['status'] == 'QUEUED'
+    assert report['added_count'] == report['voided_count'] == 0
+
+
+def test_teacher_view_authenticates_once_and_still_rejects_other_owner(service, monkeypatch, tmp_path):
+    import io
+    from webgal_backend import auth, platform_admin
+    from webgal_backend.classroom_quiz import owner_key
+
+    monkeypatch.setenv('WEBGAL_AUTH_MODE', 'sso')
+    monkeypatch.setenv('WEBGAL_SSO_USERINFO_URL', 'https://account.test/me')
+    monkeypatch.setenv('WEBGAL_SSO_COOKIE_NAME', 'nos_session')
+    user_id, lookups, ownership_checks = 'teacher', [], []
+
+    def userinfo(*args, **kwargs):
+        lookups.append(user_id)
+        return io.BytesIO(json.dumps({'id': user_id}).encode())
+
+    monkeypatch.setattr(auth, 'urlopen', userinfo)
+    monkeypatch.setattr(platform_admin, 'blocked', lambda *args: False)
+    teacher = {'type': 'sso', 'user_id': 'teacher'}
+    exercise = service.create(owner_key(teacher), 'a' * 32, quiz(), None, '班级', '')
+    student = service.join(exercise['token'], '小明')
+    submit(service, student)
+
+    def owned_job(job_id, request):
+        ownership_checks.append(job_id)
+        if not auth.job_belongs_to_identity({'identity': teacher}, auth.identity_from_request(request, tmp_path)):
+            raise HTTPException(404, 'not found')
+
+    app = FastAPI()
+    app.include_router(create_router(service=service, owned_job=owned_job,
+        identity=lambda request: auth.identity_from_request(request, tmp_path),
+        job_dir=lambda _: tmp_path, frontend_url='https://example.test',
+        make_llm=lambda _: None, blocked=lambda *args: False))
+    client = TestClient(app)
+    client.cookies.set('nos_session', 'session-token')
+    response = client.get(f"/quiz/submissions/{student['id']}")
+    assert response.status_code == 200
+    assert response.json()['display_name'] == '小明'
+    assert lookups == ['teacher']
+    assert ownership_checks == ['a' * 32]
+    user_id = 'other-teacher'
+    assert client.get(f"/quiz/submissions/{student['id']}").status_code == 404
+    assert lookups == ['teacher', 'other-teacher']
+
+
 @pytest.mark.parametrize('invalid', [answers()[:-1], answers() + answers()[:1], [*answers()[:3], answers()[0]], [dict(x, option_id='Z') for x in answers()]])
 def test_incomplete_duplicate_extra_invalid_options(service, exercise, invalid):
     session = service.join(exercise['token'], '小明')
@@ -174,22 +239,22 @@ def test_closed_and_revoked_link_existing_session(service, exercise):
     assert service.attempt(session['id'], session['credential'])['status'] == 'SUBMITTED'
 
 
-def test_sharing_again_reuses_class_and_exercise_unless_new_round_is_requested(service, exercise):
+def test_sharing_again_reuses_class_and_exercise(service, exercise):
     session = service.join(exercise['token'], '小明')
     submit(service, session)
     repeated = service.create('owner', 'a' * 32, quiz(), None, '三年二班', '')
     assert repeated['reused'] and repeated['assignment_id'] == exercise['assignment_id']
-    assert repeated['token'] != exercise['token']
+    assert repeated['token'] == exercise['token']
     assert len(service.classes('owner')) == 1
     assert len(service.list('owner', 'a' * 32)) == 1
     assert len(service.submissions(repeated['assignment_id'], 'owner')) == 1
-    # A deliberate new round has its own name uniqueness scope; the earlier answer stays intact.
-    another_round = service.create('owner', 'a' * 32, quiz(), None, '三年二班', '', new_round=True)
-    assert not another_round['reused'] and another_round['assignment_id'] != exercise['assignment_id']
-    submit(service, service.join(another_round['token'], '小明'))
-    assert len(service.list('owner', 'a' * 32)) == 2
-    assert len(service.classes('owner')) == 1
-    assert len(service.submissions(exercise['assignment_id'], 'owner')) == 1
+    reopened = service.new_link(exercise['assignment_id'], 'owner')
+    assert reopened['token'] == exercise['token']
+    assert len(service.links(exercise['assignment_id'], 'owner')) == 1
+    service.revoke(exercise['assignment_id'], exercise['link_id'], 'owner')
+    replacement = service.new_link(exercise['assignment_id'], 'owner')
+    assert replacement['token'] != exercise['token']
+    assert service.new_link(exercise['assignment_id'], 'owner')['token'] == replacement['token']
 
 
 def test_name_correction_expiry_and_audit(service, exercise):

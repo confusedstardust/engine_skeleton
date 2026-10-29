@@ -2,6 +2,8 @@
 
 
 import { Button } from './ui/button';
+import { DialogHeader } from './ui/dialog-header';
+import { DialogActions } from './ui/dialog-actions';
 import { useToast } from "./ui/toast";
 import * as Dialog from './ui/dialog';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
@@ -123,17 +125,8 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
         overlayClassName="radix-confirm-overlay"
         className="admin-upload-dialog"
         aria-describedby="admin-upload-description"
-        onEscapeKeyDown={(e) => {
-          if (busy) e.preventDefault();
-        }}
-        onPointerDownOutside={(e) => {
-          if (busy) e.preventDefault();
-        }}
       >
-        <header className="asset-modal-head">
-          <Dialog.Title>上传公共素材</Dialog.Title>
-          <Dialog.CloseButton type="button" aria-label="关闭上传" disabled={busy} />
-        </header>
+        <DialogHeader dialogTitle className="asset-modal-head" title="上传公共素材" closeLabel="关闭上传" busy={busy} onClose={() => setOpen(false)} />
         <form onSubmit={submit}>
           <div className="admin-upload-body">
             <Dialog.Description id="admin-upload-description">
@@ -283,7 +276,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
               className="admin-upload-message"
             />
           </div>
-          <footer className="asset-modal-actions">
+          <DialogActions as="footer" className="asset-modal-actions">
             <Dialog.Close asChild>
               <Button variant="outline" type="button" busy={Boolean(busy)}>
                 取消
@@ -292,7 +285,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
             <Button variant="primary" type="submit" busy={Boolean(busy)}>
               {busy ? '正在上传…' : '上传素材'}
             </Button>
-          </footer>
+          </DialogActions>
         </form>
       </Dialog.Surface>
     </Dialog.Root>

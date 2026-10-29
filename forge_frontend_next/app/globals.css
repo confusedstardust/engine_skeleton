@@ -1057,16 +1057,6 @@ a {
   white-space: nowrap;
 }
 
-.inline-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border-light);
-  border-top-color: var(--cinnabar);
-  border-radius: 999px;
-  animation: spin 0.8s linear infinite;
-}
-
 .number-control {
   display: flex;
   align-items: center;
@@ -1512,6 +1502,18 @@ a {
   border-color: var(--cinnabar);
   opacity: 0.72;
 }
+
+/* Shared compact and icon button sizes. Pages own placement, not button states. */
+.btn { gap:7px; }
+.btn[data-size="sm"] { min-height:34px; padding:7px 13px; border-radius:6px; font-size:12px; font-weight:500; box-shadow:0 1px 2px rgba(26,26,26,.025); }
+.btn[data-size="sm"].outline { color:var(--ink-light); border-color:#dfd2bf; background:#fffdf8; }
+.btn[data-size="sm"].outline:hover:not(:disabled) { background:#f6f0e5; border-color:#c9b794; }
+.btn[data-size="sm"].primary { box-shadow:none; }
+.btn[data-size="sm"].ghost { color:var(--ink-muted); box-shadow:none; }
+.btn[data-size="sm"].ghost:hover:not(:disabled) { background:#f6f0e5; }
+.btn[data-icon-only="true"] { width:40px; height:40px; padding:0; }
+.btn[data-icon-only="true"][data-size="sm"] { width:34px; height:34px; padding:0; }
+.btn:disabled:not(.primary) { opacity:.5; }
 
 .history-wrapper,
 .auth-wrapper {
@@ -5005,14 +5007,14 @@ a {
 .asset-library-scope-tabs button.active { color: var(--cinnabar); background: #fffdf8; box-shadow: 0 2px 8px rgba(65,50,36,.1); }
 .asset-library-scope-tabs button:disabled { cursor: default; opacity: .55; }
 .asset-library-picker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.asset-library-picker-card { position: relative; display: grid; min-width: 0; padding: 0; overflow: hidden; color: var(--ink); text-align: left; cursor: pointer; background: #fff; border: 1px solid rgba(105,76,41,.16); border-radius: 14px; box-shadow: 0 7px 22px rgba(65,50,36,.05); transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
-.asset-library-picker-card:hover { transform: translateY(-2px); border-color: rgba(158,32,52,.42); box-shadow: 0 12px 30px rgba(65,50,36,.1); }
+
+
 .asset-library-picker-card.selected { border-color: var(--cinnabar); box-shadow: 0 0 0 2px rgba(158,32,52,.12), 0 13px 32px rgba(65,50,36,.12); }
 .asset-library-picker-card > i { position: absolute; top: 10px; right: 10px; display: grid; width: 25px; height: 25px; color: transparent; place-items: center; background: rgba(255,255,255,.8); border: 1px solid rgba(105,76,41,.18); border-radius: 50%; font-style: normal; box-shadow: 0 2px 8px rgba(30,21,16,.08); }
 .asset-library-picker-card.selected > i { color: #fff; background: var(--cinnabar); border-color: var(--cinnabar); }
 .asset-library-picker-preview { display: grid; aspect-ratio: 16 / 10; overflow: hidden; color: var(--cinnabar); place-items: center; background: linear-gradient(145deg, #eee8df, #f8f4ec); }
 .asset-library-picker-preview img { width: 100%; height: 100%; object-fit: contain; transition: transform 240ms ease; }
-.asset-library-picker-card:hover img { transform: scale(1.025); }
+
 .asset-library-audio-mark { font-family: Georgia, serif; font-size: 46px; }
 .asset-library-picker-copy { display: grid; padding: 10px 12px; }
 .asset-library-picker-copy strong { overflow: hidden; font-family: "Noto Serif SC", "STSong", serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -5831,8 +5833,8 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
 .practice-state small { color: var(--ink-muted); }
 .practice-state-mark { display: grid; width: 74px; height: 74px; margin-bottom: 24px; color: #fffdf8; font-family: "Noto Serif SC", serif; font-size: 34px; place-items: center; background: var(--cinnabar); border: 5px double rgba(255,255,255,.7); box-shadow: 0 12px 28px var(--cinnabar-glow); }
 .practice-state.failed .practice-state-mark { background: #746052; }
-.practice-spinner { width: 48px; height: 48px; margin-bottom: 26px; border: 2px solid rgba(154,116,47,.2); border-top-color: var(--gold); border-radius: 50%; animation: practice-spin .8s linear infinite; }
-@keyframes practice-spin { to { transform: rotate(360deg); } }
+.practice-loading-spinner { margin-bottom:26px; }
+
 .practice-kicker { margin: 0; color: var(--cinnabar); font-size: 10px; font-weight: 800; letter-spacing: .18em; }
 .practice-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 40px; align-items: end; margin-bottom: 34px; padding: 0 6px 32px; border-bottom: 1px solid var(--border); }
 .practice-hero h1 { margin: 10px 0 12px; font-family: "Noto Serif SC", "STSong", serif; font-size: clamp(32px, 5vw, 54px); line-height: 1.25; }
@@ -5921,9 +5923,9 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
 .asset-library-toolbar button.active { color: #fff; background: #8d2939; }
 .asset-library-toolbar select { min-width: 130px; padding: 8px 34px 8px 12px; color: #53483f; border: 1px solid #ddd2c5; border-radius: 9px; background: #fff; }
 .asset-library-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.asset-library-card { overflow: hidden; border: 1px solid #e5ddd3; border-radius: 14px; background: #fffefa; box-shadow: 0 7px 22px rgba(65,50,36,.06); }
-.asset-library-preview { display: grid; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; color: #9a8778; background: linear-gradient(145deg,#eee9e1,#f8f5f0); font: 700 13px Georgia,serif; letter-spacing: .12em; }
-.asset-library-preview img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s ease; }
+
+
+
 .asset-library-card:hover .asset-library-preview img { transform: scale(1.035); }
 .asset-library-copy { padding: 15px 16px 17px; }
 .asset-library-copy > div { display: flex; gap: 7px; align-items: center; color: #9a8c80; font-size: 11px; }
@@ -5949,8 +5951,8 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
 .asset-library-notice { margin-bottom: 18px; border: 1px solid #bcd9bf; border-radius: 10px; background: #eff8ef; padding: 12px 16px; color: #35633b; }
 .asset-library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
 .asset-library-card { overflow: hidden; border: 1px solid #e5dac9; border-radius: 16px; background: #fffdfa; box-shadow: 0 10px 30px rgba(55, 40, 24, .06); }
-.asset-library-preview { aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; background: #f4efe7; }
-.asset-library-preview img { width: 100%; height: 100%; object-fit: contain; }
+.asset-library-preview { display: grid; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; color: #9a8778; background: #f4efe7; font: 700 13px Georgia,serif; letter-spacing: .12em; }
+.asset-library-preview img { width: 100%; height: 100%; object-fit: contain; transition: transform .3s ease; }
 .asset-library-preview audio { width: calc(100% - 28px); }
 .asset-library-card-body { display: grid; gap: 8px; min-height: 112px; padding: 10px 16px 16px; }
 .asset-library-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
@@ -6003,8 +6005,8 @@ body:has(.asset-modal-layer) .workspace-status.workflow-status.failed { position
 .radix-confirm-content { position: fixed; z-index: 1601; top: 50%; left: 50%; transform: translate(-50%, -50%); animation: none; max-width: calc(100vw - 40px); }
 .asset-modal-backdrop, .scene-dialog-layer { backdrop-filter: none; }
 .asset-modal, .asset-library-picker { animation: asset-modal-fade 120ms ease-out; box-shadow: 0 16px 48px rgba(30,21,16,.24); }
-.asset-library-picker-card { box-shadow: none; transition: border-color 120ms ease; }
-.asset-library-picker-card:hover { transform: none; box-shadow: none; }
+.asset-library-picker-card { position: relative; display: grid; min-width: 0; padding: 0; overflow: hidden; color: var(--ink); text-align: left; cursor: pointer; background: #fff; border: 1px solid rgba(105,76,41,.16); border-radius: 14px; box-shadow: none; transition: border-color 120ms ease; }
+.asset-library-picker-card:hover { transform: none; border-color: rgba(158,32,52,.42); box-shadow: none; }
 .asset-library-picker-card:hover img { transform: none; }
 @media (prefers-reduced-motion: reduce) { .asset-modal, .asset-library-picker, .scene-dialog { animation: none; } }
 

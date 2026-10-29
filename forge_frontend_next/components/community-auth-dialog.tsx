@@ -28,7 +28,7 @@ export default function CommunityAuthDialog({ onClose, onAuthenticated, messageK
     try { const data = await auth("email/send-code", { email }); setCooldown(data.cooldown || 60); setMessage("验证码已发送，请查看邮箱。"); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "验证码发送失败"); } finally { setSendingCode(false); }
   }
-  return <Dialog.Root busy={busy} open onOpenChange={open => { if (!open && !busy) onClose(); }}><Dialog.Surface overlayClassName="community-dialog-overlay" className="community-auth-dialog" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }}>
+  return <Dialog.Root busy={busy} open onOpenChange={open => { if (!open) onClose(); }}><Dialog.Surface overlayClassName="community-dialog-overlay" className="community-auth-dialog">
     <Dialog.CloseButton className="community-dialog-close" aria-label="关闭登录注册" disabled={busy} /><p className="router-kicker">NARRATIVEOS</p><Dialog.Title>登录 / 注册</Dialog.Title><Dialog.Description>登录后发送你的{messageKind === "SUGGESTION" ? "建议" : "问题"}，已填写的内容会保留。</Dialog.Description>
     <div className="community-auth-tabs">{(["login", "register"] as const).map(value => <Button variant="unstyled" key={value} type="button" aria-pressed={mode === value} disabled={busy} onClick={() => { setMode(value); setError(""); setMessage(""); }}>{value === "login" ? "登录" : "注册"}</Button>)}</div>
     <form onSubmit={async event => {

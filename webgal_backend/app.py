@@ -335,6 +335,8 @@ class UpdateJobTitleRequest(BaseModel):
 
 class GenerateQuizRequest(BaseModel):
     regenerate: bool = False
+    min_questions: int = Field(4, ge=4, le=20)
+    max_questions: int = Field(6, ge=4, le=20)
 
 
 class UpdateQuizRequest(BaseModel):
@@ -774,6 +776,8 @@ def generate_quiz(
     request: Request,
 ) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if payload.min_questions > payload.max_questions:
+        raise HTTPException(status_code=422, detail="最少题数不能大于最多题数")
     current = _quiz_response(job_id)
     if current["status"] in {"QUEUED", "RUNNING"}:
         return current
@@ -786,13 +790,15 @@ def generate_quiz(
         job_dir / "state" / "quiz_generation.json",
         {"status": "QUEUED", "error": None, "updated_at": utc_now()},
     )
-    background_tasks.add_task(run_quiz_background, job_id)
+    background_tasks.add_task(run_quiz_background, job_id, payload.min_questions, payload.max_questions)
     return _quiz_response(job_id)
 
 
 @app.put("/jobs/{job_id}/quiz")
 def update_quiz(job_id: str, payload: UpdateQuizRequest, request: Request) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if _quiz_response(job_id)['status'] in {'QUEUED', 'RUNNING'}:
+        raise HTTPException(status_code=409, detail="习题正在生成，请完成后再保存修改")
     try:
         validate_schema("quiz_plan.schema.json", payload.quiz_plan)
         semantic_quiz_plan(payload.quiz_plan)
@@ -2121,11 +2127,11 @@ def run_phase_background(
             return
 
 
-def run_quiz_background(job_id: str) -> None:
+def run_quiz_background(job_id: str, min_questions: int = 4, max_questions: int = 6) -> None:
     status_path = store.job_dir(job_id) / "state" / "quiz_generation.json"
     try:
         write_json(status_path, {"status": "RUNNING", "error": None, "updated_at": utc_now()})
-        pipeline.generate_quiz(job_id)
+        pipeline.generate_quiz(job_id, min_questions, max_questions)
         write_json(status_path, {"status": "READY", "error": None, "updated_at": utc_now()})
     except Exception as exc:
         write_json(

@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from '../../../components/ui/state';
 import { InlineFeedback } from '../../../components/ui/feedback';
 
 import { Button } from '../../../components/ui/button';
@@ -6,7 +7,9 @@ import { useToast } from "../../../components/ui/toast";
 import { WorkbenchHeader } from "../../../components/workbench-header";
 import { usePolling } from "../../../hooks/use-polling";
 import { forgeApi as api } from "../../../lib/api-client";
-import type { QuizResponse } from "../../../domain/quiz";
+import type { QuizPlan, QuizResponse } from "../../../domain/quiz";
+import { QuestionCard, QuestionOptions, QuestionExplanation } from '../../../components/quiz-question';
+import { QuizCountRange } from '../../../components/quiz-count-range';
 import { ClassroomQuizManager } from "../../../components/classroom-quiz-manager";
 import { ClassroomQuizContent } from "../../../components/classroom-quiz-content";
 
@@ -28,6 +31,9 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   const [loading, setLoading] = useState(true);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [editingQuiz, setEditingQuiz] = useState(false);
+  const [minQuestions, setMinQuestions] = useState(4);
+  const [maxQuestions, setMaxQuestions] = useState(6);
   const [teacherView, setTeacherView] = useState<'quiz' | 'submissions' | 'analysis'>('quiz');
   const notify = useToast();
   const [loadError, setLoadError] = useState("");
@@ -57,9 +63,9 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
     try {
       const value = await api<QuizResponse>(`/jobs/${jobId}/quiz`, {
         method: "POST",
-        body: JSON.stringify({ regenerate }),
+        body: JSON.stringify({ regenerate, min_questions: minQuestions, max_questions: maxQuestions }),
       });
-      setData(value);
+      setData({ ...value, can_manage: true });
       notify(value.status === "READY" ? "习题已生成" : "习题已进入生成队列，请稍候…", "success");
       if (regenerate) {
         setAnswers({});
@@ -80,6 +86,12 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   }
 
   const generating = data?.status === "QUEUED" || data?.status === "RUNNING";
+  const quantityControls = <QuizCountRange min={minQuestions} max={maxQuestions} disabled={actionBusy || generating} onChange={(min, max) => { setMinQuestions(min); setMaxQuestions(max); }} />;
+  async function saveQuiz(quiz: QuizPlan) {
+    const value = await api<QuizResponse>(`/jobs/${jobId}/quiz`, { method: 'PUT', body: JSON.stringify({ quiz_plan: quiz }) });
+    setData({ ...value, can_manage: true });
+    notify('习题已保存', 'success');
+  }
 
   return (
     <>
@@ -87,18 +99,18 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
 {data?.quiz && !data.can_manage ? <Button variant="unstyled" className="top-nav-action" type="button" onClick={resetPractice}>重新作答</Button> : null}
 </WorkbenchHeader>
 
-      <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description="重新生成会覆盖当前习题。" onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
+      <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description={`将生成 ${minQuestions}–${maxQuestions} 道题并覆盖当前习题，已发放的班级练习和历史答卷保留原题。`} onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
       <main className={`practice-page ${data?.can_manage ? 'practice-teacher-workspace' : ''}`}>
         {data?.can_manage && data.quiz ? <>
           <nav className="classroom-tabs" aria-label="习题管理视图">
             <Button variant="unstyled" type="button" aria-pressed={teacherView === 'quiz'} onClick={() => setTeacherView('quiz')}>习题内容</Button>
-            <Button variant="unstyled" type="button" aria-pressed={teacherView === 'submissions'} onClick={() => setTeacherView('submissions')}>班级答卷</Button>
-            <Button variant="unstyled" type="button" aria-pressed={teacherView === 'analysis'} onClick={() => setTeacherView('analysis')}>学情分析</Button>
+            <Button variant="unstyled" type="button" disabled={editingQuiz} aria-pressed={teacherView === 'submissions'} onClick={() => setTeacherView('submissions')}>班级答卷</Button>
+            <Button variant="unstyled" type="button" disabled={editingQuiz} aria-pressed={teacherView === 'analysis'} onClick={() => setTeacherView('analysis')}>学情分析</Button>
           </nav>
-          <div hidden={teacherView === 'quiz'}><ClassroomQuizManager jobId={jobId} quizTitle={data.quiz.title} view={teacherView === 'analysis' ? 'analysis' : 'submissions'} /></div>
+          <div hidden={teacherView === 'quiz'}><ClassroomQuizManager jobId={jobId} quizTitle={data.quiz.title} active={teacherView !== 'quiz'} view={teacherView === 'analysis' ? 'analysis' : 'submissions'} /></div>
         </> : null}
         {loadError && <InlineFeedback  >{loadError}</InlineFeedback>}
-        {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
+        {loading ? <section className="practice-state"><Spinner size="lg" tone="gold" className="practice-loading-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
 
         {!loading && !loadError && (!data || data.status === "NOT_GENERATED") ? (
           <section className="practice-state">
@@ -107,14 +119,14 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
             <h1>为这份作品生成习题</h1>
             <p>系统会依据教学材料、学习目标和叙事大纲，生成单选与判断习题，并提供答案解析。</p>
             {data?.can_manage ? (
-              <Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</Button>
+              <>{quantityControls}<Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => void generate(false)}>{actionBusy ? "正在创建…" : "生成习题"}</Button></>
             ) : <small>这份作品暂未发布习题，请先体验游戏内容。</small>}
           </section>
         ) : null}
 
         {!loading && generating ? (
           <section className="practice-state">
-            <span className="practice-spinner" />
+            <Spinner size="lg" tone="gold" className="practice-loading-spinner" />
             <p className="practice-kicker">GENERATING</p>
             <h1>正在生成习题</h1>
             <p>正在依据作品内容生成题目与答案解析。</p>
@@ -128,12 +140,12 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
             <p className="practice-kicker">GENERATION FAILED</p>
             <h1>习题生成失败</h1>
             <p>{data.error || "模型暂时没有返回有效题目，请重新生成。"}</p>
-            {data.can_manage ? <Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => setConfirmRegenerate(true)}>重新生成</Button> : null}
+            {data.can_manage ? <>{quantityControls}<Button variant="primary" type="button" busy={Boolean(actionBusy)} onClick={() => setConfirmRegenerate(true)}>重新生成</Button></> : null}
           </section>
         ) : null}
 
         {!loading && data?.status === "READY" && data.quiz && data.can_manage && teacherView === 'quiz' ? (
-          <ClassroomQuizContent quiz={data.quiz} busy={actionBusy || generating} onRegenerate={() => setConfirmRegenerate(true)} />
+          <ClassroomQuizContent quiz={data.quiz} busy={actionBusy || generating} onRegenerate={() => setConfirmRegenerate(true)} onSave={saveQuiz} onEditingChange={setEditingQuiz} generationControls={quantityControls} />
         ) : null}
 
         {!loading && data?.status === "READY" && data.quiz && !data.can_manage ? (
@@ -155,44 +167,13 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
               {data.quiz.questions.map((question, index) => {
                 const isRevealed = revealed.has(question.id);
                 const selected = answers[question.id];
-                const correct = question.correct_option_ids[0];
-                return (
-                  <article className={`quiz-card ${question.type === "judgement" ? "judgement" : "choice"}`} key={question.id}>
-                    <header>
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <div><em>{question.type === "judgement" ? "判断辨析" : "单项选择"}</em></div>
-                    </header>
-                    <h2>{question.prompt}</h2>
-                    <div className="quiz-options" role="radiogroup" aria-label={question.prompt}>
-                      {question.options.map((option) => {
-                        const optionCorrect = isRevealed && option.id === correct;
-                        const optionWrong = isRevealed && option.id === selected && option.id !== correct;
-                        return (
-                          <Button variant="unstyled"
-                            className={`${selected === option.id ? "selected" : ""} ${optionCorrect ? "correct" : ""} ${optionWrong ? "wrong" : ""}`}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected === option.id}
-                            disabled={isRevealed}
-                            key={option.id}
-                            onClick={() => {
-                              setAnswers((current) => ({ ...current, [question.id]: option.id }));
-                              setRevealed((current) => new Set(current).add(question.id));
-                            }}
-                          >
-                            <span>{option.id}</span><strong>{option.text}</strong>
-                          </Button>
-                        );
-                      })}
-                    </div>
-                    {isRevealed ? (
-                      <div className="quiz-explanation" role="status">
-                        <strong>{selected === correct ? "回答正确" : `回答错误，正确答案：${correct}`}</strong>
-                        <p>{question.explanation}</p>
-                      </div>
-                    ) : null}
-                  </article>
-                );
+                return <QuestionCard question={question} index={index} key={question.id} typeLabel={question.type === 'judgement' ? '判断辨析' : '单项选择'}>
+                  <QuestionOptions question={question} selected={selected} revealed={isRevealed} disabled={isRevealed} onSelect={id => {
+                    setAnswers(current => ({ ...current, [question.id]: id }));
+                    setRevealed(current => new Set(current).add(question.id));
+                  }} />
+                  {isRevealed && <QuestionExplanation question={question} selected={selected} announce />}
+                </QuestionCard>;
               })}
             </section>
 
