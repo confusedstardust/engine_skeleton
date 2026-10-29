@@ -1,4 +1,8 @@
 "use client";
+import { EmptyState } from '../../components/ui/state';
+import { Button } from '../../components/ui/button';
+import { InlineFeedback } from '../../components/ui/feedback';
+
 import { useErrorToast, useToast } from "../../components/ui/toast";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { usePaymentOrder } from "../../hooks/use-payment-order";
@@ -112,16 +116,16 @@ export default function RechargePage() {
     <WorkbenchHeader title="临场 · 创作套餐" subtitle="CREATIVE CREDITS" className="top-nav recharge-nav" wrapBrand={false} />
     <main className="recharge-page recharge-twilight">
       <div className="recharge-heading recharge-hero"><p className="recharge-hero-eyebrow">让每一份灵感，都有展开的空间</p><h1 aria-label="创建互动体验，按创作节奏付费">{["创建互动体验，", "按创作节奏付费"].map((line, lineIndex) => <span key={line} className={lineIndex ? "recharge-hero-accent" : undefined} aria-hidden="true">{Array.from(line).map((char, index) => <span key={index} className="recharge-title-char" style={{ animationDelay: `${0.12 + (lineIndex * 7 + index) * 0.045}s` }}>{char}</span>)}</span>)}</h1><p className="recharge-hero-description">从一次灵感到持续创作，选择适合你的方案。<br className="recharge-hero-break" />用积分开启互动叙事，让文本、知识与想象成为可参与的故事。</p></div>
-      {loading ? <p role="status">正在加载账户…</p> : !signedIn ? <div className="recharge-empty"><p>请使用 NarrativeOS 账号登录后充值。</p><Link className="btn primary" href="/login">前往登录</Link></div> : <>
+      {loading ? <p role="status">正在加载账户…</p> : !signedIn ? <EmptyState className="recharge-empty"><p>请使用 NarrativeOS 账号登录后充值。</p><Link className="btn primary" href="/login">前往登录</Link></EmptyState> : <>
         <section className="recharge-balance" aria-label="当前积分"><div><span>{balance && balance.available < 0 ? "当前欠费积分" : "当前可用积分"}</span><strong>{balance ? balance.available.toLocaleString("zh-CN") : "—"}</strong></div>{balance && balance.reserved > 0 ? <p>{balance.reserved} 分正在任务中使用。</p> : null}</section>
-        {!enabled || products.length === 0 ? <div className="recharge-empty"><p>充值暂未开放</p><span>充值档位准备好后会在这里显示。</span></div> : <>
+        {!enabled || products.length === 0 ? <EmptyState className="recharge-empty"><p>充值暂未开放</p><span>充值档位准备好后会在这里显示。</span></EmptyState> : <>
           <div className="pricing-catalog-tabs" role="tablist" aria-label="套餐类型">
-            {([ ["subscription", "订阅方案"], ["resources", "资源包"] ] as const).map(([value, label]) => <button key={value} id={`catalog-tab-${value}`} role="tab" aria-selected={catalogTab === value} aria-controls="catalog-panel" tabIndex={catalogTab === value ? 0 : -1} className={catalogTab === value ? "active" : ""} onClick={() => setCatalogTab(value)} onKeyDown={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "subscription" : event.key === "End" ? "resources" : value === "subscription" ? "resources" : "subscription"; setCatalogTab(next); document.getElementById(`catalog-tab-${next}`)?.focus(); } }}>{label}</button>)}
+            {([ ["subscription", "订阅方案"], ["resources", "资源包"] ] as const).map(([value, label]) => <Button variant="unstyled" key={value} id={`catalog-tab-${value}`} role="tab" aria-selected={catalogTab === value} aria-controls="catalog-panel" tabIndex={catalogTab === value ? 0 : -1} className={catalogTab === value ? "active" : ""} onClick={() => setCatalogTab(value)} onKeyDown={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "subscription" : event.key === "End" ? "resources" : value === "subscription" ? "resources" : "subscription"; setCatalogTab(next); document.getElementById(`catalog-tab-${next}`)?.focus(); } }}>{label}</Button>)}
           </div>
           {catalogTab === "subscription" ? <div className="billing-cycle" aria-label="付款周期">
-            <button className={`billing-cycle-label${!annualBilling ? " active" : ""}`} onClick={() => changeBilling(false)}>按月</button>
-            <button type="button" role="switch" aria-label="按年付费" aria-checked={annualBilling} className={`billing-toggle${annualBilling ? " annual" : ""}`} onClick={() => changeBilling(!annualBilling)}><span className="billing-toggle-thumb"><svg className="billing-toggle-arrow" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9H3m5-5-5 5 5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span></button>
-            <button className={`billing-cycle-label${annualBilling ? " active" : ""}`} onClick={() => changeBilling(true)}>按年</button><span className="billing-saving">立省15%起</span>
+            <Button variant="unstyled" className={`billing-cycle-label${!annualBilling ? " active" : ""}`} onClick={() => changeBilling(false)}>按月</Button>
+            <Button variant="unstyled" type="button" role="switch" aria-label="按年付费" aria-checked={annualBilling} className={`billing-toggle${annualBilling ? " annual" : ""}`} onClick={() => changeBilling(!annualBilling)}><span className="billing-toggle-thumb"><svg className="billing-toggle-arrow" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9H3m5-5-5 5 5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span></Button>
+            <Button variant="unstyled" className={`billing-cycle-label${annualBilling ? " active" : ""}`} onClick={() => changeBilling(true)}>按年</Button><span className="billing-saving">立省15%起</span>
           </div> : null}
           <section id="catalog-panel" role="tabpanel" aria-labelledby={`catalog-tab-${catalogTab}`} className={`pricing-grid pricing-grid-${catalogTab}`}>
             {catalogTab === "subscription" ? <>
@@ -142,7 +146,7 @@ export default function RechargePage() {
                 <span className="pricing-ribbon">{pro ? "高阶创作者" : "最受欢迎"}</span>
                 <div className="pricing-card-top"><PlanIcon file={pro ? "crown" : "palette"} /><h2 className="pricing-card-category pricing-card-name">{product.name}</h2>{pro ? <span className="pricing-badge">{annualBilling ? "年付省 ¥528" : "更多创作额度"}</span> : null}</div>
                 <div className="pricing-plan-heading"><h3>{pro ? "让创作持续发生" : "把任何文本、知识与教学灵感变成互动体验。"}</h3><p>{pro ? "提供更高的每月 credits 配额与官方优先支持。适合需要更多积分、创作能力、下载额度和深度定制作品IP的创作者，扩大品牌影响力。" : "面向教师、文旅场景、IP叙事等泛人文互动体验场景。解锁更多功能、强大AI工具以及海量素材。"}</p></div>
-                <button className="pricing-cta" disabled={busy || !historyReady || !purchaseProduct || !!subscription} onClick={() => { if (purchaseProduct) void create(purchaseProduct); }}>{!historyReady ? "正在核查订单…" : busy ? "正在处理…" : pending ? "继续支付" : subscription ? subscription.name === product.name ? "当前订阅" : "已有有效订阅" : !purchaseProduct ? "年付方案待确认" : pro ? "升级Pro" : "开始使用Creator"}</button>
+                <Button variant="unstyled" className="pricing-cta" disabled={busy || !historyReady || !purchaseProduct || !!subscription} onClick={() => { if (purchaseProduct) void create(purchaseProduct); }}>{!historyReady ? "正在核查订单…" : busy ? "正在处理…" : pending ? "继续支付" : subscription ? subscription.name === product.name ? "当前订阅" : "已有有效订阅" : !purchaseProduct ? "年付方案待确认" : pro ? "升级Pro" : "开始使用Creator"}</Button>
                 <div className={`pricing-price-stage pricing-price-stage-pro${annualBilling ? " is-annual" : ""}`} aria-live="polite">
                   <PriceFace value={displayPrice} annual={annualBilling} />
                   {annualBilling && priceMotionKey > 0 ? <PricePeel key={priceMotionKey} value={product.price_fen / 100} /> : null}
@@ -162,7 +166,7 @@ export default function RechargePage() {
                 <div className="pricing-card-top"><PlanIcon file="rocket-launch" /><h2 className="pricing-card-category pricing-card-name">{product.name}</h2><span className="pricing-boost-tag">一次性补充</span></div>
                 <p className="pricing-boost-quota"><strong>{product.credits.toLocaleString("zh-CN")}</strong><span>创作积分</span></p><p className="pricing-boost-note">{product.credits > 100 ? "充足补给，让创作持续发生" : "轻量尝鲜，即刻开启创作"}</p>
                 <div className="pricing-price"><span>¥</span><strong>{Number(money(product.price_fen))}</strong><small>/ 次</small></div>
-                <button className="pricing-cta" disabled={busy || !historyReady} onClick={() => void create(product)}>{!historyReady ? "正在核查订单…" : busy ? "正在处理…" : pending ? "继续支付" : `购买 ${product.credits.toLocaleString("zh-CN")} 积分`}</button>
+                <Button variant="unstyled" className="pricing-cta" disabled={busy || !historyReady} onClick={() => void create(product)}>{!historyReady ? "正在核查订单…" : busy ? "正在处理…" : pending ? "继续支付" : `购买 ${product.credits.toLocaleString("zh-CN")} 积分`}</Button>
               </article>)}
             </div>}
           </section>
@@ -174,7 +178,7 @@ export default function RechargePage() {
         /> : null}
 
       </>}
-      {loadError ? <p className="recharge-error" role="alert">{loadError}</p> : null}
+      {loadError ? <InlineFeedback  >{loadError}</InlineFeedback> : null}
     </main>
   </>;
 }

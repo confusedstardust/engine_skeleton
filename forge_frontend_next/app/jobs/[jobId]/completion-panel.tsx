@@ -1,5 +1,7 @@
 'use client';
 
+
+
 import { Button } from '../../../components/ui/button';
 import { ImagePreview } from "../../../components/ui/image-preview";
 import { useToast } from '../../../components/ui/toast';
@@ -101,7 +103,7 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
         ) : (
           <div className="completion-title-display">
             <strong>{gameTitle}</strong>
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-label="修改游戏名称"
               disabled={building || Boolean(actions.busy)}
@@ -118,7 +120,7 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
                   d="m13.15 5.15 5.7 5.7L9.2 20.5l-5.7 1 1-5.7 9.65-10.65Zm1.42-1.42 2.16-2.16a2 2 0 0 1 2.83 0l2.87 2.87a2 2 0 0 1 0 2.83l-2.16 2.16-5.7-5.7Z"
                 />
               </svg>
-            </button>
+            </Button>
           </div>
         )}
         {titleMessage ? <small role="status">{titleMessage}</small> : null}
@@ -164,14 +166,14 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
           </Button>
           {actions.errors[`${props.job.id}:publication`] && <Button variant="outline" disabled={Boolean(actions.busy)} onClick={() => void actions.loadPublication(props.job)}>重试发布状态</Button>}
           {publication?.published ? (
-            <button
+            <Button variant="unstyled"
               className="publication-remove"
               type="button"
               disabled={building || Boolean(actions.busy)}
               onClick={removeFromEcosystem}
             >
               取消生态发布
-            </button>
+            </Button>
           ) : null}
         </div>
         <Button variant="outline" type="button" busy={Boolean(props.busy)} disabled={building || props.busy} onClick={props.editDraft}>

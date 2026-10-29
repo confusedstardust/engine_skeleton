@@ -73,7 +73,7 @@
 .empty { padding: 48px 24px; border: 1px dashed #dfd4c6; border-radius: 12px; text-align: center; }
 .empty strong { font-size: 14px; font-weight: 500; }
 .empty p { color: var(--muted); font-size: 12px; line-height: 1.8; }
-.loadError { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; padding: 16px; border: 1px solid #e8c8c5; border-radius: 10px; color: #a34849; font-size: 13px; }
+.loadError { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
 .panel :is(button, summary):focus-visible { outline: 2px solid #b08369; outline-offset: 3px; }
 @media (max-width: 1000px) { .columns { grid-template-columns: minmax(270px, .9fr) minmax(0, 1.2fr); gap: 22px; } }
 @media (max-width: 800px) { .columns { grid-template-columns: 1fr; gap: 36px; } .heading { padding-bottom: 22px; margin-bottom: 24px; } .panel .field textarea.noticeContent { min-height: 160px; } }

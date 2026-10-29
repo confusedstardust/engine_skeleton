@@ -1,4 +1,6 @@
 "use client";
+import { InlineFeedback } from './ui/feedback';
+
 import { Button } from './ui/button';
 import { useErrorToast } from "./ui/toast";
 import { usePaymentOrder } from "../hooks/use-payment-order";
@@ -51,11 +53,11 @@ export default function PaymentTestPanel({ embedded = false }: { embedded?: bool
     if (order?.status !== "PENDING") setEvidence(null);
     await startOrder();
   }
-  if (access !== "allowed") return <section className="private-payment-test"><p role="status">{access === "loading" ? "正在验证访问权限…" : "测试支付暂不可用"}</p>{access === "denied" ? <p role="alert" className="recharge-error">{loadError === "页面不存在" ? "请登录已标记为测试账号的 NarrativeOS 用户或管理员账号。" : loadError || "测试配置检查失败，请稍后重试。"}</p> : null}{!embedded ? <ReturnLink /> : null}</section>;
+  if (access !== "allowed") return <section className="private-payment-test"><p role="status">{access === "loading" ? "正在验证访问权限…" : "测试支付暂不可用"}</p>{access === "denied" ? <InlineFeedback  >{loadError === "页面不存在" ? "请登录已标记为测试账号的 NarrativeOS 用户或管理员账号。" : loadError || "测试配置检查失败，请稍后重试。"}</InlineFeedback> : null}{!embedded ? <ReturnLink /> : null}</section>;
   const completed = isOrderFulfilled(order);
   return <section className="private-payment-test">{!embedded ? <Link href="/recharge">← 返回充值页</Link> : null}<p className="private-test-kicker">PRIVATE PAYMENT TEST</p><h1>真实支付验收</h1><p>仅当前授权账号可用 · 走正式微信支付与积分入账流程</p>
     <section className="private-test-card"><h2>¥0.10 <small>／1 积分</small></h2><p>点击后创建真实订单，由你使用微信扫码付款。可测试下单、二维码、付款确认及积分到账。</p><p className="admin-subscription-note">主动查询确认付款与微信自动回调分别验收；完整回调测试需要公网服务已部署。</p><Button variant="primary" busy={Boolean(busy)} onClick={() => void start()}>{busy ? "正在处理…" : order?.status === "PENDING" ? "继续测试订单" : "创建 ¥0.10 测试订单"}</Button><p>当前积分余额：{balance ? balance.available : "—"}</p></section>
-    {loadError ? <p role="alert" className="recharge-error">{loadError}</p> : null}
+    {loadError ? <InlineFeedback  >{loadError}</InlineFeedback> : null}
     {evidence ? <section className="private-test-card"><h2>服务端验收结果</h2><dl><dt>微信支付状态</dt><dd>{evidence.payment_status}</dd><dt>积分发放状态</dt><dd>{evidence.fulfillment_status}</dd><dt>到账积分</dt><dd>{evidence.granted_credits}</dd><dt>入账流水数量</dt><dd>{evidence.grant_ledger_entries}（应为 1，重复查询不会重复入账）</dd><dt>验签通过的微信回调</dt><dd>{evidence.verified_callback ? "已收到并处理" : "尚未收到；若已支付，可能通过主动查询确认，不能视为回调验收通过"}</dd></dl><Button variant="outline" busy={Boolean(busy)} onClick={() => void refresh()}>重新检查验收结果</Button></section> : null}
     {!evidence && order?.status === "PAID" && testPaymentOrders.accepts(order) ? <Button variant="outline" busy={Boolean(busy)} onClick={() => void refresh()}>重新检查验收结果</Button> : null}
     <PaymentCheckoutDialog order={order} open={open} onOpenChange={setOpen} busy={busy} error={error} qrPath={testPaymentOrders.qrPath} onRefresh={refresh}

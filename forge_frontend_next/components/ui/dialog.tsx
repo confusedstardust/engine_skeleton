@@ -1,4 +1,5 @@
 'use client';
+import { CloseButton as IconCloseButton } from './close-button';
 import * as Primitive from '@radix-ui/react-dialog';
 import { createContext, forwardRef, useContext, useRef, type ComponentPropsWithoutRef } from 'react';
 
@@ -67,4 +68,9 @@ export function Surface({
       <Content {...props} />
     </Portal>
   );
+}
+
+export function CloseButton(props: ComponentPropsWithoutRef<typeof IconCloseButton>) {
+  const busy = useContext(BusyContext);
+  return <Primitive.Close asChild><IconCloseButton {...props} disabled={busy || props.disabled} /></Primitive.Close>;
 }

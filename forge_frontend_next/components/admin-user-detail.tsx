@@ -1,4 +1,6 @@
 'use client';
+import { InlineFeedback } from './ui/feedback';
+
 import { Button } from './ui/button';
 import { useToast } from './ui/toast';
 import { adminApi } from '../lib/api-client';
@@ -114,13 +116,11 @@ export default function AdminUserDetail({ userId, onClose }: { userId: string; o
         }}
       >
         <Dialog.Title>用户详情与账户管理</Dialog.Title>
-        <Dialog.Close className="recharge-payment-dismiss" disabled={busy} aria-label="关闭用户详情">
-          ×
-        </Dialog.Close>
+        <Dialog.CloseButton className="recharge-payment-dismiss" disabled={busy} aria-label="关闭用户详情" />
         {error ? (
-          <p role="alert" className="recharge-error">
+          <InlineFeedback  >
             {error}
-          </p>
+          </InlineFeedback>
         ) : null}
         {!detail ? (
           <p role="status">正在加载用户信息…</p>

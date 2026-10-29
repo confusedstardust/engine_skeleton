@@ -1,4 +1,7 @@
 "use client";
+
+
+import { CloseButton } from '../components/ui/close-button';
 import { Button } from '../components/ui/button';
 import { useToast } from "../components/ui/toast";
 import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
@@ -207,11 +210,11 @@ function ClassroomGeneratorPage() {
     <>
       <CloudDecorations />
 
-      <WorkbenchHeader title="临场 · AI叙事课堂生成平台" subtitle="NarrativeOS" brandHref={null} wrapBrand={false} label="主导航" accountClassName="nav-login" accountTour="invite" afterNavigation={<> <button className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
+      <WorkbenchHeader title="临场 · AI叙事课堂生成平台" subtitle="NarrativeOS" brandHref={null} wrapBrand={false} label="主导航" accountClassName="nav-login" accountTour="invite" afterNavigation={<> <Button variant="unstyled" className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
           <span />
           <span />
           <span />
-        </button> </>} />
+        </Button> </>} />
 
       {mobileOpen && (
         <WorkbenchNavigation className="mobile-menu" label="移动端导航" accountClassName="mobile-login" accountTour="invite" />
@@ -235,9 +238,9 @@ function ClassroomGeneratorPage() {
 
               <Field label="教学文本 / 知识材料" tourId="material">
                 <div className="tab-group">
-                  <button className={sourceTab === "paste" ? "active" : ""} type="button" onClick={() => setSourceTab("paste")}>直接粘贴文本</button>
-                  <button className={sourceTab === "upload" ? "active" : ""} type="button" onClick={() => setSourceTab("upload")}>上传文档</button>
-                  <button className={sourceTab === "library" ? "active" : ""} type="button" onClick={() => setSourceTab("library")}>从资源库选择</button>
+                  <Button variant="unstyled" className={sourceTab === "paste" ? "active" : ""} type="button" onClick={() => setSourceTab("paste")}>直接粘贴文本</Button>
+                  <Button variant="unstyled" className={sourceTab === "upload" ? "active" : ""} type="button" onClick={() => setSourceTab("upload")}>上传文档</Button>
+                  <Button variant="unstyled" className={sourceTab === "library" ? "active" : ""} type="button" onClick={() => setSourceTab("library")}>从资源库选择</Button>
                 </div>
                 {sourceTab === "paste" && (
                   <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder={"请粘贴原文、节选、知识点或直接写一句需求。\n\n例如：给我生成一个《归去来兮辞》相关的沉浸式课堂游戏。"} />
@@ -322,7 +325,7 @@ function ClassroomGeneratorPage() {
             <div className="preview-card">
               <div className="preview-header">
                 <span>即将生成 · PREVIEW</span>
-                <h2>{selectedDuration.name}沉浸式文学游戏</h2>
+                <h2>{selectedDuration.name}沉浸式叙事课堂游戏</h2>
                 <p>{selectedDuration.desc} · AI叙事生成</p>
               </div>
               <div className="preview-body">
@@ -387,7 +390,7 @@ function NarrativeRouterPage() {
   return <main className="narrative-router">
     <section className="router-hero" aria-labelledby="router-title">
       <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
-      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><BrandLogo rounded={false} /></span><span>NarrativeOS</span></Link><nav aria-label="首页导航"><button type="button" className="router-notice-button" onClick={openAnnouncements}>公告</button><a href="#community" onClick={event => {
+      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><BrandLogo rounded={false} /></span><span>NarrativeOS</span></Link><nav aria-label="首页导航"><Button variant="unstyled" type="button" className="router-notice-button" onClick={openAnnouncements}>公告</Button><a href="#community" onClick={event => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         const section = document.getElementById("community");
         if (!section) return;
@@ -395,16 +398,16 @@ function NarrativeRouterPage() {
         section.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
         if (window.location.hash !== "#community") window.history.pushState(window.history.state, "", "#community");
       }}>Q&amp;A</a><AccountMenu /></nav></header>
-      <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><button className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></button></div>
+      <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><Button variant="unstyled" className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></Button></div>
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>
     <section className="router-solutions" aria-labelledby="solutions-title"><div className="solutions-heading"><p>CHOOSE YOUR PATH</p><h2 id="solutions-title">选择最符合你需求的 NarrativeOS 解决方案</h2></div><div className="solution-grid">
-      <article className="solution-card one"><img className="solution-cover" src={ossImage("solution-narrativeos-one.png")} alt="" /><span className="solution-shade" /><span>01</span><h3>NarrativeOS <b>One</b></h3><p>适合学生、教师、家长和个人创作者的一站式互动叙事创作平台</p><button type="button" onClick={() => setPickerOpen(true)}>开始创作 <i>→</i></button></article>
-      <article className="solution-card plus"><img className="solution-cover" src={ossImage("solution-narrativeos-plus.png")} alt="" /><span className="solution-shade" /><span>02</span><h3>NarrativeOS <b>Plus</b></h3><p>适合企业、学校、IP 和专业人士的互动叙事解决方案</p><button type="button" onClick={() => setNotice("NarrativeOS Plus 的专属方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
-      <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><button type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
+      <article className="solution-card one"><img className="solution-cover" src={ossImage("solution-narrativeos-one.png")} alt="" /><span className="solution-shade" /><span>01</span><h3>NarrativeOS <b>One</b></h3><p>适合学生、教师、家长和个人创作者的一站式互动叙事创作平台</p><Button variant="unstyled" type="button" onClick={() => setPickerOpen(true)}>开始创作 <i>→</i></Button></article>
+      <article className="solution-card plus"><img className="solution-cover" src={ossImage("solution-narrativeos-plus.png")} alt="" /><span className="solution-shade" /><span>02</span><h3>NarrativeOS <b>Plus</b></h3><p>适合企业、学校、IP 和专业人士的互动叙事解决方案</p><Button variant="unstyled" type="button" onClick={() => setNotice("NarrativeOS Plus 的专属方案正在筹备中。")}>了解解决方案 <i>→</i></Button></article>
+      <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><Button variant="unstyled" type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></Button></article>
     </div></section>
     <CommunityBoard />
-    {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></ModalBody></div></ModalFrame>}
+    {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><CloseButton className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭" /></div><div className="scene-grid">{narrativeScenes.map((scene) => <Button variant="unstyled" className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</Button>)}</div></section></ModalBody></div></ModalFrame>}
   </main>;
 }
 

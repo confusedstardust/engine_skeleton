@@ -1,4 +1,6 @@
 'use client';
+import { InlineFeedback } from '../ui/feedback';
+
 import { Button } from '../ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { PersonalLibraryAsset } from '../../domain/assets';
@@ -79,19 +81,19 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
                 </div>
               ) : null}
               {list.error ? (
-                <div className="asset-library-picker-state error" role="alert">
+                <InlineFeedback as="div" className="asset-library-picker-state" >
                   {list.error}
                   <Button variant="outline" onClick={() => void list.loadNext()}>
                     重试
                   </Button>
-                </div>
+                </InlineFeedback>
               ) : null}
               {!list.loading && !list.error && !list.items.length ? (
                 <div className="asset-library-picker-state">暂无可选素材</div>
               ) : null}
               <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">
                 {list.items.map((asset) => (
-                  <button
+                  <Button variant="unstyled"
                     className={`asset-library-picker-card ${selected === asset.file_id ? 'selected' : ''}`}
                     type="button"
                     role="option"
@@ -107,7 +109,7 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
                       <strong>{asset.name}</strong>
                     </div>
                     <i aria-hidden="true">✓</i>
-                  </button>
+                  </Button>
                 ))}
               </div>
               {list.loading && list.items.length ? (
@@ -120,7 +122,7 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
                   加载更多
                 </Button>
               ) : null}
-              {error ? <p role="alert">{error}</p> : null}
+              {error ? <InlineFeedback >{error}</InlineFeedback> : null}
     </ContentDialog>
   );
 }

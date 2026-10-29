@@ -1,4 +1,8 @@
 "use client";
+import { Button } from './ui/button';
+import { InlineFeedback } from './ui/feedback';
+import { EmptyState } from './ui/state';
+
 import { Pagination } from "./ui/pagination";
 
 import { useEffect, useState } from "react";
@@ -57,20 +61,20 @@ export default function CommunityBoard() {
 
   return <section className="community-section" id="community" aria-label="提问与答疑">
     <div className="community-layout">
-      <section className="community-qa" aria-labelledby="community-qa-title"><div className="community-column-heading"><h2 id="community-qa-title">提问与答疑 <span>Q&A</span></h2><div className="community-tabs">{user?.auth_type === "sso" && <button type="button" aria-pressed={mine} onClick={() => { setMine(!mine); setOwnOffset(0); }}>{mine ? "收起我的提问" : "我的提问"}</button>}</div></div>
+      <section className="community-qa" aria-labelledby="community-qa-title"><div className="community-column-heading"><h2 id="community-qa-title">提问与答疑 <span>Q&A</span></h2><div className="community-tabs">{user?.auth_type === "sso" && <Button variant="unstyled" type="button" aria-pressed={mine} onClick={() => { setMine(!mine); setOwnOffset(0); }}>{mine ? "收起我的提问" : "我的提问"}</Button>}</div></div>
         <p className="community-invitation">你遇到的问题，也许正是另一个人还没问出口的疑惑。留在这里，让我们的回答，也能帮到后来的人。</p>
         <div className="community-question-list" aria-busy={loading}>
           {commonQuestions.map((item, index) => <details className="community-question" key={item.question} open={index === 0}><summary><span className="qa-letter">Q</span><h4>{item.question}</h4><span className="qa-expand" aria-hidden="true">+</span></summary><div className="community-answer"><span className="qa-letter">A</span><p>{item.answer}</p></div></details>)}
           {questions.map(item => <details className="community-question" key={item.id} open><summary><span className="qa-letter">Q</span><h4>{item.question}</h4><span className="qa-expand" aria-hidden="true">+</span></summary><div className="community-answer"><span className="qa-letter">A</span><p>{item.answer || "已收到你的问题，等待答复。"}</p></div></details>)}
           {loading && <p role="status">正在加载留言…</p>}
-          {error && <p role="alert">{error} <button className="community-text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</button></p>}
+          {error && <InlineFeedback >{error} <Button variant="unstyled" className="community-text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</Button></InlineFeedback>}
         </div>
         {(offset > 0 || more) && <Pagination ariaLabel="公开问答分页" className="community-pagination" page={offset / 6 + 1} hasMore={more} disabled={loading} onPageChange={page => setOffset((page - 1) * 6)} />}
         {user?.auth_type === "sso" && mine && <div className="community-own-questions" aria-busy={ownLoading}>
           <h3>我的提问</h3>
           {ownLoading && <p role="status">正在加载我的提问…</p>}
-          {ownError && <p role="alert">{ownError} <button className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
-          {!ownLoading && !ownError && !ownQuestions.length && <p className="community-empty">还没有提交过提问。</p>}
+          {ownError && <InlineFeedback >{ownError} <Button variant="unstyled" className="community-text-button" onClick={() => setRevision(value => value + 1)}>重试</Button></InlineFeedback>}
+          {!ownLoading && !ownError && !ownQuestions.length && <EmptyState as="p" className="community-empty">还没有提交过提问。</EmptyState>}
           {ownQuestions.map(item => <details className="community-question" key={item.id} open><summary><span className="qa-letter">Q</span><h4>{item.question}</h4>{item.answer ? <span className="qa-expand" aria-hidden="true">+</span> : <span className="community-pending">待答复</span>}</summary>{item.answer && <div className="community-answer"><span className="qa-letter">A</span><p>{item.answer}</p></div>}</details>)}
           {(ownOffset > 0 || ownMore) && <Pagination ariaLabel="我的提问分页" className="community-pagination" page={ownOffset / 6 + 1} hasMore={ownMore} disabled={ownLoading} onPageChange={page => setOwnOffset((page - 1) * 6)} />}
         </div>}

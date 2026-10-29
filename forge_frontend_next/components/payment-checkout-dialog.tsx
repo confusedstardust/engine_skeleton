@@ -1,4 +1,6 @@
 'use client';
+import { InlineFeedback } from './ui/feedback';
+
 
 import { Button } from './ui/button';
 import * as Dialog from './ui/dialog';
@@ -40,9 +42,7 @@ export function PaymentCheckoutDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Surface overlayClassName="recharge-payment-overlay" className="recharge-checkout recharge-payment-modal" aria-describedby={undefined}>
-          <Dialog.Close className="recharge-payment-dismiss" aria-label="关闭支付窗口">
-            ×
-          </Dialog.Close>
+          <Dialog.CloseButton className="recharge-payment-dismiss" aria-label="关闭支付窗口" />
           <div>
             <Dialog.Title asChild>
               <h2>{title}</h2>
@@ -92,9 +92,9 @@ export function PaymentCheckoutDialog({
             </Button>
           ) : null}
           {error ? (
-            <p className="recharge-error" role="alert">
+            <InlineFeedback  >
               {error}
-            </p>
+            </InlineFeedback>
           ) : null}
         </Dialog.Surface>
     </Dialog.Root>

@@ -1,4 +1,8 @@
 "use client";
+import { Button } from './ui/button';
+import { InlineFeedback } from './ui/feedback';
+import { EmptyState } from './ui/state';
+
 import type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../domain/narrative";
 export type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../domain/narrative";
 import { randomUUID } from "../app/random-uuid";
@@ -411,18 +415,18 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
         ) : (
           <>
             <nav className="laper-rail-nav">
-              <button className="active" type="button">
+              <Button variant="unstyled" className="active" type="button">
                 场次
                 <em>{props.scenes.length}</em>
-              </button>
+              </Button>
             </nav>
             <ol className="laper-rail-list">
               {props.scenes.map((item, index) => (
                 <li key={`${item.header}-${index}`}>
-                  <button className={activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
+                  <Button variant="unstyled" className={activeIndex === index ? "active" : ""} type="button" onClick={() => props.setActiveScene(index)}>
                     <span>{index + 1}</span>
                     {item.title}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ol>
@@ -436,14 +440,14 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
         )}
 
         <div className="laper-toolbar" role="toolbar" aria-label="场景编辑工具栏">
-          <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
+          <Button variant="unstyled" className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
             旁白
-          </button>
-          <button className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
+          </Button>
+          <Button variant="unstyled" className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("dialogue")}>
             对话
-          </button>
+          </Button>
           {props.mode === "complete" && (
-            <button
+            <Button variant="unstyled"
               className="laper-tool accent"
               type="button"
               disabled={disabled}
@@ -451,14 +455,14 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               title="在选中行下方添加互动，默认在互动后继续当前场景"
             >
               互动分支
-            </button>
+            </Button>
           )}
           {props.mode === "complete" && (
-            <button className="laper-tool accent" type="button" onClick={addSceneJump}
+            <Button variant="unstyled" className="laper-tool accent" type="button" onClick={addSceneJump}
               disabled={disabled}
               title="只能添加在最后一行；已有结束连接时，请先删除旧连接">
               场景跳转
-            </button>
+            </Button>
           )}
           {props.toolbarExtra}
         </div>
@@ -525,7 +529,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                   <span className="laper-branch-marker">↗</span>
                   <div className="laper-block-content">
                     <div className="laper-block-head"><span>场景跳转 · 最后一行</span>
-                      {!disabled && <button className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>删除跳转</button>}
+                      {!disabled && <Button variant="unstyled" className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>删除跳转</Button>}
                     </div>
                     <FormSelect ariaLabel="场景跳转目标" value={target} disabled={disabled} onValueChange={(value) => updateLine(lineIndex, { ...line, text: `changeScene:${value};` })} options={[
                       ...(!props.targetOptions?.some(option => option.file === target) ? [{ value: target, label: target }] : []),
@@ -537,7 +541,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               if (line.kind === "choice") {
                 return (
                   <article className={`laper-block laper-branch-block laper-choice-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} data-selected={selectedId === line.id} style={errorStyle} key={line.id} data-laper-scene-line-index={lineIndex}>
-                    <button
+                    <Button variant="unstyled"
                       className="laper-branch-marker laper-drag-handle"
                       type="button"
                       aria-label="拖动排序"
@@ -556,23 +560,23 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                       onPointerCancel={(event) => finishLineDrag(event.pointerId)}
                     >
                       △
-                    </button>
+                    </Button>
                     <div className="laper-block-content">
                       <div className="laper-block-head">
                         <span>分支选项</span>
                         <em>分支</em>
                         {!disabled && (
                           <>
-                            <button
+                            <Button variant="unstyled"
                               className="laper-block-add"
                               type="button"
                               onClick={() => addChoiceOption(lineIndex)}
                             >
                               添加选项
-                            </button>
-                            <button className="laper-block-delete" type="button" onClick={() => removeChoiceGroup(lineIndex)}>
+                            </Button>
+                            <Button variant="unstyled" className="laper-block-delete" type="button" onClick={() => removeChoiceGroup(lineIndex)}>
                               删除分支
-                            </button>
+                            </Button>
                           </>
                         )}
                       </div>
@@ -594,9 +598,9 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                               ...(props.targetOptions || []).map(option => ({ value: option.file, label: option.label }))
                             ].map(option => [option.value, option])).values())} />
                             {!disabled && (
-                              <button type="button" onClick={() => updateLine(lineIndex, { ...line, choices: (line.choices || []).filter((_, index) => index !== choiceIndex) })}>
+                              <Button variant="unstyled" type="button" onClick={() => updateLine(lineIndex, { ...line, choices: (line.choices || []).filter((_, index) => index !== choiceIndex) })}>
                                 删除
-                              </button>
+                              </Button>
                             )}
                           </div>
                         ))}
@@ -612,7 +616,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                   item.choices?.some(choice => choiceTargetValue(choice) === (line.branchLabel || line.text)))) return null;
                 return (
                   <article className={`laper-block laper-branch-block ${dragIndex === lineIndex ? "dragging" : ""} ${dragIndex !== lineIndex && dropHint?.index === lineIndex ? `drop-${dropHint.placement}` : ""}`} data-selected={selectedId === line.id} style={errorStyle} key={line.id} data-laper-scene-line-index={lineIndex}>
-                    <button
+                    <Button variant="unstyled"
                       className="laper-branch-marker laper-drag-handle"
                       type="button"
                       aria-label="拖动排序"
@@ -631,15 +635,15 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                       onPointerCancel={(event) => finishLineDrag(event.pointerId)}
                     >
                       △
-                    </button>
+                    </Button>
                     <div className="laper-block-content">
                       <div className="laper-block-head">
                         <span>分支内容</span>
                         <em>分支</em>
                         {!disabled && (
-                          <button className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>
+                          <Button variant="unstyled" className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>
                             删除
-                          </button>
+                          </Button>
                         )}
                       </div>
                       <input
@@ -673,7 +677,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                     if (!Number.isNaN(from)) reorderLines(from, lineIndex);
                   }}
                 >
-                  <button
+                  <Button variant="unstyled"
                     className="laper-drag-handle"
                     type="button"
                     aria-label="拖动排序"
@@ -692,33 +696,33 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                     onPointerCancel={(event) => finishLineDrag(event.pointerId)}
                   >
                     ⋮⋮
-                  </button>
+                  </Button>
                   <div className="laper-block-content">
                     <div className="laper-block-head">
                       <div className="laper-speaker-wrap">
-                        <button
+                        <Button variant="unstyled"
                           className={`laper-speaker ${line.kind === "command" || disabled ? "static" : ""}`}
                           type="button"
                           disabled={disabled || line.kind === "command"}
                           onClick={() => setSpeakerMenu(speakerMenu === menuKey ? null : menuKey)}
                         >
                           {line.kind === "narration" || line.kind === "command" ? "旁白" : line.speaker}
-                        </button>
+                        </Button>
                         {speakerMenu === menuKey && (
                           <div className="speaker-popover">
                             {speakers.map((speaker) => (
-                              <button key={speaker} type="button" onClick={() => switchSpeaker(lineIndex, speaker)}>
+                              <Button variant="unstyled" key={speaker} type="button" onClick={() => switchSpeaker(lineIndex, speaker)}>
                                 {speaker}
-                              </button>
+                              </Button>
                             ))}
                           </div>
                         )}
                       </div>
                       <em>{lineKindLabel(line)}</em>
                       {!disabled && (
-                        <button className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>
+                        <Button variant="unstyled" className="laper-block-delete" type="button" onClick={() => removeLine(lineIndex)}>
                           删除
-                        </button>
+                        </Button>
                       )}
                     </div>
                     {line.kind === "command" ? <textarea
@@ -743,15 +747,15 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               );
             })}
             {props.connectionErrors?.[scene.header] && (
-              <div role="alert" style={{ border: "1px solid #c73545", background: "#fff0f1", color: "#a61f30", padding: 16, borderRadius: 8 }}>
+              <InlineFeedback as="div"  >
                 {props.connectionErrors[scene.header]}
-              </div>
+              </InlineFeedback>
             )}
 
             {scene.lines.length === 0 && (
-              <div className="laper-empty">
+              <EmptyState className="laper-empty">
                 <p>当前场景还没有内容。使用工具栏添加旁白或对话。</p>
-              </div>
+              </EmptyState>
             )}
           </div>
         </div>
@@ -759,7 +763,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
 
       <aside className="laper-inspector outline-side">{props.inspector}</aside>
       {speakerMenu && (
-        <button className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />
+        <Button variant="unstyled" className="speaker-dismiss-layer" type="button" aria-label="关闭角色菜单" onClick={() => setSpeakerMenu(null)} />
       )}
     </section>
   );
@@ -775,7 +779,7 @@ function SceneRailGroup(props: {
   const active = props.entries.some(({ index }) => index === props.activeIndex);
   return (
     <div className="laper-rail-tree-group">
-      <button
+      <Button variant="unstyled"
         className={active ? "active" : ""}
         type="button"
         disabled={props.entries.length === 0}
@@ -783,15 +787,15 @@ function SceneRailGroup(props: {
       >
         <span>{props.label}</span>
         <em>{props.entries.length}</em>
-      </button>
+      </Button>
       <ol className="laper-rail-list laper-rail-tree-list">
         {props.entries.map(({ item, index }) => (
           <li key={`${item.header}-${index}`}>
-            <button className={props.activeIndex === index ? "active" : ""} style={props.connectionErrors?.[item.header] ? { color: "#b32436", background: "#fff0f1", outline: "1px solid #c73545" } : undefined} type="button" onClick={() => props.setActiveScene(index)}>
+            <Button variant="unstyled" className={props.activeIndex === index ? "active" : ""} style={props.connectionErrors?.[item.header] ? { color: "#b32436", background: "#fff0f1", outline: "1px solid #c73545" } : undefined} type="button" onClick={() => props.setActiveScene(index)}>
               <span>{index + 1}</span>
               {item.title}
               {props.connectionErrors?.[item.header] && <em aria-label="衔接错误">!</em>}
-            </button>
+            </Button>
           </li>
         ))}
       </ol>

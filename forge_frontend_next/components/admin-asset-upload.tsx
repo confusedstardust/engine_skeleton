@@ -1,4 +1,6 @@
 'use client';
+
+
 import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import * as Dialog from './ui/dialog';
@@ -130,11 +132,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
       >
         <header className="asset-modal-head">
           <Dialog.Title>上传公共素材</Dialog.Title>
-          <Dialog.Close asChild>
-            <button type="button" aria-label="关闭上传" disabled={busy}>
-              ×
-            </button>
-          </Dialog.Close>
+          <Dialog.CloseButton type="button" aria-label="关闭上传" disabled={busy} />
         </header>
         <form onSubmit={submit}>
           <div className="admin-upload-body">
@@ -263,14 +261,14 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
                             </Button>
                           </div>
                         ) : (
-                          <button
+                          <Button variant="unstyled"
                             className="admin-attribute-add"
                             type="button"
                             disabled={busy}
                             onClick={() => setAdding(group.key)}
                           >
                             ＋ 添加{group.label}
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>

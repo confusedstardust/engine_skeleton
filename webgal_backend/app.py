@@ -100,6 +100,8 @@ async def enforce_game_moderation(request: Request, call_next):
     return await call_next(request)
 store = JobStore()
 pipeline = WebGALPipeline(store)
+from .classroom_quiz import ClassroomQuiz
+classroom_quiz = ClassroomQuiz()
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
@@ -289,6 +291,18 @@ def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
     if not _job_belongs_to_identity(job, identity):
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
     return job
+
+
+from .classroom_quiz_routes import create_router as create_classroom_quiz_router
+app.include_router(create_classroom_quiz_router(
+    service=classroom_quiz,
+    owned_job=lambda job_id, request: _get_owned_job_or_404(job_id, request),
+    identity=lambda request: _identity_from_request(request),
+    job_dir=lambda job_id: _job_dir_or_404(job_id),
+    frontend_url=frontend_url,
+    make_llm=lambda job_id: pipeline._make_llm(store.get(job_id), store.job_dir(job_id)),
+    blocked=lambda kind, job_id: admin_blocked(kind, job_id),
+))
 
 
 def _job_dir_or_404(job_id: str) -> Path:
@@ -688,7 +702,15 @@ def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, An
 
 @app.delete("/jobs/{job_id}")
 def delete_owned_job(job_id: str, request: Request) -> dict[str, bool]:
+    _get_owned_job_or_404(job_id, request)
+    with classroom_quiz.job_guard(job_id):
+        return _delete_owned_job_guarded(job_id, request)
+
+
+def _delete_owned_job_guarded(job_id: str, request: Request) -> dict[str, bool]:
     job = _get_owned_job_or_404(job_id, request)
+    if classroom_quiz.has_assignments(job_id):
+        raise HTTPException(status_code=409, detail="作品存在班级练习和历史答卷，暂不能删除。")
     if job.get("status") in {"RUNNING", "QUEUED"} or job.get("build_state") == "BUILDING":
         raise HTTPException(status_code=409, detail="任务正在生成，请完成后再删除。")
     owner = str(job.get("identity", {}).get("user_id") or "")

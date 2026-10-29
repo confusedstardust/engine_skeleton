@@ -1,4 +1,6 @@
 "use client";
+import { InlineFeedback } from './ui/feedback';
+
 import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import { adminApi } from "../lib/api-client";
@@ -39,7 +41,7 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
   }
 
   if (loading) return <Button variant="outline" type="button" disabled>正在查询教师资源广场…</Button>;
-  if (!publication) return <><p role="alert">{error}</p><Button variant="outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</Button></>;
+  if (!publication) return <><InlineFeedback >{error}</InlineFeedback><Button variant="outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</Button></>;
   const disabled = busy || (!publication.published && !canPublish);
   const unavailableReason = blocked ? "作品已下架，请先恢复作品再发布" : "作品尚未生成可播放版本，暂时不能发布";
   return <Button

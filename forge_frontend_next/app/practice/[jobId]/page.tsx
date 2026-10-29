@@ -1,10 +1,14 @@
 "use client";
+import { InlineFeedback } from '../../../components/ui/feedback';
+
 import { Button } from '../../../components/ui/button';
 import { useToast } from "../../../components/ui/toast";
 import { WorkbenchHeader } from "../../../components/workbench-header";
 import { usePolling } from "../../../hooks/use-polling";
 import { forgeApi as api } from "../../../lib/api-client";
 import type { QuizResponse } from "../../../domain/quiz";
+import { ClassroomQuizManager } from "../../../components/classroom-quiz-manager";
+import { ClassroomQuizContent } from "../../../components/classroom-quiz-content";
 
 
 
@@ -24,6 +28,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   const [loading, setLoading] = useState(true);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [teacherView, setTeacherView] = useState<'quiz' | 'submissions' | 'analysis'>('quiz');
   const notify = useToast();
   const [loadError, setLoadError] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -79,13 +84,20 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
   return (
     <>
       <WorkbenchHeader title="临场 · 习题" subtitle="PRACTICE" className="top-nav practice-nav" label="习题导航" fallback={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>
-{data?.quiz ? <button className="top-nav-action" type="button" onClick={resetPractice}>重新作答</button> : null}
-{data?.quiz && data.can_manage ? <button className="top-nav-action" type="button" disabled={actionBusy || generating} onClick={() => setConfirmRegenerate(true)}>{actionBusy || generating ? "正在生成…" : "重新生成题目"}</button> : null}
+{data?.quiz && !data.can_manage ? <Button variant="unstyled" className="top-nav-action" type="button" onClick={resetPractice}>重新作答</Button> : null}
 </WorkbenchHeader>
 
       <ConfirmDialog open={confirmRegenerate} title="重新生成题目？" description="重新生成会覆盖当前习题。" onCancel={() => setConfirmRegenerate(false)} onConfirm={() => void generate(true)} />
-      <main className="practice-page">
-        {loadError && <p role="alert" className="error">{loadError}</p>}
+      <main className={`practice-page ${data?.can_manage ? 'practice-teacher-workspace' : ''}`}>
+        {data?.can_manage && data.quiz ? <>
+          <nav className="classroom-tabs" aria-label="习题管理视图">
+            <Button variant="unstyled" type="button" aria-pressed={teacherView === 'quiz'} onClick={() => setTeacherView('quiz')}>习题内容</Button>
+            <Button variant="unstyled" type="button" aria-pressed={teacherView === 'submissions'} onClick={() => setTeacherView('submissions')}>班级答卷</Button>
+            <Button variant="unstyled" type="button" aria-pressed={teacherView === 'analysis'} onClick={() => setTeacherView('analysis')}>学情分析</Button>
+          </nav>
+          <div hidden={teacherView === 'quiz'}><ClassroomQuizManager jobId={jobId} quizTitle={data.quiz.title} view={teacherView === 'analysis' ? 'analysis' : 'submissions'} /></div>
+        </> : null}
+        {loadError && <InlineFeedback  >{loadError}</InlineFeedback>}
         {loading ? <section className="practice-state"><span className="practice-spinner" /><h1>正在读取习题</h1><p>正在准备作品的课后习题内容。</p></section> : null}
 
         {!loading && !loadError && (!data || data.status === "NOT_GENERATED") ? (
@@ -120,7 +132,11 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
           </section>
         ) : null}
 
-        {!loading && data?.status === "READY" && data.quiz ? (
+        {!loading && data?.status === "READY" && data.quiz && data.can_manage && teacherView === 'quiz' ? (
+          <ClassroomQuizContent quiz={data.quiz} busy={actionBusy || generating} onRegenerate={() => setConfirmRegenerate(true)} />
+        ) : null}
+
+        {!loading && data?.status === "READY" && data.quiz && !data.can_manage ? (
           <>
             <section className="practice-hero">
               <div>
@@ -152,7 +168,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
                         const optionCorrect = isRevealed && option.id === correct;
                         const optionWrong = isRevealed && option.id === selected && option.id !== correct;
                         return (
-                          <button
+                          <Button variant="unstyled"
                             className={`${selected === option.id ? "selected" : ""} ${optionCorrect ? "correct" : ""} ${optionWrong ? "wrong" : ""}`}
                             type="button"
                             role="radio"
@@ -165,7 +181,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
                             }}
                           >
                             <span>{option.id}</span><strong>{option.text}</strong>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
