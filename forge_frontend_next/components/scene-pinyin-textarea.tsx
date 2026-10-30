@@ -97,9 +97,9 @@ export function ScenePinyinTextarea({ value, onValueChange, readOnly, disabled, 
         </label>)}</div>
         {error && <InlineFeedback className={styles.error} >{error}</InlineFeedback>}
         <DialogActions as="footer" className={styles.footer}>
-          <Button variant="outline" type="button" onClick={() => apply(true)}>移除所选注音</Button>
+          <Button variant="ghost" type="button" onClick={() => apply(true)}>移除所选注音</Button>
           <div><Dialog.Close asChild><Button variant="outline" type="button">取消</Button></Dialog.Close>
-            <Button variant="ghost" type="button" onClick={() => apply()}>插入拼音</Button></div>
+            <Button variant="primary" type="button" onClick={() => apply()}>插入拼音</Button></div>
         </DialogActions>
       </Dialog.Surface>
     </Dialog.Root>

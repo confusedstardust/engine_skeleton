@@ -190,10 +190,14 @@ def _resolve_principal(request: Request, workspace_root: Path) -> dict[str, Any]
     if mode in {AUTH_MODE_SSO, AUTH_MODE_HYBRID}:
         cookie_name = _sso_cookie_name()
         if request.cookies.get(cookie_name):
-            user = _sso_user_from_request(request)
-            from .platform_admin import blocked
-            if blocked('USER', user['id']):
-                raise HTTPException(status_code=403, detail='此账号已被禁止使用本平台')
+            from .sso_session import local_session_enabled, session_user
+            if local_session_enabled():
+                user = session_user(request.cookies[cookie_name])
+            else:
+                user = _sso_user_from_request(request)
+                from .platform_admin import blocked
+                if blocked('USER', user['id']):
+                    raise HTTPException(status_code=403, detail='此账号已被禁止使用本平台')
             return {
                 "identity": {"type": "sso", "user_id": user["id"]},
                 "user": user,

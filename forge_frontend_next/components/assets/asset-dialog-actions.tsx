@@ -20,7 +20,7 @@ export function AssetDialogActions({ children, busy, onClose }: {
   onClose: () => void;
 }) {
   return <DialogActions as="footer" className="asset-modal-actions">
+    <Button variant="outline" type="button" busy={Boolean(busy)} onClick={onClose}>关闭</Button>
     {children}
-    <Button variant="primary" type="button" busy={Boolean(busy)} onClick={onClose}>关闭</Button>
   </DialogActions>;
 }

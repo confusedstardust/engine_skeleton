@@ -26,7 +26,9 @@ export function ssoLoginUrl(returnPath = "/") {
 
 export function accountSettingsUrl() {
   if (typeof window === "undefined") return "/account";
-  return new URL("/account", ssoLoginUrl("/")).toString();
+  const url = new URL("/account", ssoLoginUrl("/"));
+  url.searchParams.set("returnTo", window.location.href);
+  return url.toString();
 }
 
 export function teacherResourcePlazaUrl() {

@@ -16,6 +16,7 @@ def request(scope=None):
 
 @pytest.fixture
 def sso(monkeypatch):
+    monkeypatch.setenv('WEBGAL_SSO_VALIDATION', 'remote')
     monkeypatch.setenv('WEBGAL_AUTH_MODE', 'sso')
     monkeypatch.setenv('WEBGAL_SSO_USERINFO_URL', 'https://account.test/me')
     monkeypatch.setenv('WEBGAL_SSO_COOKIE_NAME', 'nos_session')

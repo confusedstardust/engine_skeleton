@@ -7,10 +7,11 @@ const base = process.env.CARD_TEST_URL || 'http://127.0.0.1:3001';
   try {
     const page = await browser.newPage();
     let admin = false;
+    let identityReads = 0;
     await page.route('**/api/forge/**', route => {
       const path = new URL(route.request().url()).pathname;
       let data = {};
-      if (path.endsWith('/auth/me')) data = { id: 'user', nickname: '测试用户', email: 'user@example.com', auth_type: 'sso' };
+      if (path.endsWith('/auth/me')) { identityReads++; data = { id: 'user', nickname: '测试用户', email: 'user@example.com', auth_type: 'sso' }; }
       else if (path.endsWith('/credits/balance')) data = { available: 148, reserved: 0 };
       else if (path.endsWith('/payments/subscription')) data = { subscription: null };
       else if (path.endsWith('/admin/me')) return route.fulfill({ status: admin ? 200 : 403, json: {} });
@@ -35,8 +36,20 @@ const base = process.env.CARD_TEST_URL || 'http://127.0.0.1:3001';
         assert.equal(settings.pathname, '/account');
         assert.equal(await menu.locator('.account-actions [aria-current]').count(), 0);
         assert.equal(await menu.getByRole('link', { name: '平台管理', exact: true }).count(), allowed ? 1 : 0);
+        const close = menu.getByRole('button', { name: '关闭账户浮窗', exact: true });
+        assert.equal(await close.locator('svg').count(), 1);
+        await close.click();
+        await menu.waitFor({ state: 'hidden' });
       }
     }
+    await page.goto(base + '/');
+    await page.getByRole('button', { name: '测试用户的账户', exact: true }).click();
+    const reads = identityReads;
+    await page.locator('.account-popover').getByRole('link', { name: '我的作品', exact: true }).click();
+    await page.waitForURL(url => /\/history\/?$/.test(url.pathname));
+    await page.getByRole('button', { name: '测试用户的账户', exact: true }).click();
+    await page.locator('.account-popover').waitFor();
+    assert.equal(identityReads, reads, 'client-side page navigation reuses the session identity');
     console.log('PASS: identical account menus across home/history/assets, settings link and admin permission gating');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
