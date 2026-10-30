@@ -24,6 +24,8 @@ const nextConfig = {
       { source: "/api/forge/jobs", destination: `${backend}/jobs` },
       { source: "/api/forge/jobs/:path*", destination: `${backend}/jobs/:path*` },
       { source: "/api/forge/public/jobs/:path*", destination: `${backend}/public/jobs/:path*` },
+      { source: "/api/forge/quiz/:path*", destination: `${backend}/quiz/:path*` },
+      { source: "/api/forge/public/quiz/:path*", destination: `${backend}/public/quiz/:path*` },
       { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },
       { source: "/play/:path*", destination: `${backend}/play/:path*` }
     ];

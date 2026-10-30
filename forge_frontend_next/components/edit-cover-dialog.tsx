@@ -1,4 +1,6 @@
 'use client';
+import { InlineFeedback } from './ui/feedback';
+
 import { useRef, useState } from 'react';
 import { forgeApi as api } from '../lib/api-client';
 import type { Job } from '../domain/jobs';
@@ -43,7 +45,7 @@ export function EditCoverDialog({ job, onClose, onSaved }: { job: Job; onClose: 
         if (job.draft_revision !== undefined) data.set('base_revision', String(job.draft_revision));
         await save(data);
       }} />
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineFeedback >{error}</InlineFeedback>}
       <AssetSourceActions busy={busy} onUpload={() => input.current?.click()} onLibrary={() => setLibrary(true)} />
   </ContentDialog>;
 }

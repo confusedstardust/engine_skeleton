@@ -1,9 +1,11 @@
 'use client';
+import { Spinner } from '../../../components/ui/state';
+
 import { Button } from '../../../components/ui/button';
 export function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
   return (
     <div className="node-placeholder loading">
-      <div className="pending-spinner" aria-hidden="true" />
+      <Spinner as="div"  aria-hidden="true" />
       <strong>{title}</strong>
       <span>{brief}</span>
     </div>

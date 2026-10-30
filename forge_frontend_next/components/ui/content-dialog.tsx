@@ -1,5 +1,5 @@
 'use client';
-import { Button } from './button';
+import { DialogHeader } from './dialog-header';
 import type { ReactNode, Ref, HTMLAttributes } from 'react';
 import { ModalFrame, ModalBody } from './modal';
 
@@ -25,10 +25,7 @@ export function ContentDialog({ title, subtitle, onClose, busy, children, footer
   return <ModalFrame title={title} onClose={onClose} busy={busy}>
     <div className={`content-dialog-overlay ${layerClassName}`}>
       <ModalBody><section className={className} ref={panelRef}>
-        <header className={headerClassName}>
-          <div>{subtitle && <span>{subtitle}</span>}<h2>{title}</h2></div>
-          {closeInHeader && <Button variant="outline" className="shared-dialog-close" type="button" busy={Boolean(busy)} onClick={onClose}>关闭</Button>}
-        </header>
+        <DialogHeader title={title} eyebrow={subtitle} className={headerClassName} busy={busy} onClose={closeInHeader ? onClose : undefined} />
         {notice}
         <div {...bodyProps} className={bodyClassName}>{children}</div>
         {footer}

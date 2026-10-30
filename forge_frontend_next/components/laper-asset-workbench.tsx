@@ -1,4 +1,8 @@
 "use client";
+import { InlineFeedback } from './ui/feedback';
+import { Spinner } from './ui/state';
+import { EmptyState } from './ui/state';
+
 import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import { useFileUpload } from "../hooks/use-file-upload";
@@ -7,6 +11,7 @@ import { imageUploadPolicy, musicUploadPolicy } from "../lib/upload-policy";
 import { useAudioPreview } from "../hooks/use-audio-preview";
 import { AssetSourceActions, AssetDialogActions } from "./assets/asset-dialog-actions";
 import { AssetPickerDialog } from "./assets/asset-picker-dialog";
+import { AssetCard } from "./assets/asset-card";
 import type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 export type { AssetReviewItem, TTSVoiceOption, TTSVoiceReviewItem, AssetReviewResponse, SceneMusicItem, ParticleEffectPreset, SceneEffectAssignment, ParticleEffectReview, PersonalLibraryAsset, StagedScenePresentation } from "../domain/assets";
 
@@ -152,13 +157,13 @@ function AvatarCropCanvas({ asset, busy, readonly, value, onChange }: {
             onChange(nextCrop);
           }}
         />
-        {!readonly && <AssetHint text="重置小头像取景"><button className="avatar-crop-reset" type="button" aria-label="重置小头像取景" title="重置取景" disabled={busy} onClick={() => {
+        {!readonly && <AssetHint text="重置小头像取景"><Button variant="unstyled" className="avatar-crop-reset" type="button" aria-label="重置小头像取景" title="重置取景" disabled={busy} onClick={() => {
           const resetCrop = { zoom: 1, offsetX: 0, offsetY: 0 };
           cropRef.current = resetCrop;
           setZoom(1);
           setOffset({ x: 0, y: 0 });
           onChange(resetCrop);
-        }}>↻</button></AssetHint>}
+        }}>↻</Button></AssetHint>}
       </div>
       <div className="avatar-crop-controls">
         <strong>小头像</strong>
@@ -218,7 +223,7 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
         {props.item.preview_exists && props.item.preview_url ? (
           <div className="voice-preview-action">
             <audio {...preview.audioProps} />
-            <AssetHint text={playing ? "暂停试听" : "播放试听"}><button
+            <AssetHint text={playing ? "暂停试听" : "播放试听"}><Button variant="unstyled"
               className="voice-play-button"
               type="button"
               aria-label={playing ? `暂停 ${props.item.speaker} 的试听` : `播放 ${props.item.speaker} 的试听`}
@@ -229,15 +234,15 @@ function CharacterVoiceControl(props: CharacterVoiceControlProps) {
               ) : (
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z" /></svg>
               )}
-            </button></AssetHint>
+            </Button></AssetHint>
           </div>
         ) : (
           <div className="voice-preview-missing">试听暂不可用</div>
         )}
-        {preview.error ? <small role="alert">{preview.error}</small> : null}
+        {preview.error ? <InlineFeedback variant="inline" as="small" >{preview.error}</InlineFeedback> : null}
         <p className="character-voice-line">“{props.item.text}”</p>
       </div>
-      {props.generating && <div className="voice-card-generating" role="status"><span className="pending-spinner" aria-hidden="true" />正在生成音色…</div>}
+      {props.generating && <div className="voice-card-generating" role="status"><Spinner  aria-hidden="true" />正在生成音色…</div>}
       {!props.readonly && (
         <details
           className="character-voice-options"
@@ -286,10 +291,10 @@ function ScenePicker(props: { value: string; options: ScenePickerOption[]; disab
             <div className="scene-picker-list">
               {filtered.map((item) => (
                 <Popover.Close asChild key={item.value}>
-                  <button type="button" className={item.value === props.value ? "active" : ""} onClick={() => props.onChange(item.value)}>
+                  <Button variant="unstyled" type="button" className={item.value === props.value ? "active" : ""} onClick={() => props.onChange(item.value)}>
                     <span><small>{item.kind === "ending" ? "结局" : "场景"}</small><strong>{item.label}</strong><em>{item.value}</em></span>
                     {item.effectLabel ? <i>{item.effectLabel}</i> : null}
-                  </button>
+                  </Button>
                 </Popover.Close>
               ))}
               {filtered.length === 0 ? <p>没有匹配的场景</p> : null}
@@ -405,10 +410,10 @@ function ParticleEffectPreview(props: { preset: ParticleEffectPreset | null; con
   return (
     <div className="particle-live-preview">
       <canvas ref={canvasRef} width={720} height={405} aria-label="场景特效实时预览" />
-      {!props.config && <div className="particle-live-empty"><span>✦</span><strong>请选择一种特效</strong><small>参数变化会立即显示在这里</small></div>}
+      {!props.config && <EmptyState className="particle-live-empty"><span>✦</span><strong>请选择一种特效</strong><small>参数变化会立即显示在这里</small></EmptyState>}
       <div className="particle-preview-toolbar">
-        <button type="button" disabled={!props.config} onClick={() => setPlaying((current) => !current)}>{playing ? "Ⅱ 暂停" : "▶ 播放"}</button>
-        <button type="button" onClick={() => setLightBackdrop((current) => !current)}>{lightBackdrop ? "切换深色背景" : "切换浅色背景"}</button>
+        <Button variant="unstyled" type="button" disabled={!props.config} onClick={() => setPlaying((current) => !current)}>{playing ? "Ⅱ 暂停" : "▶ 播放"}</Button>
+        <Button variant="unstyled" type="button" onClick={() => setLightBackdrop((current) => !current)}>{lightBackdrop ? "切换深色背景" : "切换浅色背景"}</Button>
         <span>实时预览 · 游戏内效果以实际画面尺寸为准</span>
       </div>
     </div>
@@ -558,9 +563,9 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         <nav className="laper-rail-nav">
           {props.sceneMusicEnabled && (
             <div className="laper-rail-tree-group">
-              <button className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>
+              <Button variant="unstyled" className={section === "music" ? "active" : ""} type="button" onClick={() => setSection("music")}>
                 <span>场景音乐</span><span className="laper-rail-tree-meta"><em>{props.sceneMusic.length}</em><b aria-hidden="true">♪</b></span>
-              </button>
+              </Button>
             </div>
           )}
           {([
@@ -569,7 +574,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             ["effects", "特效素材", props.particleEffects.effects]
           ] as const).map(([sectionId, label, assets]) => (
             <Collapsible.Root className="laper-rail-tree-group" key={sectionId} open={expandedSection === sectionId} onOpenChange={(open) => setExpandedSection(open ? sectionId : null)}><Collapsible.Trigger asChild>
-              <button
+              <Button variant="unstyled"
                 aria-expanded={expandedSection === sectionId}
                 className={section === sectionId ? "active" : ""}
                 type="button"
@@ -579,12 +584,12 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               >
                 <span>{label}</span>
                 <span className="laper-rail-tree-meta"><em>{assets.length}</em><b aria-hidden="true">{expandedSection === sectionId ? "⌄" : "›"}</b></span>
-              </button></Collapsible.Trigger>
+              </Button></Collapsible.Trigger>
               {expandedSection === sectionId && (
                 <Collapsible.Content asChild><ol className="laper-rail-list laper-rail-tree-list">
                   {assets.map((asset) => (
                     <li key={"id" in asset ? asset.id : `${asset.subdir}-${asset.filename}`}>
-                      <button
+                      <Button variant="unstyled"
                         className={"filename" in asset && active?.filename === asset.filename ? "active" : ""}
                         type="button"
                         onClick={() => {
@@ -594,7 +599,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                       >
                         <span>{"id" in asset ? "✦" : asset.exists ? "✓" : "·"}</span>
                         {"id" in asset ? asset.label : props.displayName(asset)}
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ol></Collapsible.Content>
@@ -706,7 +711,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                     <span className="scene-music-index">{String(index + 1).padStart(2, "0")}</span>
                     <div className="scene-music-scene"><small>{scene.kind === "ending" ? "结局" : "场景"}</small><strong>{scene.label}</strong><em>{scene.scene_file}</em></div>
                     <label className="scene-music-select"><span>背景音乐</span><FormSelect value={selected} disabled={props.readonly || props.busy} ariaLabel="背景音乐" onValueChange={(value) => { stopMusicPreview(); setMusicDrafts((current) => ({ ...current, [scene.scene_file]: value || null })); }} options={[{ value: "", label: `系统自动 · ${scene.system_asset ? musicAssetLabel(scene.system_asset) : "暂无推荐"}` }, ...Array.from(new Set([...props.musicAssets, ...(selected ? [selected] : [])])).map((asset) => ({ value: asset, label: musicAssetLabel(asset) }))]} /></label>
-                    <button className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(scene.scene_file, effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></button>
+                    <Button variant="unstyled" className={`scene-music-row-play ${playing ? "is-playing" : ""}`} type="button" disabled={!effective} onClick={() => playing ? stopMusicPreview() : void playMusicPreview(scene.scene_file, effective)} aria-label={playing ? "停止试听" : "试听音乐"}>{playing ? "Ⅱ" : "▶"}<span>{playing ? "停止" : "试听"}</span></Button>
                   </article>;
                 })}
               </div>
@@ -722,9 +727,9 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                 <span>{currentList.length} 项</span>
               </header>
               {currentList.length === 0 ? (
-                <div className="laper-empty">
+                <EmptyState className="laper-empty">
                   <p>暂无素材</p>
-                </div>
+                </EmptyState>
               ) : (
                 <div className={`asset-card-grid laper-asset-grid ${section === "figures" && props.voiceEnabled ? "character-card-grid" : ""}`}>
                   {currentList.map((asset) => {
@@ -736,28 +741,13 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                       : undefined;
                     const selectedVoice = voiceItem ? voiceSelections[voiceItem.speaker] || voiceItem.voice : "";
                     return (
-                      <article className={`asset-card ${voiceItem ? "has-voice" : ""}`} key={`${asset.subdir}-${asset.filename}`}>
-                        <button className="asset-card-open" type="button" onClick={() => props.openAsset(asset)}>
-                          <div className="asset-thumb">
-                            {asset.exists ? (
-                              <ContainedAssetImage
-                                src={asset.url}
-                                alt={asset.filename}
-                                objectPosition={asset.kind === "角色立绘" ? "bottom center" : "center"}
-                              />
-                            ) : (
-                              <span>待生成</span>
-                            )}
-                          </div>
-                          <div className="asset-card-body">
-                            <div className="asset-card-text">
-                              <strong>{props.displayName(asset)}</strong>
-                              {asset.kind !== "角色立绘" && <small>{props.sceneDisplayName(asset)}</small>}
-                            </div>
-                            <em className={asset.exists ? "ready" : ""}>{asset.exists ? "已生成" : "待生成"}</em>
-                          </div>
-                        </button>
-                        {voiceItem && (
+                      <AssetCard variant="workbench" key={`${asset.subdir}-${asset.filename}`}
+                        name={props.displayName(asset)} ready={asset.exists}
+                        description={asset.kind !== "角色立绘" ? props.sceneDisplayName(asset) : undefined}
+                        onOpen={() => props.openAsset(asset)}
+                        preview={asset.exists ? <ContainedAssetImage src={asset.url} alt={asset.filename}
+                          objectPosition={asset.kind === "角色立绘" ? "bottom center" : "center"} /> : <span>待生成</span>}
+                        footer={voiceItem && (
                           <CharacterVoiceControl
                             item={voiceItem}
                             generating={props.voiceGeneratingSpeaker === voiceItem.speaker}
@@ -776,7 +766,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
                             }}
                           />
                         )}
-                      </article>
+                      />
                     );
                   })}
                 </div>
@@ -813,7 +803,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
               </Button>
             ) : props.readonly ? (
               <span className="readonly-status">
-                <span className="inline-spinner" aria-hidden="true" />
+                <Spinner size="sm" tone="current" />
                 {props.published ? "完成态默认只读" : "游戏自动生成中"}
               </span>
             ) : (
@@ -849,7 +839,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
       {active && (
         <ContentDialog title={props.displayName(active)} subtitle={active.kind === "角色立绘" ? "CHARACTER ASSET" : "SCENE ASSET"} onClose={props.closeAsset} busy={props.busy || imageUploading} layerClassName="asset-modal-layer" className="asset-modal" bodyClassName="asset-modal-body"
           footer={<AssetDialogActions busy={props.busy || imageUploading} onClose={props.closeAsset}>{!props.readonly && <Button variant="outline" type="button" busy={Boolean(props.busy || imageUploading)} disabled={props.busy || imageUploading} onClick={() => void props.regenerateAsset(active, props.assetPrompt)}>重新生成</Button>}</AssetDialogActions>}>
-              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><span className="pending-spinner" aria-hidden="true" /><span>图片上传中...</span></div>}</div></div>
+              <div className="asset-modal-visual"><div className={`laper-asset-preview ${active.kind === "角色立绘" ? "poster-solo" : "poster-still"}`} aria-busy={imageUploading}>{active.exists ? <div className="asset-still-figure"><ContainedAssetImage src={active.url} alt={active.filename} objectPosition={active.kind === "角色立绘" ? "bottom center" : "center"} /></div> : <div className="asset-image-placeholder">图片尚未生成</div>}{imageUploading && <div className="asset-image-uploading" role="status" aria-live="polite"><Spinner  aria-hidden="true" /><span>图片上传中...</span></div>}</div></div>
               <div className="asset-modal-editor"><UploadStatus pending={false} error={imageUpload.error} className="error" />
                 {active.kind === "角色立绘" && active.exists && <AvatarCropCanvas asset={active} busy={props.busy} readonly={props.readonly} value={avatarCropDrafts[active.filename]} onChange={(crop) => setAvatarCropDrafts((current) => ({ ...current, [active.filename]: crop }))} />}
                 <label className="asset-prompt-editor laper-asset-prompt"><span>Prompt</span><textarea value={props.assetPrompt} onChange={(event) => props.setAssetPrompt(event.target.value)} rows={10} spellCheck={false} readOnly={props.readonly} /></label>

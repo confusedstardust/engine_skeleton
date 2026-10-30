@@ -1,6 +1,8 @@
 'use client';
 import { forwardRef, type ComponentPropsWithoutRef } from 'react';
 import { validateUpload, type UploadPolicy } from '../../lib/upload-policy';
+import { InlineFeedback } from './feedback';
+import { LoadingState } from './state';
 
 export const AssetFileInput = forwardRef<
   HTMLInputElement,
@@ -54,15 +56,15 @@ export function UploadStatus({
 }) {
   if (error)
     return (
-      <p className={className} role="alert">
+      <InlineFeedback variant="inline" className={className}>
         {error}
-      </p>
+      </InlineFeedback>
     );
   if (pending)
     return (
-      <p className={className} role="status" aria-live="polite">
+      <LoadingState as="p" inline withSpinner className={className}>
         {message}
-      </p>
+      </LoadingState>
     );
   return null;
 }

@@ -1,9 +1,13 @@
 'use client';
+import { LoadingState } from '../ui/state';
+import { InlineFeedback } from '../ui/feedback';
+
 import { Button } from '../ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { PersonalLibraryAsset } from '../../domain/assets';
 import { useIncrementalList } from '../../hooks/use-incremental-list';
 import { AssetPreview } from './asset-preview';
+import { AssetCard } from './asset-card';
 import { ContentDialog } from '../ui/content-dialog';
 
 export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id' | 'name' | 'mime_type' | 'url'>>({
@@ -74,53 +78,39 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
               </Button>
             </footer>}>
               {list.loading && !list.items.length ? (
-                <div className="asset-library-picker-state" role="status">
+                <LoadingState className="asset-library-picker-state">
                   正在加载素材…
-                </div>
+                </LoadingState>
               ) : null}
               {list.error ? (
-                <div className="asset-library-picker-state error" role="alert">
+                <InlineFeedback as="div" className="asset-library-picker-state" >
                   {list.error}
                   <Button variant="outline" onClick={() => void list.loadNext()}>
                     重试
                   </Button>
-                </div>
+                </InlineFeedback>
               ) : null}
               {!list.loading && !list.error && !list.items.length ? (
                 <div className="asset-library-picker-state">暂无可选素材</div>
               ) : null}
               <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">
                 {list.items.map((asset) => (
-                  <button
-                    className={`asset-library-picker-card ${selected === asset.file_id ? 'selected' : ''}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected === asset.file_id}
-                    disabled={busy}
-                    key={asset.file_id}
-                    onClick={() => setSelected(asset.file_id)}
-                  >
-                    <div className="asset-library-picker-preview">
-                      <AssetPreview asset={asset} interactive={false} decorative audioClassName="asset-library-audio-mark" />
-                    </div>
-                    <div className="asset-library-picker-copy">
-                      <strong>{asset.name}</strong>
-                    </div>
-                    <i aria-hidden="true">✓</i>
-                  </button>
+                  <AssetCard variant="picker" key={asset.file_id} name={asset.name}
+                    selected={selected === asset.file_id} disabled={busy} onSelect={() => setSelected(asset.file_id)}
+                    preview={<AssetPreview asset={asset} interactive={false} decorative audioClassName="asset-library-audio-mark" />} />
                 ))}
               </div>
               {list.loading && list.items.length ? (
-                <div className="asset-library-picker-more" role="status">
+                <LoadingState inline className="asset-library-picker-more">
                   正在加载更多素材…
-                </div>
+                </LoadingState>
               ) : null}
               {!list.loading && !list.error && list.hasMore ? (
                 <Button variant="outline" onClick={() => void list.loadNext()}>
                   加载更多
                 </Button>
               ) : null}
-              {error ? <p role="alert">{error}</p> : null}
+              {error ? <InlineFeedback >{error}</InlineFeedback> : null}
     </ContentDialog>
   );
 }

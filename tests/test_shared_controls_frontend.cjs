@@ -155,12 +155,20 @@ test('preview renders lazy images, playable audio, and noninteractive audio insi
 });
 
 test('tooltips keep enabled button as trigger and wrap disabled buttons for keyboard access', () => {
-  const { ActionHint } = loadFrontendTs('forge_frontend_next/components/ui/action-hint.tsx');
+  const cache = new Map();
+  const { ActionHint } = loadFrontendTs('forge_frontend_next/components/ui/action-hint.tsx', {}, cache);
+  const { Button } = loadFrontendTs('forge_frontend_next/components/ui/button.tsx', {}, cache);
   const enabled = React.createElement('button', { disabled: false }, 'run');
   const disabled = React.createElement('button', { disabled: true }, 'run');
   assert.equal(all(ActionHint({ text: 'hint', children: enabled }), 'span').length, 0);
   assert.equal(all(ActionHint({ text: 'hint', children: disabled }), 'span')[0].props.tabIndex, 0);
   assert.equal(ActionHint({ children: enabled }).props.children, enabled);
+  const shared = React.createElement(Button, {}, 'run');
+  assert.equal(all(ActionHint({ text: 'hint', children: shared }), 'span').length, 0);
+  for (const state of [{ disabled: true }, { busy: true }, { 'aria-busy': 'true' }]) {
+    const blocked = React.createElement(Button, state, 'run');
+    assert.equal(all(ActionHint({ text: 'hint', children: blocked }), 'span')[0].props.tabIndex, 0);
+  }
 });
 
 
@@ -195,6 +203,11 @@ test('Button defaults to non-submit and centralizes busy, disabled, style and fo
   assert.equal(busy.props['aria-busy'], true);
   assert.equal(busy.props.type, 'submit');
   assert.equal(busy.props.className, 'btn primary custom');
+  assert.equal(busy.props.children.props.children[0].props.size, 'sm');
+  assert.equal(busy.props.children.props.children[0].props.tone, 'current');
+  const compact = Button.render({ size: 'sm', iconOnly: true, 'aria-label': '播放' }, ref);
+  assert.equal(compact.props['data-size'], 'sm');
+  assert.equal(compact.props['data-icon-only'], true);
   assert.equal(Button.render({ disabled: true }, ref).props.disabled, true);
   assert.equal(Button.render({ 'aria-busy': 'true' }, ref).props.disabled, true);
 });

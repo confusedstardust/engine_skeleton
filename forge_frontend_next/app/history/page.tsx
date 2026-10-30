@@ -1,4 +1,8 @@
 "use client";
+import { LoadingState } from '../../components/ui/state';
+import { EmptyState } from '../../components/ui/state';
+import { InlineFeedback } from '../../components/ui/feedback';
+
 import { Button } from '../../components/ui/button';
 import { ImagePreview } from "../../components/ui/image-preview";
 import { useToast } from "../../components/ui/toast";
@@ -161,7 +165,7 @@ export default function HistoryPage() {
 
         <section className="history-toolbar" aria-label="记录筛选">
           {(["all", "running", "done", "failed"] as const).map((item) => (
-            <button
+            <Button variant="unstyled"
               className={filter === item ? "active" : ""}
               key={item}
               type="button"
@@ -169,25 +173,25 @@ export default function HistoryPage() {
             >
               {item === "all" ? "全部" : item === "running" ? "生成中" : item === "done" ? "已完成" : "失败"}
               <span>{counts[item]}</span>
-            </button>
+            </Button>
           ))}
         </section>
 
-        {loading ? <div className="history-empty">正在加载我的作品...</div> : null}
+        {loading ? <LoadingState className="history-empty">正在加载我的作品...</LoadingState> : null}
         {authMissing ? (
-          <div className="history-empty">
+          <EmptyState className="history-empty">
             <strong>请先登录 NarrativeOS</strong>
             <span>作品会按登录账号隔离。</span>
             <Link className="btn primary" href="/login">前往登录</Link>
-          </div>
+          </EmptyState>
         ) : null}
-        {error ? <div className="history-empty error">{error}</div> : null}
+        {error ? <InlineFeedback>{error}</InlineFeedback> : null}
         {!loading && !authMissing && !error && filteredJobs.length === 0 ? (
-          <div className="history-empty">
+          <EmptyState className="history-empty">
             <strong>暂无记录</strong>
             <span>新建任务后，我的作品会出现在这里。</span>
             <Link className="btn primary" href="/?workspace=1">创建新任务</Link>
-          </div>
+          </EmptyState>
         ) : null}
 
         <section className="history-list" aria-label="生成任务列表">
@@ -213,9 +217,9 @@ export default function HistoryPage() {
               <div className="history-row-main">
                 <div className="history-title-line">
                   <h2><Link className="history-card-link" href={editorHref(job)} aria-label={`打开作品：${jobTitle(job)}`}>{jobTitle(job)}</Link></h2>
-                  <button className="history-title-edit" type="button" aria-label={`重命名作品：${jobTitle(job)}`} title="重命名作品" disabled={building(job) || Boolean(actionBusy)} onClick={() => beginRename(job)}>
+                  <Button variant="unstyled" className="history-title-edit" type="button" aria-label={`重命名作品：${jobTitle(job)}`} title="重命名作品" disabled={building(job) || Boolean(actionBusy)} onClick={() => beginRename(job)}>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" /><path d="m16 5 3 3M9 15l4-1 8-8a2.12 2.12 0 0 0-3-3l-8 8-1 4Z" /></svg>
-                  </button>
+                  </Button>
                   <span className={`history-status ${statusClass(job.status)}`}>
                     {job.build_state === "STALE" ? "有未发布修改" : job.build_state === "FAILED" && job.has_published_build ? "新版本失败" : statusLabels[job.status] || job.status}
                   </span>
@@ -235,7 +239,7 @@ export default function HistoryPage() {
             <form onSubmit={event => { event.preventDefault(); void saveTitle(); }}>
               <label htmlFor="history-title-draft">作品名称</label>
               <input id="history-title-draft" autoFocus value={titleDraft} maxLength={160} disabled={titleBusy} onChange={event => setTitleDraft(event.target.value)} />
-              {titleError && <p role="alert">{titleError}</p>}
+              {titleError && <InlineFeedback >{titleError}</InlineFeedback>}
               <div className="asset-confirm-actions"><Button variant="outline" type="button" busy={Boolean(titleBusy)} onClick={() => setRenameJob(null)}>取消</Button><Button variant="primary" type="submit" busy={Boolean(titleBusy)} disabled={titleBusy || !titleDraft.trim()}>保存</Button></div>
             </form>
           </section></ModalBody></div>

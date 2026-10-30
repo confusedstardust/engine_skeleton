@@ -100,6 +100,8 @@ async def enforce_game_moderation(request: Request, call_next):
     return await call_next(request)
 store = JobStore()
 pipeline = WebGALPipeline(store)
+from .classroom_quiz import ClassroomQuiz
+classroom_quiz = ClassroomQuiz()
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
@@ -291,6 +293,18 @@ def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
     return job
 
 
+from .classroom_quiz_routes import create_router as create_classroom_quiz_router
+app.include_router(create_classroom_quiz_router(
+    service=classroom_quiz,
+    owned_job=lambda job_id, request: _get_owned_job_or_404(job_id, request),
+    identity=lambda request: _identity_from_request(request),
+    job_dir=lambda job_id: _job_dir_or_404(job_id),
+    frontend_url=frontend_url,
+    make_llm=lambda job_id: pipeline._make_llm(store.get(job_id), store.job_dir(job_id)),
+    blocked=lambda kind, job_id: admin_blocked(kind, job_id),
+))
+
+
 def _job_dir_or_404(job_id: str) -> Path:
     try:
         return store.job_dir(job_id)
@@ -321,6 +335,8 @@ class UpdateJobTitleRequest(BaseModel):
 
 class GenerateQuizRequest(BaseModel):
     regenerate: bool = False
+    min_questions: int = Field(4, ge=4, le=20)
+    max_questions: int = Field(6, ge=4, le=20)
 
 
 class UpdateQuizRequest(BaseModel):
@@ -688,7 +704,15 @@ def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, An
 
 @app.delete("/jobs/{job_id}")
 def delete_owned_job(job_id: str, request: Request) -> dict[str, bool]:
+    _get_owned_job_or_404(job_id, request)
+    with classroom_quiz.job_guard(job_id):
+        return _delete_owned_job_guarded(job_id, request)
+
+
+def _delete_owned_job_guarded(job_id: str, request: Request) -> dict[str, bool]:
     job = _get_owned_job_or_404(job_id, request)
+    if classroom_quiz.has_assignments(job_id):
+        raise HTTPException(status_code=409, detail="作品存在班级练习和历史答卷，暂不能删除。")
     if job.get("status") in {"RUNNING", "QUEUED"} or job.get("build_state") == "BUILDING":
         raise HTTPException(status_code=409, detail="任务正在生成，请完成后再删除。")
     owner = str(job.get("identity", {}).get("user_id") or "")
@@ -752,6 +776,8 @@ def generate_quiz(
     request: Request,
 ) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if payload.min_questions > payload.max_questions:
+        raise HTTPException(status_code=422, detail="最少题数不能大于最多题数")
     current = _quiz_response(job_id)
     if current["status"] in {"QUEUED", "RUNNING"}:
         return current
@@ -764,13 +790,15 @@ def generate_quiz(
         job_dir / "state" / "quiz_generation.json",
         {"status": "QUEUED", "error": None, "updated_at": utc_now()},
     )
-    background_tasks.add_task(run_quiz_background, job_id)
+    background_tasks.add_task(run_quiz_background, job_id, payload.min_questions, payload.max_questions)
     return _quiz_response(job_id)
 
 
 @app.put("/jobs/{job_id}/quiz")
 def update_quiz(job_id: str, payload: UpdateQuizRequest, request: Request) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if _quiz_response(job_id)['status'] in {'QUEUED', 'RUNNING'}:
+        raise HTTPException(status_code=409, detail="习题正在生成，请完成后再保存修改")
     try:
         validate_schema("quiz_plan.schema.json", payload.quiz_plan)
         semantic_quiz_plan(payload.quiz_plan)
@@ -2099,11 +2127,11 @@ def run_phase_background(
             return
 
 
-def run_quiz_background(job_id: str) -> None:
+def run_quiz_background(job_id: str, min_questions: int = 4, max_questions: int = 6) -> None:
     status_path = store.job_dir(job_id) / "state" / "quiz_generation.json"
     try:
         write_json(status_path, {"status": "RUNNING", "error": None, "updated_at": utc_now()})
-        pipeline.generate_quiz(job_id)
+        pipeline.generate_quiz(job_id, min_questions, max_questions)
         write_json(status_path, {"status": "READY", "error": None, "updated_at": utc_now()})
     except Exception as exc:
         write_json(

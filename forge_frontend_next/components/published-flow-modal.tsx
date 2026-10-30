@@ -1,4 +1,7 @@
 "use client";
+import { LoadingState } from './ui/state';
+import { InlineFeedback } from './ui/feedback';
+
 import { useEffect, useRef, useState } from 'react';
 import { forgeApi as api } from '../lib/api-client';
 import type { Job } from '../domain/jobs';
@@ -56,9 +59,9 @@ export function PublishedFlowModal(props: { job: Job; onClose: () => void }) {
   };
   return <ContentDialog title="最新剧情流程图" subtitle={`已发布版本 · R${graph?.revision ?? props.job.published_revision ?? 0}`} onClose={closeFlow}
     layerClassName="flow-modal-layer" className="flow-modal" headerClassName="flow-modal-head" bodyClassName="flow-modal-body" panelRef={flowModalRef}
-    notice={flowNotice && <p className="flow-fullscreen-notice" role="alert">{flowNotice}</p>}>
+    notice={flowNotice && <InlineFeedback className="flow-feedback-layout" >{flowNotice}</InlineFeedback>}>
                 {flowError ? (
-                  <p className="error">{flowError}</p>
+                  <InlineFeedback>{flowError}</InlineFeedback>
                 ) : graph ? (
                   <StoryFlowView
                     graph={graph}
@@ -67,7 +70,7 @@ export function PublishedFlowModal(props: { job: Job; onClose: () => void }) {
                     onToggleFullscreen={toggleFlowFullscreen}
                   />
                 ) : (
-                  <p>正在加载流程图…</p>
+                  <LoadingState>正在加载流程图…</LoadingState>
                 )}
   </ContentDialog>;
 }

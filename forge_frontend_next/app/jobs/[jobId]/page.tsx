@@ -1,4 +1,7 @@
 'use client';
+import { EmptyState } from '../../../components/ui/state';
+import { InlineFeedback } from '../../../components/ui/feedback';
+
 import { Button } from '../../../components/ui/button';
 import { WorkbenchHeader } from '../../../components/workbench-header';
 import type { MouseEvent } from 'react';
@@ -104,10 +107,10 @@ function JobWorkspace({ jobId }: { jobId: string }) {
   if (!data) {
     return (
       <main className="main-wrapper">
-        <section className="workspace-empty">
+        <EmptyState as="section" className="workspace-empty">
           <h1>生成工作台</h1>
           <p>{message}</p>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -145,33 +148,33 @@ function JobWorkspace({ jobId }: { jobId: string }) {
             ) : null}
           </div>
           <div className="workflow-steps">
-            <button className={stage === 'outline' ? 'active' : ''} type="button" onClick={() => setStage('outline')}>
+            <Button variant="unstyled" className={stage === 'outline' ? 'active' : ''} type="button" onClick={() => setStage('outline')}>
               1 大纲
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               className={stage === 'scenes' ? 'active' : ''}
               type="button"
               onClick={() => setStage('scenes')}
               disabled={!canOpenScenes}
             >
-              2 场景
-            </button>
-            <button
+              2 剧情
+            </Button>
+            <Button variant="unstyled"
               className={stage === 'assets' ? 'active' : ''}
               type="button"
               onClick={() => setStage('assets')}
               disabled={!canOpenAssets}
             >
               3 素材
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               className={stage === 'complete' ? 'active' : ''}
               type="button"
               onClick={() => setStage('complete')}
               disabled={!hasPublishedBuild}
             >
               4 完成
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -188,12 +191,12 @@ function JobWorkspace({ jobId }: { jobId: string }) {
         ) : null}
 
         {(failedRetry || data.job.error || operationError || Object.keys(connectionErrors).length > 0) && (
-          <div className="workspace-status workflow-status failed" role="alert">
+          <InlineFeedback as="div" className="workspace-status workflow-status failed" >
             <strong>{failedRetry ? '生成失败 · 可重试' : '需要处理'}</strong>
             <span>
               {data.job.error || (operationError ? message : '部分场景的连接需要修正，请查看红色标记和对应错误提示。')}
             </span>
-          </div>
+          </InlineFeedback>
         )}
 
         {sceneConnectionReport?.status === 'failed' && sceneConnectionReport.errors.length > 0 ? (

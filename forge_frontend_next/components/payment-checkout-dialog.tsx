@@ -1,4 +1,7 @@
 'use client';
+import { LoadingState } from './ui/state';
+import { InlineFeedback } from './ui/feedback';
+
 
 import { Button } from './ui/button';
 import * as Dialog from './ui/dialog';
@@ -40,9 +43,7 @@ export function PaymentCheckoutDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Surface overlayClassName="recharge-payment-overlay" className="recharge-checkout recharge-payment-modal" aria-describedby={undefined}>
-          <Dialog.Close className="recharge-payment-dismiss" aria-label="关闭支付窗口">
-            ×
-          </Dialog.Close>
+          <Dialog.CloseButton className="recharge-payment-dismiss" aria-label="关闭支付窗口" />
           <div>
             <Dialog.Title asChild>
               <h2>{title}</h2>
@@ -64,9 +65,7 @@ export function PaymentCheckoutDialog({
                   onError={() => setQrError(true)}
                 />
               ) : (
-                <p role="status">
-                  {qrError ? '二维码加载失败，请刷新页面重试。' : '支付状态确认中，请稍后刷新；请勿重复付款。'}
-                </p>
+                qrError ? <InlineFeedback>二维码加载失败，请刷新页面重试。</InlineFeedback> : <LoadingState inline>支付状态确认中，请稍后刷新；请勿重复付款。</LoadingState>
               )}
               <p className="recharge-expiry">
                 微信扫一扫付款 · 有效至{' '}
@@ -92,9 +91,9 @@ export function PaymentCheckoutDialog({
             </Button>
           ) : null}
           {error ? (
-            <p className="recharge-error" role="alert">
+            <InlineFeedback  >
               {error}
-            </p>
+            </InlineFeedback>
           ) : null}
         </Dialog.Surface>
     </Dialog.Root>

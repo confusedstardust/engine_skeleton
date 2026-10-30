@@ -2,6 +2,7 @@ node_modules/
 .venv/
 dist/
 .env
+/deploy/wechatpay/
 jobs/
 !forge_frontend_next/app/jobs/
 !forge_frontend_next/app/jobs/**
@@ -11,3 +12,9 @@ logs/
 uvicorn.*.log
 forge_frontend_next/.next/
 forge_frontend_next/out/
+.gstack/
+
+# Local documents, generated outputs, and helper scripts
+/output/
+/scripts/
+/docs/

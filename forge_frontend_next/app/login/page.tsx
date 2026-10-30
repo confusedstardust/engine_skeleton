@@ -1,5 +1,6 @@
 "use client";
 import { Button } from '../../components/ui/button';
+import { LoadingState } from '../../components/ui/state';
 import { WorkbenchHeader } from "../../components/workbench-header";
 
 
@@ -69,7 +70,7 @@ export default function LoginPage() {
   }
 
   if (loadError) return <main className="main-wrapper auth-wrapper"><p className="form-note">{loadError}</p></main>;
-  if (!mode) return <main aria-busy="true" />;
+  if (!mode) return <main className="main-wrapper auth-wrapper" aria-busy="true"><LoadingState>正在确认登录方式…</LoadingState></main>;
 
   return (
     <>

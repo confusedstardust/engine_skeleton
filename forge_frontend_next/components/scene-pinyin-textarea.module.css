@@ -6,7 +6,7 @@
 .header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .header h2 { margin: 0 0 9px; font-size: 20px; font-weight: 600; }
 .header p { margin: 0; font-size: 13px; line-height: 1.7; color: #776c60; }
-.header > button { border: 0; background: transparent; font-size: 26px; color: #776c60; cursor: pointer; }
+
 .preview { margin: 24px 0; padding: 22px 16px 15px; border: 1px solid #e9dfd2; border-radius: 10px; background: #f9f4ec; font-size: 25px; line-height: 2; overflow-wrap: anywhere; }
 .preview ruby { ruby-position: over; ruby-align: center; }
 .preview rt { font: 400 12px/1.2 system-ui, sans-serif; color: #98643e; }
@@ -17,5 +17,5 @@
 .grid input:focus { outline: 2px solid #bd9060; outline-offset: 1px; }
 .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 24px; }
 .footer > div { display: flex; gap: 10px; }
-.error { margin: 8px 0 0; color: #a63339; font-size: 13px; line-height: 1.6; }
+.error { margin:8px 0 0; }
 

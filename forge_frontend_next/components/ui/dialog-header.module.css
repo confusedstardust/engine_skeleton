@@ -1,0 +1,4 @@
+.header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.copy { min-width:0; }
+.copy h2 { margin:0; overflow-wrap:anywhere; }
+.subtitle { margin-top:8px; color:var(--ink-muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
