@@ -90,7 +90,13 @@ export const playVocal = (sentence: ISentence) => {
             pos = foundFigure.basePosition;
           }
 
-          const isAudioContextReady = await ensureAudioContextReady();
+          // changeFigure 为普通静态图片也注册动画记录，记录存在不代表需要嘴型分析。
+          // 未配置的差分会被 assetSetter 转为 ./game/figure/，不能仅判断字符串非空。
+          const hasMouthImages = Object.values(animationItem.mouthAnimation).some(
+            (path) => Boolean(path) && !path.split(/[?#]/)[0].endsWith('/'),
+          );
+          const isLive2D = WebGAL.gameplay.pixiStage?.getStageObjByKey(key)?.sourceType === 'live2d';
+          const isAudioContextReady = (hasMouthImages || isLive2D) && (await ensureAudioContextReady());
           if (isAudioContextReady && audioContextWrapper.audioContext) {
             if (!audioContextWrapper.analyser) {
               audioContextWrapper.analyser = audioContextWrapper.audioContext.createAnalyser();
@@ -131,7 +137,7 @@ export const playVocal = (sentence: ISentence) => {
                 pos,
               });
             }, 50);
-          } else {
+          } else if (hasMouthImages || isLive2D) {
             logger.warn('AudioContext is not ready, skip lip-sync analyzer for this vocal.');
           }
 
