@@ -1,4 +1,7 @@
 "use client";
+import { InlineFeedback } from './ui/feedback';
+
+import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import { adminApi } from "../lib/api-client";
 
@@ -37,12 +40,13 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     } finally { setBusy(false); }
   }
 
-  if (loading) return <button className="btn outline" type="button" disabled>正在查询教师资源广场…</button>;
-  if (!publication) return <><p role="alert">{error}</p><button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</button></>;
+  if (loading) return <Button variant="outline" type="button" disabled>正在查询教师资源广场…</Button>;
+  if (!publication) return <><InlineFeedback >{error}</InlineFeedback><Button variant="outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</Button></>;
   const disabled = busy || (!publication.published && !canPublish);
   const unavailableReason = blocked ? "作品已下架，请先恢复作品再发布" : "作品尚未生成可播放版本，暂时不能发布";
-  return <button
-    className={`btn ${publication.published ? "outline" : "primary"}`}
+  return <Button
+    variant={publication.published ? "outline" : "primary"}
+    busy={busy}
     type="button"
     disabled={disabled}
     title={error || ((!publication.published && !canPublish) ? unavailableReason : undefined)}
@@ -50,5 +54,5 @@ export default function AdminGamePublication({ jobId, canPublish, blocked }: { j
     onClick={() => void togglePublication()}
   >
     {busy ? "正在处理…" : publication.published ? "取消发布教师资源广场" : "发布到教师资源广场"}
-  </button>;
+  </Button>;
 }

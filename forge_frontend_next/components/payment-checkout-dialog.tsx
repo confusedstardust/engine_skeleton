@@ -1,5 +1,9 @@
 'use client';
+import { LoadingState } from './ui/state';
+import { InlineFeedback } from './ui/feedback';
 
+
+import { Button } from './ui/button';
 import * as Dialog from './ui/dialog';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Order } from '../domain/payments';
@@ -39,9 +43,7 @@ export function PaymentCheckoutDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Surface overlayClassName="recharge-payment-overlay" className="recharge-checkout recharge-payment-modal" aria-describedby={undefined}>
-          <Dialog.Close className="recharge-payment-dismiss" aria-label="关闭支付窗口">
-            ×
-          </Dialog.Close>
+          <Dialog.CloseButton className="recharge-payment-dismiss" aria-label="关闭支付窗口" />
           <div>
             <Dialog.Title asChild>
               <h2>{title}</h2>
@@ -51,7 +53,7 @@ export function PaymentCheckoutDialog({
           {isOrderFulfilled(order) ? (
             <>
               {success}
-              <Dialog.Close className="btn primary">完成</Dialog.Close>
+              <Dialog.Close asChild><Button variant="primary">完成</Button></Dialog.Close>
             </>
           ) : order.status === 'PENDING' ? (
             <>
@@ -63,21 +65,19 @@ export function PaymentCheckoutDialog({
                   onError={() => setQrError(true)}
                 />
               ) : (
-                <p role="status">
-                  {qrError ? '二维码加载失败，请刷新页面重试。' : '支付状态确认中，请稍后刷新；请勿重复付款。'}
-                </p>
+                qrError ? <InlineFeedback>二维码加载失败，请刷新页面重试。</InlineFeedback> : <LoadingState inline>支付状态确认中，请稍后刷新；请勿重复付款。</LoadingState>
               )}
               <p className="recharge-expiry">
                 微信扫一扫付款 · 有效至{' '}
                 {new Date(order.expires_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
               </p>
               <div className="recharge-buttons">
-                <button className="btn primary" disabled={busy} onClick={() => void onRefresh()}>
+                <Button variant="primary" busy={Boolean(busy)} onClick={() => void onRefresh()}>
                   刷新支付状态
-                </button>
-                <button className="btn outline" disabled={busy} onClick={() => void onRefresh(true)}>
+                </Button>
+                <Button variant="outline" busy={Boolean(busy)} onClick={() => void onRefresh(true)}>
                   关闭订单
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -86,14 +86,14 @@ export function PaymentCheckoutDialog({
             </p>
           )}
           {order.status === 'PAID' && !isOrderFulfilled(order) ? (
-            <button className="btn primary" disabled={busy} onClick={() => void onRefresh()}>
+            <Button variant="primary" busy={Boolean(busy)} onClick={() => void onRefresh()}>
               刷新支付状态
-            </button>
+            </Button>
           ) : null}
           {error ? (
-            <p className="recharge-error" role="alert">
+            <InlineFeedback  >
               {error}
-            </p>
+            </InlineFeedback>
           ) : null}
         </Dialog.Surface>
     </Dialog.Root>

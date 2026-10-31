@@ -1,4 +1,8 @@
 "use client";
+import { EmptyState } from './ui/state';
+import { Spinner } from './ui/state';
+
+import { Button } from './ui/button';
 import type { SyncNarrativeStructureOptions as SyncOptions, StoryStep, NarrativePlan } from "../domain/narrative";
 export type { StoryStep, NarrativeCharacter, NarrativeEnding, NarrativePlan } from "../domain/narrative";
 import { FormSelect } from "./ui/form-controls";
@@ -292,7 +296,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
         <nav className="laper-rail-nav">
           {SECTIONS.map((item) => (
             <div className="laper-rail-tree-group" key={item.id}>
-              <button
+              <Button variant="unstyled"
                 aria-expanded={expandedSection === item.id}
                 className={section === item.id ? "active" : ""}
                 type="button"
@@ -313,12 +317,12 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                   </em>
                   <b aria-hidden="true">{expandedSection === item.id ? "⌄" : "›"}</b>
                 </span>
-              </button>
+              </Button>
               {expandedSection === item.id && (
                 <ol className="laper-rail-list laper-rail-tree-list">
                   {Array.from({ length: item.id === "phases" ? props.plan.story_progression.length : item.id === "endings" ? props.plan.endings.length : props.plan.characters.length }, (_, index) => (
                     <li key={`${item.id}-${index}`}>
-                      <button
+                      <Button variant="unstyled"
                         className={section === item.id && activeIndex === index ? "active" : ""}
                         type="button"
                         onClick={() => {
@@ -329,7 +333,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                       >
                         <span>{index + 1}</span>
                         {blockLabel(item.id, props.plan, index)}
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ol>
@@ -348,7 +352,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
 
         <div className="laper-toolbar" role="toolbar" aria-label="大纲编辑工具栏">
           {SECTIONS.map((item) => (
-            <button
+            <Button variant="unstyled"
               className={section === item.id ? "active" : ""}
               key={item.id}
               type="button"
@@ -358,12 +362,12 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
               }}
             >
               {item.label}
-            </button>
+            </Button>
           ))}
           <span className="laper-toolbar-divider" />
-          <button className="laper-tool" type="button" disabled={disabled} onClick={addBlankBlock}>
+          <Button variant="unstyled" className="laper-tool" type="button" disabled={disabled} onClick={addBlankBlock}>
             + 空白块
-          </button>
+          </Button>
           <input
             className="laper-brief-input"
             disabled={disabled}
@@ -383,9 +387,9 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
               }
             }}
           />
-          <button className="laper-tool accent" type="button" disabled={disabled} onClick={addWithAi}>
+          <Button variant="unstyled" className="laper-tool accent" type="button" disabled={disabled} onClick={addWithAi}>
             AI 生成
-          </button>
+          </Button>
         </div>
 
         <div className="laper-shortcuts" aria-hidden="true">
@@ -583,9 +587,9 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
               ))}
 
             {!pendingBrief && sectionCount === 0 && (
-              <div className="laper-empty">
+              <EmptyState className="laper-empty">
                 <p>还没有{sectionMeta.label}。点击「+ 空白块」手动添加，或输入简述后 AI 生成。</p>
-              </div>
+              </EmptyState>
             )}
           </div>
         </div>
@@ -603,14 +607,15 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
           note={props.flowSyncing ? "流程图自动同步中..." : props.planDirty ? "修改后会自动同步流程图" : "流程图已同步"}
           footer={
             <>
-              <button className="btn outline" type="button" disabled={disabled || !props.planDirty} onClick={props.savePlan}>
+              <Button variant="outline" type="button" disabled={disabled || !props.planDirty} onClick={props.savePlan}>
                 保存大纲
-              </button>
-              <button className="btn outline" type="button" onClick={openFlowPreview}>
+              </Button>
+              <Button variant="outline" type="button" onClick={openFlowPreview}>
                 查看流程图
-              </button>
-              <button
-                className={`btn primary ${props.retryAction ? "retry-action" : ""}`}
+              </Button>
+              <Button
+                variant="primary" className={props.retryAction ? "retry-action" : undefined}
+                busy={props.busy}
                 type="button"
                 disabled={props.retryAction ? props.busy : disabled}
                 onClick={props.retryAction || props.nextToScenes}
@@ -619,7 +624,7 @@ export function LaperOutlineWorkbench(props: LaperOutlineWorkbenchProps) {
                 {props.busy && props.retryAction
                   ? "正在重试..."
                   : props.retryLabel || (props.locked ? "大纲已确认" : "确认并生成下一步")}
-              </button>
+              </Button>
             </>
           }
         >
@@ -686,7 +691,7 @@ function LaperBlock(props: {
         if (!Number.isNaN(from)) props.onDrop(from, props.index);
       }}
     >
-      <button
+      <Button variant="unstyled"
         className="laper-drag-handle"
         type="button"
         aria-label="拖动排序"
@@ -709,12 +714,12 @@ function LaperBlock(props: {
         }}
       >
         ⋮⋮
-      </button>
+      </Button>
       <div className="laper-block-content">
         <div className="laper-block-head">
           <span>{props.label}</span>
           <em>{props.tag}</em>
-          <button
+          <Button variant="unstyled"
             className="laper-block-delete"
             type="button"
             disabled={props.disabled}
@@ -724,7 +729,7 @@ function LaperBlock(props: {
             }}
           >
             删除
-          </button>
+          </Button>
         </div>
         {props.children}
       </div>
@@ -735,7 +740,7 @@ function LaperBlock(props: {
 function PendingCard({ title }: { title: string }) {
   return (
     <article className="laper-block pending-card" aria-live="polite" aria-busy="true">
-      <div className="pending-spinner" aria-hidden="true" />
+      <Spinner as="div"  aria-hidden="true" />
       <strong>{title}</strong>
     </article>
   );

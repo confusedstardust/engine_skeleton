@@ -1,5 +1,8 @@
 'use client';
 
+import { Button } from './button';
+import { InlineFeedback } from './feedback';
+import { DialogActions } from './dialog-actions';
 import * as Dialog from './dialog';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import {
@@ -91,17 +94,17 @@ export function ConfirmDialog({
         >
           <AlertDialog.Title>{title}</AlertDialog.Title>
           <AlertDialog.Description>{description}</AlertDialog.Description>
-          {error && <p role="alert" className="error">{error}</p>}
-          <div className="asset-confirm-actions">
+          {error && <InlineFeedback>{error}</InlineFeedback>}
+          <DialogActions className="asset-confirm-actions">
             <AlertDialog.Cancel asChild>
-              <button className="btn outline" disabled={busy}>
+              <Button variant="outline" busy={Boolean(busy)}>
                 取消
-              </button>
+              </Button>
             </AlertDialog.Cancel>
-            <button className="btn primary" disabled={busy} onClick={onConfirm}>
+            <Button variant="primary" busy={Boolean(busy)} onClick={onConfirm}>
               {busy ? '正在处理…' : '确认'}
-            </button>
-          </div>
+            </Button>
+          </DialogActions>
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>

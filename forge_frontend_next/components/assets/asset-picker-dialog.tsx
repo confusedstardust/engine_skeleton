@@ -1,9 +1,14 @@
 'use client';
+import { LoadingState } from '../ui/state';
+import { InlineFeedback } from '../ui/feedback';
+
+import { Button } from '../ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { PersonalLibraryAsset } from '../../domain/assets';
 import { useIncrementalList } from '../../hooks/use-incremental-list';
 import { AssetPreview } from './asset-preview';
-import { ModalBody, ModalFrame } from '../ui/modal';
+import { AssetCard } from './asset-card';
+import { ContentDialog } from '../ui/content-dialog';
 
 export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id' | 'name' | 'mime_type' | 'url'>>({
   title,
@@ -62,90 +67,50 @@ export function AssetPickerDialog<T extends Pick<PersonalLibraryAsset, 'file_id'
     }
   }
   return (
-    <ModalFrame title={title} busy={busy} onClose={onClose}>
-      <div className="asset-library-picker-layer" role="presentation">
-        <button
-          className="asset-modal-backdrop"
-          type="button"
-          aria-label="关闭素材库"
-          disabled={busy}
-          onClick={onClose}
-        />
-        <ModalBody>
-          <section className="asset-library-picker" role="dialog" aria-modal="true">
-            <header className="asset-modal-head">
-              <h2>{title}</h2>
-              <button type="button" aria-label="关闭" disabled={busy} onClick={onClose}>
-                ×
-              </button>
-            </header>
-            <div
-              className="asset-library-picker-body"
-              onScroll={(event) => more(event.currentTarget)}
-              onWheel={(event) => {
-                if (event.deltaY > 0) more(event.currentTarget);
-              }}
-            >
+    <ContentDialog title={title} busy={busy} onClose={onClose} closeInHeader={false} layerClassName="asset-library-picker-layer" className="asset-library-picker" bodyClassName="asset-library-picker-body"
+      bodyProps={{ onScroll: event => more(event.currentTarget), onWheel: event => { if (event.deltaY > 0) more(event.currentTarget); } }}
+      footer={<footer className="asset-modal-actions">
+              <Button variant="outline" busy={Boolean(busy)} onClick={onClose}>
+                取消
+              </Button>
+              <Button variant="primary" busy={Boolean(busy)} disabled={!selected || busy} onClick={() => void apply()}>
+                {busy ? '正在使用…' : '使用此素材'}
+              </Button>
+            </footer>}>
               {list.loading && !list.items.length ? (
-                <div className="asset-library-picker-state" role="status">
+                <LoadingState className="asset-library-picker-state">
                   正在加载素材…
-                </div>
+                </LoadingState>
               ) : null}
               {list.error ? (
-                <div className="asset-library-picker-state error" role="alert">
+                <InlineFeedback as="div" className="asset-library-picker-state" >
                   {list.error}
-                  <button className="btn outline" onClick={() => void list.loadNext()}>
+                  <Button variant="outline" onClick={() => void list.loadNext()}>
                     重试
-                  </button>
-                </div>
+                  </Button>
+                </InlineFeedback>
               ) : null}
               {!list.loading && !list.error && !list.items.length ? (
                 <div className="asset-library-picker-state">暂无可选素材</div>
               ) : null}
               <div className="asset-library-picker-grid" role="listbox" aria-label="可选素材">
                 {list.items.map((asset) => (
-                  <button
-                    className={`asset-library-picker-card ${selected === asset.file_id ? 'selected' : ''}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected === asset.file_id}
-                    disabled={busy}
-                    key={asset.file_id}
-                    onClick={() => setSelected(asset.file_id)}
-                  >
-                    <div className="asset-library-picker-preview">
-                      <AssetPreview asset={asset} interactive={false} decorative audioClassName="asset-library-audio-mark" />
-                    </div>
-                    <div className="asset-library-picker-copy">
-                      <strong>{asset.name}</strong>
-                    </div>
-                    <i aria-hidden="true">✓</i>
-                  </button>
+                  <AssetCard variant="picker" key={asset.file_id} name={asset.name}
+                    selected={selected === asset.file_id} disabled={busy} onSelect={() => setSelected(asset.file_id)}
+                    preview={<AssetPreview asset={asset} interactive={false} decorative audioClassName="asset-library-audio-mark" />} />
                 ))}
               </div>
               {list.loading && list.items.length ? (
-                <div className="asset-library-picker-more" role="status">
+                <LoadingState inline className="asset-library-picker-more">
                   正在加载更多素材…
-                </div>
+                </LoadingState>
               ) : null}
               {!list.loading && !list.error && list.hasMore ? (
-                <button className="btn outline" onClick={() => void list.loadNext()}>
+                <Button variant="outline" onClick={() => void list.loadNext()}>
                   加载更多
-                </button>
+                </Button>
               ) : null}
-              {error ? <p role="alert">{error}</p> : null}
-            </div>
-            <footer className="asset-modal-actions">
-              <button className="btn outline" disabled={busy} onClick={onClose}>
-                取消
-              </button>
-              <button className="btn primary" disabled={!selected || busy} onClick={() => void apply()}>
-                {busy ? '正在使用…' : '使用此素材'}
-              </button>
-            </footer>
-          </section>
-        </ModalBody>
-      </div>
-    </ModalFrame>
+              {error ? <InlineFeedback >{error}</InlineFeedback> : null}
+    </ContentDialog>
   );
 }

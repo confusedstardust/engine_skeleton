@@ -1,4 +1,6 @@
 "use client";
+import { Button } from '../../components/ui/button';
+import { LoadingState } from '../../components/ui/state';
 import { WorkbenchHeader } from "../../components/workbench-header";
 
 
@@ -68,7 +70,7 @@ export default function LoginPage() {
   }
 
   if (loadError) return <main className="main-wrapper auth-wrapper"><p className="form-note">{loadError}</p></main>;
-  if (!mode) return <main aria-busy="true" />;
+  if (!mode) return <main className="main-wrapper auth-wrapper" aria-busy="true"><LoadingState>正在确认登录方式…</LoadingState></main>;
 
   return (
     <>
@@ -84,8 +86,8 @@ export default function LoginPage() {
           </div>
           <form className="auth-form" onSubmit={submitInvite}>
             <label>邀请码<input autoComplete="off" onChange={(event) => { setInviteCode(event.target.value); setSaved(false); }} placeholder="输入你的内测邀请码" value={inviteCode} /></label>
-            <button className="btn primary" disabled={!inviteCode.trim()} type="submit">保存邀请码</button>
-            <button className="btn outline" type="button" onClick={clearInvite}>清除本机邀请码</button>
+            <Button variant="primary" disabled={!inviteCode.trim()} type="submit">保存邀请码</Button>
+            <Button variant="outline" type="button" onClick={clearInvite}>清除本机邀请码</Button>
             {saved ? <p className="form-note">邀请码已保存在当前浏览器。</p> : null}
           </form>
           {mode === "sso_or_invite" ? <a className="btn outline" href={ssoLoginUrl("/")}>使用 NarrativeOS 账号登录</a> : null}

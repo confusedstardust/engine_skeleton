@@ -34,7 +34,7 @@ export function WorkbenchNavigation({
     <nav className={className} aria-label={label}>
       <ReturnLink href={returnHref} fallback={fallback} onClick={onNavigate} />
       {children}
-      {account === undefined ? <AccountMenu className={accountClassName} tour={accountTour} includeAdmin /> : account}
+      {account === undefined ? <AccountMenu className={accountClassName} tour={accountTour} /> : account}
       {afterAccount}
     </nav>
   );

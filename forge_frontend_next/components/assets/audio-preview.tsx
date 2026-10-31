@@ -1,4 +1,7 @@
 'use client';
+import { Button } from '../ui/button';
+import { InlineFeedback } from '../ui/feedback';
+
 
 import { useAudioPreview } from '../../hooks/use-audio-preview';
 
@@ -16,7 +19,7 @@ export function AudioPreview({ src, name, durationMs }: { src: string; name: str
         <span>♪</span>
       </div>
       <div className="asset-audio-controls">
-        <button
+        <Button variant="unstyled"
           type="button"
           className="asset-audio-play"
           aria-label={`${playing ? '暂停' : '播放'}${name}`}
@@ -31,7 +34,7 @@ export function AudioPreview({ src, name, durationMs }: { src: string; name: str
               <path d="m8 5 11 7-11 7Z" fill="currentColor" />
             </svg>
           )}
-        </button>
+        </Button>
         <div className="asset-audio-timeline">
           <input
             aria-label={`${name}播放进度`}
@@ -53,9 +56,9 @@ export function AudioPreview({ src, name, durationMs }: { src: string; name: str
         </div>
       </div>
       {error && (
-        <span className="asset-audio-error" role="alert">
+        <InlineFeedback variant="inline" as="span" className="asset-audio-error" >
           {error}
-        </span>
+        </InlineFeedback>
       )}
     </div>
   );

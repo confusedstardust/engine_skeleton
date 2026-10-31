@@ -1,4 +1,6 @@
 "use client";
+import { Button } from './ui/button';
+
 
 import { useEffect, useState } from "react";
 
@@ -41,7 +43,7 @@ export function SceneScrollButton() {
   if (!canScroll) return null;
   const label = target === "bottom" ? "滚动到页面底部" : "返回页面顶部";
   return (
-    <button className="scene-scroll-button" type="button" aria-label={label} title={label}
+    <Button variant="unstyled" className="scene-scroll-button" type="button" aria-label={label} title={label}
       onClick={() => {
         const root = document.scrollingElement || document.documentElement;
         window.scrollTo({ top: target === "top" ? 0 : Math.max(0, root.scrollHeight - window.innerHeight),
@@ -51,6 +53,6 @@ export function SceneScrollButton() {
         <path d={target === "bottom" ? "M12 5v14M6 13l6 6 6-6" : "M12 19V5M6 11l6-6 6 6"}
           stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </button>
+    </Button>
   );
 }

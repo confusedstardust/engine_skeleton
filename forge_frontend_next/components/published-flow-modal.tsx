@@ -1,8 +1,11 @@
 "use client";
+import { LoadingState } from './ui/state';
+import { InlineFeedback } from './ui/feedback';
+
 import { useEffect, useRef, useState } from 'react';
 import { forgeApi as api } from '../lib/api-client';
 import type { Job } from '../domain/jobs';
-import { ModalBody, ModalFrame } from './ui/modal';
+import { ContentDialog } from './ui/content-dialog';
 import { StoryFlowView } from './story-flow-view';
 import type { StoryGraph } from './story-graph-data';
 export function PublishedFlowModal(props: { job: Job; onClose: () => void }) {
@@ -54,31 +57,11 @@ export function PublishedFlowModal(props: { job: Job; onClose: () => void }) {
     }
     void modal.requestFullscreen().catch(() => setFlowNotice('浏览器未允许进入全屏，请检查权限后重试。'));
   };
-  return (
-
-        <ModalFrame title="最新流程图" onClose={closeFlow}>
-          <div className="flow-modal-layer">
-            <button className="flow-modal-dismiss" aria-label="关闭流程图" onClick={closeFlow} />
-            <ModalBody><section className="flow-modal" ref={flowModalRef}>
-              <div className="flow-modal-head">
-                <div>
-                  <span>已发布版本 · R{graph?.revision ?? props.job.published_revision ?? 0}</span>
-                  <h3>最新剧情流程图</h3>
-                </div>
-                <div className="flow-modal-actions">
-                  <button className="btn outline" type="button" autoFocus onClick={closeFlow}>
-                    关闭
-                  </button>
-                </div>
-              </div>
-              {flowNotice && (
-                <p className="flow-fullscreen-notice" role="alert">
-                  {flowNotice}
-                </p>
-              )}
-              <div className="flow-modal-body">
+  return <ContentDialog title="最新剧情流程图" subtitle={`已发布版本 · R${graph?.revision ?? props.job.published_revision ?? 0}`} onClose={closeFlow}
+    layerClassName="flow-modal-layer" className="flow-modal" headerClassName="flow-modal-head" bodyClassName="flow-modal-body" panelRef={flowModalRef}
+    notice={flowNotice && <InlineFeedback className="flow-feedback-layout" >{flowNotice}</InlineFeedback>}>
                 {flowError ? (
-                  <p className="error">{flowError}</p>
+                  <InlineFeedback>{flowError}</InlineFeedback>
                 ) : graph ? (
                   <StoryFlowView
                     graph={graph}
@@ -87,12 +70,7 @@ export function PublishedFlowModal(props: { job: Job; onClose: () => void }) {
                     onToggleFullscreen={toggleFlowFullscreen}
                   />
                 ) : (
-                  <p>正在加载流程图…</p>
+                  <LoadingState>正在加载流程图…</LoadingState>
                 )}
-              </div>
-            </section></ModalBody>
-          </div>
-        </ModalFrame>
-
-  );
+  </ContentDialog>;
 }

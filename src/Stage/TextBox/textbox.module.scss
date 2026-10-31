@@ -12,6 +12,25 @@
 
 $height: 330px;
 
+.pinyinGlyph {
+  color: #fff7e5;
+  text-shadow: 0 1px 3px #152233, 0 0 2px #152233;
+
+  :global(.dialogue-pinyin-ruby) {
+    ruby-position: over;
+    ruby-align: center;
+  }
+
+  rt {
+    font-family: system-ui, sans-serif;
+    font-size: 0.5em;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    -webkit-text-stroke: 0;
+  }
+}
+
 .TextBox_Container {
   position: absolute;
   z-index: 6;

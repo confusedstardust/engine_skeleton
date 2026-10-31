@@ -1,5 +1,6 @@
 "use client";
 
+import { CloseButton } from './close-button';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { createPortal } from "react-dom";
@@ -26,7 +27,7 @@ export function Toast({ message, onClose, tone = "info", duration = tone === "er
   return createPortal(<div className="app-toast" data-tone={tone} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
     <span className="app-toast-icon" aria-hidden="true">{tone === "success" ? "✓" : tone === "error" ? "!" : "i"}</span>
     <span className="app-toast-message">{message}</span>
-    <button type="button" onClick={onClose} aria-label="关闭提示">×</button>
+    <CloseButton size="sm" tone="inverse" onClick={onClose} aria-label="关闭提示" />
   </div>, document.body);
 }
 

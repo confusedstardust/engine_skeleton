@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 
-def quiz_prompt(job: dict[str, Any], narrative_plan: dict[str, Any]) -> str:
+def quiz_prompt(job: dict[str, Any], narrative_plan: dict[str, Any], min_questions: int = 4, max_questions: int = 6) -> str:
     options = job.get("options") if isinstance(job.get("options"), dict) else {}
     source = str(job.get("source_material") or "").strip()
     narrative_json = json.dumps(narrative_plan, ensure_ascii=False, indent=2)
@@ -12,7 +12,7 @@ def quiz_prompt(job: dict[str, Any], narrative_plan: dict[str, Any]) -> str:
 
 目标：
 - title 使用“《作品名》课后习题”，不要使用“讲评练”；introduction 简述习题内容，不要描述教师讲评或追问提示。
-- 生成 4-8 道题，必须同时包含 single_choice（单选题）和 judgement（判断/辨析题）。
+- 生成 {min_questions}-{max_questions} 道题，必须同时包含 single_choice（单选题）和 judgement（判断/辨析题）。
 - 题目用于教师课后讲评，不要考察游戏界面操作，不要依赖学生记忆无关紧要的情节细节。
 - 每题只有一个正确选项。single_choice 使用 4 个选项；judgement 使用 2 个选项，文本为“正确”和“错误”。
 - 干扰项要有诊断价值，能够暴露常见误解，不能使用“以上都对/都不对”。

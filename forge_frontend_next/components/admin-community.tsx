@@ -1,4 +1,9 @@
 "use client";
+import { LoadingState } from './ui/state';
+import { Button } from './ui/button';
+import { InlineFeedback } from './ui/feedback';
+import { EmptyState } from './ui/state';
+
 import { useToast } from "./ui/toast";
 import { Pagination } from "./ui/pagination";
 
@@ -35,7 +40,7 @@ function NoticeEditor({ notice, saved }: { notice?: BoardNotice; saved: () => vo
     <label className={styles.field}><span>公告标题</span><input value={title} maxLength={100} placeholder="为这条消息起一个清楚的标题" required onChange={event => setTitle(event.target.value)} /></label>
     <label className={styles.field}><span>公告正文 <small>{content.length} / 2000</small></span><textarea className={styles.noticeContent} value={content} maxLength={2000} placeholder="写下产品更新、活动安排，或想告诉用户的事。" required onChange={event => setContent(event.target.value)} /></label>
     <Visibility checked={published} onChange={setPublished} title="公开展示" description="开启后展示在用户的公告弹窗中" />
-    <div className={styles.formFooter}><SaveStatus message={status} error={failed} /><button className={styles.primaryButton} type="submit" disabled={!title.trim() || !content.trim()}>{busy ? "保存中…" : notice ? "保存修改" : published ? "发布公告" : "保存草稿"}</button></div>
+    <div className={styles.formFooter}><SaveStatus message={status} error={failed} /><Button variant="unstyled" className={styles.primaryButton} type="submit" disabled={!title.trim() || !content.trim()}>{busy ? "保存中…" : notice ? "保存修改" : published ? "发布公告" : "保存草稿"}</Button></div>
   </fieldset></form>;
 }
 
@@ -59,7 +64,7 @@ function ReplyEditor({ question, saved }: { question: BoardQuestion; saved: () =
     }}><fieldset disabled={busy}><label className={styles.field}><span>管理员答复</span><textarea value={answer} maxLength={4000} placeholder="写下你的答复…" onChange={event => setAnswer(event.target.value)} /></label>
       {suggestion ? <div className={styles.privateNote}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="8" width="12" height="9" rx="2" /><path d="M6 8V5a4 4 0 0 1 8 0v3" /></svg>回复仅提交者可见</div> : <Visibility checked={published} onChange={setPublished} title="公开为精选问答" description="公开后所有人可阅读，提问者信息会隐藏" />}
       {published && !answer.trim() && <p className={styles.validation}>请先填写答复，再公开这条问答。</p>}
-      <div className={styles.formFooter}><SaveStatus message={status} error={failed} /><button type="submit" className={styles.primaryButton} disabled={published && !answer.trim()}>{busy ? "保存中…" : "保存答复"}</button></div>
+      <div className={styles.formFooter}><SaveStatus message={status} error={failed} /><Button variant="unstyled" type="submit" className={styles.primaryButton} disabled={published && !answer.trim()}>{busy ? "保存中…" : "保存答复"}</Button></div>
     </fieldset></form>
   </article>;
 }
@@ -85,8 +90,8 @@ export default function AdminCommunity() {
   const visible = questions.filter(question => filter === "ALL" || (filter === "PENDING" ? !question.answer : (question.kind || "QUESTION") === filter));
   const pending = questions.filter(question => !question.answer).length;
   return <section className={styles.panel} aria-label="公告与问答管理">
-    <header className={styles.heading}><div><h2>公告与问答</h2><p>发布平台消息，处理用户的提问与反馈。</p></div><button className={styles.secondaryButton} type="button" onClick={saved} disabled={loading}>刷新</button></header>
-    {error && <div className={styles.loadError} role="alert">{error}<button className={styles.secondaryButton} type="button" onClick={saved}>重试</button></div>}
+    <header className={styles.heading}><div><h2>公告与问答</h2><p>发布平台消息，处理用户的提问与反馈。</p></div><Button variant="unstyled" className={styles.secondaryButton} type="button" onClick={saved} disabled={loading}>刷新</Button></header>
+    {error && <InlineFeedback as="div" className={styles.loadError} >{error}<Button variant="unstyled" className={styles.secondaryButton} type="button" onClick={saved}>重试</Button></InlineFeedback>}
     <div className={styles.columns}>
       <aside className={styles.noticeColumn} aria-labelledby="admin-notice-title">
         <div className={styles.columnHeading}><h3 id="admin-notice-title">公告</h3><span>用户端展示最新 3 条公开公告</span></div>
@@ -94,9 +99,9 @@ export default function AdminCommunity() {
         {Boolean(data?.announcements.length) && <div className={styles.savedNotices}><h4>已保存的公告</h4>{data?.announcements.map(notice => <details className={styles.noticeItem} key={notice.id}><summary><div><strong>{notice.title}</strong><span>{notice.created_at.slice(0, 10)} · {notice.published ? "已公开" : "仅管理员可见"}</span></div><span className={styles.editLabel}>编辑</span></summary><NoticeEditor notice={notice} saved={saved} /></details>)}</div>}
       </aside>
       <section className={styles.inbox} aria-labelledby="admin-inbox-title">
-        <div className={styles.columnHeading}><h3 id="admin-inbox-title">用户留言</h3><span>{loading && !data ? "正在加载…" : `本页 ${questions.length} 条 · ${pending} 条待回复`}</span></div>
-        <div className={styles.filters} role="group" aria-label="筛选本页留言">{filters.map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
-        <div className={styles.messageList} aria-busy={loading}>{visible.map(question => <ReplyEditor key={question.id} question={question} saved={saved} />)}{!loading && !error && !visible.length && <div className={styles.empty}><strong>{questions.length ? "本页没有符合条件的留言" : "暂时没有用户留言"}</strong><p>{questions.length ? "试试其他筛选，或查看下一页。" : "用户提交的提问和建议会显示在这里。"}</p></div>}</div>
+        <div className={styles.columnHeading}><h3 id="admin-inbox-title">用户留言</h3><span>{loading && !data ? <LoadingState as="span" inline>正在加载…</LoadingState> : `本页 ${questions.length} 条 · ${pending} 条待回复`}</span></div>
+        <div className={styles.filters} role="group" aria-label="筛选本页留言">{filters.map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</Button>)}</div>
+        <div className={styles.messageList} aria-busy={loading}>{visible.map(question => <ReplyEditor key={question.id} question={question} saved={saved} />)}{!loading && !error && !visible.length && <EmptyState className={styles.empty}><strong>{questions.length ? "本页没有符合条件的留言" : "暂时没有用户留言"}</strong><p>{questions.length ? "试试其他筛选，或查看下一页。" : "用户提交的提问和建议会显示在这里。"}</p></EmptyState>}</div>
         <Pagination className={styles.pagination} buttonClassName={styles.secondaryButton} ariaLabel="留言分页" layout="trailing-actions" page={offset / 20 + 1} hasMore={Boolean(data?.has_more)} disabled={loading} onPageChange={page => setOffset((page - 1) * 20)} />
       </section>
     </div>

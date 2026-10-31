@@ -1,0 +1,6 @@
+.feedback { margin:12px 0; padding:10px 12px; border:1px solid; border-radius:8px; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.feedback[data-tone="error"] { color:#9b2335; background:#fbf0f1; border-color:#e8c9ce; }
+.feedback[data-tone="info"] { color:var(--ink-muted,#6b6460); background:#f6f1e8; border-color:var(--border-light,#e8dfcf); }
+.feedback[data-tone="success"] { color:#42634c; background:#eff6ef; border-color:#cbdccb; }
+.feedback[data-variant="inline"] { margin:0; padding:0; border:0; border-radius:0; background:transparent; }
+.action { display:inline-flex; margin-inline-start:10px; }

@@ -24,6 +24,13 @@ export function ssoLoginUrl(returnPath = "/") {
   return `${origin}/login/?next=${encodeURIComponent(returnUrl)}`;
 }
 
+export function accountSettingsUrl() {
+  if (typeof window === "undefined") return "/account";
+  const url = new URL("/account", ssoLoginUrl("/"));
+  url.searchParams.set("returnTo", window.location.href);
+  return url.toString();
+}
+
 export function teacherResourcePlazaUrl() {
   if (typeof window === "undefined") return "/teacher-ecosystem/";
   const url = new URL("/teacher-ecosystem/", ssoLoginUrl("/"));

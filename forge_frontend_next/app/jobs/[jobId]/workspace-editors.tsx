@@ -1,4 +1,5 @@
 'use client';
+import { Button } from '../../../components/ui/button';
 import { completedSceneRouteLabel, sceneMarkerLabel, sceneTargetOptions } from './workspace-data';
 
 import type {
@@ -8,7 +9,7 @@ import type {
   SceneDraft,
 } from '../../../domain/narrative';
 
-import { ModalBody, ModalFrame } from '../../../components/ui/modal';
+import { ContentDialog } from '../../../components/ui/content-dialog';
 import { useMemo } from 'react';
 import { StoryFlowView } from '../../../components/story-flow-view';
 import { planningGraph } from '../../../components/story-graph-data';
@@ -93,25 +94,9 @@ export function OutlineEditor(props: {
       retryLabel={props.retryLabel}
       renderFlowModal={(open, onClose) =>
         open ? (
-          <ModalFrame title="故事流程图" onClose={onClose}>
-            <div className="flow-modal-layer">
-              <button className="flow-modal-dismiss" type="button" aria-label="关闭流程图" onClick={onClose} />
-              <ModalBody><section className="flow-modal">
-                <div className="flow-modal-head">
-                  <div>
-                    <span>{props.flowSyncing ? '同步中' : '自动同步'}</span>
-                    <h3>故事流程图</h3>
-                  </div>
-                  <button className="btn outline" type="button" onClick={onClose}>
-                    关闭
-                  </button>
-                </div>
-                <div className="flow-modal-body">
-                  <NarrativeFlowPreview plan={plan} syncStructure={props.syncStructure} />
-                </div>
-              </section></ModalBody>
-            </div>
-          </ModalFrame>
+          <ContentDialog title="故事流程图" subtitle={props.flowSyncing ? '同步中' : '自动同步'} onClose={onClose} layerClassName="flow-modal-layer" className="flow-modal" headerClassName="flow-modal-head" bodyClassName="flow-modal-body">
+            <NarrativeFlowPreview plan={plan} syncStructure={props.syncStructure} />
+          </ContentDialog>
         ) : null
       }
     />
@@ -147,9 +132,9 @@ export function SceneGenerationStatus(props: {
         <div className="node-placeholder">
           <strong>详细场景尚未生成。</strong>
           <span>此任务已保存场景设计稿，可以继续生成详细旁白和对话，无需再次确认设计稿。</span>
-          <button className="btn primary" type="button" disabled={props.busy} onClick={props.resumeAction}>
+          <Button variant="primary" type="button" busy={Boolean(props.busy)} onClick={props.resumeAction}>
             继续生成详细场景
-          </button>
+          </Button>
         </div>
       ) : (
         <LoadingPlaceholder
@@ -228,32 +213,32 @@ export function SceneEditor(props: {
             !props.readonly ? (
               props.published ? (
                 <>
-                  <button
-                    className="btn outline"
+                  <Button
+                    variant="outline"
                     type="button"
-                    disabled={props.busy || !props.scenesDirty}
+                    busy={Boolean(props.busy)} disabled={props.busy || !props.scenesDirty}
                     onClick={() => props.saveScenes(false)}
                   >
                     仅保存草稿
-                  </button>
-                  <button
-                    className="btn primary"
+                  </Button>
+                  <Button
+                    variant="primary"
                     type="button"
-                    disabled={props.busy}
+                    busy={Boolean(props.busy)}
                     onClick={() => props.saveScenes(true)}
                   >
                     保存并应用到游戏
-                  </button>
+                  </Button>
                 </>
               ) : (
-                <button
-                  className="btn primary"
+                <Button
+                  variant="primary"
                   type="button"
-                  disabled={props.busy}
+                  busy={Boolean(props.busy)}
                   onClick={() => props.saveScenes(false)}
                 >
                   保存并生成素材
-                </button>
+                </Button>
               )
             ) : undefined
           }

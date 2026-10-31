@@ -6,6 +6,7 @@ import mimetypes
 import os
 import re
 import shutil
+from .title_cover import local_title_cover, set_title_image
 import uuid
 import asyncio
 from contextlib import asynccontextmanager
@@ -99,6 +100,8 @@ async def enforce_game_moderation(request: Request, call_next):
     return await call_next(request)
 store = JobStore()
 pipeline = WebGALPipeline(store)
+from .classroom_quiz import ClassroomQuiz
+classroom_quiz = ClassroomQuiz()
 frontend_dir = settings.workspace_root / "forge_frontend"
 engine_dist_dir = settings.workspace_root / "dist"
 frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
@@ -290,6 +293,18 @@ def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:
     return job
 
 
+from .classroom_quiz_routes import create_router as create_classroom_quiz_router
+app.include_router(create_classroom_quiz_router(
+    service=classroom_quiz,
+    owned_job=lambda job_id, request: _get_owned_job_or_404(job_id, request),
+    identity=lambda request: _identity_from_request(request),
+    job_dir=lambda job_id: _job_dir_or_404(job_id),
+    frontend_url=frontend_url,
+    make_llm=lambda job_id: pipeline._make_llm(store.get(job_id), store.job_dir(job_id)),
+    blocked=lambda kind, job_id: admin_blocked(kind, job_id),
+))
+
+
 def _job_dir_or_404(job_id: str) -> Path:
     try:
         return store.job_dir(job_id)
@@ -320,6 +335,8 @@ class UpdateJobTitleRequest(BaseModel):
 
 class GenerateQuizRequest(BaseModel):
     regenerate: bool = False
+    min_questions: int = Field(4, ge=4, le=20)
+    max_questions: int = Field(6, ge=4, le=20)
 
 
 class UpdateQuizRequest(BaseModel):
@@ -369,6 +386,7 @@ class AvatarCropRequest(BaseModel):
 
 
 class UseLibraryAssetRequest(BaseModel):
+    title_cover: bool = False
     asset_file_id: str = Field(pattern=r"^[0-9a-fA-F]{32}$")
     target: str = Field(pattern=r"^(background|figure|bgm)$")
     replace_filename: str | None = None
@@ -686,7 +704,15 @@ def remove_from_teacher_ecosystem(job_id: str, request: Request) -> dict[str, An
 
 @app.delete("/jobs/{job_id}")
 def delete_owned_job(job_id: str, request: Request) -> dict[str, bool]:
+    _get_owned_job_or_404(job_id, request)
+    with classroom_quiz.job_guard(job_id):
+        return _delete_owned_job_guarded(job_id, request)
+
+
+def _delete_owned_job_guarded(job_id: str, request: Request) -> dict[str, bool]:
     job = _get_owned_job_or_404(job_id, request)
+    if classroom_quiz.has_assignments(job_id):
+        raise HTTPException(status_code=409, detail="作品存在班级练习和历史答卷，暂不能删除。")
     if job.get("status") in {"RUNNING", "QUEUED"} or job.get("build_state") == "BUILDING":
         raise HTTPException(status_code=409, detail="任务正在生成，请完成后再删除。")
     owner = str(job.get("identity", {}).get("user_id") or "")
@@ -750,6 +776,8 @@ def generate_quiz(
     request: Request,
 ) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if payload.min_questions > payload.max_questions:
+        raise HTTPException(status_code=422, detail="最少题数不能大于最多题数")
     current = _quiz_response(job_id)
     if current["status"] in {"QUEUED", "RUNNING"}:
         return current
@@ -762,13 +790,15 @@ def generate_quiz(
         job_dir / "state" / "quiz_generation.json",
         {"status": "QUEUED", "error": None, "updated_at": utc_now()},
     )
-    background_tasks.add_task(run_quiz_background, job_id)
+    background_tasks.add_task(run_quiz_background, job_id, payload.min_questions, payload.max_questions)
     return _quiz_response(job_id)
 
 
 @app.put("/jobs/{job_id}/quiz")
 def update_quiz(job_id: str, payload: UpdateQuizRequest, request: Request) -> dict[str, Any]:
     _get_owned_job_or_404(job_id, request)
+    if _quiz_response(job_id)['status'] in {'QUEUED', 'RUNNING'}:
+        raise HTTPException(status_code=409, detail="习题正在生成，请完成后再保存修改")
     try:
         validate_schema("quiz_plan.schema.json", payload.quiz_plan)
         semantic_quiz_plan(payload.quiz_plan)
@@ -1215,11 +1245,25 @@ def get_asset_review(job_id: str, request: Request) -> dict[str, Any]:
     }
 
 
+def _replace_title_cover(job: dict[str, Any], job_dir: Path, source: Path) -> None:
+    game_dir = job_dir / "public" / "game"
+    destination = game_dir / "background" / source.name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    set_title_image(game_dir, source.name)
+    job["cover_revision"] = int(job.get("cover_revision", 0)) + 1
+    store.save(job)
+
+
 @app.post("/jobs/{job_id}/assets/upload")
-async def upload_asset(job_id: str, request: Request, file: UploadFile = File(...), asset_type: str = Form(...), image_role: str = Form("background"), remove_background: bool = Form(False), replace_filename: str | None = Form(None), base_revision: int | None = Form(None)) -> dict[str, Any]:
-    """Store a user asset in this job's draft; it is published only via Apply changes."""
+async def upload_asset(job_id: str, request: Request, file: UploadFile = File(...), asset_type: str = Form(...), image_role: str = Form("background"), remove_background: bool = Form(False), replace_filename: str | None = Form(None), base_revision: int | None = Form(None), title_cover: bool = Form(False)) -> dict[str, Any]:
+    """Stage a job asset, or update the title cover immediately when requested."""
     job = _get_owned_job_or_404(job_id, request)
     _require_job_editable(job, base_revision)
+    if title_cover and (asset_type != "image" or image_role != "background" or replace_filename):
+        raise HTTPException(status_code=422, detail="封面必须使用独立背景图片")
+    if title_cover and not (_job_dir_or_404(job_id) / "public/game/config.txt").exists():
+        raise HTTPException(status_code=409, detail="请先完成游戏生成")
     asset_type, suffix = asset_type.strip().lower(), Path(file.filename or "").suffix.lower()
     image_suffixes, audio_suffixes = {".png", ".jpg", ".jpeg", ".webp"}, {".mp3", ".wav", ".ogg"}
     if asset_type not in {"image", "bgm"} or (asset_type == "image" and suffix not in image_suffixes) or (asset_type == "bgm" and suffix not in audio_suffixes): raise HTTPException(status_code=422, detail="unsupported file type")
@@ -1299,7 +1343,11 @@ async def upload_asset(job_id: str, request: Request, file: UploadFile = File(..
     items = _uploaded_assets(job_dir)
     items = [existing for existing in items if not (existing.get("type") == item.get("type") and existing.get("subdir") == item.get("subdir") and existing.get("filename") == item.get("filename"))]
     items.append(item); write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
-    store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json"); store.mark_draft_changed(job, "assets" if asset_type == "image" else "music")
+    store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json")
+    if title_cover:
+        _replace_title_cover(job, job_dir, target)
+    else:
+        store.mark_draft_changed(job, "assets" if asset_type == "image" else "music")
     return {"job": _get_owned_job_or_404(job_id, request), "asset": item}
 
 
@@ -1307,6 +1355,10 @@ async def upload_asset(job_id: str, request: Request, file: UploadFile = File(..
 def use_personal_asset(job_id: str, payload: UseLibraryAssetRequest, request: Request) -> dict[str, Any]:
     user, job = _asset_user_and_job(job_id, request)
     _require_job_editable(job, payload.base_revision)
+    if payload.title_cover and (payload.target != "background" or payload.replace_filename):
+        raise HTTPException(status_code=422, detail="封面必须使用独立背景图片")
+    if payload.title_cover and not (_job_dir_or_404(job_id) / "public/game/config.txt").exists():
+        raise HTTPException(status_code=409, detail="请先完成游戏生成")
     try:
         record, content = get_asset_library().download_accessible_file(str(user["id"]), payload.asset_file_id.lower())
     except AssetLibraryError as exc:
@@ -1383,7 +1435,10 @@ def use_personal_asset(job_id: str, payload: UseLibraryAssetRequest, request: Re
     items.append(item)
     write_json(job_dir / "state" / "uploaded_assets.json", {"version": 1, "items": items})
     store.record_artifact(job, "uploaded_assets", "state/uploaded_assets.json")
-    store.mark_draft_changed(job, "assets" if payload.target != "bgm" else "music")
+    if payload.title_cover:
+        _replace_title_cover(job, job_dir, target)
+    else:
+        store.mark_draft_changed(job, "assets" if payload.target != "bgm" else "music")
     return {"job": _get_owned_job_or_404(job_id, request), "asset": item}
 
 
@@ -1885,20 +1940,9 @@ def play_game_cover(job_id: str) -> FileResponse:
     job_dir = _job_dir_or_404(job_id)
     backup_root = job_dir / "state" / "published_game_backup"
     game_root = backup_root if store.get(job_id).get("build_state") == "BUILDING" and backup_root.exists() else job_dir / "public" / "game"
-    background_dir = game_root / "background"
-    if not background_dir.exists():
+    cover = local_title_cover(game_root)
+    if cover is None:
         raise HTTPException(status_code=404, detail=f"game cover not found: {job_id}")
-    candidates = sorted(
-        path
-        for path in background_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    )
-    if not candidates:
-        raise HTTPException(status_code=404, detail=f"game cover not found: {job_id}")
-    cover = next(
-        (path for path in candidates if path.name.lower().startswith(("title", "bg_start", "bg_"))),
-        candidates[0],
-    )
     return FileResponse(cover)
 
 
@@ -2083,11 +2127,11 @@ def run_phase_background(
             return
 
 
-def run_quiz_background(job_id: str) -> None:
+def run_quiz_background(job_id: str, min_questions: int = 4, max_questions: int = 6) -> None:
     status_path = store.job_dir(job_id) / "state" / "quiz_generation.json"
     try:
         write_json(status_path, {"status": "RUNNING", "error": None, "updated_at": utc_now()})
-        pipeline.generate_quiz(job_id)
+        pipeline.generate_quiz(job_id, min_questions, max_questions)
         write_json(status_path, {"status": "READY", "error": None, "updated_at": utc_now()})
     except Exception as exc:
         write_json(

@@ -11,7 +11,7 @@
     "questions": {
       "type": "array",
       "minItems": 4,
-      "maxItems": 10,
+      "maxItems": 20,
       "items": {
         "type": "object",
         "required": [

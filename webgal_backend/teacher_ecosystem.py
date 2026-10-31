@@ -9,6 +9,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .storage import read_json
+from .title_cover import local_title_cover
 
 
 class TeacherEcosystemError(RuntimeError):
@@ -124,18 +125,10 @@ def _read_optional_json(path: Path) -> dict[str, Any]:
 
 
 def _cover_url(root: str, job_id: str, job_dir: Path) -> str | None:
-    background_dir = job_dir / "public" / "game" / "background"
-    if not background_dir.exists():
+    cover = local_title_cover(job_dir / "public" / "game")
+    if cover is None:
         return None
-    candidates = sorted(
-        path.name
-        for path in background_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    )
-    if not candidates:
-        return None
-    preferred = next((name for name in candidates if name.lower().startswith(("title", "bg_start", "bg_"))), candidates[0])
-    return f"{root}/play/{job_id}/game/background/{quote(preferred)}"
+    return f"{root}/play/{job_id}/game/background/{quote(cover.name)}"
 
 
 def _subject_from_grade(grade: str | None) -> str | None:
