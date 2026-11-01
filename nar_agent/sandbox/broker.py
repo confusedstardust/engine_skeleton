@@ -136,9 +136,12 @@ def ready():
     if len(token) < 32 or token.startswith("replace-with-"):
         raise HTTPException(503, "Execution token not configured")
     try:
-        with docker.from_env(timeout=3) as client:
+        client = docker.from_env(timeout=3)
+        try:
             client.ping()
             client.images.get(os.environ["NAR_SANDBOX_IMAGE"])
+        finally:
+            client.close()
     except Exception:
         raise HTTPException(503, "Docker runtime image not ready") from None
     return {"status": "ready"}

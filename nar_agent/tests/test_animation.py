@@ -15,6 +15,26 @@ from app.main import create_app
 from sandbox import broker
 
 
+@pytest.mark.parametrize("image_exists", [True, False])
+def test_broker_ready_closes_client_without_context_manager(monkeypatch, image_exists):
+    import docker
+    closed = []
+    class Client:
+        def __init__(self): self.images = self
+        def ping(self): return True
+        def get(self, image):
+            assert image == "test-sandbox"
+            if not image_exists: raise RuntimeError("missing image")
+            return object()
+        def close(self): closed.append(True)
+    monkeypatch.setattr(docker, "from_env", lambda **kwargs: Client())
+    monkeypatch.setenv("NAR_EXECUTION_TOKEN", "x" * 40)
+    monkeypatch.setenv("NAR_SANDBOX_IMAGE", "test-sandbox")
+    response = TestClient(broker.app).get("/ready")
+    assert response.status_code == (200 if image_exists else 503)
+    assert closed == [True]
+
+
 def test_real_animation_graph_build_tool(monkeypatch, tmp_path):
     import asyncio
     import httpx

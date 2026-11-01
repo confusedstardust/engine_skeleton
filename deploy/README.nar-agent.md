@@ -32,6 +32,10 @@ deploy/nar-execution.env      # 独立开发执行 token
 
 ## 网络、数据与验收
 
+2026-11-01 开发服务器发现 execution `/ready` 持续 503：Docker SDK 7.1.0 的 DockerClient 不支持上下文管理器，旧版 `with docker.from_env(...)` 会抛 TypeError。已改为 try/finally 显式 close，并补成功/失败路径关闭连接测试。服务器需要发布包含修复的 execution 镜像后再运行重启脚本；旧镜像反复重启无效。线上验证仍待完成。
+
+日常修改 env 后重新创建服务，可将 [restart-nar-agent.sh](restart-nar-agent.sh) 上传到部署根目录或 `deploy/` 中，在该脚本所在目录执行 `bash restart-nar-agent.sh`。默认 development；生产必须显式加 `--environment production`。脚本加载 CI 镜像 pin、检查两组 token、补拉缺失镜像，依次重新创建 execution、NarAgent、backend 并检查健康和鉴权；不删除卷、不打印密钥、不重建前端。它会中断进行中的 Agent 任务，应在任务结束后执行。
+
 开发 Compose 合并方式：
 
 ```bash
