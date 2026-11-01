@@ -13,12 +13,16 @@ export async function checkPage(file) {
   try {
     let target;
     for (let i = 0; i < 80; i++) {
-      try { const response = await fetch('http://127.0.0.1:9222/json/new?about:blank', { method: 'PUT' }); target = await response.json(); break; }
+      try { const response = await fetch('http://127.0.0.1:9222/json/new?about:blank', { method: 'PUT', signal: AbortSignal.timeout(1000) }); target = await response.json(); break; }
       catch { await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     if (!target) throw new Error('Chromium startup failed');
     socket = new WebSocket(target.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Chromium WebSocket startup timeout')), 5000);
+      socket.onopen = () => { clearTimeout(timer); resolve(); };
+      socket.onerror = () => { clearTimeout(timer); reject(new Error('Chromium WebSocket startup failed')); };
+    });
     let id = 0;
     const pending = new Map();
     socket.onmessage = event => {

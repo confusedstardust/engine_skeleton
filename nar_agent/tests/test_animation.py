@@ -1,9 +1,7 @@
 import base64
 import hashlib
-import io
 import json
 import os
-import tarfile
 import time
 from pathlib import Path
 
@@ -65,24 +63,39 @@ def test_vendor_integrity():
     assert "MIT License" in (root / "anatomy/LICENSE").read_text()
 
 
-def archive(data, symlink=False):
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w") as tar:
-        member = tarfile.TarInfo("index.html")
-        if symlink:
-            member.type = tarfile.SYMTYPE; member.linkname = "/etc/passwd"
-            tar.addfile(member)
-        else:
-            member.size = len(data); tar.addfile(member, io.BytesIO(data))
-    return output.getvalue()
-
-
-def test_archive_rejects_symlinks_and_oversized_objects():
+def test_result_reader_rejects_invalid_files_and_oversized_objects():
     class Container:
-        def get_archive(self, path):
-            return [archive(b"x", symlink=True)], {}
+        def exec_run(self, command, **kwargs): return 4, b""
     with pytest.raises(ValueError):
-        broker.extract_file(Container(), "/work/index.html", 100)
+        broker.extract_file(Container(), "/results/index.html", 100)
+    class Oversized:
+        def exec_run(self, command, **kwargs): return 0, b"x" * 101
+    with pytest.raises(ValueError):
+        broker.extract_file(Oversized(), "/results/index.html", 100)
+    with pytest.raises(ValueError):
+        broker.extract_file(Container(), "/results/../etc/passwd", 100)
+
+
+def test_tmpfs_result_uses_fixed_exec_reader_instead_of_archive():
+    class Container:
+        def get_archive(self, path): raise AssertionError("Docker archive cannot read tmpfs")
+        def exec_run(self, command, **kwargs):
+            assert command == ["node", "/opt/runner/read-result.mjs", "report.json"]
+            assert kwargs == {"user": "0:0", "stdout": True, "stderr": False}
+            return 0, b'{"passed":true}'
+    assert json.loads(broker.extract_file(Container(), "/results/report.json", 128000))["passed"]
+
+
+def test_report_not_ready_is_retryable_and_exit_diagnostics_are_preserved():
+    class Container:
+        attrs = {"State": {"ExitCode": 124, "OOMKilled": False, "Error": ""}}
+        def exec_run(self, command, **kwargs): return 3, b""
+        def logs(self, **kwargs): return b"sandbox phase: browser-check\nsandbox watchdog: 105s limit"
+    with pytest.raises(broker.ArtifactNotReady):
+        broker.extract_file(Container(), "/results/report.json", 128000)
+    diagnostics = json.loads(broker.exit_diagnostics(Container()))
+    assert diagnostics["exit_code"] == 124 and diagnostics["oom_killed"] is False
+    assert "watchdog" in diagnostics["logs"]
 
 
 def test_execution_cannot_select_commands_mounts_or_network(monkeypatch):
@@ -91,9 +104,9 @@ def test_execution_cannot_select_commands_mounts_or_network(monkeypatch):
     class Container:
         status = "running"
         def reload(self): pass
-        def get_archive(self, path):
+        def exec_run(self, command, **kwargs):
             data = json.dumps({"passed": False, "error": "test build failure"}).encode()
-            return [archive(data)], {}
+            return 0, data
         def remove(self, **kw): captured["removed"] = kw
     class Images:
         def get(self, image): return type("Image", (), {"id": "sha256:pinned"})()

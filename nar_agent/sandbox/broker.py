@@ -5,12 +5,10 @@ network-disabled container. A Docker socket grants host-level authority; deploy
 this small service privately and protect its independent bearer credential.
 """
 import base64
-import io
 import json
 import logging
 import os
 import secrets
-import tarfile
 import threading
 import uuid
 
@@ -28,18 +26,33 @@ class BuildInput(BaseModel):
     source: str = Field(min_length=1, max_length=96000)
 
 
+class ArtifactNotReady(Exception):
+    """Trusted supervisor has not published the result yet."""
+
+
 def extract_file(container, path: str, limit: int) -> bytes:
-    stream, _ = container.get_archive(path)
-    raw = bytearray()
-    for chunk in stream:
-        raw.extend(chunk)
-        if len(raw) > limit + 65536:
-            raise ValueError("Artifact archive exceeds size limit")
-    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
-        members = archive.getmembers()
-        if len(members) != 1 or not members[0].isfile() or members[0].size > limit:
-            raise ValueError("Expected one bounded regular file")
-        return archive.extractfile(members[0]).read()
+    allowed = {"/results/" + name for name in ["report.json", "index.html", "preview.png", "mobile.png"]}
+    if path not in allowed:
+        raise ValueError("Unexpected result path")
+    # exec sees the container's mount namespace, unlike get_archive/docker cp.
+    code, content = container.exec_run(
+        ["node", "/opt/runner/read-result.mjs", path.rsplit("/", 1)[1]],
+        user="0:0", stdout=True, stderr=False,
+    )
+    if code == 3:
+        raise ArtifactNotReady
+    if code != 0 or len(content) > limit:
+        raise ValueError("Expected one bounded regular result file")
+    return content
+
+
+def exit_diagnostics(container) -> str:
+    state = getattr(container, "attrs", {}).get("State", {})
+    try:
+        logs = container.logs(tail=20).decode("utf-8", errors="replace")[-4000:]
+    except Exception:
+        logs = "unavailable"
+    return json.dumps({"exit_code": state.get("ExitCode"), "oom_killed": state.get("OOMKilled"), "error": str(state.get("Error", ""))[:500], "logs": logs}, ensure_ascii=False)
 
 
 def execute(source: str):
@@ -66,14 +79,14 @@ def execute(source: str):
         while time.monotonic() < deadline:
             container.reload()
             if container.status != "running":
-                raise RuntimeError("Sandbox exited before completing report")
+                raise RuntimeError("Sandbox exited before completing report: " + exit_diagnostics(container))
             try:
                 report = json.loads(extract_file(container, "/results/report.json", 128000))
                 break
-            except docker.errors.NotFound:
+            except ArtifactNotReady:
                 time.sleep(.3)
         else:
-            raise TimeoutError("Sandbox time limit")
+            raise TimeoutError("Sandbox time limit: " + exit_diagnostics(container))
         result = {"report": report}
         if report.get("passed"):
             for name, limit in [("index.html", 2000000), ("preview.png", 3000000), ("mobile.png", 3000000)]:
@@ -104,7 +117,8 @@ async def build(payload: BuildInput, authorization: str = Header(default="")):
     try:
         return await run_in_threadpool(execute, payload.source)
     except Exception as error:
-        logger.warning("Sandbox execution failed: %s", type(error).__name__)
+        detail = str(error) if isinstance(error, (RuntimeError, TimeoutError)) else type(error).__name__
+        logger.warning("Sandbox execution failed: %s", detail)
         raise HTTPException(502, "Sandbox execution failed; inspect broker logs and runtime image") from None
     finally:
         slot.release()
