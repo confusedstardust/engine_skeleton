@@ -39,6 +39,13 @@ jobs:
           NAR_TEST_DOCKER: '1'
           NAR_SANDBOX_IMAGE: nar-sandbox:ci
         run: uv run python -m pytest -q
+      - name: Preserve sandbox report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-report
+          path: nar_agent/test-results/
+          if-no-files-found: ignore
   images:
     needs: test
     if: ${{ inputs.publish && github.ref == 'refs/heads/main' }}

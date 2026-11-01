@@ -8,16 +8,21 @@ export async function checkPage(file) {
     '--disable-extensions', '--disable-background-networking', '--renderer-process-limit=2', '--num-raster-threads=1',
     '--remote-debugging-port=9222', '--user-data-dir=/tmp/chrome-profile',
     '--enable-unsafe-swiftshader', 'about:blank',
-  ], { stdio: 'ignore', uid: 65532, gid: 65532 });
+  ], { stdio: ['ignore', 'ignore', 'pipe'], uid: 65532, gid: 65532 });
+  let chromeStderr = '';
+  let chromeSpawnError = '';
+  chrome.stderr.on('data', data => { chromeStderr = (chromeStderr + data.toString()).slice(-4000); });
+  chrome.on('error', error => { chromeSpawnError = error.message; });
   let socket;
   const errors = [];
   try {
     let target;
     for (let i = 0; i < 80; i++) {
+      if (chromeSpawnError || chrome.exitCode !== null) throw new Error(`Chromium exited (${chrome.exitCode}): ${chromeSpawnError}\n${chromeStderr}`);
       try { const response = await fetch('http://127.0.0.1:9222/json/new?about:blank', { method: 'PUT', signal: AbortSignal.timeout(1000) }); target = await response.json(); break; }
       catch { await new Promise(resolve => setTimeout(resolve, 100)); }
     }
-    if (!target) throw new Error('Chromium startup failed');
+    if (!target) throw new Error(`Chromium startup failed: ${chromeSpawnError}\n${chromeStderr}`);
     socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Chromium WebSocket startup timeout')), 5000);

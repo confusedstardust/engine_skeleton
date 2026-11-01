@@ -188,6 +188,10 @@ def test_real_docker_anatomy_build():
     source = source.replace('"../../kit/', '"/opt/anatomy/kit/').replace('"../../scripts/', '"/opt/anatomy/scripts/')
     source = source.replace('join(HERE, theme === "light" ? "dial-indicator-light.html" : "dial-indicator.html")', '"/work/index.html"')
     result = broker.execute(source)
-    assert result["report"]["passed"], result["report"]
+    reports = Path("test-results")
+    reports.mkdir(exist_ok=True)
+    (reports / "sandbox-report.json").write_text(json.dumps(result["report"], ensure_ascii=False, indent=2), encoding="utf-8")
+    if not result["report"]["passed"]:
+        pytest.fail(json.dumps(result["report"], ensure_ascii=False, indent=2), pytrace=False)
     assert b"<svg" in base64.b64decode(result["index.html"])
     assert base64.b64decode(result["preview.png"]).startswith(b"\x89PNG")
