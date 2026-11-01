@@ -70,6 +70,11 @@ export function validateSceneConnections(scenes: EditableScene[]): Record<string
         for (const choice of line.choices || []) {
           const dest = choice.target_scene_file || choice.targetSceneFile || choice.target;
           if (!choice.text.trim() || (!files.has(dest) && !labels.has(dest))) errors[scene.header] = "分支选项的文本或跳转目标无效，请检查每个选项。";
+          for (const [responseIndex, response] of (choice.response_lines || []).entries()) {
+            if (!["dialogue", "narration"].includes(response.kind) || !response.text.trim() || (response.kind === "dialogue" && !response.speaker.trim())) {
+              errors[scene.header] = `选项「${choice.text}」的第 ${responseIndex + 1} 句专属对话不完整，请填写说话人和内容。`;
+            }
+          }
         }
       }
     }

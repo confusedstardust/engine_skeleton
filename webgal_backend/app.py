@@ -82,6 +82,8 @@ app.include_router(community_router)
 app.include_router(admin_router)
 from .payments import router as payments_router
 app.include_router(payments_router)
+from .nar_agent_routes import create_router as create_nar_agent_router
+app.include_router(create_nar_agent_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
 
 
 @app.middleware('http')

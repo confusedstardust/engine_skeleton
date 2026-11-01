@@ -1,0 +1,72 @@
+name: nar-agent-build-and-test
+on:
+  workflow_call:
+    inputs:
+      version_tag:
+        type: string
+        required: true
+      publish:
+        type: boolean
+        default: false
+    secrets:
+      ACR_USERNAME:
+        required: false
+      ACR_PASSWORD:
+        required: false
+  pull_request:
+    paths: ['nar_agent/**', '.github/workflows/nar-agent-build.yml', 'docker-compose.nar-agent.yml']
+  push:
+    branches: ['feature/**', 'feature-*']
+    paths: ['nar_agent/**', '.github/workflows/nar-agent-build.yml', 'docker-compose.nar-agent.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install uv==0.11.7
+      - run: uv sync --project nar_agent --frozen
+      - name: Build disposable Node and Chromium sandbox
+        run: docker build -t nar-sandbox:ci -f nar_agent/sandbox/runtime.Dockerfile nar_agent
+      - name: SDK, authorization, vendor integrity and real Docker browser smoke
+        working-directory: nar_agent
+        env:
+          NAR_TEST_DOCKER: '1'
+          NAR_SANDBOX_IMAGE: nar-sandbox:ci
+        run: uv run python -m pytest -q
+  images:
+    needs: test
+    if: ${{ inputs.publish && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: narrativeos-nar-agent
+            file: nar_agent/Dockerfile
+          - image: narrativeos-nar-execution
+            file: nar_agent/sandbox/broker.Dockerfile
+          - image: narrativeos-nar-sandbox
+            file: nar_agent/sandbox/runtime.Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: crpi-tuqzw1uka36vt7nh.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./nar_agent
+          file: ${{ matrix.file }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: crpi-tuqzw1uka36vt7nh.cn-hangzhou.personal.cr.aliyuncs.com/acr_namespace_narrativeos/${{ matrix.image }}:${{ inputs.version_tag }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

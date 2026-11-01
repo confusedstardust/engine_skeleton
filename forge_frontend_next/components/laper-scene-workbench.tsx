@@ -8,6 +8,8 @@ export type { SceneLine, SceneChoice, SceneDraft as EditableScene } from "../dom
 import { randomUUID } from "../app/random-uuid";
 import { FormSelect } from "./ui/form-controls";
 import { ScenePinyinTextarea } from "./scene-pinyin-textarea";
+import { ChoiceResponseEditor } from "./choice-response-editor";
+import { useSceneLineDrag } from "../hooks/use-scene-line-drag";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertionIndex, isTerminalLine, jumpTarget, keepContinuationLabelsTogether } from "./scene-connections";
@@ -66,18 +68,15 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
   const [notice, setNotice] = useState<{ header: string; text: string; count: number } | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<{ header: string; id: string; choiceIndex?: number } | null>(null);
   const lineStackRef = useRef<HTMLDivElement>(null);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropHint, setDropHint] = useState<{ index: number; placement: "before" | "after" } | null>(null);
-  const pointerDragIdRef = useRef<number | null>(null);
-  const sourceIndexRef = useRef<number | null>(null);
-  const dropHintRef = useRef<{ index: number; placement: "before" | "after" } | null>(null);
-  const pointerYRef = useRef<number | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
   const disabled = props.readonly || props.busy;
   const activeIndex = Math.min(props.activeScene, Math.max(props.scenes.length - 1, 0));
   const scene = props.scenes[activeIndex];
   const speakers = useMemo(() => ["旁白", ...(props.plan?.characters.map((c) => c.name).filter(Boolean) || [])], [props.plan]);
-  const defaultChoiceTarget = props.targetOptions?.[0]?.file || "";
+  const { dragIndex, setDragIndex, dropHint, startLineDrag, moveLineDrag, finishLineDrag } = useSceneLineDrag({
+    disabled, containerRef: lineStackRef, selector: "[data-laper-scene-line-index]", indexAttribute: "data-laper-scene-line-index",
+    canDrag: index => !!scene && (!isTerminalLine(scene.lines[index]) || scene.lines[index].kind === "choice"),
+    onReorder: reorderLines,
+  });
   const hasTerminal = !!scene?.lines.some(isTerminalLine);
   const selectedId = selection?.header === scene?.header ? selection?.id ?? null : null;
 
@@ -192,85 +191,6 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     insertLines([nextLine]);
   }
 
-  function stopLineAutoScroll() {
-    pointerDragIdRef.current = null;
-    sourceIndexRef.current = null;
-    dropHintRef.current = null;
-    pointerYRef.current = null;
-    setDropHint(null);
-    if (scrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = null;
-    }
-  }
-
-  function updateLineAutoScroll(pointerY: number) {
-    pointerYRef.current = pointerY;
-    if (scrollFrameRef.current !== null) return;
-    const scroll = () => {
-      const y = pointerYRef.current;
-      if (y === null) {
-        scrollFrameRef.current = null;
-        return;
-      }
-      const height = window.visualViewport?.height || window.innerHeight;
-      const top = window.visualViewport?.offsetTop || 0;
-      const edge = Math.min(179, Math.round(height * 0.192));
-      const topDistance = y - top;
-      const bottomDistance = top + height - y;
-      const delta = topDistance < edge
-        ? -Math.max(6, Math.round(((edge - topDistance) / edge) * 27))
-        : bottomDistance < edge
-          ? Math.max(6, Math.round(((edge - bottomDistance) / edge) * 27))
-          : 0;
-      if (!delta) {
-        scrollFrameRef.current = null;
-        return;
-      }
-      window.scrollBy({ top: delta, behavior: "auto" });
-      scrollFrameRef.current = window.requestAnimationFrame(scroll);
-    };
-    scrollFrameRef.current = window.requestAnimationFrame(scroll);
-  }
-
-  function startLineDrag(index: number, pointerId: number, pointerY: number) {
-    if (disabled) return;
-    if (scene && isTerminalLine(scene.lines[index]) && scene.lines[index].kind !== "choice") return;
-    pointerDragIdRef.current = pointerId;
-    sourceIndexRef.current = index;
-    setDragIndex(index);
-    updateLineAutoScroll(pointerY);
-  }
-
-  function moveLineDrag(pointerId: number, pointerX: number, pointerY: number) {
-    if (pointerDragIdRef.current !== pointerId) return;
-    updateLineAutoScroll(pointerY);
-    const card = document.elementFromPoint(pointerX, pointerY)?.closest<HTMLElement>("[data-laper-scene-line-index]");
-    const targetIndex = Number(card?.dataset.laperSceneLineIndex);
-    if (sourceIndexRef.current === null || Number.isNaN(targetIndex) || targetIndex === sourceIndexRef.current) return;
-    const bounds = card?.getBoundingClientRect();
-    const nextHint = { index: targetIndex, placement: bounds && pointerY > bounds.top + bounds.height / 2 ? "after" : "before" } as const;
-    if (dropHintRef.current?.index !== nextHint.index || dropHintRef.current.placement !== nextHint.placement) {
-      dropHintRef.current = nextHint;
-      setDropHint(nextHint);
-    }
-  }
-
-  function finishLineDrag(pointerId: number) {
-    if (pointerDragIdRef.current !== pointerId) return;
-    const from = sourceIndexRef.current;
-    const target = dropHintRef.current;
-    if (from !== null && target && from !== target.index) {
-      let insertionIndex = target.index + (target.placement === "after" ? 1 : 0);
-      if (from < insertionIndex) insertionIndex -= 1;
-      reorderLines(from, insertionIndex);
-    }
-    setDragIndex(null);
-    stopLineAutoScroll();
-  }
-
-  useEffect(() => () => stopLineAutoScroll(), []);
-
   function addInteractiveChoice() {
     if (!scene || disabled) return;
     if (scene.marker === "Ending") { inform("结局场景不能新增跨场景分支。"); return; }
@@ -282,32 +202,13 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
       text: "",
       rawPrefix: "choose",
       choices: [
-        { text: "选择一", target: token },
-        { text: "选择二", target: token }
+        { id: randomUUID(), text: "选择一", target: token },
+        { id: randomUUID(), text: "选择二", target: token }
       ]
     };
     insertLines([choiceLine, {
       id: `${choiceLine.id}-label`, kind: "branch", speaker: "分支", rawPrefix: "branch", text: token, branchLabel: token
     }]);
-  }
-
-  function addSceneJump() {
-    if (!scene || disabled) return;
-    if (hasTerminal) {
-      const existing = scene.lines.find(isTerminalLine)!;
-      navigateToLine(existing.id);
-      inform(jumpTarget(existing) ? "已经添加了场景跳转。请在已有跳转行修改目标；无需重复添加。" : "已有分支选择或结束命令。若要改为直接跳转，请先删除已有结束连接。");
-      return;
-    }
-    if (scene.marker === "Ending") { inform("这是结局场景，会正常结束，无需再添加场景跳转。"); return; }
-    if (!defaultChoiceTarget) { inform("没有可跳转的其他场景，请先创建目标场景。"); return; }
-    const line: SceneLine = {
-      id: `${scene.header}-jump-${randomUUID()}`, kind: "command", speaker: "", rawPrefix: "changeScene",
-      text: `changeScene:${defaultChoiceTarget};`
-    };
-    patchScene({ ...scene, lines: [...scene.lines, line] });
-    setNotice(null);
-    navigateToLine(line.id);
   }
 
   function removeChoiceGroup(lineIndex: number) {
@@ -341,7 +242,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     if (!scene || disabled) return;
     const line = scene.lines[lineIndex];
     const choices = [...(line.choices || [])];
-    choices[choiceIndex] = nextChoice;
+    choices[choiceIndex] = { ...nextChoice, id: nextChoice.id || `${line.id}_option_${choiceIndex + 1}` };
     updateLine(lineIndex, { ...line, choices });
   }
 
@@ -351,7 +252,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     const target = (line.choices || []).map(choiceTargetValue).find(isLocalContinuationTarget) ||
       choiceTargetValue(line.choices?.[0] || { text: "", target: "" }) || localChoiceTarget(line);
     const lines = scene.lines.map((item, index) => index === lineIndex ? {
-      ...line, choices: [...(line.choices || []), { text: "新的选择", target }]
+      ...line, choices: [...(line.choices || []), { id: randomUUID(), text: "新的选择", target }]
     } : item);
     if (isLocalContinuationTarget(target) && !lines.some(item => item.kind === "branch" && (item.branchLabel || item.text) === target)) {
       lines.splice(lineIndex + 1, 0, { id: `${line.id}-label-${target}`, kind: "branch", speaker: "分支", rawPrefix: "branch", text: target, branchLabel: target });
@@ -440,6 +341,7 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
         )}
 
         <div className="laper-toolbar" role="toolbar" aria-label="场景编辑工具栏">
+          <span className="laper-toolbar-label">新增：</span>
           <Button variant="unstyled" className="laper-tool accent" type="button" disabled={disabled} onClick={() => addLine("narration")}>
             旁白
           </Button>
@@ -455,13 +357,6 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
               title="在选中行下方添加互动，默认在互动后继续当前场景"
             >
               互动分支
-            </Button>
-          )}
-          {props.mode === "complete" && (
-            <Button variant="unstyled" className="laper-tool accent" type="button" onClick={addSceneJump}
-              disabled={disabled}
-              title="只能添加在最后一行；已有结束连接时，请先删除旧连接">
-              场景跳转
             </Button>
           )}
           {props.toolbarExtra}
@@ -582,7 +477,8 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                       </div>
                       <div className="laper-choice-list">
                         {(line.choices || []).map((choice, choiceIndex) => (
-                          <div className="laper-choice-row" key={`${line.id}-${choiceIndex}`}>
+                          <div className="laper-choice-option" key={choice.id || `${line.id}-${choiceIndex}`}>
+                          <div className="laper-choice-row">
                             <ScenePinyinTextarea
                               className="scene-choice-text"
                               rows={1}
@@ -599,9 +495,11 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
                             ].map(option => [option.value, option])).values())} />
                             {!disabled && (
                               <Button variant="unstyled" type="button" onClick={() => updateLine(lineIndex, { ...line, choices: (line.choices || []).filter((_, index) => index !== choiceIndex) })}>
-                                删除
+                                删除选项
                               </Button>
                             )}
+                          </div>
+                          <ChoiceResponseEditor choice={choice} speakers={speakers} disabled={disabled} onChange={nextChoice => updateChoice(lineIndex, choiceIndex, nextChoice)} />
                           </div>
                         ))}
                       </div>

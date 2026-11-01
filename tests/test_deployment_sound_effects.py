@@ -517,3 +517,21 @@ def test_apply_voice_draft_regenerates_audio_without_rewriting_scenes(tmp_path, 
 
     assert calls == ["tts"]
     assert store.get(job["id"])["build_state"] == "CURRENT"
+
+
+def test_title_bgm_follows_entry_scene_and_silence(tmp_path):
+    game = tmp_path / "game"
+    (game / "scene").mkdir(parents=True)
+    config = game / "config.txt"
+    config.write_text("Game_name:test;\nTitle_bgm:old.mp3;\nTitle_img:cover.webp;\n", encoding="utf-8")
+    for command, expected in [
+        ("bgm:chosen.mp3 -volume=45 -enter=1500;", "chosen.mp3"),
+        ("bgm:https://cdn.example/music.mp3 -volume=45;", "https://cdn.example/music.mp3"),
+        ("bgm:none;", ""),
+        (":No music;", ""),
+    ]:
+        (game / "scene" / "start.txt").write_text(command, encoding="utf-8")
+        WebGALPipeline._sync_title_bgm(game)
+        text = config.read_text(encoding="utf-8")
+        assert f"Title_bgm:{expected};" in text
+        assert "Title_img:cover.webp;" in text

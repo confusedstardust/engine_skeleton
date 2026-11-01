@@ -1,0 +1,1 @@
+"""NarAgent standalone service."""

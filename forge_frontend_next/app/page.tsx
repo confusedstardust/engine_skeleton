@@ -367,7 +367,7 @@ type NarrativeScene = { id: string; title: string; description: string; icon: st
 
 const narrativeScenes: NarrativeScene[] = [
   { id: "classroom", title: "互动课堂", description: "完整生成适用于任何学科的互动游戏课堂", icon: "✦", ready: true, tone: "sun", image: ossImage("scene-interactive-classroom.png") },
-  { id: "practice", title: "讲练工具", description: "课堂辅助讲评练工具", icon: "⌁", tone: "violet", image: ossImage("scene-practice-tools.png") },
+  { id: "practice", title: "讲练工具", description: "与教学助手对话，设计讲解与互动演示", icon: "⌁", ready: true, tone: "violet", image: ossImage("scene-practice-tools.png") },
   { id: "visual", title: "画面设计", description: "一句提示词生成恰当的图片、人物与场景设计稿", icon: "◐", tone: "blue", image: ossImage("scene-visual-design.png") },
   { id: "outline", title: "创意大纲", description: "用一句话帮你确定想写的故事大纲", icon: "✎", tone: "rose", image: ossImage("scene-creative-outline.png") },
   { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: ossImage("scene-ip-narrative.png") },
@@ -390,6 +390,7 @@ function NarrativeRouterPage() {
   const setNotice = (message: string) => notify(message, "info", 3000);
 
   function selectScene(scene: NarrativeScene) {
+    if (scene.id === "practice") { router.push("/practice"); return; }
     if (scene.id === "assets") { router.push("/assets"); return; }
     if (scene.ready) { router.push("/?workspace=1"); return; }
     setNotice(`「${scene.title}」正在准备中，敬请期待。`);
