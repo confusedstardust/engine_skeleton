@@ -15,6 +15,20 @@ from app.main import create_app
 from sandbox import broker
 
 
+def test_animation_diagnostics_exclude_exception_secrets():
+    from app.main import animation_failure_diagnostics
+    try:
+        try:
+            raise ValueError("private prompt and api-key")
+        except ValueError as error:
+            raise RuntimeError("private provider response") from error
+    except RuntimeError as error:
+        diagnostic = animation_failure_diagnostics(error)
+    assert "RuntimeError" in diagnostic and "ValueError" in diagnostic
+    assert "test_animation_diagnostics" in diagnostic
+    assert "private" not in diagnostic and "api-key" not in diagnostic
+
+
 @pytest.mark.parametrize("image_exists", [True, False])
 def test_broker_ready_closes_client_without_context_manager(monkeypatch, image_exists):
     import docker

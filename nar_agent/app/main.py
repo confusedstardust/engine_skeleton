@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import secrets
+import traceback
 from time import monotonic
 from uuid import uuid4
 from typing import Literal
@@ -16,6 +17,20 @@ from app.artifacts import ArtifactStore
 from agents.animation import animation_state, build_animation_agent
 
 logger = logging.getLogger(__name__)
+
+
+def animation_failure_diagnostics(error: Exception) -> str:
+    # Provider exception messages/bodies can contain prompts or credentials.
+    # Record frame locations without source lines, locals or exception values.
+    entries = []
+    seen = set()
+    while error is not None and id(error) not in seen and len(seen) < 5:
+        seen.add(id(error))
+        status = getattr(error, "status_code", None)
+        frames = traceback.extract_tb(error.__traceback__)[-12:]
+        entries.append(type(error).__name__ + (f" HTTP={status}" if isinstance(status, int) else "") + " " + " -> ".join(f"{frame.filename}:{frame.lineno}:{frame.name}" for frame in frames))
+        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+    return " | caused_by: ".join(entries)
 
 
 class HistoryMessage(BaseModel):
@@ -101,8 +116,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             except asyncio.CancelledError:
                 state.update(status="FAILED", error="服务停止，动画任务已中断。")
                 raise
-            except Exception:
-                logger.warning("Animation failed id=%s", identifier)
+            except Exception as error:
+                logger.warning("Animation failed id=%s phase=%s attempts=%s diagnostics=%s", identifier, state["phase"], state["attempts"], animation_failure_diagnostics(error))
                 state.update(status="FAILED", error="动画制作失败，请检查执行服务或稍后重试。")
             finally:
                 state.update(usage=usage.usage_metadata, usage_status="reported" if usage.usage_metadata else "unknown")

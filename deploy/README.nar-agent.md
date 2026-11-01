@@ -32,6 +32,8 @@ deploy/nar-execution.env      # 独立开发执行 token
 
 ## 网络、数据与验收
 
+动画在 DESIGNING / attempts=0 失败时，先查看 `docker logs --tail 120 <本环境nar-agent容器>`。服务端记录任务 ID、阶段、构建次数、异常类型、HTTP 状态与调用位置；不记录异常消息、响应正文、提示词或局部变量。`/ready` 只验证配置，不代表模型供应商连接成功。2026-11-01 开发环境此类失败的根因仍待部署诊断版本后复现确认。
+
 2026-11-01 开发服务器发现 execution `/ready` 持续 503：Docker SDK 7.1.0 的 DockerClient 不支持上下文管理器，旧版 `with docker.from_env(...)` 会抛 TypeError。已改为 try/finally 显式 close，并补成功/失败路径关闭连接测试。服务器需要发布包含修复的 execution 镜像后再运行重启脚本；旧镜像反复重启无效。线上验证仍待完成。
 
 日常修改 env 后重新创建服务，可将 [restart-nar-agent.sh](restart-nar-agent.sh) 上传到部署根目录或 `deploy/` 中，在该脚本所在目录执行 `bash restart-nar-agent.sh`。默认 development；生产必须显式加 `--environment production`。脚本加载 CI 镜像 pin、检查两组 token、补拉缺失镜像，依次重新创建 execution、NarAgent、backend 并检查健康和鉴权；不删除卷、不打印密钥、不重建前端。它会中断进行中的 Agent 任务，应在任务结束后执行。
