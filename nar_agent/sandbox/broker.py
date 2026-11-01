@@ -35,13 +35,18 @@ def extract_file(container, path: str, limit: int) -> bytes:
     if path not in allowed:
         raise ValueError("Unexpected result path")
     # exec sees the container's mount namespace, unlike get_archive/docker cp.
-    code, content = container.exec_run(
-        ["node", "/opt/runner/read-result.mjs", path.rsplit("/", 1)[1]],
-        user="0:0", stdout=True, stderr=False,
+    code, streams = container.exec_run(
+        ["/bin/sh", "/opt/runner/read-result.sh", path.rsplit("/", 1)[1]],
+        user="0:0", stdout=True, stderr=True, demux=True,
     )
+    content, stderr = streams if streams is not None else (None, None)
+    content = content or b""
     if code == 3:
         raise ArtifactNotReady
-    if code != 0 or len(content) > limit:
+    if code != 0:
+        detail = (stderr or b"").decode("utf-8", errors="replace")[-2000:]
+        raise ValueError(f"Result reader failed: exit={code}, stderr={detail!r}, container={exit_diagnostics(container)}")
+    if len(content) > limit:
         raise ValueError("Expected one bounded regular result file")
     return content
 
@@ -68,7 +73,7 @@ def execute(source: str):
             name="nar-sandbox-" + uuid.uuid4().hex,
             network_mode="none", read_only=True, user="0:0",
             cap_drop=["ALL"], cap_add=["SETUID", "SETGID"], security_opt=["no-new-privileges:true"],
-            mem_limit="2g", memswap_limit="2g", nano_cpus=1000000000, pids_limit=128,
+            mem_limit="2g", memswap_limit="2g", nano_cpus=1000000000, pids_limit=256,
             tmpfs={"/work": "rw,nosuid,noexec,size=64m,mode=777", "/results": "rw,nosuid,noexec,size=16m,mode=700", "/tmp": "rw,nosuid,size=256m,mode=1777"},
             shm_size="128m", log_config=docker.types.LogConfig(type="json-file", config={"max-size": "1m", "max-file": "1"}),
             labels={"narrativeos.role": "animation-sandbox"},
@@ -117,7 +122,7 @@ async def build(payload: BuildInput, authorization: str = Header(default="")):
     try:
         return await run_in_threadpool(execute, payload.source)
     except Exception as error:
-        detail = str(error) if isinstance(error, (RuntimeError, TimeoutError)) else type(error).__name__
+        detail = str(error) if isinstance(error, (RuntimeError, TimeoutError, ValueError)) else type(error).__name__
         logger.warning("Sandbox execution failed: %s", detail)
         raise HTTPException(502, "Sandbox execution failed; inspect broker logs and runtime image") from None
     finally:

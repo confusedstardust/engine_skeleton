@@ -65,11 +65,11 @@ def test_vendor_integrity():
 
 def test_result_reader_rejects_invalid_files_and_oversized_objects():
     class Container:
-        def exec_run(self, command, **kwargs): return 4, b""
+        def exec_run(self, command, **kwargs): return 4, (b"", b"Invalid file")
     with pytest.raises(ValueError):
         broker.extract_file(Container(), "/results/index.html", 100)
     class Oversized:
-        def exec_run(self, command, **kwargs): return 0, b"x" * 101
+        def exec_run(self, command, **kwargs): return 0, (b"x" * 101, b"")
     with pytest.raises(ValueError):
         broker.extract_file(Oversized(), "/results/index.html", 100)
     with pytest.raises(ValueError):
@@ -80,22 +80,50 @@ def test_tmpfs_result_uses_fixed_exec_reader_instead_of_archive():
     class Container:
         def get_archive(self, path): raise AssertionError("Docker archive cannot read tmpfs")
         def exec_run(self, command, **kwargs):
-            assert command == ["node", "/opt/runner/read-result.mjs", "report.json"]
-            assert kwargs == {"user": "0:0", "stdout": True, "stderr": False}
-            return 0, b'{"passed":true}'
+            assert command == ["/bin/sh", "/opt/runner/read-result.sh", "report.json"]
+            assert kwargs == {"user": "0:0", "stdout": True, "stderr": True, "demux": True}
+            return 0, (b'{"passed":true}', b"")
     assert json.loads(broker.extract_file(Container(), "/results/report.json", 128000))["passed"]
 
 
 def test_report_not_ready_is_retryable_and_exit_diagnostics_are_preserved():
     class Container:
         attrs = {"State": {"ExitCode": 124, "OOMKilled": False, "Error": ""}}
-        def exec_run(self, command, **kwargs): return 3, b""
+        def exec_run(self, command, **kwargs): return 3, (b"", b"")
         def logs(self, **kwargs): return b"sandbox phase: browser-check\nsandbox watchdog: 105s limit"
     with pytest.raises(broker.ArtifactNotReady):
         broker.extract_file(Container(), "/results/report.json", 128000)
     diagnostics = json.loads(broker.exit_diagnostics(Container()))
     assert diagnostics["exit_code"] == 124 and diagnostics["oom_killed"] is False
     assert "watchdog" in diagnostics["logs"]
+
+
+def test_reader_failure_keeps_exit_status_and_stderr():
+    class Container:
+        attrs = {"State": {"ExitCode": 0, "OOMKilled": False}}
+        def exec_run(self, command, **kwargs): return 134, (b"", b"pthread_create: Resource temporarily unavailable")
+        def logs(self, **kwargs): return b"sandbox phase: browser-check"
+    with pytest.raises(ValueError, match="exit=134") as error:
+        broker.extract_file(Container(), "/results/report.json", 128000)
+    assert "pthread_create" in str(error.value) and "browser-check" in str(error.value)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell helper; also validated through WSL locally")
+def test_actual_shell_reader(tmp_path):
+    import subprocess
+    script = (Path(__file__).resolve().parents[1] / "sandbox/read-result.sh").read_text(encoding="utf-8")
+    # Redirect only the fixed result root for an unprivileged unit test.
+    script = script.replace('file="/results/$1"', f'file="{tmp_path}/$1"')
+    def read(name):
+        return subprocess.run(["/bin/sh", "-s", "--", name], input=script.encode(), capture_output=True)
+    assert read("report.json").returncode == 3
+    (tmp_path / "report.json").write_bytes(b'{"passed":true}')
+    assert read("report.json").stdout == b'{"passed":true}'
+    assert read("../etc/passwd").returncode == 4
+    (tmp_path / "index.html").symlink_to(tmp_path / "report.json")
+    assert read("index.html").returncode == 4
+    (tmp_path / "report.json").write_bytes(b"x" * 128001)
+    assert read("report.json").returncode == 4
 
 
 def test_execution_cannot_select_commands_mounts_or_network(monkeypatch):
@@ -106,7 +134,7 @@ def test_execution_cannot_select_commands_mounts_or_network(monkeypatch):
         def reload(self): pass
         def exec_run(self, command, **kwargs):
             data = json.dumps({"passed": False, "error": "test build failure"}).encode()
-            return 0, data
+            return 0, (data, b"")
         def remove(self, **kw): captured["removed"] = kw
     class Images:
         def get(self, image): return type("Image", (), {"id": "sha256:pinned"})()
@@ -121,7 +149,7 @@ def test_execution_cannot_select_commands_mounts_or_network(monkeypatch):
     assert captured["network_mode"] == "none"
     assert captured["read_only"] and captured["cap_drop"] == ["ALL"]
     assert captured["user"] == "0:0" and captured["cap_add"] == ["SETUID", "SETGID"] and "volumes" not in captured
-    assert "environment" not in captured and captured["pids_limit"] == 128
+    assert "environment" not in captured and captured["pids_limit"] == 256
     assert captured["removed"] == {"force": True} and captured["closed"]
 
 

@@ -77,7 +77,6 @@ export function LaperSceneWorkbench(props: LaperSceneWorkbenchProps) {
     canDrag: index => !!scene && (!isTerminalLine(scene.lines[index]) || scene.lines[index].kind === "choice"),
     onReorder: reorderLines,
   });
-  const hasTerminal = !!scene?.lines.some(isTerminalLine);
   const selectedId = selection?.header === scene?.header ? selection?.id ?? null : null;
 
   useEffect(() => {

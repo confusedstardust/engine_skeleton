@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 export async function checkPage(file) {
   const chrome = spawn(process.env.CHROME_PATH || '/usr/bin/chromium', [
     '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--no-first-run',
+    '--disable-extensions', '--disable-background-networking', '--renderer-process-limit=2', '--num-raster-threads=1',
     '--remote-debugging-port=9222', '--user-data-dir=/tmp/chrome-profile',
     '--enable-unsafe-swiftshader', 'about:blank',
   ], { stdio: 'ignore', uid: 65532, gid: 65532 });

@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends chromium fonts-noto-cjk ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY skills/anatomy /opt/anatomy
-COPY sandbox/run.mjs sandbox/browser-check.mjs sandbox/read-result.mjs /opt/runner/
+COPY sandbox/run.mjs sandbox/browser-check.mjs sandbox/read-result.sh /opt/runner/
 ENV CHROME_PATH=/usr/bin/chromium
 ENV HOME=/tmp XDG_CONFIG_HOME=/tmp/.config XDG_CACHE_HOME=/tmp/.cache
 WORKDIR /work
