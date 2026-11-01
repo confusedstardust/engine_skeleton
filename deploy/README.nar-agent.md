@@ -32,6 +32,8 @@ deploy/nar-execution.env      # 独立开发执行 token
 
 ## 网络、数据与验收
 
+开发环境任务 `586ee31702b14512a9e248839a13e435` 已定位为 ModelCallLimitExceededError：12次模型调用耗尽且 attempts=0，尚未调用构建；日志无法还原具体阅读顺序。服务现将完整skill、最小仪表示例、inline-kit入口预先提供给模型，提示限制补充阅读并尽早构建，保留12次模型调用与3次构建上限；新增专门的额度耗尽提示。该调整避免必需资料逐次读取的往返，但真实模型是否及时进入构建仍需dev复测，不能视为动画已验收。
+
 动画在 DESIGNING / attempts=0 失败时，先查看 `docker logs --tail 120 <本环境nar-agent容器>`。服务端记录任务 ID、阶段、构建次数、异常类型、HTTP 状态与调用位置；不记录异常消息、响应正文、提示词或局部变量。`/ready` 只验证配置，不代表模型供应商连接成功。2026-11-01 开发环境此类失败的根因仍待部署诊断版本后复现确认。
 
 2026-11-01 开发服务器发现 execution `/ready` 持续 503：Docker SDK 7.1.0 的 DockerClient 不支持上下文管理器，旧版 `with docker.from_env(...)` 会抛 TypeError。已改为 try/finally 显式 close，并补成功/失败路径关闭连接测试。服务器需要发布包含修复的 execution 镜像后再运行重启脚本；旧镜像反复重启无效。线上验证仍待完成。

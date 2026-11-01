@@ -15,6 +15,13 @@ from app.main import create_app
 from sandbox import broker
 
 
+def test_animation_has_complete_starting_references():
+    from agents.animation import animation_prompt, SKILLS
+    prompt = animation_prompt()
+    for name in ["SKILL.md", "examples/dial-indicator/build.mjs", "scripts/inline-kit.mjs"]:
+        assert (SKILLS / "anatomy" / name).read_text(encoding="utf-8") in prompt
+
+
 def test_animation_diagnostics_exclude_exception_secrets():
     from app.main import animation_failure_diagnostics
     try:

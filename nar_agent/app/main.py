@@ -9,6 +9,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from pydantic import BaseModel, Field, model_validator
 
 from agents.teaching import build_agent, initial_state
@@ -111,6 +112,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     state["status"] = "SUCCEEDED" if state["artifact_generated"] else "FAILED"
                     if not state["artifact_generated"]:
                         state["error"] = "未获得通过检查的动画，请调整提示词后重试。"
+            except ModelCallLimitExceededError:
+                logger.warning("Animation model call limit reached id=%s phase=%s attempts=%s", identifier, state["phase"], state["attempts"])
+                state.update(status="FAILED", error="动画设计达到模型调用次数上限，尚未完成产物。请缩小演示范围后重试。")
             except TimeoutError:
                 state.update(status="FAILED", error="动画制作超时，请缩小演示范围后重试。")
             except asyncio.CancelledError:
