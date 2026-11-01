@@ -1,7 +1,9 @@
-# Optional production overlay. Enable only after server env files are provisioned.
+# Optional production/development overlay. Provision environment-specific files first.
 # docker-compose -f docker-compose.prod.yml -f docker-compose.nar-agent.yml ...
 services:
   backend:
+    # Dev backend retains its website network and additionally reaches NarAgent.
+    networks: [default]
     environment:
       NAR_AGENT_URL: http://nar-agent:8020
       NAR_AGENT_SERVICE_TOKEN: ${NAR_AGENT_SERVICE_TOKEN:?configure shared service token}

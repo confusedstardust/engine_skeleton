@@ -80,6 +80,8 @@ uv run python -m pytest -q
 
 ## NarrativeOS 讲练对话入口（开发集成）
 
+Dev 服务器部署已接入 feature 分支 workflow：真实 Docker 测试 → development 环境构建三份 dev-sha 镜像 → 开发 Compose 部署。首次初始化与验收见 [dev/prod 配置说明](../deploy/README.nar-agent.md)。初始化脚本在 dev 必须加 `--environment development`，不要前往生产目录配置。
+
 前端首页选择「讲练工具」进入 `/practice`（生产 basePath 下为 `/narrativeos/practice/`）。页面调用 `/api/forge/nar-agent/chat`，Next 转发至 Forge 的 `/nar-agent/chat`，Forge 验证 SSO 后调用本服务 `/v1/runs`。浏览器没有服务密钥，也不传用户 ID。
 
 配置方法：
