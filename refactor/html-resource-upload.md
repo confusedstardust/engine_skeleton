@@ -1,6 +1,6 @@
 # 管理员 HTML 教学资源上传
 
-状态：本地已实现；未部署，未执行生产数据库写入或线上验收。分支 `hotfix-uploadsrc` 基于 `origin/main`（`b3446a5`）。
+状态：已实现、已测试并部署生产；HTML 封面补齐已完成并回读验证。分支 `hotfix-uploadsrc` 基于 `origin/main`（`b3446a5`）。
 
 ## 设计与数据归属
 
@@ -91,6 +91,13 @@ admin 展示封面与生成状态，提供「生成/重新生成封面」「替�
 
 启动时自动在后台补齐 published/publishing 且缺少封面的 HTML 作品，不覆盖已有手动图；同步失败单独记录并可重试。可通过 `WEBGAL_HTML_COVER_BACKFILL_ON_STARTUP=false` 禁用，也可手动运行 `python -m webgal_backend.html_resource_covers --backfill-missing`。线程不阻塞 API 启动；关闭时停止领取下一条。启动中断后下次启动会继续缺图记录。单条失败不终止其他记录。
 
-本地验证：47 项上传/封面后端测试；门户 7 项测试及 TypeScript 检查；Forge 生产构建。真实截图已生成，生产构建浏览器测试覆盖上传后出图、重新生成、手动替换及继续体验。生产部署与已有记录补齐结果待回读确认。
+本地验证：47 项上传/封面后端测试；门户 7 项测试及 TypeScript 检查；Forge 生产构建。真实截图已生成，生产构建浏览器测试覆盖上传后出图、重新生成、手动替换及继续体验。生产部署与已有记录补齐已完成，结果见下方验收记录。
 
 启动补齐的封面若因门户分批部署或短暂不可用而同步失败，会按 30 秒间隔、最多 30 次仅重试封面地址同步，不重复截图；关闭服务可停止领取下一次重试。
+
+### 2026-11-02 生产验收
+
+- 门户封面专用 PATCH：[PR #4](https://github.com/confusedstardust/linchangWeb/pull/4)，生产发布任务 41405756683 重试后成功；首次镜像仓库推送停滞，取消后重试，应用编译没有失败。
+- Forge 自动封面与 admin 控件：[PR #64](https://github.com/confusedstardust/engine_skeleton/pull/64)，生产发布任务 41406478961 成功。分批部署同步重试：[PR #65](https://github.com/confusedstardust/engine_skeleton/pull/65)，生产发布任务 41408049420 成功。
+- 线上读取 41 个公开 HTML 作品，41 个均有 coverUrl；逐张 GET 下载并经 Pillow 解码，全部为 1280×720 WebP，失败 0。已对比补齐前记录的 publishedAt/tags/title/subject/grade，变化 0。新上传的页面由后台自动生成封面。
+- 已在真实广场确认卡片封面展示。生产审计数据、截图与下载检查结果保存在本地 reports，不纳入提交；没有把凭据或用户上传文件提交到 Git。
