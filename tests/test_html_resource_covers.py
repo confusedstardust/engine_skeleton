@@ -167,3 +167,12 @@ def test_external_fetch_pins_tcp_and_does_not_send_credentials(monkeypatch):
     assert covers.public_asset('https://public.example/image.png',1024)[1] == b'image'
     assert calls['host'] == 'public.example' and calls['address'] == ('8.8.8.8',443)
     assert 'Authorization' not in calls['headers'] and 'Cookie' not in calls['headers']
+
+
+def test_startup_retries_only_sync_without_recapturing(monkeypatch):
+    stop = Mock(); stop.wait.return_value = False
+    backfill = Mock(side_effect=[[{'id':'a','status':'sync_failed'}],[{'id':'a','status':'ready'}]])
+    monkeypatch.setattr(covers,'backfill',backfill)
+    assert covers.backfill_background(stop_event=stop)[0]['status'] == 'ready'
+    assert backfill.call_args_list[1].kwargs['sync_only'] is True
+    stop.wait.assert_called_once_with(30)
