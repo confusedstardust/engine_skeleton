@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlsplit, unquote
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -245,7 +245,7 @@ def resources(request: Request):
 
 
 @router.post('/admin/html-resources')
-def upload_resource(request: Request, file: UploadFile = File(...), title: str = Form(...),
+def upload_resource(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), title: str = Form(...),
                     subject: str = Form(...), summary: str = Form(''), curriculum: str = Form(''),
                     stage: str = Form(''), grade: str = Form(''), entry: str = Form(''), custom: str = Form('')):
     actor = require_admin(request)
@@ -274,9 +274,52 @@ def upload_resource(request: Request, file: UploadFile = File(...), title: str =
                 'created_at': utc_now(), 'classification': classification}
     write_json(root / 'metadata.json', metadata)
     try:
-        return change_publication(actor, identifier, True)
+        result = change_publication(actor, identifier, True)
+        request_cover(actor, identifier, background_tasks)
+        return {**result, 'cover_status': 'pending'}
     except HTTPException as exc:
         raise HTTPException(exc.status_code, f'文件已保存（{identifier}），发布状态待确认；请在资源列表重试发布。{exc.detail}') from exc
+
+
+def request_cover(actor, identifier, background_tasks):
+    from .html_resource_covers import generate_cover
+    root, _ = get_resource(identifier)
+    revision = uuid.uuid4().hex
+    with publication_lock(root):
+        metadata = read_json(root / 'metadata.json')
+        metadata.update(cover_status='pending', cover_error='', cover_revision=revision)
+        write_json(root / 'metadata.json', metadata)
+    background_tasks.add_task(generate_cover, actor, identifier, expected_revision=revision)
+
+
+@router.post('/admin/html-resources/{identifier}/cover/generate', status_code=202)
+def regenerate_cover(identifier: str, request: Request, background_tasks: BackgroundTasks):
+    actor = require_admin(request)
+    require_action_header(request)
+    request_cover(actor, identifier, background_tasks)
+    return {'id': identifier, 'cover_status': 'pending'}
+
+
+@router.post('/admin/html-resources/{identifier}/cover')
+def upload_cover(identifier: str, request: Request, file: UploadFile = File(...)):
+    from .html_resource_covers import normalized_image, save_cover, MAX_IMAGE_BYTES
+    from PIL import Image
+    actor = require_admin(request)
+    require_action_header(request)
+    get_resource(identifier)
+    try:
+        data = normalized_image(file.file.read(MAX_IMAGE_BYTES + 1))
+    except (ValueError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise HTTPException(422, '封面图片无效：' + str(exc)[:150]) from exc
+    return save_cover(actor, identifier, data)
+
+
+@router.post('/admin/html-resources/{identifier}/cover/sync')
+def retry_cover_sync(identifier: str, request: Request):
+    from .html_resource_covers import sync_cover
+    actor = require_admin(request)
+    require_action_header(request)
+    return sync_cover(actor, identifier)
 
 
 class ResourceTags(BaseModel):
@@ -349,14 +392,26 @@ def resource_file(identifier: str, file_path: str):
         'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'}
     if target.suffix.lower() in ('.html', '.htm'):
-        content = target.read_bytes()
-        bootstrap = b'<script>' + Path(__file__).with_name('resource_storage.js').read_bytes() + b'</script>'
-        doctype = re.match(br'\s*(?:<!--.*?-->\s*)*<!doctype[^>]*>', content, re.I | re.S)
-        position = doctype.end() if doctype else 0
-        return Response(content[:position] + bootstrap + content[position:], media_type='text/html', headers=headers)
+        return Response(sandbox_document(target.read_bytes()), media_type='text/html', headers=headers)
     if target.name.lower().endswith('.js.下载'):
         mime = 'text/javascript'
     return FileResponse(target, media_type=mime, headers=headers)
+
+
+def sandbox_document(content):
+    bootstrap = b'<script>' + Path(__file__).with_name('resource_storage.js').read_bytes() + b'</script>'
+    doctype = re.match(br'\s*(?:<!--.*?-->\s*)*<!doctype[^>]*>', content, re.I | re.S)
+    position = doctype.end() if doctype else 0
+    return content[:position] + bootstrap + content[position:]
+
+
+@router.get('/resources-play/{identifier}/cover/{name}')
+def cover_file(identifier: str, name: str):
+    root, _ = public_resource(identifier)
+    if not re.fullmatch(r'[a-f0-9]{32}\.webp', name) or not (root / 'covers' / name).is_file():
+        raise HTTPException(404, '封面不存在')
+    return FileResponse(root / 'covers' / name, media_type='image/webp',
+                        headers={'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff'})
 
 
 @router.get('/resources-play/{identifier}/player.js')

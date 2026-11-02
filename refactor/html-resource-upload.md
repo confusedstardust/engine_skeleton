@@ -78,3 +78,17 @@ Next rewrite 转发时去掉末尾 `/`，原先仅注册带 `/` 的播放器路�
 配套门户仓库 linchangWeb 的 `codex/html-resource-multi-tags` 分支（基于当前 feature-refactor）：internal works API 不再截为 8 项，去重后支持 64 项，超限明确拒绝；subject/grade/stage 筛选同时兼容旧标量和 tags 中的次选值。先部署门户，再部署 Forge，才能保证新多选与自定义词完整发布并被分类筛选发现。未迁移或修改数据库结构，旧作品的单值字段继续可用。
 
 验证：31 项 HTML 资源后端测试通过，门户 6 项分类/容量测试及 TypeScript 检查通过；Forge 生产构建与浏览器上传多选、自定义、发布后编辑并同步的完整测试通过。本地服务已更新；线上尚未部署。
+
+### HTML 首屏封面
+
+上传发布后自动提交后台截图，使用全新、无账号凭据的 Chromium 上下文渲染包内入口，视口 1280×720，输出同尺寸 WebP。浏览器按进程串行运行，最多加载 100 个请求/30 MB，并限制时间。外部 HTTP(S) 资源必须解析到公网 IP，TCP 固定解析结果，重定向逐次重新校验；不转发 cookie、Authorization 或表单 POST，阻止 WebSocket。包内文件只能读取当前作品 files 目录。浏览器不使用站点登录态。
+
+admin 展示封面与生成状态，提供「生成/重新生成封面」「替换封面」「同步封面」。手动支持 PNG/JPEG/WebP，5 MB、3600 万像素以内，归一化裁切为 16:9 WebP。生成失败保留旧图；revision 防止旧后台任务覆盖较新的手动封面。只在有截图任务时短期刷新列表，其他时间不轮询。
+
+接口：POST `/admin/html-resources/{id}/cover/generate` 返回 202；POST `/admin/html-resources/{id}/cover` 接收 multipart file；POST `/admin/html-resources/{id}/cover/sync` 重试数据库同步。公开图位于 `/resources-play/{id}/cover/{uuid}.webp`，有不可变版本地址，旧图保留以兼容缓存；下架后图与资源一样停止公开访问。图位于 jobs 持久卷，需一起备份。
+
+门户 internal works 新增 PATCH，只更新指定 ownerUserId/jobId 的 coverUrl，不重置发布时间、标签或发布状态。必须先部署门户此接口，再部署 Forge 截图版本。后端镜像安装 Playwright 1.64.1 和 Chromium 及运行依赖；本地 Windows 使用现有 Edge。截图仅封面用途，广场卡片不运行完整 HTML。
+
+启动时自动在后台补齐 published/publishing 且缺少封面的 HTML 作品，不覆盖已有手动图；同步失败单独记录并可重试。可通过 `WEBGAL_HTML_COVER_BACKFILL_ON_STARTUP=false` 禁用，也可手动运行 `python -m webgal_backend.html_resource_covers --backfill-missing`。线程不阻塞 API 启动；关闭时停止领取下一条。启动中断后下次启动会继续缺图记录。单条失败不终止其他记录。
+
+本地验证：46 项上传/封面后端测试；门户 7 项测试及 TypeScript 检查；Forge 生产构建。真实截图已生成，生产构建浏览器测试覆盖上传后出图、重新生成、手动替换及继续体验。生产部署与已有记录补齐结果待回读确认。

@@ -25,6 +25,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBGAL_FRONTEND_URL', 'https://example.com/forge')
     monkeypatch.setattr(resources, 'publish_work', lambda payload: {'published': True, 'work': payload})
     monkeypatch.setattr(resources, 'unpublish_work', lambda *args: {'published': False})
+    from webgal_backend import html_resource_covers
+    monkeypatch.setattr(html_resource_covers, 'generate_cover', lambda *args, **kwargs: None)
     app = FastAPI()
     app.include_router(resources.router)
     return TestClient(app, headers={'X-Forge-Admin-Action': '1'})

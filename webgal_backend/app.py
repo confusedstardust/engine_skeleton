@@ -67,9 +67,20 @@ async def lifespan(_app: FastAPI):
     )
     from .payments import subscription_credit_worker
     credit_worker = asyncio.create_task(subscription_credit_worker())
+    import threading
+    cover_stop = threading.Event()
+    cover_worker = None
+    if os.getenv('WEBGAL_HTML_COVER_BACKFILL_ON_STARTUP', 'true').lower() not in ('false', '0', 'no'):
+        from .html_resource_covers import backfill
+        cover_worker = asyncio.create_task(asyncio.to_thread(backfill, stop_event=cover_stop))
     try:
         yield
     finally:
+        cover_stop.set()
+        if cover_worker:
+            cover_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await cover_worker
         credit_worker.cancel()
         with suppress(asyncio.CancelledError):
             await credit_worker

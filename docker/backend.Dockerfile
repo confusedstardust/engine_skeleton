@@ -17,16 +17,19 @@ FROM python:3.11-slim AS runner
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     WEBGAL_BACKEND_ROOT=/app \
-    WEBGAL_JOBS_DIR=/data/jobs
+    WEBGAL_JOBS_DIR=/data/jobs \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+RUN python -m playwright install --with-deps chromium
+RUN chmod -R a+rX /ms-playwright
 
 COPY forge_database.py ./
 COPY webgal_backend ./webgal_backend

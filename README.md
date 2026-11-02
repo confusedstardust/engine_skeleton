@@ -14,7 +14,7 @@
 
 ## 功能与部署文档
 
-- [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、分类、广场发布及隔离体验；本地实现，未部署。
+- [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、多选标签、首屏截图封面、广场发布及隔离体验；实施与部署状态见专题文档。
 
 ---
 

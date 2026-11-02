@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import HtmlResourceCoverUpload from './html-resource-cover-upload';
 import HtmlResourceTags, { emptyClassification, type Classification, type ResourceTaxonomy } from './html-resource-tags';
 import * as Dialog from './ui/dialog';
 import { DialogHeader } from './ui/dialog-header';
@@ -16,7 +17,7 @@ import { DataTable } from './ui/table';
 import { useToast } from './ui/toast';
 import styles from './admin-html-resources.module.css';
 
-type Resource = { id: string; state: string; classification: Classification; payload: { title: string; subject: string; tags: string[]; playUrl: string } };
+type Resource = { id: string; state: string; classification: Classification; cover_status?: string; cover_error?: string; cover_failed_assets?: number; payload: { title: string; subject: string; tags: string[]; playUrl: string; coverUrl?: string } };
 const states: Record<string, string> = { saved: '待发布', publishing: '发布待确认', published: '已发布', archived: '已下架' };
 
 export default function AdminHtmlResources() {
@@ -33,6 +34,14 @@ export default function AdminHtmlResources() {
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState('');
+  const pollCount = useRef(0);
+  useEffect(() => {
+    if (!items.some(item => ['pending', 'generating'].includes(item.cover_status || '')) || pollCount.current >= 45) return;
+    const timer = setTimeout(() => {
+      if (document.visibilityState === 'visible') { pollCount.current++; setRevision(value => value + 1); }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [items, revision]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
@@ -60,7 +69,7 @@ export default function AdminHtmlResources() {
     });
     // Also refresh after uncertain publication: saved resources can be retried with the same ID.
     setRevision(value => value + 1);
-    if (ok) { form.reset(); setFile(null); notify('资源已发布到教师资源广场', 'success'); }
+    if (ok) { form.reset(); setFile(null); pollCount.current = 0; notify('资源已发布，正在自动生成封面', 'success'); }
   }
 
   async function toggle(item: Resource) {
@@ -69,6 +78,16 @@ export default function AdminHtmlResources() {
       await adminApi(`/html-resources/${item.id}/publication`, { method: item.state === 'published' ? 'DELETE' : 'POST' });
       notify(item.state === 'published' ? '资源已下架' : '资源已发布', 'success');
     } catch (reason) { notify(reason instanceof Error ? reason.message : '操作失败', 'error'); }
+    finally { setBusy(''); setRevision(value => value + 1); }
+  }
+
+  async function regenerateCover(item: Resource, syncOnly = false) {
+    setBusy(item.id);
+    try {
+      await adminApi(`/html-resources/${item.id}/cover/${syncOnly ? 'sync' : 'generate'}`, { method: 'POST' });
+      pollCount.current = 0;
+      notify(syncOnly ? '封面已同步' : '已开始生成封面', 'success');
+    } catch (reason) { notify(reason instanceof Error ? reason.message : '封面处理失败', 'error'); }
     finally { setBusy(''); setRevision(value => value + 1); }
   }
 
@@ -98,7 +117,7 @@ export default function AdminHtmlResources() {
     </form>
     <div className={styles.listHeading}><h3>已上传资源</h3><Button onClick={() => setRevision(value => value + 1)} disabled={loading}>刷新列表</Button></div>
     {error && <InlineFeedback>{error}</InlineFeedback>}
-    {loading ? <LoadingState>正在加载资源…</LoadingState> : items.length ? <div className={styles.table}><DataTable className="admin-table"><thead><tr><th>资源</th><th>学科 / 分类</th><th>发布状态</th><th>操作</th></tr></thead><tbody>{items.map(item => <tr key={item.id}><td><strong>{item.payload.title}</strong><small>{item.id}</small></td><td>{[...new Set([item.payload.subject, ...item.payload.tags])].join(' · ')}</td><td>{states[item.state] || item.state}</td><td><div className="admin-actions"><Button disabled={!!busy || upload.pending || !taxonomy} onClick={() => { setEditing(item); setEditTags(item.classification); setEditError(''); }}>修改标签</Button>{['published', 'publishing'].includes(item.state) && <a className="btn outline" href={item.payload.playUrl} target="_blank" rel="noopener noreferrer">体验资源 ↗</a>}<Button busy={busy === item.id} disabled={!!busy || upload.pending} onClick={() => void toggle(item)}>{item.state === 'published' ? '下架' : '重试发布'}</Button></div></td></tr>)}</tbody></DataTable></div> : !error && <EmptyState>还没有上传资源，发布你的第一个互动课堂。</EmptyState>}
+    {loading ? <LoadingState>正在加载资源…</LoadingState> : items.length ? <div className={styles.table}><DataTable className="admin-table"><thead><tr><th>资源</th><th>学科 / 分类</th><th>发布状态</th><th>操作</th></tr></thead><tbody>{items.map(item => <tr key={item.id}><td>{item.payload.coverUrl && <img className={styles.coverThumb} src={item.payload.coverUrl} alt={`${item.payload.title}封面`} loading="lazy" />}<strong>{item.payload.title}</strong><small>{item.id}</small>{['pending', 'generating'].includes(item.cover_status || '') && <small role="status">封面生成中…</small>}{item.cover_error && <small className={styles.coverError}>{item.cover_error}</small>}{!!item.cover_failed_assets && <small>截图中有 {item.cover_failed_assets} 个附件未加载，可检查资源包后重试。</small>}</td><td>{[...new Set([item.payload.subject, ...item.payload.tags])].join(' · ')}</td><td>{states[item.state] || item.state}</td><td><div className="admin-actions"><Button disabled={!!busy || upload.pending} onClick={() => void regenerateCover(item)}>{item.payload.coverUrl ? '重新生成封面' : '生成封面'}</Button><HtmlResourceCoverUpload identifier={item.id} title={item.payload.title} onSaved={() => setRevision(value => value + 1)} />{item.cover_status === 'sync_failed' && <Button disabled={!!busy} onClick={() => void regenerateCover(item, true)}>同步封面</Button>}<Button disabled={!!busy || upload.pending || !taxonomy} onClick={() => { setEditing(item); setEditTags(item.classification); setEditError(''); }}>修改标签</Button>{['published', 'publishing'].includes(item.state) && <a className="btn outline" href={item.payload.playUrl} target="_blank" rel="noopener noreferrer">体验资源 ↗</a>}<Button busy={busy === item.id} disabled={!!busy || upload.pending} onClick={() => void toggle(item)}>{item.state === 'published' ? '下架' : '重试发布'}</Button></div></td></tr>)}</tbody></DataTable></div> : !error && <EmptyState>还没有上传资源，发布你的第一个互动课堂。</EmptyState>}
     <Dialog.Root open={!!editing} busy={!!busy} onOpenChange={open => { if (!open) setEditing(null); }}>
       <Dialog.Surface overlayClassName="radix-confirm-overlay" className={`admin-detail ${styles.editDialog}`} aria-describedby={undefined}>
         <DialogHeader dialogTitle title="修改资源标签" subtitle={editing?.payload.title} onClose={() => setEditing(null)} busy={!!busy} />
