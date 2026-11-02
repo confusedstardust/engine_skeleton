@@ -51,9 +51,12 @@ def main():
                 expect(page.get_by_role('heading', name='把你的课堂创意带到广场')).to_be_visible()
                 page.locator('input[name=title]').fill('行星公转实验室')
                 page.locator('textarea[name=summary]').fill('调整速度，观察行星公转的规律。')
-                page.get_by_role('radio', name='科学', exact=True).click()
-                page.get_by_role('radio', name='中国大陆课程', exact=True).click()
-                page.get_by_role('radio', name='初中', exact=True).click()
+                page.get_by_role('button', name='科学', exact=True).click()
+                page.get_by_role('button', name='地理', exact=True).click()
+                page.get_by_label('添加自定义标签', exact=True).fill('合作探究')
+                page.get_by_label('添加自定义标签', exact=True).press('Enter')
+                page.get_by_role('button', name='中国大陆课程', exact=True).click()
+                page.get_by_role('button', name='初中', exact=True).click()
                 data = io.BytesIO()
                 with zipfile.ZipFile(data, 'w') as archive:
                     archive.writestr('lesson/index.html', '<!doctype html><script>window.earlyStorage=localStorage.getItem("lesson");</script><html><head></head><body><h1>行星实验室</h1><script type="module" src="app.mjs"></script></body></html>')
@@ -62,11 +65,24 @@ def main():
                 page.locator('#html-resource-file').set_input_files({'name': 'lesson.zip', 'mimeType': 'application/zip', 'buffer': data.getvalue()})
                 screenshot = Path(__file__).resolve().parents[1] / 'reports/html-resources'
                 screenshot.mkdir(parents=True, exist_ok=True)
+                page.evaluate('window.scrollTo(0, 0)')
                 page.screenshot(path=str(screenshot / 'admin-desktop.png'), full_page=True)
                 page.get_by_role('button', name='上传并发布到广场', exact=True).click()
                 expect(page.get_by_role('cell', name='已发布', exact=True)).to_be_visible()
                 assert len(publications) == 1
                 identifier = next(iter(publications))
+                assert '地理' in publications[identifier]['tags']
+                assert '合作探究' in publications[identifier]['tags']
+                page.get_by_role('button', name='修改标签', exact=True).click()
+                dialog = page.get_by_role('dialog')
+                dialog.get_by_role('button', name='历史', exact=True).click()
+                dialog.get_by_label('添加自定义标签', exact=True).fill('课后拓展')
+                dialog.get_by_label('添加自定义标签', exact=True).press('Enter')
+                page.screenshot(path=str(screenshot / 'edit-tags.png'), full_page=True)
+                dialog.get_by_role('button', name='保存标签', exact=True).click()
+                expect(dialog).not_to_be_visible()
+                assert '历史' in publications[identifier]['tags']
+                assert '课后拓展' in publications[identifier]['tags']
                 page.set_viewport_size({'width': 390, 'height': 844})
                 page.evaluate('window.scrollTo(0, 0)')
                 page.screenshot(path=str(screenshot / 'admin-mobile.png'), full_page=True)

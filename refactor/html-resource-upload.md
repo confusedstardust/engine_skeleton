@@ -4,13 +4,13 @@
 
 ## 设计与数据归属
 
-管理页增加「HTML资源」，沿用共享 Button、DataTable、反馈、上传校验、上传状态、useFileUpload、adminApi 和 Radix ToggleGroup。分类词表由后端提供，前端不另抄一套。样式沿用 rice / paper / cinnabar / border 主题变量。学科必选，课程体系、学段、年级可选；「未标注」用空值保存，不作为真实标签。
+管理页增加「HTML资源」，沿用共享 Button、DataTable、反馈、上传校验、上传状态、useFileUpload、adminApi 和 Radix ToggleGroup。分类词表由后端提供，前端不另抄一套。样式沿用 rice / paper / cinnabar / border 主题变量。学科至少选一个；课程体系、学段、学科、年级和自定义标签全部支持多选及添加新值。未选择的分类保存空数组。
 
 沿用 `TEACHER_ECOSYSTEM_API_URL` / `TEACHER_ECOSYSTEM_SERVICE_TOKEN` 的既有发布桥接，调用门户 internal works API，更新其 teacherProfile / teacherWork；不创建平行的广场数据库，不要求新增表。发布作者为当前管理员账号，必须存在于门户共享用户库。jobId 是资源 UUID，不创建 generation_jobs 生成任务，也不调用生成模型。
 
-映射：标题/简介 → title/summary；学科 → subject；年级（未选年级时用学段） → grade；课程体系、学段、固定 `HTML互动资源` → tags；playUrl → 独立 HTML 体验页；quizUrl/coverUrl 为空。当前门户接口支持这些字段，公开列表可复用现有卡片和体验链接。
+映射：标题/简介 → title/summary；第一学科 → subject；第一年级（无年级时第一学段） → grade；全部分类值、自定义词和固定 `HTML互动资源` → tags；playUrl → 独立 HTML 体验页；quizUrl/coverUrl 为空。当前门户接口支持这些字段，公开列表可复用现有卡片和体验链接。
 
-已核对运行中的门户 `teacher-plaza-filters.ts`：体系筛选读取 tags、学段筛选读取 grade。无具体年级时以学段填充 grade，保留独立 classification 年级空值；学段与具体年级冲突时拒绝上传。截图词表不包含「全部」（查询动作）作为上传值。本次不修改门户仓库，线上门户版本仍需部署时核验。
+已核对运行中的门户 `teacher-plaza-filters.ts`：体系筛选读取 tags、学段筛选读取 grade。无具体年级时以学段填充 grade，保留独立 classification 年级空值；允许跨学段、跨年级作品，完整选项保存在 classification 数组与 tags。截图词表不包含「全部」（查询动作）作为上传值。本次不修改门户仓库，线上门户版本仍需部署时核验。
 
 ## API 与文件
 
@@ -68,3 +68,13 @@ Next rewrite 转发时去掉末尾 `/`，原先仅注册带 `/` 的播放器路�
 上传前检查入口 HTML 直接引用的脚本、图片、媒体和样式文件；缺失时拒绝发布并提示 HTML 与 _files 一起打 ZIP。动态 fetch、CSS 内 url() 仍须作者确保齐全。允许浏览器保存的 .js.下载 文件并按 JavaScript MIME 提供，不执行服务器代码。既有上传文件不自动改写；HTML bootstrap 在响应时注入。
 
 22 项后端测试通过；生产前端浏览器测试已覆盖模块资源加载、刷新恢复、早期脚本存储访问、父页面存储/DOM 隔离及下架阻断。已在当前本地开发资源上补齐与上传 HTML 完全一致的原下载附件；这些运行时资源不纳入代码提交。
+
+### 多选、自定义与发布后修改标签
+
+上传表单与编辑弹窗共享 HtmlResourceTags，复用 Radix multiple ToggleGroup、共享 Button、Dialog、DialogHeader/DialogActions。学科至少一项，其余组可空；每组最多 30 项、每项 40 字，所有分类与自定义词去重合计最多 63 项（加固定资源类型最多 64）。已保存的自定义值会进入管理员可复用词表。上传 multipart 各分类支持 JSON 文字数组，保留旧单字符串客户端兼容。
+
+`PATCH /admin/html-resources/{id}/tags`：JSON `{classification:{subject:[...],curriculum:[...],stage:[...],grade:[...],custom:[...]}}`，复用管理员/动作头检查及资源发布锁。已发布作品同步 upsert 同一个门户 jobId；已下架作品仅保存标签，保持下架。失败时保存目标分类、保留可重试状态，不复制资源、不要求重传。列表将旧单值 classification 转为数组，旧资源可以直接编辑。若门户返回被截断的 tags，返回 409 提示先更新门户，避免误报同步成功。
+
+配套门户仓库 linchangWeb 的 `codex/html-resource-multi-tags` 分支（基于当前 feature-refactor）：internal works API 不再截为 8 项，去重后支持 64 项，超限明确拒绝；subject/grade/stage 筛选同时兼容旧标量和 tags 中的次选值。先部署门户，再部署 Forge，才能保证新多选与自定义词完整发布并被分类筛选发现。未迁移或修改数据库结构，旧作品的单值字段继续可用。
+
+验证：31 项 HTML 资源后端测试通过，门户 6 项分类/容量测试及 TypeScript 检查通过；Forge 生产构建与浏览器上传多选、自定义、发布后编辑并同步的完整测试通过。本地服务已更新；线上尚未部署。

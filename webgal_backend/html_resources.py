@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import json
 from html.parser import HTMLParser
 import io
 import mimetypes
@@ -17,6 +18,7 @@ from urllib.parse import quote, urlsplit, unquote
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from pydantic import BaseModel, Field
 
 from .config import settings
 from .platform_admin import require_admin, require_action_header, ecosystem_change
@@ -33,6 +35,47 @@ TAXONOMY = {
     'grade': ['小班', '中班', '大班', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三'],
 }
 EXTENSIONS = {'.html', '.htm', '.css', '.js', '.mjs', '.json', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.mp3', '.wav', '.ogg', '.m4a', '.mp4', '.webm', '.woff', '.woff2', '.ttf', '.otf', '.wasm', '.txt', '.glb', '.gltf', '.bin', '.pdf'}
+
+
+def tag_values(value):
+    if isinstance(value, str):
+        if value.lstrip().startswith('['):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                raise HTTPException(422, '标签格式无效')
+        else:
+            value = [value] if value.strip() else []
+    if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+        raise HTTPException(422, '标签必须为文字列表')
+    result = list(dict.fromkeys(v.strip() for v in value if v.strip()))
+    if len(result) > 30 or any(len(v) > 40 for v in result):
+        raise HTTPException(422, '每组最多 30 个标签，每个标签不超过 40 字')
+    return result
+
+
+def classification_values(values):
+    result = {key: tag_values(values.get(key, [])) for key in (*TAXONOMY, 'custom')}
+    if not result['subject']:
+        raise HTTPException(422, '请至少选择一个学科')
+    tags = list(dict.fromkeys(v for group in result.values() for v in group))
+    if len(tags) > 63:
+        raise HTTPException(422, '分类与自定义标签合计最多 63 个')
+    return result
+
+
+def apply_classification(payload, values):
+    return {**payload, 'subject': values['subject'][0],
+            'grade': next(iter(values['grade'] or values['stage']), None),
+            'tags': list(dict.fromkeys([v for group in values.values() for v in group] + ['HTML互动资源']))}
+
+
+def editable_classification(metadata):
+    original = metadata.get('classification', {})
+    result = {key: tag_values(original.get(key, [])) for key in (*TAXONOMY, 'custom')}
+    if not result['subject'] and metadata['payload'].get('subject'):
+        result['subject'] = [metadata['payload']['subject']]
+    return result
 
 
 def resource_root():
@@ -174,6 +217,9 @@ def _change_publication(actor, identifier, root, publish):
     result = ecosystem_change(actor, identifier, {'id': payload['ownerUserId']},
                               'HTML_RESOURCE_PUBLISH' if publish else 'HTML_RESOURCE_UNPUBLISH',
                               lambda: publish_work(payload) if publish else unpublish_work(payload['ownerUserId'], identifier))
+    remote_tags = (result.get('work') or {}).get('tags')
+    if publish and result.get('published') and isinstance(remote_tags, list) and set(remote_tags) != set(payload['tags']):
+        raise HTTPException(409, '广场服务未保存完整标签，请更新门户服务后重试发布')
     metadata['state'] = 'published' if result.get('published') else 'archived'
     write_json(root / 'metadata.json', metadata)
     return {**metadata, **result}
@@ -182,30 +228,31 @@ def _change_publication(actor, identifier, root, publish):
 @router.get('/admin/html-resources/taxonomy')
 def taxonomy(request: Request):
     require_admin(request)
-    return TAXONOMY
+    vocabulary = {**{key: list(values) for key, values in TAXONOMY.items()}, 'custom': []}
+    for path in resource_root().glob('*/metadata.json'):
+        for key, values in editable_classification(read_json(path)).items():
+            vocabulary[key] = list(dict.fromkeys(vocabulary[key] + values))
+    return vocabulary
 
 
 @router.get('/admin/html-resources')
 def resources(request: Request):
     require_admin(request)
     items = [read_json(p) for p in resource_root().glob('*/metadata.json')]
+    for item in items:
+        item['classification'] = editable_classification(item)
     return {'items': sorted(items, key=lambda m: m['created_at'], reverse=True)}
 
 
 @router.post('/admin/html-resources')
 def upload_resource(request: Request, file: UploadFile = File(...), title: str = Form(...),
                     subject: str = Form(...), summary: str = Form(''), curriculum: str = Form(''),
-                    stage: str = Form(''), grade: str = Form(''), entry: str = Form('')):
+                    stage: str = Form(''), grade: str = Form(''), entry: str = Form(''), custom: str = Form('')):
     actor = require_admin(request)
     require_action_header(request)
     if not title.strip() or len(title.strip()) > 160 or len(summary) > 2000:
         raise HTTPException(422, '标题必填且不超过 160 字，简介不超过 2000 字')
-    for key, value in [('subject', subject), ('curriculum', curriculum), ('stage', stage), ('grade', grade)]:
-        if (key == 'subject' or value) and value not in TAXONOMY[key]:
-            raise HTTPException(422, '请选择有效的分类标签')
-    grade_stages = dict(zip(TAXONOMY['grade'], ['学前'] * 3 + ['小学'] * 6 + ['初中'] * 3 + ['高中'] * 3))
-    if stage and grade and grade_stages[grade] != stage:
-        raise HTTPException(422, '所选年级与学段不一致，请调整后上传')
+    classification = classification_values(dict(subject=subject, curriculum=curriculum, stage=stage, grade=grade, custom=custom))
     data = file.file.read(MAX_UPLOAD + 1)
     if not data or len(data) > MAX_UPLOAD:
         raise HTTPException(413, '文件不能为空且不能超过 30 MB')
@@ -220,17 +267,37 @@ def upload_resource(request: Request, file: UploadFile = File(...), title: str =
     from .storage import utc_now
     base = os.getenv('WEBGAL_FRONTEND_URL', 'http://127.0.0.1:3001').rstrip('/')
     payload = {'ownerUserId': actor['id'], 'jobId': identifier, 'title': title.strip(),
-               # Existing plaza stage filters read grade, including resources without a specific year.
-               'summary': summary.strip() or None, 'subject': subject, 'grade': grade or stage or None,
-               'tags': [v for v in (curriculum, stage, 'HTML互动资源') if v],
+               'summary': summary.strip() or None,
                'playUrl': f'{base}/resources-play/{identifier}/', 'coverUrl': None, 'quizUrl': None}
+    payload = apply_classification(payload, classification)
     metadata = {'id': identifier, 'payload': payload, 'entry': chosen, 'state': 'saved',
-                'created_at': utc_now(), 'classification': {'curriculum': curriculum, 'stage': stage, 'grade': grade, 'subject': subject}}
+                'created_at': utc_now(), 'classification': classification}
     write_json(root / 'metadata.json', metadata)
     try:
         return change_publication(actor, identifier, True)
     except HTTPException as exc:
         raise HTTPException(exc.status_code, f'文件已保存（{identifier}），发布状态待确认；请在资源列表重试发布。{exc.detail}') from exc
+
+
+class ResourceTags(BaseModel):
+    classification: dict[str, list[str]] = Field(default_factory=dict)
+
+
+@router.patch('/admin/html-resources/{identifier}/tags')
+def edit_resource_tags(identifier: str, body: ResourceTags, request: Request):
+    actor = require_admin(request)
+    require_action_header(request)
+    values = classification_values(body.classification)
+    root, _ = get_resource(identifier)
+    with publication_lock(root):
+        metadata = read_json(root / 'metadata.json')
+        metadata['classification'] = values
+        metadata['payload'] = apply_classification(metadata['payload'], values)
+        # Persist the desired update before the remote call so timeouts can be retried by ID.
+        write_json(root / 'metadata.json', metadata)
+        if metadata['state'] in ('published', 'publishing'):
+            return _change_publication(actor, identifier, root, True)
+        return metadata
 
 
 @router.post('/admin/html-resources/{identifier}/publication')

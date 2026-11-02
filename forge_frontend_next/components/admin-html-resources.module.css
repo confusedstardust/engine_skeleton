@@ -23,3 +23,8 @@
 .table { overflow-x: auto; }
 .table table { min-width: 760px; }
 @media(max-width: 700px) { .columns { grid-template-columns: 1fr; gap: 20px; } .form { padding: 16px; } .actions { flex-direction: column; align-items: stretch; } .badge { display: none; } .row { grid-template-columns: 65px 1fr; } }
+
+.addTag { display: flex; gap: 8px; margin-top: 8px; max-width: 320px; }
+.addTag input { min-width: 0; flex: 1; width: 0 !important; }
+.addTag button { flex: none; white-space: nowrap; }
+.editDialog { width: min(1000px, calc(100vw - 32px)); max-height: 85dvh; overflow-y: auto; }
