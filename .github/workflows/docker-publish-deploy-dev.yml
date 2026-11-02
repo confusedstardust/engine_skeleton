@@ -12,6 +12,14 @@ on:
         required: true
         default: true
         type: boolean
+      portal_action:
+        description: "Inspect the portal using this repository's development SSH profile"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - inspect
 
 permissions:
   contents: read
@@ -27,7 +35,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    if: ${{ startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-') }}
+    if: ${{ (!inputs.portal_action || inputs.portal_action == 'none') && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
     environment: development
     runs-on: ubuntu-latest
     outputs:
@@ -310,3 +318,31 @@ jobs:
             elif [ "$DEPLOY_NAR_AGENT" = "true" ]; then
               echo "DEV Agent images/files prepared. In this DEV directory run: python3 deploy/setup-nar-agent.py --environment development --enable; then rerun a full development deployment."
             fi
+
+  portal-inspect:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.portal_action == 'inspect' && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
+    environment: development
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate development target
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          python3 - <<'PY'
+          import os, socket
+          assert '43.138.207.82' in socket.gethostbyname_ex(os.environ['DEPLOY_HOST'])[2], 'Development target is not the requested server'
+          print('Confirmed requested development server')
+          PY
+      - name: Inspect existing portal deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            docker ps --format '{{.Names}} {{.Image}} {{.Ports}}'
+            for container in $(docker ps --format '{{.Names}}' | grep -E 'website|portal|linchang'); do
+              docker inspect "$container" --format '{{.Name}} working_dir={{index .Config.Labels "com.docker.compose.project.working_dir"}} config={{index .Config.Labels "com.docker.compose.project.config_files"}} project={{index .Config.Labels "com.docker.compose.project"}} service={{index .Config.Labels "com.docker.compose.service"}}'
+            done
+            sudo nginx -T 2>&1 | awk '/configuration file|listen |server_name |location |proxy_pass / { print }'
