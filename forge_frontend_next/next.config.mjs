@@ -27,6 +27,7 @@ const nextConfig = {
       { source: "/api/forge/quiz/:path*", destination: `${backend}/quiz/:path*` },
       { source: "/api/forge/public/quiz/:path*", destination: `${backend}/public/quiz/:path*` },
       { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },
+      { source: "/resources-play/:path*", destination: `${backend}/resources-play/:path*` },
       { source: "/play/:path*", destination: `${backend}/play/:path*` }
     ];
   }
