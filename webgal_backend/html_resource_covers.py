@@ -29,8 +29,11 @@ def normalized_image(data: bytes) -> bytes:
         with Image.open(io.BytesIO(data)) as image:
             if image.format not in ('JPEG', 'PNG', 'WEBP') or image.width * image.height > 36_000_000:
                 raise ValueError('请选择不超过 3600 万像素的 PNG、JPEG 或 WebP 图片')
+            image.draft('RGB', (2560, 1440))
             image.load()
-            image = ImageOps.exif_transpose(image).convert('RGBA')
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((2560, 1440), Image.Resampling.LANCZOS)
+            image = image.convert('RGBA')
             background = Image.new('RGBA', image.size, '#faf7f2')
             background.alpha_composite(image)
             image = ImageOps.fit(background.convert('RGB'), (1280, 720), method=Image.Resampling.LANCZOS)
@@ -51,7 +54,7 @@ def public_asset(url: str, remaining: int) -> tuple[int, bytes, str]:
         addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
         if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
             raise ValueError('封面不访问内网地址')
-        pinned = addresses[0][4][0]
+        pinned = min(addresses, key=lambda row: row[0] != socket.AF_INET)[4][0]
         connection = (HTTPSConnection if parsed.scheme == 'https' else HTTPConnection)(parsed.hostname, port, timeout=4)
         # HTTPS retains the original hostname for SNI/certificate verification, but TCP cannot re-resolve it.
         connection._create_connection = lambda address, timeout, source_address=None: socket.create_connection((pinned, port), timeout, source_address)
@@ -76,13 +79,13 @@ def capture(root: Path, entry: str) -> tuple[bytes, int]:
     from .html_resources import sandbox_document
     failed = 0
     budget = 30 * 1024 * 1024
-    deadline = time.monotonic() + 30
     requests = 0
     with _browser_gate, sync_playwright() as playwright:
         options = {'headless': True}
         if os.name == 'nt':
             options['channel'] = 'msedge'
         browser = playwright.chromium.launch(**options)
+        deadline = time.monotonic() + 30
         try:
             context = browser.new_context(viewport={'width': 1280, 'height': 720}, device_scale_factor=1,
                                           reduced_motion='reduce', service_workers='block', accept_downloads=False)
