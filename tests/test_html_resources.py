@@ -189,3 +189,27 @@ def test_zip_entry_autodetection_accepts_uppercase_extension(client):
                          files={'file': ('lesson.zip', package({'lesson/INDEX.HTML': '<h1>课堂</h1>'}), 'application/zip')})
     assert result.status_code == 200
     assert result.json()['entry'] == 'lesson/INDEX.HTML'
+
+
+def test_missing_saved_page_assets_are_rejected_before_publication(client):
+    response = client.post('/admin/html-resources', data={'title': '课堂', 'subject': '数学'},
+                           files={'file': ('lesson.html', '<html><script src="lesson_files/app.js"></script><img src="lesson_files/a.png"></html>')})
+    assert response.status_code == 422
+    assert 'lesson_files/app.js' in response.json()['detail']
+    assert 'ZIP' in response.json()['detail']
+    assert client.get('/admin/html-resources').json() == {'items': []}
+
+
+def test_saved_browser_script_extension_and_storage_bootstrap(client):
+    response = client.post('/admin/html-resources', data={'title': '课堂', 'subject': '数学'},
+                           files={'file': ('lesson.zip', package({'index.html': '<!doctype html><html><head><script src="assets/a.js.下载"></script></head></html>', 'assets/a.js.下载': 'localStorage.setItem("lesson", "saved")'}))})
+    assert response.status_code == 200
+    identifier = response.json()['id']
+    root = f'/resources-play/{identifier}'
+    page = client.get(root + '/files/index.html')
+    assert page.text.index('Object.defineProperty(window, kind') < page.text.index('src="assets/a.js.')
+    assert page.text.startswith('<!doctype html>')
+    assert 'allow-same-origin' not in page.headers['content-security-policy']
+    script = client.get(root + '/files/assets/a.js.下载')
+    assert script.headers['content-type'].startswith('text/javascript')
+    assert client.get(root + '/player.js').status_code == 200

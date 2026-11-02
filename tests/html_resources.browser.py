@@ -56,8 +56,8 @@ def main():
                 page.get_by_role('radio', name='初中', exact=True).click()
                 data = io.BytesIO()
                 with zipfile.ZipFile(data, 'w') as archive:
-                    archive.writestr('lesson/index.html', '<!doctype html><h1>行星实验室</h1><script type="module" src="app.mjs"></script>')
-                    archive.writestr('lesson/app.mjs', 'import {message} from "./message.mjs"; document.body.dataset.loaded=message; try { parent.document.body.dataset.escaped="yes"; } catch { document.body.dataset.isolated="yes"; }')
+                    archive.writestr('lesson/index.html', '<!doctype html><script>window.earlyStorage=localStorage.getItem("lesson");</script><html><head></head><body><h1>行星实验室</h1><script type="module" src="app.mjs"></script></body></html>')
+                    archive.writestr('lesson/app.mjs', 'import {message} from "./message.mjs"; document.body.dataset.loaded=message; document.body.dataset.early=String(window.earlyStorage); document.body.dataset.previous=localStorage.getItem("lesson"); document.body.dataset.private=String(localStorage.getItem("platform-private")); localStorage.setItem("lesson", "saved"); sessionStorage.setItem("session", "saved"); try { parent.document.body.dataset.escaped="yes"; } catch { document.body.dataset.isolated="yes"; }')
                     archive.writestr('lesson/message.mjs', 'export const message="ready";')
                 page.locator('#html-resource-file').set_input_files({'name': 'lesson.zip', 'mimeType': 'application/zip', 'buffer': data.getvalue()})
                 screenshot = Path(__file__).resolve().parents[1] / 'reports/html-resources'
@@ -77,6 +77,14 @@ def main():
                 expect(frame.locator('body')).to_have_attribute('data-loaded', 'ready')
                 expect(frame.locator('body')).to_have_attribute('data-isolated', 'yes')
                 assert player.locator('body').get_attribute('data-escaped') is None
+                expect(frame.locator('body')).to_have_attribute('data-previous', 'null')
+                player.wait_for_function("id => localStorage.getItem('narrativeos-resource:' + id + ':localStorage') !== null", arg=identifier)
+                player.evaluate('localStorage.setItem("platform-private", "secret")')
+                player.reload()
+                expect(player.frame_locator('iframe').locator('body')).to_have_attribute('data-previous', 'saved')
+                expect(player.frame_locator('iframe').locator('body')).to_have_attribute('data-early', 'saved')
+                assert player.evaluate('localStorage.getItem("lesson")') is None
+                expect(player.frame_locator('iframe').locator('body')).to_have_attribute('data-private', 'null')
                 player.screenshot(path=str(screenshot / 'player.png'), full_page=True)
                 page.get_by_role('button', name='下架', exact=True).click()
                 expect(page.get_by_role('cell', name='已下架', exact=True)).to_be_visible()

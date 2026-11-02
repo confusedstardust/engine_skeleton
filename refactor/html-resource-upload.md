@@ -26,7 +26,7 @@
 
 支持独立 HTML/HTM 或 ZIP，上传上限 30 MB，解压总量 120 MB，最多 2000 个文件。包中相对目录保持不变；默认根 index.html，否则唯一 index.html 或唯一 HTML；多入口必须指定 ZIP 内相对路径。拒绝穿越、绝对路径、链接、加密文件、重名路径和服务端可执行文件；忽略 __MACOSX。支持静态 HTML/CSS/JS、常见图片/音视频/字体/JSON/WASM/glTF/PDF。
 
-不授予 iframe allow-same-origin，响应同时设置 CSP sandbox；脚本可运行，不能读取父页面 DOM、cookie 或本地存储。提供无凭据 CORS 以支持隔离 iframe 中的 ES modules 与相对资源。脚本依赖 localStorage、同源接口、表单提交或登录态的页面需要适配；资源使用相对路径，不保证以 `/` 开头的根路径正确。HTTPS 外部依赖可以加载，离线体验应把依赖放进 ZIP。
+不授予 iframe allow-same-origin，响应同时设置 CSP sandbox；脚本可运行，不能读取父页面 DOM、cookie 或本地存储。提供无凭据 CORS 以支持隔离 iframe 中的 ES modules 与相对资源。平台为 localStorage/sessionStorage 提供每作品隔离的常用 API 兼容层（各 256 KB），通过可信父页面的专用键持久化，上传脚本不获得原生同源存储权限。刷新外层体验页可恢复；多 HTML 内部跳转与原生 storage 事件/IndexedDB 不属于此单页兼容范围。脚本依赖同源接口、表单提交或登录态的页面仍需要适配；资源使用相对路径，不保证以 `/` 开头的根路径正确。HTTPS 外部依赖可以加载，离线体验应把依赖放进 ZIP。
 
 远端发布超时可能已写入数据库：标为 publishing，保留可访问文件，前端提示待确认，不误报成功；下次用原 ID 发布覆盖同条记录。下架仅在远端确认成功后改本地状态。管理员可刷新、重试发布、下架及重新发布；暂不提供内容覆盖和永久删除。
 
@@ -60,3 +60,11 @@ Next rewrite 转发时去掉末尾 `/`，原先仅注册带 `/` 的播放器路�
 分类与列表分别应用成功响应；其中一个请求失败时不隐藏另一个结果，也不把加载失败显示成没有资源。补齐学段未选年级时与当前广场筛选的兼容性。部署仍需入口 31 MB 限制和 jobs 持久卷。
 
 最终验证：生产构建后使用 `next start` 运行 `tests/html_resources.browser.py`，上传、发布、相对 ES modules、父页面隔离、移动布局及下架阻断全部通过。未把本地上传文件、日志、凭据或生成的截图纳入提交。提交前复审已解决上述发现，无剩余阻塞项；未合并或部署。
+
+### 存储与下载页面兼容修复
+
+针对教学页面 localStorage SecurityError，保留原有 opaque sandbox（不加 allow-same-origin），在作者脚本之前注入常用存储 API 兼容层。可信父外壳通过临时 URL fragment 将该作品自己的快照交给 iframe，兼容层立即清除 fragment；只接受自己 iframe 发来的 null-origin 消息，固定 localStorage/sessionStorage 类型与作品命名空间，每类 256 KB。写入按 set/remove/clear 增量应用，避免多个页面的快照覆盖其他键；不向作品暴露平台其他存储或 DOM。
+
+上传前检查入口 HTML 直接引用的脚本、图片、媒体和样式文件；缺失时拒绝发布并提示 HTML 与 _files 一起打 ZIP。动态 fetch、CSS 内 url() 仍须作者确保齐全。允许浏览器保存的 .js.下载 文件并按 JavaScript MIME 提供，不执行服务器代码。既有上传文件不自动改写；HTML bootstrap 在响应时注入。
+
+22 项后端测试通过；生产前端浏览器测试已覆盖模块资源加载、刷新恢复、早期脚本存储访问、父页面存储/DOM 隔离及下架阻断。已在当前本地开发资源上补齐与上传 HTML 完全一致的原下载附件；这些运行时资源不纳入代码提交。

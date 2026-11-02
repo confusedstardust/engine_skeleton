@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+from html.parser import HTMLParser
 import io
 import mimetypes
 import os
@@ -12,10 +13,10 @@ import uuid
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, unquote
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from .config import settings
 from .platform_admin import require_admin, require_action_header, ecosystem_change
@@ -36,6 +37,36 @@ EXTENSIONS = {'.html', '.htm', '.css', '.js', '.mjs', '.json', '.png', '.jpg', '
 
 def resource_root():
     return settings.jobs_dir / '.html-resources'
+
+
+class RequiredReferences(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.paths = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ('script', 'img', 'audio', 'video', 'source', 'iframe') and attrs.get('src'):
+            self.paths.append(attrs['src'])
+        if tag == 'video' and attrs.get('poster'):
+            self.paths.append(attrs['poster'])
+        if tag == 'link' and 'stylesheet' in attrs.get('rel', '').split() and attrs.get('href'):
+            self.paths.append(attrs['href'])
+
+
+def validate_references(root, entry):
+    parser = RequiredReferences()
+    parser.feed((root / entry).read_text(encoding='utf-8-sig', errors='replace'))
+    missing = []
+    for value in parser.paths:
+        url = urlsplit(value)
+        if url.scheme or url.netloc or not url.path:
+            continue
+        target = (root / entry).parent / unquote(url.path)
+        if not target.resolve().is_relative_to(root.resolve()) or not target.is_file():
+            missing.append(unquote(url.path))
+    if missing:
+        raise HTTPException(422, '缺少页面引用的资源：' + '、'.join(dict.fromkeys(missing))[:600] + '。请将 HTML 与配套资源目录一起打包为 ZIP，保留目录结构。')
 
 
 def get_resource(identifier):
@@ -72,7 +103,7 @@ def extract_package(data: bytes, filename: str, destination: Path, entry: str):
                 path = safe_path(member.filename)
                 if stat.S_ISLNK(member.external_attr >> 16) or member.flag_bits & 1:
                     raise HTTPException(422, '不支持链接或加密文件')
-                if path.suffix.lower() not in EXTENSIONS or str(path).casefold() in names:
+                if (path.suffix.lower() not in EXTENSIONS and not path.name.lower().endswith('.js.下载')) or str(path).casefold() in names:
                     raise HTTPException(422, '资源包包含不支持或重名的文件')
                 names.add(str(path).casefold())
                 target = destination.joinpath(*path.parts)
@@ -182,6 +213,7 @@ def upload_resource(request: Request, file: UploadFile = File(...), title: str =
     root = resource_root() / identifier
     try:
         chosen = extract_package(data, file.filename or '', root / 'files', entry.strip())
+        validate_references(root / 'files', chosen)
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise
@@ -231,8 +263,9 @@ def player(identifier: str):
     # so both player URLs resolve the same assets, including when served under a basePath.
     prefix = urlsplit(os.getenv('WEBGAL_FRONTEND_URL', '')).path.rstrip('/')
     source = html.escape(f"{prefix}/resources-play/{identifier}/files/" + quote(metadata['entry'], safe='/'), quote=True)
-    return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · NarrativeOS</title><style>body{{margin:0;background:#f5f0e5;color:#412e26;font-family:system-ui}}header{{height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid #d8cbb6;gap:16px}}strong{{color:#a23146}}iframe{{display:block;border:0;width:100%;height:calc(100dvh - 49px);background:white}}</style><header><strong>NarrativeOS</strong><span>{title}</span></header><iframe title="{title}" src="{source}" sandbox="allow-scripts allow-downloads" allow="fullscreen" referrerpolicy="no-referrer"></iframe></html>''', headers={
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; frame-ancestors 'self'",
+    runtime = html.escape(f'{prefix}/resources-play/{identifier}/player.js', quote=True)
+    return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · NarrativeOS</title><style>body{{margin:0;background:#f5f0e5;color:#412e26;font-family:system-ui}}header{{height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid #d8cbb6;gap:16px}}strong{{color:#a23146}}iframe{{display:block;border:0;width:100%;height:calc(100dvh - 49px);background:white}}</style><header><strong>NarrativeOS</strong><span>{title}</span></header><iframe title="{title}" data-resource="{identifier}" data-src="{source}" sandbox="allow-scripts allow-downloads" allow="fullscreen" referrerpolicy="no-referrer"></iframe><script src="{runtime}"></script></html>''', headers={
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; frame-src 'self'; frame-ancestors 'self'",
         'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store'})
 
 
@@ -244,7 +277,23 @@ def resource_file(identifier: str, file_path: str):
     if not target.is_file():
         raise HTTPException(404, '资源文件不存在')
     mime = {'.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm'}.get(target.suffix.lower()) or mimetypes.guess_type(target.name)[0] or 'application/octet-stream'
-    return FileResponse(target, media_type=mime, headers={
+    headers = {
         'Content-Security-Policy': "sandbox allow-scripts allow-downloads; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; frame-ancestors 'self'; object-src 'none'",
         'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+        'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'}
+    if target.suffix.lower() in ('.html', '.htm'):
+        content = target.read_bytes()
+        bootstrap = b'<script>' + Path(__file__).with_name('resource_storage.js').read_bytes() + b'</script>'
+        doctype = re.match(br'\s*(?:<!--.*?-->\s*)*<!doctype[^>]*>', content, re.I | re.S)
+        position = doctype.end() if doctype else 0
+        return Response(content[:position] + bootstrap + content[position:], media_type='text/html', headers=headers)
+    if target.name.lower().endswith('.js.下载'):
+        mime = 'text/javascript'
+    return FileResponse(target, media_type=mime, headers=headers)
+
+
+@router.get('/resources-play/{identifier}/player.js')
+def player_runtime(identifier: str):
+    public_resource(identifier)
+    return FileResponse(Path(__file__).with_name('resource_player.js'), media_type='text/javascript',
+                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
