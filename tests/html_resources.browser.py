@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import uvicorn
 from fastapi import FastAPI
 from playwright.sync_api import sync_playwright, expect
-from webgal_backend import html_resources as resources
+from webgal_backend import html_resources as resources, platform_admin, teacher_ecosystem
 
 
 def main():
@@ -29,6 +29,11 @@ def main():
 
         resources.publish_work = publish
         resources.unpublish_work = lambda *args: {'published': False}
+        platform_admin.ecosystem_change = lambda actor, identifier, owner, action, operation: operation()
+        def update_cover(owner, identifier, url):
+            publications[identifier]['coverUrl'] = url
+            return {'updated': True}
+        teacher_ecosystem.update_work_cover = update_cover
         app = FastAPI()
         app.include_router(resources.router)
         server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=18424, log_level='error'))
@@ -69,6 +74,17 @@ def main():
                 page.screenshot(path=str(screenshot / 'admin-desktop.png'), full_page=True)
                 page.get_by_role('button', name='上传并发布到广场', exact=True).click()
                 expect(page.get_by_role('cell', name='已发布', exact=True)).to_be_visible()
+                expect(page.get_by_role('img', name='行星公转实验室封面')).to_be_visible(timeout=40000)
+                page.get_by_role('button', name='重新生成封面', exact=True).click()
+                expect(page.get_by_role('img', name='行星公转实验室封面')).to_be_visible()
+                page.get_by_role('button', name='替换封面', exact=True).click()
+                cover_dialog = page.get_by_role('dialog')
+                import io as cover_io
+                from PIL import Image
+                cover_data = cover_io.BytesIO(); Image.new('RGB', (640, 360), 'blue').save(cover_data, 'PNG')
+                cover_dialog.get_by_label('选择封面图片').set_input_files({'name':'cover.png', 'mimeType':'image/png', 'buffer':cover_data.getvalue()})
+                cover_dialog.get_by_role('button', name='保存封面', exact=True).click()
+                expect(cover_dialog).not_to_be_visible()
                 assert len(publications) == 1
                 identifier = next(iter(publications))
                 assert '地理' in publications[identifier]['tags']

@@ -136,3 +136,7 @@ def _subject_from_grade(grade: str | None) -> str | None:
         return None
     subjects = ["语文", "数学", "英语", "历史", "地理", "物理", "化学", "生物", "道德与法治", "信息科技", "科学"]
     return next((subject for subject in subjects if subject in grade), None)
+
+
+def update_work_cover(owner_user_id: str, job_id: str, cover_url: str) -> dict[str, Any]:
+    return _request("PATCH", payload={"ownerUserId": owner_user_id, "jobId": job_id, "coverUrl": cover_url})
