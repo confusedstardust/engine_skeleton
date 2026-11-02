@@ -219,7 +219,7 @@ def generate_cover(actor, identifier, *, only_missing=False, expected_revision=N
         return metadata
 
 
-def backfill(*, stop_event=None):
+def backfill(*, stop_event=None, sync_only=False):
     from .html_resources import resource_root
     from .storage import read_json
     results = []
@@ -237,7 +237,7 @@ def backfill(*, stop_event=None):
             results.append({'id': record['id'], 'status': result.get('cover_status')})
             print(json.dumps(results[-1], ensure_ascii=False), flush=True)
             continue
-        if record['payload'].get('coverUrl'):
+        if sync_only or record['payload'].get('coverUrl'):
             continue
         try:
             result = generate_cover({'id': record['payload']['ownerUserId']}, record['id'], only_missing=True)
@@ -245,6 +245,16 @@ def backfill(*, stop_event=None):
             result = {'cover_status': 'failed', 'cover_error': str(exc)[:200]}
         results.append({'id': record['id'], 'status': result.get('cover_status'), 'error': result.get('cover_error', '')})
         print(json.dumps(results[-1], ensure_ascii=False), flush=True)
+    return results
+
+
+def backfill_background(*, stop_event):
+    results = backfill(stop_event=stop_event)
+    # Cover images already exist on disk; staggered deployments need only a lightweight DB retry.
+    for _ in range(30):
+        if not any(row['status'] == 'sync_failed' for row in results) or stop_event.wait(30):
+            break
+        results = backfill(stop_event=stop_event, sync_only=True)
     return results
 
 
