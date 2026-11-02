@@ -133,3 +133,37 @@ def test_backfill_skips_existing_and_archived(client, monkeypatch):
     monkeypatch.setattr(covers, 'generate_cover', generate)
     covers.backfill()
     generate.assert_called_once_with({'id': 'admin'}, missing, only_missing=True)
+
+
+def test_external_redirect_to_private_address_is_blocked(monkeypatch):
+    resolves=[]; connections=[]
+    def dns(host, *args, **kwargs):
+        resolves.append(host)
+        return [(2, 1, 6, '', ('127.0.0.1' if host=='private.example' else '8.8.8.8', 443))]
+    class Connection:
+        def __init__(self, host, port, timeout): connections.append(host)
+        def request(self, *args, **kwargs): pass
+        def getresponse(self): return SimpleNamespace(status=302, getheader=lambda name, default='':'https://private.example/secret')
+        def close(self): pass
+    monkeypatch.setattr(covers.socket, 'getaddrinfo', dns)
+    monkeypatch.setattr(covers, 'HTTPSConnection', Connection)
+    with pytest.raises(ValueError, match='内网'):
+        covers.public_asset('https://public.example/image.png',1024)
+    assert connections == ['public.example']
+
+
+def test_external_fetch_pins_tcp_and_does_not_send_credentials(monkeypatch):
+    calls={}
+    monkeypatch.setattr(covers.socket, 'getaddrinfo', lambda *args, **kwargs:[(2,1,6,'',('8.8.8.8',443))])
+    monkeypatch.setattr(covers.socket, 'create_connection', lambda address, timeout, source:calls.update(address=address))
+    class Connection:
+        def __init__(self, host, port, timeout): calls.update(host=host)
+        def request(self, method, path, headers):
+            self._create_connection(('rebound.example',443),4)
+            calls.update(headers=headers,method=method)
+        def getresponse(self): return SimpleNamespace(status=200,read=lambda size:b'image',getheader=lambda name, default='':'image/png')
+        def close(self): pass
+    monkeypatch.setattr(covers, 'HTTPSConnection', Connection)
+    assert covers.public_asset('https://public.example/image.png',1024)[1] == b'image'
+    assert calls['host'] == 'public.example' and calls['address'] == ('8.8.8.8',443)
+    assert 'Authorization' not in calls['headers'] and 'Cookie' not in calls['headers']

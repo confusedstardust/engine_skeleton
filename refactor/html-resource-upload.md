@@ -91,4 +91,4 @@ admin 展示封面与生成状态，提供「生成/重新生成封面」「替�
 
 启动时自动在后台补齐 published/publishing 且缺少封面的 HTML 作品，不覆盖已有手动图；同步失败单独记录并可重试。可通过 `WEBGAL_HTML_COVER_BACKFILL_ON_STARTUP=false` 禁用，也可手动运行 `python -m webgal_backend.html_resource_covers --backfill-missing`。线程不阻塞 API 启动；关闭时停止领取下一条。启动中断后下次启动会继续缺图记录。单条失败不终止其他记录。
 
-本地验证：44 项上传/封面后端测试；门户 7 项测试及 TypeScript 检查；Forge 生产构建。真实截图已生成，生产构建浏览器测试覆盖上传后出图、重新生成、手动替换及继续体验。生产部署与已有记录补齐结果待回读确认。
+本地验证：46 项上传/封面后端测试；门户 7 项测试及 TypeScript 检查；Forge 生产构建。真实截图已生成，生产构建浏览器测试覆盖上传后出图、重新生成、手动替换及继续体验。生产部署与已有记录补齐结果待回读确认。
