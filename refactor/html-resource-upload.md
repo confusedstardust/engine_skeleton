@@ -1,0 +1,62 @@
+# 管理员 HTML 教学资源上传
+
+状态：本地已实现；未部署，未执行生产数据库写入或线上验收。分支 `hotfix-uploadsrc` 基于 `origin/main`（`b3446a5`）。
+
+## 设计与数据归属
+
+管理页增加「HTML资源」，沿用共享 Button、DataTable、反馈、上传校验、上传状态、useFileUpload、adminApi 和 Radix ToggleGroup。分类词表由后端提供，前端不另抄一套。样式沿用 rice / paper / cinnabar / border 主题变量。学科必选，课程体系、学段、年级可选；「未标注」用空值保存，不作为真实标签。
+
+沿用 `TEACHER_ECOSYSTEM_API_URL` / `TEACHER_ECOSYSTEM_SERVICE_TOKEN` 的既有发布桥接，调用门户 internal works API，更新其 teacherProfile / teacherWork；不创建平行的广场数据库，不要求新增表。发布作者为当前管理员账号，必须存在于门户共享用户库。jobId 是资源 UUID，不创建 generation_jobs 生成任务，也不调用生成模型。
+
+映射：标题/简介 → title/summary；学科 → subject；年级（未选年级时用学段） → grade；课程体系、学段、固定 `HTML互动资源` → tags；playUrl → 独立 HTML 体验页；quizUrl/coverUrl 为空。当前门户接口支持这些字段，公开列表可复用现有卡片和体验链接。
+
+已核对运行中的门户 `teacher-plaza-filters.ts`：体系筛选读取 tags、学段筛选读取 grade。无具体年级时以学段填充 grade，保留独立 classification 年级空值；学段与具体年级冲突时拒绝上传。截图词表不包含「全部」（查询动作）作为上传值。本次不修改门户仓库，线上门户版本仍需部署时核验。
+
+## API 与文件
+
+- `GET /admin/html-resources/taxonomy`：管理员可用分类。
+- `GET /admin/html-resources`：资源记录及 saved / publishing / published / archived 状态。
+- `POST /admin/html-resources`：multipart，file、title、subject 必填；summary、curriculum、stage、grade、entry 可选。成功时文件和门户发布均完成；发布失败保留文件与原 ID，可查询列表重试。
+- `POST /admin/html-resources/{id}/publication`：以同一 jobId 幂等重试发布。
+- `DELETE /admin/html-resources/{id}/publication`：沿用门户归档，成功后停止公开文件访问。
+- `GET /resources-play/{id}/`：可信外壳 + iframe。
+- `GET /resources-play/{id}/files/{path}`：上传文件。Next rewrites 与现有 basePath 部署保持一致。
+
+管理接口复用管理员身份与 `X-Forge-Admin-Action: 1` 校验，发布/下架复用审计，记录操作人和资源 UUID。静态数据位于 `${WEBGAL_JOBS_DIR}/.html-resources/{id}/metadata.json` 与 `files/`，需和 jobs 目录一起持久化及备份。metadata.json 使用已有原子写入工具，公开路由仅提供 files 子目录。
+
+支持独立 HTML/HTM 或 ZIP，上传上限 30 MB，解压总量 120 MB，最多 2000 个文件。包中相对目录保持不变；默认根 index.html，否则唯一 index.html 或唯一 HTML；多入口必须指定 ZIP 内相对路径。拒绝穿越、绝对路径、链接、加密文件、重名路径和服务端可执行文件；忽略 __MACOSX。支持静态 HTML/CSS/JS、常见图片/音视频/字体/JSON/WASM/glTF/PDF。
+
+不授予 iframe allow-same-origin，响应同时设置 CSP sandbox；脚本可运行，不能读取父页面 DOM、cookie 或本地存储。提供无凭据 CORS 以支持隔离 iframe 中的 ES modules 与相对资源。脚本依赖 localStorage、同源接口、表单提交或登录态的页面需要适配；资源使用相对路径，不保证以 `/` 开头的根路径正确。HTTPS 外部依赖可以加载，离线体验应把依赖放进 ZIP。
+
+远端发布超时可能已写入数据库：标为 publishing，保留可访问文件，前端提示待确认，不误报成功；下次用原 ID 发布覆盖同条记录。下架仅在远端确认成功后改本地状态。管理员可刷新、重试发布、下架及重新发布；暂不提供内容覆盖和永久删除。
+
+## 配置与部署
+
+必须配置指向目标门户数据库服务的 TEACHER_ECOSYSTEM_API_URL、相同服务密钥，以及含部署前缀的公开 WEBGAL_FRONTEND_URL。不要从开发库发布推断生产可见。
+
+部署需同时更新 Forge 后端和 Next 前端；反向代理设置请求体上限 31 MB（30 MB 文件加 multipart 开销）；应用在 multipart 解析之后检查文件大小，入口限制用于防止超大请求先占用临时磁盘，上传超时应覆盖保存与发布过程，并将 `/resources-play/`（含应用前缀时同样）路由至 Next 或 Forge。无需部署 WebGAL 引擎 dist。确保 jobs 持久卷有容量。不要使用 Node/Next 对上传内容执行构建，不把 ZIP 里的脚本作为服务器代码运行。
+
+## 验证
+
+- `python -m pytest tests/test_html_resources.py -q`：20 项，通过。包含发布字段、静态文件、沙箱响应头、下架访问阻断、权限/CSRF、必填与非法标签、入口解析、穿越、压缩包限制和失败同 ID 重试。
+- `npx tsc --noEmit --incremental false`（forge_frontend_next）：通过。
+- `npm run build`：通过，共享 UI 0.1.4 校验及 12 页产物生成通过；现有 CSS / img / hook 警告仍保留。
+- `PYTHONUTF8=1 python -m pytest tests/test_html_resources.py tests/test_platform_admin.py tests/test_teacher_ecosystem_quiz.py -q --tb=line`：上传专项全部通过，另有 2 项既有失败；两项在独立导出的未修改 origin/main 上同样失败，缺少 CREDIT_DB_HOST / 既有公共 quiz 返回 503。未用生产配置补跑。
+- 浏览器验收：`tests/html_resources.browser.py`，已通过（Edge headless），截图在 `reports/html-resources/`；使用临时目录和假的门户发布函数，验证真实 Next 管理页上传、桌面/手机布局、相对 ES modules、父 DOM 隔离和下架；不连接真实数据库。运行示例见脚本使用的端口 18422 / 18424，Next 的 FORGE_BACKEND_URL 指向 18424、WEBGAL_FRONTEND_URL 指向 18422。
+- 待线上验收：真实管理员上传 → teacherWork 数据库记录 → 广场列表与筛选 → 公开体验（含生产前缀/代理）→ 下架。未发布或同步到飞书；本文为本地权威。
+
+### 本地联调修复
+
+完整 app 中 `/admin/{resource}` 曾抢先匹配 `/admin/html-resources`，导致已登录访问列表返回 422，且前端 Promise.all 使分类一起隐藏。现将 HTML 专用路由注册在通用管理路由之前，新增完整 app 的回归测试（修复前复现 422，修复后通过）。现共 15 项测试通过；已重启本地后端并在真实登录会话确认分类和空列表正常。
+
+### 体验入口末尾斜杠兼容修复
+
+Next rewrite 转发时去掉末尾 `/`，原先仅注册带 `/` 的播放器路由导致前端 404、后端直连 200。现同时支持两种入口，iframe 使用 WEBGAL_FRONTEND_URL 的部署前缀构建稳定资源路径。新增回归测试，共 16 项通过。已上传资源无需重传，已在真实前端确认入口和 HTML 返回 200，浏览器显示历史对战游戏与题目。
+
+### 提交前审查
+
+独立安全审查未发现可复现的包路径穿越或 iframe 越权；发现并修复同资源发布/下架并发可导致远端与本地状态反转的问题。现用独立 publication.lock 文件提供跨进程排他锁，覆盖读记录、远端调用、最终写入，冲突返回 409；锁不随 metadata 原子替换而失效，异常会释放。已增加延迟下架与同时发布的确定性并发回归，以及失败后可重新获取锁的测试。
+
+分类与列表分别应用成功响应；其中一个请求失败时不隐藏另一个结果，也不把加载失败显示成没有资源。补齐学段未选年级时与当前广场筛选的兼容性。部署仍需入口 31 MB 限制和 jobs 持久卷。
+
+最终验证：生产构建后使用 `next start` 运行 `tests/html_resources.browser.py`，上传、发布、相对 ES modules、父页面隔离、移动布局及下架阻断全部通过。未把本地上传文件、日志、凭据或生成的截图纳入提交。提交前复审已解决上述发现，无剩余阻塞项；未合并或部署。
