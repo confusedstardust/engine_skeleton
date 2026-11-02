@@ -20,6 +20,12 @@ on:
         options:
           - none
           - inspect
+          - deploy
+      portal_image_tag:
+        description: "Existing verified portal image (dev-sha plus 12 hex digits)"
+        required: false
+        default: dev-sha-cda82c439307
+        type: string
 
 permissions:
   contents: read
@@ -320,7 +326,7 @@ jobs:
             fi
 
   portal-inspect:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.portal_action == 'inspect' && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.portal_action == 'inspect' || inputs.portal_action == 'deploy') && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
     environment: development
     runs-on: ubuntu-latest
     steps:
@@ -346,3 +352,64 @@ jobs:
               docker inspect "$container" --format '{{.Name}} working_dir={{index .Config.Labels "com.docker.compose.project.working_dir"}} config={{index .Config.Labels "com.docker.compose.project.config_files"}} project={{index .Config.Labels "com.docker.compose.project"}} service={{index .Config.Labels "com.docker.compose.service"}}'
             done
             sudo nginx -T 2>&1 | awk '/configuration file|listen |server_name |location |proxy_pass / { print }'
+      - name: Update existing development portal only
+        if: ${{ inputs.portal_action == 'deploy' }}
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PORTAL_IMAGE_TAG: ${{ inputs.portal_image_tag }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          REGISTRY: ${{ env.REGISTRY }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: PORTAL_IMAGE_TAG,ACR_USERNAME,ACR_PASSWORD,REGISTRY
+          command_timeout: 20m
+          script: |
+            set -e
+            echo "$PORTAL_IMAGE_TAG" | grep -Eq '^dev-sha-[0-9a-f]{12}$' || exit 1
+            cd /opt/linchang-web
+            test -s .env && test -s docker-compose.dev.yml
+            previous=$(docker inspect linchang-web-website-1 --format '{{.Config.Image}}')
+            image="$REGISTRY/acr_namespace_narrativeos/linchangweb-website:$PORTAL_IMAGE_TAG"
+            echo "$ACR_PASSWORD" | docker login "$REGISTRY" -u "$ACR_USERNAME" --password-stdin
+            docker pull "$image"
+            override=development-portal-image.yml
+            printf 'services:\n  website:\n    image: %s\n' "$image" > "$override"
+            export WEBSITE_PORT=3002
+            export WEBSITE_IMAGE="$image"
+            if docker compose version >/dev/null 2>&1; then
+              compose() { docker compose "$@"; }
+            else
+              compose() { docker-compose "$@"; }
+            fi
+            rollback() {
+              printf 'services:\n  website:\n    image: %s\n' "$previous" > "$override"
+              export WEBSITE_IMAGE="$previous"
+              compose -p linchang-web --env-file .env -f docker-compose.dev.yml -f "$override" up -d --no-deps website
+            }
+            if ! compose -p linchang-web --env-file .env -f docker-compose.dev.yml -f "$override" up -d --no-deps website; then
+              rollback
+              exit 1
+            fi
+            for attempt in $(seq 1 30); do
+              if curl --max-time 10 -fsS http://127.0.0.1:3002/teacher-ecosystem/ | grep -q 'plaza-resources'; then
+                echo 'Verified new portal on existing port 3002; nginx unchanged'
+                exit 0
+              fi
+              sleep 2
+            done
+            rollback
+            exit 1
+      - name: Verify original public plaza URL
+        if: ${{ inputs.portal_action == 'deploy' }}
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          url = 'http://43.138.207.82/teacher-ecosystem/?returnTo=http%3A%2F%2F43.138.207.82%2Fnarrativeos%2F'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              html = response.read().decode()
+          assert 'plaza-resources' in html and 'ecosystem-hero' not in html, 'Public plaza still serves old layout'
+          print('Verified new layout at the original public URL')
+          PY
