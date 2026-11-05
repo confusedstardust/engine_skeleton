@@ -12,13 +12,13 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Query, UploadFile, File, Form
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from .asset_library import AssetLibrary, _public_url, _location_hash
 from .database import database_transaction
 from .config import settings
 from .storage import JobStore
-from .teacher_ecosystem import TeacherEcosystemError, build_publication_payload, publication_status, publish_work, unpublish_work
+from .teacher_ecosystem import TeacherEcosystemError, build_publication_payload, publication_status, publish_work, unpublish_work, update_work_details
 
 router = APIRouter(prefix='/admin', tags=['platform-admin'])
 TABLES = {'games': ('generation_jobs', 'JOB'), 'assets': ('assets', 'ASSET'), 'users': ('users', 'USER')}
@@ -242,6 +242,28 @@ def admin_unpublish_ecosystem(identifier: str, request: Request):
     require_action_header(request)
     owner = ecosystem_owner(identifier)
     return ecosystem_change(actor, identifier, owner, 'ECOSYSTEM_UNPUBLISH', lambda: unpublish_work(owner['id'], identifier))
+
+
+class GameFeatured(BaseModel):
+    featured: StrictBool
+
+
+@router.patch('/games/{identifier}/ecosystem-publication')
+def admin_feature_game(identifier: str, body: GameFeatured, request: Request):
+    actor = require_admin(request)
+    require_action_header(request)
+    owner = ecosystem_owner(identifier)
+    if body.featured and blocked('JOB', identifier):
+        raise HTTPException(409, '作品已下架，恢复后才能设为精选')
+    try:
+        current = publication_status(identifier)
+    except TeacherEcosystemError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if not current.get('published'):
+        raise HTTPException(409, '请先将游戏发布到教师资源广场')
+    ecosystem_change(actor, identifier, owner, 'ECOSYSTEM_FEATURE' if body.featured else 'ECOSYSTEM_UNFEATURE',
+                     lambda: update_work_details({'ownerUserId': owner['id'], 'jobId': identifier, 'featured': body.featured}))
+    return {**current, 'work': {**(current.get('work') or {}), 'featured': body.featured}}
 
 
 @router.get('/assets/taxonomy')

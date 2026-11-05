@@ -208,7 +208,7 @@ def generate_cover(actor, identifier, *, only_missing=False, expected_revision=N
         metadata.update(cover_status='generating', cover_error='', cover_revision=revision)
         write_json(root / 'metadata.json', metadata)
     try:
-        data, failed = capture(root / 'files', metadata['entry'])
+        data, failed = capture(root / metadata.get('files_dir', 'files'), metadata['entry'])
         return save_cover(actor, identifier, data, revision=revision, source='automatic', failed_assets=failed)
     except Exception as exc:
         with publication_lock(root):

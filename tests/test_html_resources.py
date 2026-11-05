@@ -25,6 +25,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBGAL_FRONTEND_URL', 'https://example.com/forge')
     monkeypatch.setattr(resources, 'publish_work', lambda payload: {'published': True, 'work': payload})
     monkeypatch.setattr(resources, 'unpublish_work', lambda *args: {'published': False})
+    monkeypatch.setattr(resources, 'update_work_details', lambda payload: {'updated': True})
     from webgal_backend import html_resource_covers
     monkeypatch.setattr(html_resource_covers, 'generate_cover', lambda *args, **kwargs: None)
     app = FastAPI()
@@ -35,6 +36,69 @@ def client(tmp_path, monkeypatch):
 def upload(client, **overrides):
     return client.post('/admin/html-resources', data={'title': '行星实验室', 'subject': '科学', 'curriculum': 'IB', 'stage': '小学', **overrides},
                        files={'file': ('lesson.zip', package({'lesson/index.html': '<script src="app.js"></script>', 'lesson/app.js': 'window.ready=true;'}), 'application/zip')})
+
+
+def edit_values(**overrides):
+    import json
+    return {'title': '新版课堂', 'summary': '新的简介', 'featured': 'true',
+            'classification': json.dumps({'subject': ['数学', '科学'], 'stage': ['初中']}), **overrides}
+
+
+def test_edit_details_and_featured_sync_without_republishing(client, monkeypatch):
+    item = upload(client).json()
+    calls = []
+    monkeypatch.setattr(resources, 'update_work_details', lambda payload: calls.append(dict(payload)) or {'updated': True})
+    monkeypatch.setattr(resources, 'publish_work', lambda payload: pytest.fail('edit must not republish'))
+    response = client.patch(f"/admin/html-resources/{item['id']}", data=edit_values())
+    assert response.status_code == 200
+    saved = response.json()
+    assert saved['payload']['title'] == '新版课堂'
+    assert saved['payload']['featured'] is True
+    assert saved['classification']['subject'] == ['数学', '科学']
+    assert saved['created_at'] == item['created_at'] and saved['state'] == 'published'
+    assert calls[0]['summary'] == '新的简介'
+    assert client.patch(f"/admin/html-resources/{item['id']}/featured", json={'featured': False}).status_code == 200
+    assert calls[-1]['featured'] is False
+
+
+def test_archived_edit_keeps_resource_archived(client, monkeypatch):
+    item = upload(client).json()
+    client.delete(f"/admin/html-resources/{item['id']}/publication")
+    monkeypatch.setattr(resources, 'update_work_details', lambda payload: pytest.fail('archived edits stay local'))
+    response = client.patch(f"/admin/html-resources/{item['id']}", data=edit_values())
+    assert response.json()['state'] == 'archived'
+    assert client.get(f"/resources-play/{item['id']}/").status_code == 404
+
+
+def test_package_replacement_is_validated_before_switching_files(client):
+    item = upload(client).json()
+    url = f"/admin/html-resources/{item['id']}"
+    bad = client.patch(url, data=edit_values(), files={'file': ('lesson.zip', package({'index.html': '<script src="missing.js"></script>'}), 'application/zip')})
+    assert bad.status_code == 422
+    assert client.get(f"/resources-play/{item['id']}/files/lesson/app.js").text == 'window.ready=true;'
+    good = client.patch(url, data=edit_values(), files={'file': ('new.html', '<h1>新的课堂</h1>', 'text/html')})
+    assert good.status_code == 200 and good.json()['entry'] == 'index.html'
+    assert '新的课堂' in client.get(f"/resources-play/{item['id']}/files/index.html").text
+
+
+def test_edit_auth_validation_and_uncertain_sync(client, monkeypatch):
+    item = upload(client).json()
+    url = f"/admin/html-resources/{item['id']}"
+    assert client.patch(url, data=edit_values(title=' ')).status_code == 422
+    assert client.patch(url, data=edit_values(entry='../escape.html')).status_code == 422
+    assert client.patch(url, data=edit_values(classification='[]')).status_code == 422
+    client.headers.pop('X-Forge-Admin-Action')
+    assert client.patch(url, data=edit_values()).status_code == 403
+    assert client.patch(url+'/featured', json={'featured': True}).status_code == 403
+    client.headers['X-Forge-Admin-Action'] = '1'
+    def unavailable(payload):
+        raise HTTPException(503, 'plaza unavailable')
+    monkeypatch.setattr(resources, 'update_work_details', unavailable)
+    assert client.patch(url, data=edit_values()).status_code == 503
+    saved = client.get('/admin/html-resources').json()['items'][0]
+    assert saved['payload']['title'] == '新版课堂' and saved['metadata_sync_error']
+    monkeypatch.setattr(resources, 'update_work_details', lambda payload: {'updated': True})
+    assert 'metadata_sync_error' not in client.patch(url, data=edit_values()).json()
 
 
 def test_upload_publishes_existing_contract_and_serves_sandboxed_package(client):
