@@ -137,6 +137,32 @@ def test_single_html_and_optional_classification(client):
     assert response.json()['payload']['grade'] is None
 
 
+def test_explicit_resource_capabilities_keep_opaque_origin(client):
+    import json
+    result = client.post('/admin/html-resources', data={'title':'打印工具','subject':'跨学科'}, files={'file':('tool.zip', package({'index.html':'<h1>tool</h1>','narrativeos-resource.json':json.dumps({'capabilities':['print','png-export']})}), 'application/zip')})
+    assert result.status_code == 200
+    item = result.json()
+    assert item['capabilities'] == ['print','png-export']
+    player = client.get(f"/resources-play/{item['id']}/")
+    assert 'sandbox="allow-scripts allow-downloads allow-modals"' in player.text
+    assert 'allow-same-origin' not in player.text
+    file = client.get(f"/resources-play/{item['id']}/files/index.html")
+    assert 'allow-modals' in file.headers['content-security-policy']
+    assert 'allow-same-origin' not in file.headers['content-security-policy']
+    assert client.get(f"/resources-play/{item['id']}/capabilities.js").status_code == 200
+    # Replacing the package without a manifest removes the extra capabilities.
+    updated = client.patch(f"/admin/html-resources/{item['id']}", data=edit_values(), files={'file':('new.html','<h1>plain</h1>','text/html')})
+    assert updated.status_code == 200 and updated.json()['capabilities'] == []
+    assert 'allow-modals' not in client.get(f"/resources-play/{item['id']}/").text
+
+
+@pytest.mark.parametrize('manifest', ['[]', '{bad', '{"capabilities":["same-origin"]}', '{"capabilities":"microphone"}'])
+def test_invalid_capability_manifest_is_rejected_before_publication(client, manifest):
+    result = client.post('/admin/html-resources', data={'title':'工具','subject':'科学'}, files={'file':('tool.zip',package({'index.html':'<h1>tool</h1>','narrativeos-resource.json':manifest}),'application/zip')})
+    assert result.status_code == 422
+    assert not list(resources.resource_root().glob('*/metadata.json'))
+
+
 def test_auth_and_csrf(client, monkeypatch):
     client.headers.pop('X-Forge-Admin-Action')
     assert upload(client).status_code == 403

@@ -78,6 +78,22 @@ def editable_classification(metadata):
     return result
 
 
+def resource_capabilities(files):
+    manifest = files / 'narrativeos-resource.json'
+    if not manifest.is_file():
+        return []
+    if manifest.stat().st_size > 16384:
+        raise HTTPException(422, '资源能力声明过大')
+    try:
+        body = json.loads(manifest.read_text(encoding='utf-8'))
+        values = body.get('capabilities', [])
+        if not isinstance(values, list) or any(value not in ('print', 'png-export', 'microphone') for value in values):
+            raise ValueError('invalid capabilities')
+        return list(dict.fromkeys(values))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(422, '资源能力声明无效')
+
+
 def resource_root():
     return settings.jobs_dir / '.html-resources'
 
@@ -261,6 +277,7 @@ def upload_resource(request: Request, background_tasks: BackgroundTasks, file: U
     try:
         chosen = extract_package(data, file.filename or '', root / 'files', entry.strip())
         validate_references(root / 'files', chosen)
+        capabilities = resource_capabilities(root / 'files')
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise
@@ -271,7 +288,7 @@ def upload_resource(request: Request, background_tasks: BackgroundTasks, file: U
                'playUrl': f'{base}/resources-play/{identifier}/', 'coverUrl': None, 'quizUrl': None}
     payload = apply_classification(payload, classification)
     metadata = {'id': identifier, 'payload': payload, 'entry': chosen, 'state': 'saved',
-                'created_at': utc_now(), 'classification': classification}
+                'created_at': utc_now(), 'classification': classification, 'capabilities': capabilities}
     write_json(root / 'metadata.json', metadata)
     try:
         result = change_publication(actor, identifier, True)
@@ -370,6 +387,7 @@ def edit_resource(identifier: str, request: Request, title: str = Form(...), sum
             try:
                 chosen = extract_package(data, file.filename or '', root / files_dir, entry.strip())
                 validate_references(root / files_dir, chosen)
+                capabilities = resource_capabilities(root / files_dir)
             except Exception:
                 shutil.rmtree(root / files_dir, ignore_errors=True)
                 raise
@@ -381,6 +399,7 @@ def edit_resource(identifier: str, request: Request, title: str = Form(...), sum
                 validate_references(root / files_dir, chosen)
         metadata.update(classification=values, entry=chosen, files_dir=files_dir)
         if file is not None:
+            metadata['capabilities'] = capabilities
             # Invalidate an in-flight screenshot of the previous package.
             metadata.update(cover_revision=uuid.uuid4().hex, cover_error='')
             if metadata.get('cover_status') in ('pending', 'generating'):
@@ -453,8 +472,12 @@ def player(identifier: str):
     prefix = urlsplit(os.getenv('WEBGAL_FRONTEND_URL', '')).path.rstrip('/')
     source = html.escape(f"{prefix}/resources-play/{identifier}/files/" + quote(metadata['entry'], safe='/'), quote=True)
     runtime = html.escape(f'{prefix}/resources-play/{identifier}/player.js', quote=True)
-    return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · NarrativeOS</title><style>body{{margin:0;background:#f5f0e5;color:#412e26;font-family:system-ui}}header{{height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid #d8cbb6;gap:16px}}strong{{color:#a23146}}iframe{{display:block;border:0;width:100%;height:calc(100dvh - 49px);background:white}}</style><header><strong>NarrativeOS</strong><span>{title}</span></header><iframe title="{title}" data-resource="{identifier}" data-src="{source}" sandbox="allow-scripts allow-downloads" allow="fullscreen" referrerpolicy="no-referrer"></iframe><script src="{runtime}"></script></html>''', headers={
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; frame-src 'self'; frame-ancestors 'self'",
+    capability_runtime = html.escape(f'{prefix}/resources-play/{identifier}/capabilities.js', quote=True)
+    capabilities = metadata.get('capabilities', [])
+    sandbox = 'allow-scripts allow-downloads' + (' allow-modals' if 'print' in capabilities else '')
+    encoded_capabilities = html.escape(json.dumps(capabilities), quote=True)
+    return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · NarrativeOS</title><style>body{{margin:0;background:#f5f0e5;color:#412e26;font-family:system-ui}}header{{height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid #d8cbb6;gap:16px}}strong{{color:#a23146}}iframe{{display:block;border:0;width:100%;height:calc(100dvh - 49px);background:white}}</style><header><strong>NarrativeOS</strong><span>{title}</span></header><iframe title="{title}" data-resource="{identifier}" data-src="{source}" data-capabilities="{encoded_capabilities}" sandbox="{sandbox}" allow="fullscreen" referrerpolicy="no-referrer"></iframe><script src="{runtime}"></script><script src="{capability_runtime}"></script></html>''', headers={
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src blob:; frame-src 'self'; frame-ancestors 'self'",
         'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store'})
 
 
@@ -466,8 +489,9 @@ def resource_file(identifier: str, file_path: str):
     if not target.is_file():
         raise HTTPException(404, '资源文件不存在')
     mime = {'.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm'}.get(target.suffix.lower()) or mimetypes.guess_type(target.name)[0] or 'application/octet-stream'
+    sandbox = 'allow-scripts allow-downloads' + (' allow-modals' if 'print' in metadata.get('capabilities', []) else '')
     headers = {
-        'Content-Security-Policy': "sandbox allow-scripts allow-downloads; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; frame-ancestors 'self'; object-src 'none'",
+        'Content-Security-Policy': f"sandbox {sandbox}; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; frame-ancestors 'self'; object-src 'none'",
         'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'}
     if target.suffix.lower() in ('.html', '.htm'):
@@ -497,4 +521,11 @@ def cover_file(identifier: str, name: str):
 def player_runtime(identifier: str):
     public_resource(identifier)
     return FileResponse(Path(__file__).with_name('resource_player.js'), media_type='text/javascript',
+                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.get('/resources-play/{identifier}/capabilities.js')
+def capability_script(identifier: str):
+    public_resource(identifier)
+    return FileResponse(Path(__file__).with_name('resource_capabilities.js'), media_type='text/javascript',
                         headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
