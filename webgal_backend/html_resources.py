@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from .config import settings
 from .platform_admin import require_admin, require_action_header, ecosystem_change
 from .storage import read_json, write_json
-from .teacher_ecosystem import publish_work, unpublish_work
+from .teacher_ecosystem import publish_work, unpublish_work, update_work_details
 
 router = APIRouter(tags=['html-resources'])
 MAX_UPLOAD = 30 * 1024 * 1024
@@ -326,6 +326,85 @@ class ResourceTags(BaseModel):
     classification: dict[str, list[str]] = Field(default_factory=dict)
 
 
+def sync_resource_details(actor, identifier, root, metadata):
+    # Save desired metadata first, so an uncertain remote write can be retried.
+    write_json(root / 'metadata.json', metadata)
+    if metadata['state'] in ('published', 'publishing'):
+        try:
+            ecosystem_change(actor, identifier, {'id': metadata['payload']['ownerUserId']},
+                             'HTML_RESOURCE_EDIT', lambda: update_work_details(metadata['payload']))
+        except HTTPException as exc:
+            metadata['metadata_sync_error'] = '修改已保存在后台，广场同步待重试'
+            write_json(root / 'metadata.json', metadata)
+            raise HTTPException(exc.status_code, metadata['metadata_sync_error'] + '；请再次保存。') from exc
+    metadata.pop('metadata_sync_error', None)
+    write_json(root / 'metadata.json', metadata)
+    return metadata
+
+
+@router.patch('/admin/html-resources/{identifier}')
+def edit_resource(identifier: str, request: Request, title: str = Form(...), summary: str = Form(''),
+                  classification: str = Form(...), featured: bool = Form(False),
+                  entry: str = Form(''), file: UploadFile | None = File(None)):
+    actor = require_admin(request)
+    require_action_header(request)
+    if not title.strip() or len(title.strip()) > 160 or len(summary) > 2000 or len(entry) > 500:
+        raise HTTPException(422, '标题必填且不超过 160 字，简介不超过 2000 字，入口不超过 500 字')
+    try:
+        raw = json.loads(classification)
+    except ValueError:
+        raise HTTPException(422, '分类格式无效')
+    if not isinstance(raw, dict):
+        raise HTTPException(422, '分类格式无效')
+    values = classification_values(raw)
+    root, _ = get_resource(identifier)
+    with publication_lock(root):
+        metadata = read_json(root / 'metadata.json')
+        files_dir = metadata.get('files_dir', 'files')
+        chosen = entry.strip() or metadata['entry']
+        if file is not None:
+            data = file.file.read(MAX_UPLOAD + 1)
+            if not data or len(data) > MAX_UPLOAD:
+                raise HTTPException(413, '文件不能为空且不能超过 30 MB')
+            files_dir = 'files-' + uuid.uuid4().hex
+            try:
+                chosen = extract_package(data, file.filename or '', root / files_dir, entry.strip())
+                validate_references(root / files_dir, chosen)
+            except Exception:
+                shutil.rmtree(root / files_dir, ignore_errors=True)
+                raise
+        else:
+            chosen = str(safe_path(chosen))
+            if Path(chosen).suffix.lower() not in ('.html', '.htm') or not (root / files_dir / chosen).is_file():
+                raise HTTPException(422, 'HTML 入口不存在')
+            if chosen != metadata['entry']:
+                validate_references(root / files_dir, chosen)
+        metadata.update(classification=values, entry=chosen, files_dir=files_dir)
+        if file is not None:
+            # Invalidate an in-flight screenshot of the previous package.
+            metadata.update(cover_revision=uuid.uuid4().hex, cover_error='')
+            if metadata.get('cover_status') in ('pending', 'generating'):
+                metadata['cover_status'] = 'ready' if metadata['payload'].get('coverUrl') else 'idle'
+        metadata['payload'] = apply_classification({**metadata['payload'], 'title': title.strip(),
+                                                   'summary': summary.strip() or None, 'featured': featured}, values)
+        return sync_resource_details(actor, identifier, root, metadata)
+
+
+class ResourceFeatured(BaseModel):
+    featured: bool
+
+
+@router.patch('/admin/html-resources/{identifier}/featured')
+def feature_resource(identifier: str, body: ResourceFeatured, request: Request):
+    actor = require_admin(request)
+    require_action_header(request)
+    root, _ = get_resource(identifier)
+    with publication_lock(root):
+        metadata = read_json(root / 'metadata.json')
+        metadata['payload']['featured'] = body.featured
+        return sync_resource_details(actor, identifier, root, metadata)
+
+
 @router.patch('/admin/html-resources/{identifier}/tags')
 def edit_resource_tags(identifier: str, body: ResourceTags, request: Request):
     actor = require_admin(request)
@@ -381,9 +460,9 @@ def player(identifier: str):
 
 @router.get('/resources-play/{identifier}/files/{file_path:path}')
 def resource_file(identifier: str, file_path: str):
-    root, _ = public_resource(identifier)
+    root, metadata = public_resource(identifier)
     path = safe_path(file_path)
-    target = (root / 'files').joinpath(*path.parts)
+    target = (root / metadata.get('files_dir', 'files')).joinpath(*path.parts)
     if not target.is_file():
         raise HTTPException(404, '资源文件不存在')
     mime = {'.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm'}.get(target.suffix.lower()) or mimetypes.guess_type(target.name)[0] or 'application/octet-stream'

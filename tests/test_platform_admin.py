@@ -42,8 +42,8 @@ def ecosystem_game(client, monkeypatch, tmp_path):
     root = tmp_path / identifier
     game = root / 'public/game'
     (game / 'scene').mkdir(parents=True)
-    (game / 'config.txt').write_text('Game_name:课堂;')
-    (game / 'scene/start.txt').write_text('课堂开始;')
+    (game / 'config.txt').write_text('Game_name:课堂;', encoding='utf-8')
+    (game / 'scene/start.txt').write_text('课堂开始;', encoding='utf-8')
     write_json(root / 'job.json', {'id': identifier, 'status': 'SUCCEEDED', 'title': '原作者课堂', 'options': {}, 'identity': {'user_id': 'original-author'}})
     owner = {'owner_user_id': 'original-author', 'author_id': 'original-author', 'nickname': '原作者', 'email': 'author@example.com'}
     calls = []
@@ -126,6 +126,45 @@ def test_ordinary_user_cannot_manage_ecosystem_publication(client):
     with patch('webgal_backend.auth.user_from_request', return_value={'id': 'ordinary', 'auth_type': 'sso'}):
         for method in ('get', 'post', 'delete'):
             assert getattr(client, method)('/admin/games/' + 'a' * 32 + '/ecosystem-publication').status_code == 403
+        assert client.patch('/admin/games/' + 'a' * 32 + '/ecosystem-publication', json={'featured': True}).status_code == 403
+
+
+@pytest.mark.parametrize('featured', [True, False])
+def test_admin_can_feature_game_without_republishing(client, ecosystem_game, monkeypatch, featured):
+    from unittest.mock import Mock
+    game = ecosystem_game
+    monkeypatch.setattr(admin, 'publication_status', lambda identifier: {'published': True, 'work': {'title': '原作者课堂', 'featured': not featured}})
+    update = Mock(return_value={'updated': True})
+    monkeypatch.setattr(admin, 'update_work_details', update)
+    response = client.patch(game.path, json={'featured': featured})
+    assert response.status_code == 200 and response.json()['work']['featured'] is featured
+    update.assert_called_once_with({'ownerUserId': 'original-author', 'jobId': 'a' * 32, 'featured': featured})
+    game.publish.assert_not_called()
+    assert response.json()['work']['title'] == '原作者课堂'
+    assert any(sql.startswith('INSERT INTO platform_admin_audit') for sql, args in game.calls)
+
+
+def test_game_feature_requires_published_unblocked_game_and_csrf(client, ecosystem_game, monkeypatch):
+    from unittest.mock import Mock
+    update = Mock()
+    monkeypatch.setattr(admin, 'update_work_details', update)
+    assert client.patch(ecosystem_game.path, json={'featured': True}).status_code == 409
+    monkeypatch.setattr(admin, 'publication_status', lambda identifier: {'published': True})
+    monkeypatch.setattr(admin, 'blocked', lambda *args: True)
+    assert client.patch(ecosystem_game.path, json={'featured': True}).status_code == 409
+    assert client.patch(ecosystem_game.path, json={'featured': 'true'}).status_code == 422
+    del client.headers['X-Forge-Admin-Action']
+    assert client.patch(ecosystem_game.path, json={'featured': False}).status_code == 403
+    update.assert_not_called()
+
+
+def test_game_feature_remote_failure_returns_retryable_error(client, ecosystem_game, monkeypatch):
+    from webgal_backend.teacher_ecosystem import TeacherEcosystemError
+    monkeypatch.setattr(admin, 'publication_status', lambda identifier: {'published': True})
+    def unavailable(payload):
+        raise TeacherEcosystemError('暂时不可用')
+    monkeypatch.setattr(admin, 'update_work_details', unavailable)
+    assert client.patch(ecosystem_game.path, json={'featured': True}).status_code == 503
 
 
 @pytest.mark.parametrize('total,requested,expected_page,item_count,has_more', [

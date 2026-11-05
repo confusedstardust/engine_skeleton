@@ -140,3 +140,8 @@ def _subject_from_grade(grade: str | None) -> str | None:
 
 def update_work_cover(owner_user_id: str, job_id: str, cover_url: str) -> dict[str, Any]:
     return _request("PATCH", payload={"ownerUserId": owner_user_id, "jobId": job_id, "coverUrl": cover_url})
+
+
+def update_work_details(payload: dict[str, Any]) -> dict[str, Any]:
+    keys = ('ownerUserId', 'jobId', 'title', 'summary', 'subject', 'grade', 'tags', 'featured')
+    return _request("PATCH", payload={key: payload[key] for key in keys if key in payload})
