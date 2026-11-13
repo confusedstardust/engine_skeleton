@@ -207,6 +207,95 @@ def test_failed_html_draft_can_be_patched_without_parent(monkeypatch, tmp_path):
     assert "新版" in store.read("teacher-a", progress["artifact_id"], "index.html").decode()
     assert result["messages"][-1].content == "已经修复并验证。"
 
+def test_zero_build_result_is_retried_once_and_saved(tmp_path):
+    """An AI saying 'I will build it' must not terminate an actual build task."""
+    from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION
+    from langchain_core.messages import HumanMessage
+
+    config = settings(artifact_dir=str(tmp_path))
+    calls = []
+
+    class Graph:
+        async def ainvoke(self, input_state, **kwargs):
+            calls.append(input_state)
+            if len(calls) == 1:
+                return {"messages": [AIMessage(content="模板库没有匹配，所以我将编写一个自定义 HTML 作品。")]}
+            assert any(
+                isinstance(message, HumanMessage) and message.content == NO_BUILD_RECOVERY_INSTRUCTION
+                for message in input_state["messages"]
+            )
+            app_store = ArtifactStore(str(tmp_path))
+            progress["artifact_id"] = app_store.save(
+                "teacher-a", payload(), "<!doctype html><html></html>", kind="html"
+            )
+            progress["phase"] = "FINALIZING"
+            return {"messages": [*input_state["messages"], AIMessage(content="已生成并保存互动 HTML。")]}
+
+    progress = {}
+    app = create_app(
+        config, html_factory=lambda cfg, owner, state, store, parent: (
+            progress.update({"state": state}) or Graph()
+        ),
+    )
+    with TestClient(app) as client:
+        run = client.post("/v1/html", headers=HEADERS, json={"prompt": "生成学习网页"}).json()["id"]
+        for _ in range(100):
+            job = client.get("/v1/html/" + run, headers=HEADERS).json()
+            if job["status"] != "RUNNING":
+                break
+            time.sleep(0.01)
+        assert job["status"] == "SUCCEEDED", job
+        assert len(calls) == 2
+        assert job["recovery_attempts"] == 1
+        assert job["artifact_generated"]
+        assert job["output"] == "已生成并保存互动 HTML。"
+
+
+def test_zero_build_twice_is_reported_as_no_build_not_browser_failure(tmp_path):
+    config = settings(artifact_dir=str(tmp_path))
+    calls = []
+
+    class Graph:
+        async def ainvoke(self, input_state, **kwargs):
+            calls.append(input_state)
+            return {"messages": [
+                *input_state.get("messages", []),
+                AIMessage(content="模板库里没有合适模板，我会为你编写网页。"),
+            ]}
+
+    app = create_app(config, html_factory=lambda *args: Graph())
+    with TestClient(app) as client:
+        run = client.post("/v1/html", headers=HEADERS, json={"prompt": "生成互动网页"}).json()["id"]
+        for _ in range(100):
+            job = client.get("/v1/html/" + run, headers=HEADERS).json()
+            if job["status"] != "RUNNING":
+                break
+            time.sleep(0.01)
+        assert job["status"] == "FAILED", job
+        assert job["phase"] == "DESIGNING"
+        assert job["attempts"] == 0
+        assert job["error_code"] == "NO_BUILD_ATTEMPT"
+        assert job["recovery_attempts"] == 1
+        assert "浏览器检查" not in job["error"]
+        assert len(calls) == 2
+        assert job["model_trace"]["tool_calls"] == 0
+
+
+def test_html_trace_excludes_prompt_text_and_tool_arguments():
+    from app.html_diagnostics import summarize_html_run
+    secret = "not-for-logging-private-knowledge-5678"
+    trace = summarize_html_run([
+        AIMessage(content=secret, tool_calls=[
+            {"name": "search_html_templates", "args": {"query": secret}, "id": "s"}
+        ], response_metadata={"finish_reason": "tool_calls"}),
+        AIMessage(content="准备制作网页"),
+    ])
+    assert trace["model_messages"] == 2
+    assert trace["tool_calls"] == 1
+    assert trace["tool_names"] == ["search_html_templates"]
+    assert secret not in json.dumps(trace, ensure_ascii=False)
+
+
 @pytest.mark.skipif(os.getenv("NAR_TEST_DOCKER") != "1", reason="Requires real CI Docker + Chromium")
 def test_real_docker_html_browser_smoke():
     source = TemplateCatalog().render("recitation-cards", {
