@@ -162,6 +162,51 @@ def test_html_api_is_owner_scoped_and_background_task_finishes(tmp_path):
         assert client.get("/v1/artifacts/" + first + "/index.html", headers=other).status_code == 404
 
 
+
+def test_failed_html_draft_can_be_patched_without_parent(monkeypatch, tmp_path):
+    """A broken first draft remains editable, even for a brand-new artifact."""
+    import agents.html_builder as module
+
+    class Model(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    initial = "<!doctype html><html><body><button>旧版</button></body></html>"
+    model = Model(messages=iter([
+        AIMessage(content="", tool_calls=[
+            {"name": "submit_custom_html", "args": {"html_source": initial}, "id": "build-broken"}
+        ]),
+        AIMessage(content="", tool_calls=[
+            {"name": "read_working_html", "args": {}, "id": "read-draft"}
+        ]),
+        AIMessage(content="", tool_calls=[
+            {"name": "replace_working_html", "args": {"old": "旧版", "new": "新版"}, "id": "repair"}
+        ]),
+        AIMessage(content="已经修复并验证。"),
+    ]))
+    original = httpx.AsyncClient
+    attempts = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        attempts.append(body["source"])
+        if len(attempts) == 1:
+            return httpx.Response(200, json={"report": {
+                "passed": False, "stage": "browser-check", "checks": {"errors": ["test failure"]},
+            }})
+        return httpx.Response(200, json=payload(body["source"].encode()))
+
+    monkeypatch.setattr(module.httpx, "AsyncClient",
+                        lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(handler)))
+    store = ArtifactStore(str(tmp_path))
+    progress = {}
+    graph = build_html_agent(settings(), "teacher-a", progress, store, model=model)
+    result = asyncio.run(graph.ainvoke(html_initial_state("制作可交互网页", []), config={"recursion_limit": 80}))
+    assert len(attempts) == 2 and "旧版" in attempts[0] and "新版" in attempts[1]
+    assert progress["attempts"] == 2 and progress["strategy"] == "patch"
+    assert "新版" in store.read("teacher-a", progress["artifact_id"], "index.html").decode()
+    assert result["messages"][-1].content == "已经修复并验证。"
+
 @pytest.mark.skipif(os.getenv("NAR_TEST_DOCKER") != "1", reason="Requires real CI Docker + Chromium")
 def test_real_docker_html_browser_smoke():
     source = TemplateCatalog().render("recitation-cards", {
