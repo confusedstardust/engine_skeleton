@@ -144,19 +144,34 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Log in to Alibaba Cloud Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+      - name: Log in to Alibaba Cloud Container Registry (retry)
+        shell: bash
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$ACR_PASSWORD" | docker login "$REGISTRY" --username "$ACR_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "::error::ACR login failed after 4 attempts"
+              exit 1
+            fi
+            echo "::warning::ACR login attempt $attempt failed; retrying"
+            sleep $((attempt * 10))
+          done
       - name: Build and push development frontend image
         uses: docker/build-push-action@v6
+        env:
+          BUILDKIT_PROGRESS: plain
         with:
           context: .
           file: ./docker/frontend.Dockerfile
@@ -168,7 +183,9 @@ jobs:
             NEXT_PUBLIC_BASE_PATH=/narrativeos
           tags: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
           cache-from: type=gha,scope=engine-skeleton-development-frontend
-          cache-to: type=gha,mode=max,scope=engine-skeleton-development-frontend
+          # Export only final-image cache layers; cap cache upload and do not fail image publishing on cache errors.
+          # Intermediate dependency layers may rebuild more often than with mode=max.
+          cache-to: type=gha,mode=min,scope=engine-skeleton-development-frontend,timeout=3m,ignore-error=true
 
   build-nar-agent:
     needs: detect-changes
