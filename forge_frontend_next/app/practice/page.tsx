@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/button";
 import { forgeApi, ApiError } from "../../lib/api-client";
 import styles from "./practice.module.css";
 import AnimationPreview from "./animation-preview";
+import MessageMarkdown from "./message-markdown";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Reply = { id: string; output: string; duration_ms?: number };
@@ -87,7 +88,7 @@ export default function PracticePage() {
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
-          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.content}</div></article>)}
+          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}</div></article>)}
           {preview && <AnimationPreview html={preview.html} artifactId={preview.artifactId} label={preview.kind === "html" ? "HTML 互动学习作品" : "动画成品预览"} />}
           {busy && <p role="status" className={styles.thinking}>{progress || "教学助手正在思考，请稍候…"}</p>}
           <div ref={end} />
