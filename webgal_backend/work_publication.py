@@ -68,14 +68,16 @@ def create_router(*, user_for_request, store: WorkStore | None = None,
             work = await run_in_threadpool(works.get, owner, work_id)
         except FileNotFoundError:
             raise HTTPException(404, "作品不存在") from None
-        if work.get("publication_status") == "published" and work.get("published_version_id") == work["current_version_id"]:
-            return {"published": True, "status": "published", "public_url": work["public_url"]}
         snapshot = {
             "title": payload.title.strip(), "summary": payload.summary.strip(),
             "subject": payload.subject.strip() if payload.subject else None,
             "grade": payload.grade.strip() if payload.grade else None,
             "tags": [tag.strip()[:40] for tag in payload.tags if tag.strip()],
         }
+        if (work.get("publication_status") == "published" and
+                work.get("published_version_id") == work["current_version_id"] and
+                work.get("published_metadata") == snapshot):
+            return {"published": True, "status": "published", "public_url": work["public_url"]}
         play_url = f"{root}/practice/works/{work_id}"
         cover_url = f"{root}/api/forge/public/works/{work_id}/cover.png"
         try:
