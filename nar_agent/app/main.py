@@ -9,12 +9,14 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.messages import HumanMessage
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from pydantic import BaseModel, Field, model_validator
 
 from agents.teaching import build_agent, initial_state
 from app.config import Settings
 from app.artifacts import ArtifactStore
+from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
 
@@ -175,37 +177,77 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
 
         async def work():
             usage = UsageMetadataCallbackHandler()
+            config = {
+                "callbacks": [usage], "recursion_limit": 80,
+                "metadata": {"nar_run_id": identifier, "owner_user_id": user_id},
+            }
             try:
                 async with asyncio.timeout(settings.animation_timeout_seconds):
                     graph = html_factory(settings, user_id, state, store, payload.parent_artifact_id)
                     result = await graph.ainvoke(
                         html_initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
-                        config={
-                            "callbacks": [usage], "recursion_limit": 80,
-                            "metadata": {"nar_run_id": identifier, "owner_user_id": user_id},
-                        },
+                        config=config,
                     )
-                    content = result["messages"][-1].content
+                    state["model_trace"] = summarize_html_run(result.get("messages", []))
+                    # If the model merely promised to generate an HTML file,
+                    # resume the same conversation once with an explicit tool instruction.
+                    # Never report browser validation failure when no build was submitted.
+                    if not state.get("artifact_id") and state["attempts"] == 0:
+                        state["recovery_attempts"] = 1
+                        logger.warning(
+                            "HTML builder ended without build id=%s model_messages=%s tool_calls=%s invalid_tool_calls=%s tool_names=%s finish_reason=%s; retrying once",
+                            identifier,
+                            state["model_trace"]["model_messages"],
+                            state["model_trace"]["tool_calls"],
+                            state["model_trace"]["invalid_tool_calls"],
+                            state["model_trace"]["tool_names"],
+                            state["model_trace"]["finish_reason"],
+                        )
+                        prior_messages = list(result.get("messages", []))
+                        retry_state = {
+                            **result,
+                            "messages": [*prior_messages, HumanMessage(content=NO_BUILD_RECOVERY_INSTRUCTION)],
+                        }
+                        result = await graph.ainvoke(retry_state, config=config)
+                        state["model_trace"] = summarize_html_run(result.get("messages", []))
+
+                    messages = result.get("messages", [])
+                    content = messages[-1].content if messages else ""
                     state["output"] = content if isinstance(content, str) else "\n".join(
                         block.get("text", "") for block in content if isinstance(block, dict)
-                    )
+                    ) if isinstance(content, list) else ""
                     state["artifact_generated"] = bool(state.get("artifact_id"))
                     state["status"] = "SUCCEEDED" if state["artifact_generated"] else "FAILED"
                     if not state["artifact_generated"]:
-                        state["error"] = "未获得通过浏览器检查的 HTML，请调整要求后重试。"
+                        if state["attempts"] == 0:
+                            state["error_code"] = (
+                                "INVALID_TOOL_CALL"
+                                if state["model_trace"]["invalid_tool_calls"] else "NO_BUILD_ATTEMPT"
+                            )
+                            state["error"] = "模型未执行 HTML 构建工具，系统已自动重试一次，但仍未提交作品。请检查模型工具调用兼容性。"
+                        elif state.get("execution_error"):
+                            state["error_code"] = "EXECUTION_UNAVAILABLE"
+                            state["error"] = "已尝试提交 HTML，但构建执行或作品保存失败，请检查执行服务。"
+                        else:
+                            state["error_code"] = "BUILD_VALIDATION_FAILED"
+                            state["error"] = "HTML 已提交构建，但未通过浏览器检查，请查看检查报告后重试。"
             except ModelCallLimitExceededError:
-                state.update(status="FAILED", error="已达到模型调用预算，尚未完成产物。")
+                state.update(status="FAILED", error_code="MODEL_CALL_LIMIT",
+                             error="已达到模型调用预算，尚未完成产物。")
             except TimeoutError:
-                state.update(status="FAILED", error="HTML 制作超时，请缩小交互范围后重试。")
+                state.update(status="FAILED", error_code="TIMEOUT",
+                             error="HTML 制作超时，请缩小交互范围后重试。")
             except asyncio.CancelledError:
-                state.update(status="FAILED", error="服务停止，HTML 任务已中断。")
+                state.update(status="FAILED", error_code="CANCELLED",
+                             error="服务停止，HTML 任务已中断。")
                 raise
             except Exception as error:
                 logger.warning(
                     "HTML builder failed id=%s phase=%s diagnostics=%s",
                     identifier, state["phase"], animation_failure_diagnostics(error),
                 )
-                state.update(status="FAILED", error="HTML 制作失败，请检查执行服务或稍后重试。")
+                state.update(status="FAILED", error_code="AGENT_ERROR",
+                             error="HTML 制作失败，请检查执行服务或稍后重试。")
             finally:
                 state.update(
                     usage=usage.usage_metadata,
