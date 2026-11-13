@@ -53,6 +53,29 @@ export async function checkPage(file) {
     await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
     await send('Page.navigate', { url: pathToFileURL(file).href });
     await new Promise(resolve => setTimeout(resolve, 2000));
+    // Template-specific semantic interaction assertions run in the real browser.
+    // Unlike generic smoke clicks, these fail the build when answers leak or actions break.
+    const templateId = await evaluate('document.body?.dataset.narTemplate || null');
+    let template_interactions = null;
+    if (templateId === 'recitation-cards') {
+      template_interactions = await evaluate(`(() => {
+        const answer = document.getElementById('answer');
+        const reveal = document.getElementById('reveal');
+        const next = document.getElementById('next');
+        const restart = document.getElementById('restart');
+        const progress = document.getElementById('progress');
+        if (!answer || !reveal || !next || !restart || !progress) return { passed: false, reason: 'required card controls missing' };
+        if (!answer.hidden) return { passed: false, reason: 'answer visible before reveal' };
+        reveal.click();
+        if (answer.hidden || !answer.textContent.trim()) return { passed: false, reason: 'reveal did not show answer' };
+        next.click();
+        if (!answer.hidden) return { passed: false, reason: 'answer leaked after next card' };
+        restart.click();
+        if (progress.textContent.trim().split('/')[0].trim() !== '1') return { passed: false, reason: 'restart did not reset progress' };
+        return { passed: true, assertions: ['hidden-before-reveal', 'reveal-answer', 'next-hides-answer', 'restart-resets-progress'] };
+      })()`);
+      if (!template_interactions?.passed) errors.push('Template interaction verification failed: ' + (template_interactions?.reason || 'unknown'));
+    }
     const figure = await evaluate('!!document.querySelector("svg,canvas")');
     const controls = await evaluate('document.querySelectorAll("button,input,select,[role=button],[tabindex]").length');
     const external = await evaluate('Array.from(document.querySelectorAll("script[src],link[href],img[src]")).map(e=>e.src||e.href).filter(u=>/^(https?:|file:)/.test(u))');
@@ -69,6 +92,6 @@ export async function checkPage(file) {
     const mobile_overflow = await evaluate('document.documentElement.scrollWidth > innerWidth + 1');
     const mobile = await send('Page.captureScreenshot', { format: 'png' });
     writeFileSync('/results/mobile.png', Buffer.from(mobile.data, 'base64'));
-    return { errors: errors.slice(0, 20), figure, controls, mobile_overflow, interaction_attempted: true };
+    return { errors: errors.slice(0, 20), figure, controls, mobile_overflow, template_interactions, interaction_attempted: true };
   } finally { socket?.close(); chrome.kill('SIGKILL'); }
 }

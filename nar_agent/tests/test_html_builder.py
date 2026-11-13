@@ -174,4 +174,5 @@ def test_real_docker_html_browser_smoke():
     assert output["report"]["passed"], json.dumps(output["report"], ensure_ascii=False)
     assert output["report"]["kind"] == "html"
     assert output["report"]["checks"]["controls"] >= 3
+    assert output["report"]["checks"]["template_interactions"]["passed"] is True
     assert b"<html" in base64.b64decode(output["index.html"])

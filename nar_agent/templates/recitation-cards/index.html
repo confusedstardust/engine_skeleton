@@ -18,7 +18,7 @@ button.primary{background:#476f51;border-color:#476f51;color:white}button:focus-
 @media(max-width:450px){body{padding:12px}.card{min-height:250px}.top{flex-direction:column;align-items:flex-start}.actions button{min-width:0}}
 </style>
 </head>
-<body><main>
+<body data-nar-template="recitation-cards"><main>
 <header class="top"><h1 id="title"></h1><span id="progress" aria-live="polite"></span></header>
 <section class="card" aria-label="复习题卡"><span class="label">想一想，再揭晓答案</span><p id="question"></p><p id="answer" hidden></p></section>
 <nav class="actions" aria-label="题卡操作"><button id="reveal" type="button" class="primary">查看答案</button><button id="next" type="button">下一题</button><button id="restart" type="button">重新开始</button></nav>
