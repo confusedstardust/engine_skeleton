@@ -81,3 +81,11 @@ idempotency before expanding beyond controlled beta.
 
 Production release requires finishing the items above and reviewing prompt/tool
 budgets, concurrency, local storage retention, and preview CSP.
+
+## Repair draft semantics
+
+The Agent keeps the latest submitted HTML as an in-memory **working draft**, even when
+Chromium checks fail. `read_working_html`, `inspect_working_html`, and
+`replace_working_html` operate on that latest draft. Only successful validated builds
+create immutable artifacts; failed drafts are not published or saved as user revisions.
+This allows bounded repair without re-sending an entire generated L2 document.

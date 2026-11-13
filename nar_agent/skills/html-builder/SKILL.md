@@ -13,7 +13,7 @@ Use the provided tools; never claim validation that was not returned by the exec
 1. Decide whether the learner needs flashcards, quiz, manipulable simulation, visual map or custom interaction.
 2. Call `search_html_templates` first. For a close fit, call `render_html_template` with valid JSON.
 3. If no template fits, call `submit_custom_html` with complete HTML/CSS/JS, all inline.
-4. For existing artifacts, call `read_previous_html` and prefer `replace_in_previous_html` when a unique local replacement is possible.
+4. For existing artifacts, call `read_working_html` and prefer `replace_working_html` when a unique local replacement is possible.
 5. Read the structured browser report. Fix actual failures; at most three sandbox attempts.
 6. Only report an artifact as completed when the tool returned `artifact_id`.
 
