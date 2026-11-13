@@ -225,11 +225,15 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     state["status"] = "SUCCEEDED" if state["artifact_generated"] else "FAILED"
                     if not state["artifact_generated"]:
                         if state["attempts"] == 0:
-                            state["error_code"] = (
-                                "INVALID_TOOL_CALL"
-                                if state["model_trace"]["invalid_tool_calls"] else "NO_BUILD_ATTEMPT"
-                            )
-                            state["error"] = "模型未执行 HTML 构建工具，系统已自动重试一次，但仍未提交作品。请检查模型工具调用兼容性。"
+                            if state["model_trace"]["finish_reason"] == "length":
+                                state["error_code"] = "MODEL_OUTPUT_TRUNCATED"
+                                state["error"] = "模型输出达到长度上限，未形成可执行的 HTML。请检查分段生成及模型输出额度。"
+                            elif state["model_trace"]["invalid_tool_calls"]:
+                                state["error_code"] = "INVALID_TOOL_CALL"
+                                state["error"] = "模型生成了无法解析的工具调用，未能提交 HTML。"
+                            else:
+                                state["error_code"] = "NO_BUILD_ATTEMPT"
+                                state["error"] = "模型未提交 HTML 构建；系统已自动要求执行一次，仍未完成。"
                         elif state.get("execution_error"):
                             state["error_code"] = "EXECUTION_UNAVAILABLE"
                             state["error"] = "已尝试提交 HTML，但构建执行或作品保存失败，请检查执行服务。"
