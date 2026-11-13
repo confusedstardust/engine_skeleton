@@ -6,6 +6,8 @@ on:
       - 'webgal_backend/nar_agent_routes.py'
       - 'webgal_backend/work_store.py'
       - 'webgal_backend/works_routes.py'
+      - 'webgal_backend/work_publication.py'
+      - 'tests/test_work_publication.py'
       - 'webgal_backend/app.py'
       - 'forge_frontend_next/app/history/**'
       - 'tests/test_works_routes.py'
@@ -25,7 +27,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30'
-      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py
   frontend:
     name: Practice UI TypeScript
     runs-on: ubuntu-latest
