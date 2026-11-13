@@ -115,6 +115,7 @@ def build_html_agent(
             return json.dumps({"error": "Source exceeds 96KB sandbox limit"})
         attempts += 1
         working_html = source  # Retain failed drafts for targeted repair in the same run.
+        progress.pop("execution_error", None)
         progress.update(phase="BUILDING", attempts=attempts, strategy=strategy)
         try:
             async with httpx.AsyncClient(timeout=125, trust_env=False) as client:
@@ -138,6 +139,7 @@ def build_html_agent(
                 "report": report, "remaining_attempts": MAX_REPAIR_ATTEMPTS - attempts,
             }, ensure_ascii=False)
         except (httpx.HTTPError, KeyError, ValueError, OSError):
+            progress["execution_error"] = "EXECUTION_UNAVAILABLE"
             return json.dumps({
                 "error": "Execution unavailable or artifact storage failed",
                 "remaining_attempts": MAX_REPAIR_ATTEMPTS - attempts,
