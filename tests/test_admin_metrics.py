@@ -19,7 +19,10 @@ def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
         def execute(self,sql,args): queries.append((sql,args))
         def fetchall(self): return responses.pop(0)
         def fetchone(self):
-            return {'visitors':3} if 'site_daily_visitors' in queries[-1][0] else {'users':1}
+            sql = queries[-1][0]
+            if 'site_daily_visitors' in sql:
+                return {'visitors':3}
+            return {'users':12 if 'SELECT COUNT(*) users FROM users' in sql else 1}
     @contextmanager
     def transaction(): yield Cursor()
     with patch('webgal_backend.admin_metrics.database_transaction',transaction), patch('webgal_backend.admin_metrics.datetime') as clock:
@@ -33,6 +36,9 @@ def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
     assert result['daily'][0]['visitors']==0
     assert result['daily'][-1]['visitors']==2
     assert result['totals']['visitors']==3
+    assert result['daily'][0]['registered_users']==12
+    assert result['daily'][-1]['registered_users']==13
+    assert result['registered_users']==13
     assert result['totals']['settlements_with_usage']==2
     assert any("status='CAPTURED'" in sql for sql,args in queries)
     assert any("action='CAPTURE'" in sql for sql,args in queries)

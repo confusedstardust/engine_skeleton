@@ -37,9 +37,18 @@ def dashboard_metrics(days: int):
         unique_users = int(cursor.fetchone()['users'])
         cursor.execute("SELECT COUNT(DISTINCT visitor_hash) visitors FROM site_daily_visitors WHERE visit_date >= %s AND visit_date < %s", params)
         unique_visitors = int(cursor.fetchone()['visitors'])
+        cursor.execute(
+            f"SELECT COUNT(*) users FROM users WHERE created_at < CONVERT_TZ(%s,'+08:00',{db_zone})",
+            (str(start),),
+        )
+        registered_users = int(cursor.fetchone()['users'])
+    for row in daily.values():
+        registered_users += row['new_users']
+        row['registered_users'] = registered_users
     totals = {key:sum(row[key] for row in daily.values()) for key in metrics}
     totals['active_users'] = unique_users
     totals['visitors'] = unique_visitors
     totals['tokens'] = totals['input_tokens']+totals['output_tokens']
     return {'timezone':'Asia/Shanghai','start':str(start),'end':str(today),'days':days,
-            'daily':list(daily.values()),'totals':totals}
+            'daily':list(daily.values()),'totals':totals,
+            'registered_users':registered_users}
