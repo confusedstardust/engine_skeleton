@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
 import { forgeApi, ApiError } from "../../lib/api-client";
+import { workApi, type SavedWork } from "../../lib/work-api";
 import styles from "./practice.module.css";
 import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
@@ -27,6 +28,7 @@ export default function PracticePage() {
   const [progress, setProgress] = useState("");
   const [activeTask, setActiveTask] = useState<BuildTask | null>(null);
   const [workPreviews, setWorkPreviews] = useState<Record<string, WorkPreviewData>>({});
+  const [savingArtifactId, setSavingArtifactId] = useState<string | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
@@ -44,6 +46,55 @@ export default function PracticePage() {
     return () => { active = false; };
   }, []);
   useEffect(() => { if (messages.length || busy) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
+
+  useEffect(() => {
+    // Deep link from the existing "我的作品" page; no local browser storage required.
+    const savedId = new URL(window.location.href).searchParams.get("work");
+    if (!savedId || !/^[a-f0-9]{32}$/.test(savedId)) return;
+    let active = true;
+    workApi.get(savedId).then(async ({ work }) => {
+      const version = work.versions.find(v => v.id === work.current_version_id);
+      if (!version) return;
+      const blob = await workApi.html(work.id, version.id);
+      if (!active) return;
+      const saved: WorkPreviewData = {
+        artifactId: version.artifact_id, html: await blob.text(), title: work.title,
+        kind: work.kind, version: version.version_number,
+        workId: work.id, savedArtifactId: version.artifact_id,
+        currentVersionId: version.id,
+      };
+      if (!active) return;
+      setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
+      setCurrentArtifactId(saved.artifactId);
+      setSelectedArtifactId(saved.artifactId);
+    }).catch(err => { if (active) setError(err instanceof Error ? err.message : "作品加载失败"); });
+    return () => { active = false; };
+  }, []);
+
+  async function saveWork(artifactId: string) {
+    const work = workPreviews[artifactId];
+    if (!loggedIn || !work || savingArtifactId || (work.workId && work.savedArtifactId === artifactId)) return;
+    setSavingArtifactId(artifactId);
+    setError("");
+    try {
+      const saved: SavedWork = work.workId
+        ? (await workApi.attachVersion(work.workId, artifactId, work.expectedParentArtifactId || work.savedArtifactId || "")).work
+        : (await workApi.save({ artifact_id: artifactId, kind: work.kind, title: work.title })).work;
+      const version = saved.versions.find(item => item.id === saved.current_version_id);
+      if (!version) throw new Error("作品版本保存失败");
+      setWorkPreviews(previous => ({
+        ...previous,
+        [artifactId]: {
+          ...previous[artifactId], workId: saved.id, title: saved.title,
+          savedArtifactId: artifactId, currentVersionId: version.id,
+          version: version.version_number,
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存作品失败，请重试");
+    } finally { setSavingArtifactId(null); }
+  }
+
 
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
@@ -84,6 +135,10 @@ export default function PracticePage() {
           artifactId: task.artifact_id, html: await blob.text(), title,
           kind: mode === "animation" ? "animation" : "html",
           version: parentArtifact ? (currentWork?.version || 1) + 1 : 1,
+          workId: parentArtifact ? currentWork?.workId : undefined,
+          savedArtifactId: parentArtifact ? currentWork?.savedArtifactId : undefined,
+          currentVersionId: parentArtifact ? currentWork?.currentVersionId : undefined,
+          expectedParentArtifactId: parentArtifact || undefined,
         };
         generatedWork = { artifactId: work.artifactId, kind: work.kind, title: work.title, version: work.version };
         setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
@@ -109,7 +164,7 @@ export default function PracticePage() {
   return <main className={styles.page}>
     <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
     <div className={`${styles.layout} ${selectedWork ? styles.layoutWithInspector : ""}`}>
-      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品保存为独立版本；当前聊天刷新后清空。</p></aside>
+      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
       <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
@@ -133,7 +188,8 @@ export default function PracticePage() {
       </section>
       {selectedWork && <WorkInspector work={selectedWork}
         onClose={() => setSelectedArtifactId(null)}
-        onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }} />}
+        onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
+        onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId} />}
     </div>
   </main>;
 }
