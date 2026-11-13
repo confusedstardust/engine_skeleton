@@ -281,6 +281,18 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             raise HTTPException(404, "HTML task not found")
         return {**state, "elapsed_ms": public_elapsed_ms(state)}
 
+    @app.get("/v1/artifacts/{identifier}/metadata")
+    async def artifact_metadata(identifier: str, user_id: str = Depends(principal)):
+        try:
+            meta = ArtifactStore(settings.artifact_dir).metadata(user_id, identifier)
+        except (FileNotFoundError, ValueError, KeyError):
+            raise HTTPException(404, "Artifact not found") from None
+        return {
+            "kind": meta["kind"], "parent_artifact_id": meta.get("parent_id"),
+            "created_at": meta["created_at"],
+            "passed": bool((meta.get("report") or {}).get("passed")),
+        }
+
     @app.get("/v1/artifacts/{identifier}/{filename}")
     async def artifact(identifier: str, filename: str, user_id: str = Depends(principal)):
         try:
