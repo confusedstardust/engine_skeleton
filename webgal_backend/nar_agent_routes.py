@@ -26,6 +26,10 @@ class ChatInput(BaseModel):
         return self
 
 
+class HtmlInput(ChatInput):
+    parent_artifact_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
 def create_router(*, user_for_request, transport=None):
     router = APIRouter(prefix="/nar-agent", tags=["NarAgent"])
 
@@ -69,16 +73,16 @@ def create_router(*, user_for_request, transport=None):
             raise HTTPException(401, "请先登录 NarrativeOS")
         token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
         if len(token) < 32:
-            raise HTTPException(503, "动画服务尚未配置")
+            raise HTTPException(503, "NarAgent 服务尚未配置")
         base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
         try:
             async with httpx.AsyncClient(timeout=15, transport=transport, follow_redirects=False, trust_env=False) as client:
                 response = await client.request(method, base + path, headers={"Authorization": "Bearer " + token, "X-User-ID": str(user["id"])}, json=payload)
         except httpx.HTTPError:
-            raise HTTPException(503, "动画服务暂时无法连接") from None
+            raise HTTPException(503, "NarAgent 服务暂时无法连接") from None
         if response.status_code not in {200, 202}:
             status = response.status_code if response.status_code in {404, 422, 429} else 503
-            raise HTTPException(status, {404: "任务或产物不存在", 422: "输入不符合要求", 429: "已有动画正在制作，请稍后再试"}.get(status, "动画执行环境尚未就绪，请联系管理员"))
+            raise HTTPException(status, {404: "任务或产物不存在", 422: "输入不符合要求", 429: "已有作品正在制作，请稍后再试"}.get(status, "创作执行环境尚未就绪，请联系管理员"))
         return user, response
 
     def public_result(user, response):
@@ -86,7 +90,7 @@ def create_router(*, user_for_request, transport=None):
             data = response.json()
             if data["user_id"] != user["id"]:
                 raise ValueError("owner mismatch")
-            return {key: data[key] for key in ["id", "status", "phase", "attempts", "output", "error", "artifact_id", "artifact_generated", "last_report"] if key in data}
+            return {key: data[key] for key in ["id", "status", "phase", "attempts", "output", "error", "artifact_id", "artifact_generated", "last_report", "parent_artifact_id", "strategy"] if key in data}
         except (ValueError, KeyError, TypeError):
             raise HTTPException(502, "动画服务响应异常") from None
 
@@ -101,6 +105,23 @@ def create_router(*, user_for_request, transport=None):
         if not re.fullmatch(r"[0-9a-f]{32}", identifier):
             raise HTTPException(404, "任务不存在")
         user, response = await forward(request, "GET", "/v1/animations/" + identifier)
+        return public_result(user, response)
+
+    @router.post("/html", status_code=202)
+    async def start_html(payload: dict, request: Request):
+        try:
+            validated = HtmlInput.model_validate(payload)
+        except Exception:
+            raise HTTPException(422, "HTML 创作输入不符合要求") from None
+        user, response = await forward(request, "POST", "/v1/html", validated.model_dump())
+        return public_result(user, response)
+
+    @router.get("/html/{identifier}")
+    async def html_status(identifier: str, request: Request):
+        import re
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            raise HTTPException(404, "任务不存在")
+        user, response = await forward(request, "GET", "/v1/html/" + identifier)
         return public_result(user, response)
 
     @router.get("/artifacts/{identifier}/{filename}")
