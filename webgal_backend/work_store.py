@@ -103,6 +103,7 @@ class WorkStore:
                 "summary": summary.strip()[:2000], "subject": None, "grade": None,
                 "tags": [], "current_version_id": version["id"],
                 "versions": [version], "publication_status": "draft",
+                "published_version_id": None, "public_url": None, "published_at": None,
                 "created_at": now, "updated_at": now, "saved_at": now,
             }
             pending = Path(tempfile.mkdtemp(prefix=".work-", dir=self.root))
@@ -160,3 +161,90 @@ class WorkStore:
         if not any(version["id"] == version_id for version in work["versions"]):
             raise FileNotFoundError("Work file not found")
         return (self.path(work_id) / "versions" / version_id / filename).read_bytes()
+
+    def start_publication(self, owner: str, work_id: str) -> dict:
+        """Mark pending; never switch the public version until remote publication succeeds."""
+        with self.locked():
+            work = self.get(owner, work_id)
+            if work["kind"] != "html":
+                raise WorkConflictError("Only verified interactive HTML works can be published.")
+            if work.get("publication_status") == "publishing":
+                raise WorkConflictError("Publication is already in progress")
+            work["publication_status"] = "publishing"
+            work["pending_version_id"] = work["current_version_id"]
+            work["updated_at"] = utc_now()
+            write_json(self.path(work_id) / "work.json", work)
+            return work
+
+    def finish_publication(self, owner: str, work_id: str, version_id: str, public_url: str) -> dict:
+        with self.locked():
+            work = self.get(owner, work_id)
+            if (work.get("publication_status") != "publishing" or
+                    work.get("pending_version_id") != version_id):
+                raise WorkConflictError("Publication state changed during upload")
+            work["publication_status"] = "published"
+            work["published_version_id"] = version_id
+            work["published_at"] = utc_now()
+            work["public_url"] = public_url
+            work.pop("pending_version_id", None)
+            work["updated_at"] = utc_now()
+            write_json(self.path(work_id) / "work.json", work)
+            return work
+
+    def rollback_publication(self, owner: str, work_id: str):
+        with self.locked():
+            work = self.get(owner, work_id)
+            if work.get("publication_status") == "publishing":
+                work["publication_status"] = "published" if work.get("published_version_id") else "failed"
+                work.pop("pending_version_id", None)
+                work["updated_at"] = utc_now()
+                write_json(self.path(work_id) / "work.json", work)
+
+    def start_unpublish(self, owner: str, work_id: str) -> dict:
+        """Immediately revoke public access, even if remote de-indexing fails."""
+        with self.locked():
+            work = self.get(owner, work_id)
+            if not work.get("published_version_id"):
+                raise WorkConflictError("Work has no published version")
+            work["publication_status"] = "unpublish_pending"
+            work["updated_at"] = utc_now()
+            write_json(self.path(work_id) / "work.json", work)
+            return work
+
+    def finish_unpublish(self, owner: str, work_id: str) -> dict:
+        with self.locked():
+            work = self.get(owner, work_id)
+            work["publication_status"] = "unpublished"
+            work["published_version_id"] = None
+            work["public_url"] = None
+            work.pop("pending_version_id", None)
+            work["updated_at"] = utc_now()
+            write_json(self.path(work_id) / "work.json", work)
+            return work
+
+    def public(self, work_id: str) -> dict:
+        """Published metadata only; never return drafts, user IDs or source paths."""
+        try:
+            path = self.path(work_id)
+            work = read_json(path / "work.json")
+        except (OSError, ValueError):
+            raise FileNotFoundError("Public work not found") from None
+        if (not isinstance(work, dict) or work.get("publication_status") != "published" or
+                not work.get("published_version_id")):
+            raise FileNotFoundError("Public work not found")
+        version = next((item for item in work["versions"]
+                        if item["id"] == work["published_version_id"]), None)
+        if not version:
+            raise FileNotFoundError("Public work not found")
+        return {
+            "id": work_id, "title": work["title"], "summary": work.get("summary", ""),
+            "kind": work["kind"], "subject": work.get("subject"), "grade": work.get("grade"),
+            "tags": work.get("tags", []), "published_at": work.get("published_at"),
+            "version": version["version_number"], "published_version_id": version["id"],
+        }
+
+    def public_asset(self, work_id: str, filename: str) -> bytes:
+        meta = self.public(work_id)
+        if filename not in ASSET_LIMITS:
+            raise FileNotFoundError("Public work file not found")
+        return (self.path(work_id) / "versions" / meta["published_version_id"] / filename).read_bytes()
