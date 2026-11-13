@@ -35,6 +35,8 @@ export default function PracticePage() {
   const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
   const [revokeArtifactId, setRevokeArtifactId] = useState<string | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
+  const [publicationError, setPublicationError] = useState("");
+  const [revokeError, setRevokeError] = useState("");
   const [shareData, setShareData] = useState<SharedWork | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
@@ -123,6 +125,7 @@ export default function PracticePage() {
       setPublishArtifactId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "发布失败，请重试");
+      setPublicationError(err instanceof Error ? err.message : "发布失败，请重试");
     } finally { setPublicationBusy(false); }
   }
 
@@ -139,6 +142,7 @@ export default function PracticePage() {
       setRevokeArtifactId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "撤回未完成，请重试");
+      setRevokeError(err instanceof Error ? err.message : "撤回未完成，请重试");
     } finally { setPublicationBusy(false); }
   }
 
@@ -251,16 +255,16 @@ export default function PracticePage() {
         onClose={() => setSelectedArtifactId(null)}
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
-        onPublish={id => setPublishArtifactId(id)}
-        onUnpublish={id => setRevokeArtifactId(id)}
+        onPublish={id => { setPublicationError(""); setPublishArtifactId(id); }}
+        onUnpublish={id => { setRevokeError(""); setRevokeArtifactId(id); }}
         onShare={id => { void openShare(id); }}
         publishing={publicationBusy} />}
     </div>
     {shareData && <WorkShareDialog data={shareData} onClose={() => setShareData(null)} />}
     {publishWork && <WorkPublishDialog key={publishWork.artifactId} work={publishWork}
-      onClose={() => setPublishArtifactId(null)} busy={publicationBusy}
+      onClose={() => setPublishArtifactId(null)} busy={publicationBusy} error={publicationError}
       onSubmit={payload => { void submitPublication(payload); }} />}
-    <ConfirmDialog open={Boolean(revokeArtifactId)} title="撤回教师广场发布"
+    <ConfirmDialog open={Boolean(revokeArtifactId)} error={revokeError} title="撤回教师广场发布"
       description="撤回后，已有公开链接也将无法继续访问作品。私有作品与版本记录会保留。"
       busy={publicationBusy} onCancel={() => setRevokeArtifactId(null)}
       onConfirm={() => { void revokePublication(); }} />

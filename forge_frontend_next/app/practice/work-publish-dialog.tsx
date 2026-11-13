@@ -8,12 +8,13 @@ import type { WorkPreviewData } from "./work-inspector";
 import styles from "./practice.module.css";
 
 export default function WorkPublishDialog({
-  work, onClose, onSubmit, busy,
+  work, onClose, onSubmit, busy, error,
 }: {
   work: WorkPreviewData;
   onClose: () => void;
   onSubmit: (payload: PublicationForm) => void;
   busy: boolean;
+  error?: string;
 }) {
   const [title, setTitle] = useState(work.title);
   const [summary, setSummary] = useState("");
@@ -25,6 +26,7 @@ export default function WorkPublishDialog({
       <section className={styles.publishDialog}>
         <h2>发布到教师资源广场</h2>
         <p>发布后，其他教师和学习者可公开访问这件作品。发布的是当前确认的版本，后续私有修改不会自动更新公开内容。</p>
+        {error && <p className={styles.publishError} role="alert">{error}</p>}
         <form onSubmit={event => {
           event.preventDefault();
           if (!title.trim() || busy) return;
