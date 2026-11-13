@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import io
 import zipfile
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ def package(files):
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(resources, 'settings', SimpleNamespace(jobs_dir=tmp_path))
     monkeypatch.setattr(resources, 'require_admin', lambda request: {'id': 'admin-user'})
+    monkeypatch.setattr(resources, 'database_transaction', lambda: nullcontext(SimpleNamespace(execute=lambda *args: None, fetchall=lambda: [])))
     monkeypatch.setattr(resources, 'ecosystem_change', lambda actor, identifier, owner, action, operation: operation())
     monkeypatch.setenv('WEBGAL_FRONTEND_URL', 'https://example.com/forge')
     monkeypatch.setattr(resources, 'publish_work', lambda payload: {'published': True, 'work': payload})
@@ -382,3 +384,53 @@ def test_custom_tags_are_reusable_and_truncated_portal_is_detected(client, monke
     assert saved['classification']['subject'] == ['科学', '地理']
     monkeypatch.setattr(resources, 'publish_work', lambda payload: {'published': True, 'work': payload})
     assert client.post(f'/admin/html-resources/{identifier}/publication').status_code == 200
+
+
+def test_html_practice_tool_requires_published_resource_and_action_header(client, monkeypatch):
+    saved = upload(client).json()
+    identifier = saved['id']
+    url = f'/admin/html-resources/{identifier}/practice-tool'
+    calls = []
+    selected = set()
+
+    def save(actor, job_id, enabled):
+        calls.append((actor['id'], job_id, enabled))
+        (selected.add if enabled else selected.discard)(job_id)
+        return {'is_practice_tool': enabled}
+
+    monkeypatch.setattr(resources, 'save_practice_tool', save)
+    monkeypatch.setattr(resources, 'database_transaction', lambda: nullcontext(SimpleNamespace(
+        execute=lambda *args: None, fetchall=lambda: [{'job_id': job_id} for job_id in selected],
+    )))
+    assert client.put(url, json={'enabled': True}, headers={'X-Forge-Admin-Action': '0'}).status_code == 403
+    assert client.put(url, json={'enabled': 'true'}).status_code == 422
+    assert client.put(url, json={'enabled': True}).json() == {'is_practice_tool': True}
+    assert client.get('/admin/html-resources').json()['items'][0]['is_practice_tool'] is True
+    assert client.put(url, json={'enabled': False}).json() == {'is_practice_tool': False}
+    assert client.get('/admin/html-resources').json()['items'][0]['is_practice_tool'] is False
+    assert client.delete(f'/admin/html-resources/{identifier}/publication').status_code == 200
+    assert client.put(url, json={'enabled': True}).status_code == 409
+    assert calls == [('admin-user', identifier, True), ('admin-user', identifier, False)]
+
+
+def test_practice_list_hides_missing_and_archived_html(monkeypatch):
+    import webgal_backend.app as backend
+
+    rows = [
+        {'job_id': job_id, 'play_url': f'https://example.com/forge/{kind}/{job_id}/'}
+        for job_id, kind in [('game', 'play'), ('live', 'resources-play'),
+                             ('archived', 'resources-play'), ('missing', 'resources-play')]
+    ]
+    monkeypatch.setattr(backend, 'database_transaction', lambda: nullcontext(SimpleNamespace(
+        execute=lambda *args: None, fetchall=lambda: rows,
+    )))
+
+    def lookup(job_id):
+        if job_id == 'missing':
+            raise HTTPException(404)
+        return None, {'state': 'published' if job_id == 'live' else 'archived'}
+
+    monkeypatch.setattr(backend, 'get_html_resource', lookup)
+    response = TestClient(backend.app).get('/practice-tools')
+    assert response.status_code == 200
+    assert [row['job_id'] for row in response.json()['items']] == ['game', 'live']

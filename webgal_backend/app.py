@@ -94,7 +94,7 @@ from .site_visits import router as site_visits_router
 app.include_router(community_router)
 app.include_router(site_visits_router)
 
-from .html_resources import router as html_resources_router
+from .html_resources import get_resource as get_html_resource, router as html_resources_router
 # Specific admin paths must precede platform_admin's /admin/{resource} catch-all.
 app.include_router(html_resources_router)
 app.include_router(admin_router)
@@ -115,7 +115,20 @@ def list_practice_tools() -> dict[str, Any]:
               )
             ORDER BY w.published_at DESC,w.id DESC
         """)
-        return {"items": cursor.fetchall()}
+        rows = cursor.fetchall()
+    items = []
+    for row in rows:
+        if urlsplit(row["play_url"]).path.rstrip("/").endswith(f'/resources-play/{row["job_id"]}'):
+            try:
+                _, metadata = get_html_resource(row["job_id"])
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                continue
+            if metadata["state"] != "published":
+                continue
+        items.append(row)
+    return {"items": items}
 
 
 @app.middleware('http')

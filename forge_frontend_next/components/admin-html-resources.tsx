@@ -16,9 +16,9 @@ import { DataTable } from './ui/table';
 import { useToast } from './ui/toast';
 import styles from './admin-html-resources.module.css';
 
-export type HtmlResource = { created_at?: string; entry?: string; metadata_sync_error?: string; id: string; state: string; classification: Classification; cover_status?: string; cover_error?: string; cover_failed_assets?: number; payload: { featured?: boolean; summary?: string | null; title: string; subject: string; tags: string[]; playUrl: string; coverUrl?: string } };
+export type HtmlResource = { created_at?: string; entry?: string; metadata_sync_error?: string; id: string; state: string; is_practice_tool?: boolean; classification: Classification; cover_status?: string; cover_error?: string; cover_failed_assets?: number; payload: { featured?: boolean; summary?: string | null; title: string; subject: string; tags: string[]; playUrl: string; coverUrl?: string } };
 type Resource = HtmlResource;
-export type HtmlResourceListControls = { items: HtmlResource[]; loading: boolean; error: string; busy: boolean; revision: number; onEdit: (item: HtmlResource) => void; onFeature: (item: HtmlResource) => void; onPublication: (item: HtmlResource) => void };
+export type HtmlResourceListControls = { items: HtmlResource[]; loading: boolean; error: string; busy: boolean; revision: number; onEdit: (item: HtmlResource) => void; onFeature: (item: HtmlResource) => void; onPracticeTool: (item: HtmlResource) => void; onPublication: (item: HtmlResource) => void };
 const states: Record<string, string> = { saved: '待发布', publishing: '发布待确认', published: '已发布', archived: '已下架' };
 
 export default function AdminHtmlResources({ renderList }: { renderList?: (controls: HtmlResourceListControls) => ReactNode } = {}) {
@@ -52,6 +52,21 @@ export default function AdminHtmlResources({ renderList }: { renderList?: (contr
     } catch (reason) { notify(reason instanceof Error ? reason.message : '精选设置失败', 'error'); }
     finally { setBusy(''); setRevision(value => value + 1); }
   }
+  async function togglePracticeTool(item: Resource) {
+    setBusy(item.id);
+    try {
+      const result = await adminApi<{ is_practice_tool: boolean }>(`/html-resources/${item.id}/practice-tool`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !item.is_practice_tool }),
+      });
+      setItems(current => current.map(row => row.id === item.id ? { ...row, is_practice_tool: result.is_practice_tool } : row));
+      notify(result.is_practice_tool ? '已设为讲练工具' : '已移出讲练工具', 'success');
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : '讲练工具设置失败', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
   const [file, setFile] = useState<File | null>(null);
   const [items, setItems] = useState<Resource[]>([]);
   const [error, setError] = useState('');
@@ -60,12 +75,12 @@ export default function AdminHtmlResources({ renderList }: { renderList?: (contr
   const [busy, setBusy] = useState('');
   const pollCount = useRef(0);
   useEffect(() => {
-    if (!items.some(item => ['pending', 'generating'].includes(item.cover_status || '')) || pollCount.current >= 45) return;
+    if (busy || !items.some(item => ['pending', 'generating'].includes(item.cover_status || '')) || pollCount.current >= 45) return;
     const timer = setTimeout(() => {
       if (document.visibilityState === 'visible') { pollCount.current++; setRevision(value => value + 1); }
     }, 3000);
     return () => clearTimeout(timer);
-  }, [items, revision]);
+  }, [busy, items, revision]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
@@ -142,7 +157,7 @@ export default function AdminHtmlResources({ renderList }: { renderList?: (contr
       <UploadStatus pending={upload.pending} error={upload.error} message="正在保存资源并发布到广场，请勿关闭页面…" />
     </form>
     <div className={styles.listHeading}><h3>{renderList ? "教学资源" : "已上传资源"}</h3><Button onClick={() => setRevision(value => value + 1)} disabled={loading}>刷新列表</Button></div>
-    {renderList ? renderList({ items, loading, error, busy: !!busy || upload.pending || !taxonomy, revision, onEdit: openEditor, onFeature: item => void toggleFeatured(item), onPublication: item => void toggle(item) }) : <>
+    {renderList ? renderList({ items, loading, error, busy: !!busy || upload.pending || !taxonomy, revision, onEdit: openEditor, onFeature: item => void toggleFeatured(item), onPracticeTool: item => void togglePracticeTool(item), onPublication: item => void toggle(item) }) : <>
     {error && <InlineFeedback>{error}</InlineFeedback>}
     {loading ? <LoadingState>正在加载资源…</LoadingState> : items.length ? <div className={styles.table}><DataTable className="admin-table"><thead><tr><th>资源 · 点击编辑</th><th>学科 / 分类</th><th>发布状态</th><th>操作</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
       <td><button className={styles.resourceButton} disabled={!!busy || upload.pending || !taxonomy} onClick={() => openEditor(item)} aria-label={`编辑资源：${item.payload.title}`}>
@@ -152,7 +167,7 @@ export default function AdminHtmlResources({ renderList }: { renderList?: (contr
         {(item.cover_error || item.metadata_sync_error) && <small className={styles.coverError}>{item.metadata_sync_error || item.cover_error}</small>}
       </td><td>{[...new Set([item.payload.subject, ...item.payload.tags])].join(' · ')}</td>
       <td>{states[item.state] || item.state}{item.payload.featured && <small className={styles.featuredBadge}>精选</small>}</td>
-      <td><div className="admin-actions"><Button disabled={!!busy || upload.pending} onClick={() => void toggleFeatured(item)}>{item.payload.featured ? '取消精选' : '设为精选'}</Button>{['published', 'publishing'].includes(item.state) && <a className="btn outline" href={item.payload.playUrl} target="_blank" rel="noopener noreferrer">体验资源 ↗</a>}<Button busy={busy === item.id} disabled={!!busy || upload.pending} onClick={() => void toggle(item)}>{item.state === 'published' ? '下架' : '重试发布'}</Button></div></td>
+      <td><div className="admin-actions"><Button disabled={!!busy || upload.pending} onClick={() => void toggleFeatured(item)}>{item.payload.featured ? '取消精选' : '设为精选'}</Button>{item.state === 'published' && <Button disabled={loading || !!busy || upload.pending} onClick={() => void togglePracticeTool(item)}>{item.is_practice_tool ? '移出讲练工具' : '设为讲练工具'}</Button>}{['published', 'publishing'].includes(item.state) && <a className="btn outline" href={item.payload.playUrl} target="_blank" rel="noopener noreferrer">体验资源 ↗</a>}<Button busy={busy === item.id} disabled={!!busy || upload.pending} onClick={() => void toggle(item)}>{item.state === 'published' ? '下架' : '重试发布'}</Button></div></td>
     </tr>)}</tbody></DataTable></div> : !error && <EmptyState>还没有上传资源，发布你的第一个互动课堂。</EmptyState>}
     </>}
     <Dialog.Root open={!!editing} busy={!!busy} onOpenChange={open => { if (!open) setEditing(null); }}>
