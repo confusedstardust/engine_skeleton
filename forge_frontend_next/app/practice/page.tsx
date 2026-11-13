@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
+import { ConfirmDialog } from "../../components/ui/modal";
 import { forgeApi, ApiError } from "../../lib/api-client";
-import { workApi, type SavedWork } from "../../lib/work-api";
+import { workApi, type SavedWork, type PublicationForm } from "../../lib/work-api";
+import WorkPublishDialog from "./work-publish-dialog";
 import styles from "./practice.module.css";
 import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
@@ -29,9 +31,13 @@ export default function PracticePage() {
   const [activeTask, setActiveTask] = useState<BuildTask | null>(null);
   const [workPreviews, setWorkPreviews] = useState<Record<string, WorkPreviewData>>({});
   const [savingArtifactId, setSavingArtifactId] = useState<string | null>(null);
+  const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
+  const [revokeArtifactId, setRevokeArtifactId] = useState<string | null>(null);
+  const [publicationBusy, setPublicationBusy] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
+  const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
   const alive = useRef(true);
   const pending = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -62,6 +68,7 @@ export default function PracticePage() {
         kind: work.kind, version: version.version_number,
         workId: work.id, savedArtifactId: version.artifact_id,
         currentVersionId: version.id,
+        publicationStatus: work.publication_status, publicUrl: work.public_url,
       };
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
@@ -88,6 +95,7 @@ export default function PracticePage() {
           ...previous[artifactId], workId: saved.id, title: saved.title,
           savedArtifactId: artifactId, currentVersionId: version.id,
           version: version.version_number,
+          publicationStatus: saved.publication_status, publicUrl: saved.public_url,
         },
       }));
     } catch (err) {
@@ -95,6 +103,42 @@ export default function PracticePage() {
     } finally { setSavingArtifactId(null); }
   }
 
+
+  async function submitPublication(payload: PublicationForm) {
+    const item = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
+    if (!item?.workId || publicationBusy) return;
+    setPublicationBusy(true); setError("");
+    try {
+      const result = await workApi.publish(item.workId, payload);
+      if (!result.published) throw new Error("教师资源广场尚未确认发布");
+      setWorkPreviews(previous => ({
+        ...previous,
+        [item.artifactId]: {
+          ...previous[item.artifactId], title: payload.title,
+          publicationStatus: "published", publicUrl: result.public_url,
+        },
+      }));
+      setPublishArtifactId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "发布失败，请重试");
+    } finally { setPublicationBusy(false); }
+  }
+
+  async function revokePublication() {
+    const item = revokeArtifactId ? workPreviews[revokeArtifactId] : undefined;
+    if (!item?.workId || publicationBusy) return;
+    setPublicationBusy(true); setError("");
+    try {
+      await workApi.unpublish(item.workId);
+      setWorkPreviews(previous => ({
+        ...previous,
+        [item.artifactId]: { ...previous[item.artifactId], publicationStatus: "unpublished", publicUrl: null },
+      }));
+      setRevokeArtifactId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "撤回未完成，请重试");
+    } finally { setPublicationBusy(false); }
+  }
 
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
@@ -139,6 +183,8 @@ export default function PracticePage() {
           savedArtifactId: parentArtifact ? currentWork?.savedArtifactId : undefined,
           currentVersionId: parentArtifact ? currentWork?.currentVersionId : undefined,
           expectedParentArtifactId: parentArtifact || undefined,
+          publicationStatus: parentArtifact ? currentWork?.publicationStatus : "draft",
+          publicUrl: parentArtifact ? currentWork?.publicUrl : null,
         };
         generatedWork = { artifactId: work.artifactId, kind: work.kind, title: work.title, version: work.version };
         setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
@@ -189,7 +235,17 @@ export default function PracticePage() {
       {selectedWork && <WorkInspector work={selectedWork}
         onClose={() => setSelectedArtifactId(null)}
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
-        onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId} />}
+        onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
+        onPublish={id => setPublishArtifactId(id)}
+        onUnpublish={id => setRevokeArtifactId(id)}
+        publishing={publicationBusy} />}
     </div>
+    {publishWork && <WorkPublishDialog key={publishWork.artifactId} work={publishWork}
+      onClose={() => setPublishArtifactId(null)} busy={publicationBusy}
+      onSubmit={payload => { void submitPublication(payload); }} />}
+    <ConfirmDialog open={Boolean(revokeArtifactId)} title="撤回教师广场发布"
+      description="撤回后，已有公开链接也将无法继续访问作品。私有作品与版本记录会保留。"
+      busy={publicationBusy} onCancel={() => setRevokeArtifactId(null)}
+      onConfirm={() => { void revokePublication(); }} />
   </main>;
 }
