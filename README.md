@@ -1315,6 +1315,6 @@ npm run dev
 
 Admin 的「游戏」列表可将已发布到教师资源广场的作品设为讲练工具或移出。作品通过 `job_id` 关联共用 MySQL 中的 `teacher_works`，设置保存在 `is_practice_tool`，与广场精选独立。管理员写入使用 `PUT /api/forge/admin/games/{job_id}/practice-tool`，请求体为 `{"enabled":true}` 或 `{"enabled":false}`，保存成功后只更新对应行。
 
-首页打开「讲练工具」时请求 `GET /api/forge/practice-tools`，按发布时间倒序展示已发布、已标记且未被 Forge 下架的作品。取消发布或下架时隐藏，重新发布或恢复时沿用原标记。没有习题链接的作品只提供播放入口。
+教师资源广场右侧「讲练工具」在服务端请求 `GET /api/forge/practice-tools`，按发布时间倒序展示已发布、已标记且未被 Forge 下架的作品。取消发布或下架时隐藏，重新发布或恢复时沿用原标记。没有习题链接的作品只提供播放入口。
 
 部署前先在目标环境共用的 MySQL 中应用 linchangWeb 的 Prisma 迁移 `20261113000000_add_practice_tool_flag`，再部署 Forge 后端和工作台前端。发布后检查 Admin 设置与移出、首页按需加载，以及取消发布后隐藏和重新发布后恢复。

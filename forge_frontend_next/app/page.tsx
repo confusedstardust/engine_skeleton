@@ -3,7 +3,6 @@ import { useToast } from "../components/ui/toast";
 import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
 import { forgeApi as api } from "../lib/api-client";
 import type { Job } from "../domain/jobs";
-import PracticeToolsDialog from "../components/practice-tools-dialog";
 import BrandLogo from '../components/brand-logo';
 
 
@@ -363,7 +362,7 @@ type NarrativeScene = { id: string; title: string; description: string; icon: st
 
 const narrativeScenes: NarrativeScene[] = [
   { id: "classroom", title: "互动课堂", description: "完整生成适用于任何学科的互动游戏课堂", icon: "✦", ready: true, tone: "sun", image: ossImage("scene-interactive-classroom.png") },
-  { id: "practice", title: "讲练工具", description: "课堂辅助讲评练工具", icon: "⌁", ready: true, tone: "violet", image: ossImage("scene-practice-tools.png") },
+  { id: "practice", title: "讲练工具", description: "课堂辅助讲评练工具", icon: "⌁", tone: "violet", image: ossImage("scene-practice-tools.png") },
   { id: "visual", title: "画面设计", description: "一句提示词生成恰当的图片、人物与场景设计稿", icon: "◐", tone: "blue", image: ossImage("scene-visual-design.png") },
   { id: "outline", title: "创意大纲", description: "用一句话帮你确定想写的故事大纲", icon: "✎", tone: "rose", image: ossImage("scene-creative-outline.png") },
   { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: ossImage("scene-ip-narrative.png") },
@@ -376,16 +375,10 @@ function NarrativeRouterPage() {
   const router = useRouter();
   const openAnnouncements = useAnnouncements();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [practiceToolsOpen, setPracticeToolsOpen] = useState(false);
   const notify = useToast();
   const setNotice = (message: string) => notify(message, "info", 3000);
 
   function selectScene(scene: NarrativeScene) {
-    if (scene.id === "practice") {
-      setPickerOpen(false);
-      setPracticeToolsOpen(true);
-      return;
-    }
     if (scene.id === "assets") { router.push("/assets"); return; }
     if (scene.ready) { router.push("/?workspace=1"); return; }
     setNotice(`「${scene.title}」正在准备中，敬请期待。`);
@@ -410,7 +403,6 @@ function NarrativeRouterPage() {
       <article className="solution-card go"><img className="solution-cover" src={ossImage("solution-narrativeos-go.png")} alt="" /><span className="solution-shade" /><span>03</span><h3>NarrativeOS <b>Go</b></h3><p>适合政府、博物馆、文化产业的沉浸式互动数字孪生体验</p><button type="button" onClick={() => setNotice("NarrativeOS Go 的行业方案正在筹备中。")}>了解解决方案 <i>→</i></button></article>
     </div></section>
     <CommunityBoard />
-    {practiceToolsOpen && <PracticeToolsDialog onClose={() => setPracticeToolsOpen(false)} />}
     {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><button className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭">×</button></div><div className="scene-grid">{narrativeScenes.map((scene) => <button className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</button>)}</div></section></ModalBody></div></ModalFrame>}
   </main>;
 }
