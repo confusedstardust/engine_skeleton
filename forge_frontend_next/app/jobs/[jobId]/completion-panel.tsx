@@ -1,9 +1,14 @@
 'use client';
 
+
+
+import { Button } from '../../../components/ui/button';
+import { ImagePreview } from "../../../components/ui/image-preview";
 import { useToast } from '../../../components/ui/toast';
 import { forgeApi as api } from '../../../lib/api-client';
 import type { QuizResponse } from '../../../domain/quiz';
 
+import { useWorkActions, workTitle, workIsBuilding } from '../../../hooks/use-work-actions';
 import type { Job } from '../../../domain/jobs';
 
 import { useConfirmation } from '../../../components/ui/modal';
@@ -13,54 +18,29 @@ import { PublishedFlowModal } from '../../../components/published-flow-modal';
 
 import { withBasePath } from '../../base-path';
 
-type PublicationResponse = {
-  published: boolean;
-  work?: {
-    title: string;
-    playUrl: string;
-  };
-};
-
 export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolean; editDraft: () => void }) {
   const [flowOpen, setFlowOpen] = useState(false);
-  const [publication, setPublication] = useState<PublicationResponse | null>(null);
   const [quiz, setQuiz] = useState<QuizResponse | null>(null);
-  const [publicationBusy, setPublicationBusy] = useState(false);
   const notify = useToast();
-  const [gameTitle, setGameTitle] = useState(
-    props.job.title?.trim() ||
-      String(props.job.options?.classroom_topic || '').trim() ||
-      props.job.source_material?.split(/\r?\n/)[0]?.trim() ||
-      '未命名游戏',
-  );
+  const actions = useWorkActions({ confirm: useConfirmation(), notify });
+  const publication = actions.publications[props.job.id];
+  const publicationBusy = actions.busy?.action === 'publication';
+  const titleBusy = actions.busy?.action === 'title';
+  const [gameTitle, setGameTitle] = useState(workTitle(props.job));
   const [titleDraft, setTitleDraft] = useState(gameTitle);
   const [titleEditing, setTitleEditing] = useState(false);
-  const confirm = useConfirmation();
-  const [titleBusy, setTitleBusy] = useState(false);
-  const [titleMessage, setTitleMessage] = useState('');
+  const titleMessage = actions.errors[`${props.job.id}:title`] || '';
+  const currentJobId = useRef(props.job.id);
+  currentJobId.current = props.job.id;
   const titleCancelRef = useRef(false);
+  const { loadPublication } = actions;
+  const { id, status, has_published_build } = props.job;
+  useEffect(() => { void loadPublication({ id, status, has_published_build }); }, [loadPublication, id, status, has_published_build]);
+  const incomingTitle = workTitle(props.job);
   useEffect(() => {
-    let active = true;
-    api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`)
-      .then((value) => {
-        if (active) setPublication(value);
-      })
-      .catch(() => {
-        if (active) setPublication(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [props.job.id]);
-  useEffect(() => {
-    const nextTitle =
-      props.job.title?.trim() ||
-      String(props.job.options?.classroom_topic || '').trim() ||
-      props.job.source_material?.split(/\r?\n/)[0]?.trim() ||
-      '未命名游戏';
-    setGameTitle(nextTitle);
-    setTitleDraft(nextTitle);
-  }, [props.job.id, props.job.options?.classroom_topic, props.job.source_material, props.job.title]);
+    setGameTitle(incomingTitle);
+    setTitleDraft(incomingTitle);
+  }, [id, incomingTitle]);
   useEffect(() => {
     let active = true;
     api<QuizResponse>(`/jobs/${props.job.id}/quiz`)
@@ -74,64 +54,21 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
       active = false;
     };
   }, [props.job.id]);
-  const publishToEcosystem = async () => {
-    setPublicationBusy(true);
-    try {
-      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      setPublication(value);
-      notify('发布成功，作品已经出现在教师资源广场中。', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : '发布失败，请稍后重试。', 'error');
-    } finally {
-      setPublicationBusy(false);
-    }
-  };
-  const removeFromEcosystem = async () => {
-    if (!(await confirm('确定从教师资源广场中取消发布吗？游戏本身不会被删除。'))) return;
-    setPublicationBusy(true);
-    try {
-      const value = await api<PublicationResponse>(`/jobs/${props.job.id}/ecosystem-publication`, { method: 'DELETE' });
-      setPublication(value);
-      notify('已从教师资源广场中取消发布。', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : '取消发布失败，请稍后重试。', 'error');
-    } finally {
-      setPublicationBusy(false);
-    }
-  };
+  const publishToEcosystem = () => { void actions.changePublication(props.job); };
+  const removeFromEcosystem = () => { void actions.changePublication(props.job, true); };
   const saveGameTitle = async () => {
-    const title = titleDraft.trim();
-    if (!title) {
-      setTitleDraft(gameTitle);
+    const updated = await actions.rename(props.job, titleDraft);
+    if (updated && updated.id === currentJobId.current) {
+      const title = workTitle(updated);
+      setGameTitle(title);
+      setTitleDraft(title);
       setTitleEditing(false);
-      setTitleMessage('');
-      return;
-    }
-    setTitleBusy(true);
-    setTitleMessage('');
-    try {
-      const value = await api<{ job: Job }>(`/jobs/${props.job.id}/title`, {
-        method: 'PUT',
-        body: JSON.stringify({ title }),
-      });
-      const savedTitle = value.job.title?.trim() || title;
-      setGameTitle(savedTitle);
-      setTitleDraft(savedTitle);
-      setTitleEditing(false);
-      setTitleMessage('');
-    } catch (error) {
-      setTitleMessage(error instanceof Error ? error.message : '游戏名称保存失败');
-    } finally {
-      setTitleBusy(false);
     }
   };
   const state = props.job.build_state || 'CURRENT';
   const failed = state === 'FAILED';
   const stale = state === 'STALE' || failed;
-  const building = state === 'BUILDING' || props.job.status === 'RUNNING' || props.job.status === 'QUEUED';
+  const building = workIsBuilding(props.job);
   return (
     <section className="completion-panel" aria-labelledby="completion-title">
       <div className="completion-game-title">
@@ -142,6 +79,7 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
               maxLength={160}
               autoFocus
               aria-label="游戏名称"
+              disabled={building || Boolean(actions.busy)}
               onChange={(event) => setTitleDraft(event.target.value)}
               onBlur={() => {
                 if (titleCancelRef.current) {
@@ -156,7 +94,7 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
                   titleCancelRef.current = true;
                   setTitleDraft(gameTitle);
                   setTitleEditing(false);
-                  setTitleMessage('');
+                  actions.clearError(props.job.id, 'title');
                   event.currentTarget.blur();
                 }
               }}
@@ -165,13 +103,14 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
         ) : (
           <div className="completion-title-display">
             <strong>{gameTitle}</strong>
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-label="修改游戏名称"
+              disabled={building || Boolean(actions.busy)}
               title="修改游戏名称"
               onClick={() => {
                 setTitleEditing(true);
-                setTitleMessage('');
+                actions.clearError(props.job.id, 'title');
               }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -181,14 +120,15 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
                   d="m13.15 5.15 5.7 5.7L9.2 20.5l-5.7 1 1-5.7 9.65-10.65Zm1.42-1.42 2.16-2.16a2 2 0 0 1 2.83 0l2.87 2.87a2 2 0 0 1 0 2.83l-2.16 2.16-5.7-5.7Z"
                 />
               </svg>
-            </button>
+            </Button>
           </div>
         )}
         {titleMessage ? <small role="status">{titleMessage}</small> : null}
       </div>
       <div className="completion-cover">
-        <img
-          src={withBasePath(`/play/${props.job.id}/cover?revision=${props.job.published_revision ?? 0}`)}
+        <ImagePreview
+          src={withBasePath(`/play/${props.job.id}/cover?revision=${props.job.published_revision ?? 0}&cover=${props.job.cover_revision ?? 0}`)}
+          fallback="无封面"
           alt="当前游戏封面"
         />
       </div>
@@ -216,34 +156,35 @@ export function CompletionPanel(props: { job: Job; playUrl: string; busy: boolea
           开始游戏
         </a>
         <div className="publication-actions">
-          <button
-            className="btn ecosystem-publish"
+          <Button
+            variant="outline" className="ecosystem-publish"
             type="button"
-            disabled={building || publicationBusy}
+            busy={Boolean(publicationBusy)} disabled={building || Boolean(actions.busy) || !publication}
             onClick={publishToEcosystem}
           >
-            {publicationBusy ? '正在处理…' : publication?.published ? '更新发布' : '发布'}
-          </button>
+            {publicationBusy ? '正在处理…' : !publication ? '读取发布状态…' : publication.published ? '更新发布' : '发布'}
+          </Button>
+          {actions.errors[`${props.job.id}:publication`] && <Button variant="outline" disabled={Boolean(actions.busy)} onClick={() => void actions.loadPublication(props.job)}>重试发布状态</Button>}
           {publication?.published ? (
-            <button
+            <Button variant="unstyled"
               className="publication-remove"
               type="button"
-              disabled={publicationBusy}
+              disabled={building || Boolean(actions.busy)}
               onClick={removeFromEcosystem}
             >
               取消生态发布
-            </button>
+            </Button>
           ) : null}
         </div>
-        <button className="btn outline" type="button" disabled={building || props.busy} onClick={props.editDraft}>
+        <Button variant="outline" type="button" busy={Boolean(props.busy)} disabled={building || props.busy} onClick={props.editDraft}>
           编辑
-        </button>
+        </Button>
         <Link className="btn outline" href={`/practice/${props.job.id}`}>
           {quiz?.quiz || quiz?.status === 'READY' ? '打开习题' : '生成习题'}
         </Link>
-        <button className="btn outline" type="button" onClick={() => setFlowOpen(true)}>
+        <Button variant="outline" type="button" onClick={() => setFlowOpen(true)}>
           流程图
-        </button>
+        </Button>
       </div>
       {flowOpen && <PublishedFlowModal job={props.job} onClose={() => setFlowOpen(false)} />}
     </section>

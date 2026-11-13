@@ -1,4 +1,6 @@
 "use client";
+import { Button } from './ui/button';
+
 import BrandLogo from './brand-logo';
 
 
@@ -40,7 +42,7 @@ export default function SiteFooter() {
         <nav aria-label="页脚导航">
           <a href={casesHref}>优质案例</a>
           <Link href="/#community" scroll={false} onClick={event => scrollTo(event, "community")}>Q&amp;A</Link>
-          <button type="button" onClick={openAnnouncements}>公告</button>
+          <Button variant="unstyled" type="button" onClick={openAnnouncements}>公告</Button>
         </nav>
         <div className="site-footer-legal"><a href="https://beian.miit.gov.cn" target="_blank" rel="noopener noreferrer"><span aria-hidden="true" />津ICP备2025028636号-2</a><small>© 2026 NarrativeOS</small></div>
       </div>

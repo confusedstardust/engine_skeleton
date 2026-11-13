@@ -4,8 +4,18 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import styles from '@/Stage/FullScreenPerform/fullScreenPerform.module.scss';
 import { WebGAL } from '@/Core/WebGAL';
+import { compileSentence, type EnhancedNode } from '@/Core/parser/compileSentence';
 import useEscape from '@/hooks/useEscape';
+import { css } from '@emotion/css';
 import { getBooleanArgByKey, getNumberArgByKey, getStringArgByKey } from '../util/getSentenceArg';
+
+export function compileIntroLines(content: string): EnhancedNode[][] {
+  return content.split(/(?<!\\)\|/).map(line => {
+    if (/\[[^\[\]]*\]\([^()]*\)/.test(line)) return compileSentence(line, 0, true, false)[0];
+    const text = useEscape(line);
+    return [{ reactNode: text, plainText: text }];
+  });
+}
 /**
  * 显示一小段黑屏演示
  * @param sentence
@@ -68,7 +78,7 @@ export const intro = (sentence: ISentence): IPerform => {
     width: '100%',
     height: '100%',
   };
-  const introArray: Array<string> = sentence.content.split(/(?<!\\)\|/).map((val: string) => useEscape(val));
+  const introArray = compileIntroLines(sentence.content);
 
   let endWait = 1000;
   let baseDuration = endWait + delayTime * introArray.length;
@@ -149,10 +159,15 @@ export const intro = (sentence: ISentence): IPerform => {
     <div
       key={'introtext' + i + Math.random().toString()}
       style={{ animationDelay: `${delayTime * i}ms` }}
-      className={chosenAnimationClass}
+      className={`${chosenAnimationClass}${e.some(node => node.manualRuby) ? ` ${styles.rubyLine}` : ''}`}
     >
-      {e}
-      {e === '' ? '\u00a0' : ''}
+      {e.map((node, index) => {
+        const values = node.enhancedValue ?? [];
+        const inlineStyle = values.filter(value => value.key === 'style' || value.key === 'style-alltext').map(value => value.value).join(';');
+        const tips = values.find(value => value.key === 'tips')?.value;
+        return <span key={index} className={inlineStyle ? css(inlineStyle) : undefined} title={tips}>{node.reactNode}</span>;
+      })}
+      {e.every(node => !node.plainText) ? '\u00a0' : ''}
     </div>
   ));
   const intro = (

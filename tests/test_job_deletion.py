@@ -1,4 +1,5 @@
 import io
+from contextlib import nullcontext
 from urllib.error import HTTPError
 
 import pytest
@@ -14,6 +15,8 @@ def task(tmp_path, monkeypatch):
     job = store.create("test", {}, {"type": "sso", "user_id": "owner"})
     monkeypatch.setattr(backend, "store", store)
     monkeypatch.setattr(backend, "_identity_from_request", lambda request: {"type": "sso", "user_id": "owner"})
+    monkeypatch.setattr(backend.classroom_quiz, "has_assignments", lambda job_id: False)
+    monkeypatch.setattr(backend.classroom_quiz, 'job_guard', lambda job_id: nullcontext())
     monkeypatch.delenv("TEACHER_ECOSYSTEM_API_URL", raising=False)
     return store, job
 
@@ -30,6 +33,16 @@ def test_delete_hides_task_and_blocks_stale_writes_and_play(task):
     with pytest.raises(HTTPException) as error:
         backend.play_game_with_slash(job["id"])
     assert error.value.status_code == 404
+
+
+def test_classroom_exercises_block_deletion_before_unpublishing(task, monkeypatch):
+    store, job = task
+    monkeypatch.setattr(backend.classroom_quiz, 'has_assignments', lambda job_id: True)
+    monkeypatch.setattr(backend, 'unpublish_work', lambda *args: pytest.fail('must not unpublish'))
+    with pytest.raises(HTTPException) as error:
+        backend.delete_owned_job(job['id'], None)
+    assert error.value.status_code == 409
+    assert store.get(job['id'])
 
 
 @pytest.mark.parametrize("status,build", [("RUNNING", "NONE"), ("QUEUED", "NONE"), ("DONE", "BUILDING")])

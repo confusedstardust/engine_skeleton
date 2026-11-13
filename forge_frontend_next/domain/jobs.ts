@@ -7,6 +7,7 @@ export type Job = {
   source_material?: string;
   draft_revision?: number;
   published_revision?: number;
+  cover_revision?: number;
   build_state?: "NONE" | "DRAFT" | "CURRENT" | "STALE" | "BUILDING" | "FAILED";
   dirty_scopes?: string[];
   has_published_build?: boolean;

@@ -1,8 +1,11 @@
 'use client';
+import { Spinner } from '../../../components/ui/state';
+
+import { Button } from '../../../components/ui/button';
 export function LoadingPlaceholder({ title, brief }: { title: string; brief: string }) {
   return (
     <div className="node-placeholder loading">
-      <div className="pending-spinner" aria-hidden="true" />
+      <Spinner as="div"  aria-hidden="true" />
       <strong>{title}</strong>
       <span>{brief}</span>
     </div>
@@ -23,10 +26,10 @@ export function FailedPlaceholder(props: {
       </span>
       <strong>{props.title}</strong>
       <span>{props.brief}</span>
-      <button className="btn primary retry-action" type="button" disabled={props.busy} onClick={props.action}>
+      <Button variant="primary" className="retry-action" type="button" busy={Boolean(props.busy)} onClick={props.action}>
         <span aria-hidden="true">↻</span>
         {props.busy ? '正在重试...' : props.actionLabel}
-      </button>
+      </Button>
     </div>
   );
 }

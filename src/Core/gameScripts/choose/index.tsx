@@ -14,6 +14,7 @@ import useApplyStyle from '@/hooks/useApplyStyle';
 import { Provider } from 'react-redux';
 import { useFontFamily } from '@/hooks/useFontFamily';
 import { getNumberArgByKey } from '@/Core/util/getSentenceArg';
+import { ChoiceText, hasChoiceMarkup } from './ChoiceText';
 
 class ChooseOption {
   /**
@@ -139,9 +140,9 @@ function Choose(props: { chooseOptions: ChooseOption[] }) {
             }
           : () => {};
         return (
-          <div className={applyStyle('Choose_item_outer', styles.Choose_item_outer)} key={e.jump + i}>
-            <div className={className} style={{ fontFamily: font }} onClick={onClick} onMouseEnter={playSeEnter}>
-              {e.text}
+          <div className={`${applyStyle('Choose_item_outer', styles.Choose_item_outer)}${hasChoiceMarkup(e.text) ? ` ${styles.rubyOptionOuter}` : ''}`} key={e.jump + i}>
+            <div className={`${className}${hasChoiceMarkup(e.text) ? ` ${styles.rubyOption}` : ''}`} style={{ fontFamily: font }} onClick={onClick} onMouseEnter={playSeEnter}>
+              <ChoiceText text={e.text} />
             </div>
           </div>
         );

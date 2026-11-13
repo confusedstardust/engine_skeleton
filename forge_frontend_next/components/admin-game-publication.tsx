@@ -1,10 +1,13 @@
 "use client";
+import { InlineFeedback } from './ui/feedback';
+
+import { Button } from './ui/button';
 import { useToast } from "./ui/toast";
 import { adminApi } from "../lib/api-client";
 
 import { useEffect, useState } from "react";
 
-type Publication = { published: boolean; work?: { title: string }; owner_user_id?: string };
+type Publication = { published: boolean; work?: { title: string; featured?: boolean }; owner_user_id?: string };
 
 export default function AdminGamePublication({ jobId, canPublish, blocked, plazaPublished, isPracticeTool }: { jobId: string; canPublish: boolean; blocked: boolean; plazaPublished: boolean; isPracticeTool: boolean }) {
   const notify = useToast();
@@ -57,18 +60,30 @@ export default function AdminGamePublication({ jobId, canPublish, blocked, plaza
   }
 
   const practiceAction = (publication?.published ?? plazaPublished) && (
-    <button className="btn outline" type="button" disabled={busy || practiceBusy} onClick={() => void togglePracticeTool()}>
+    <Button variant="outline" type="button" disabled={busy || practiceBusy} onClick={() => void togglePracticeTool()}>
       {practiceBusy ? "正在保存…" : practiceTool ? "移出讲练工具" : "设为讲练工具"}
-    </button>
+    </Button>
   );
 
-  if (revision === 0) return <>{practiceAction}<button className="btn outline" type="button" onClick={() => setRevision(1)}>查询广场发布状态</button></>;
-  if (loading) return <>{practiceAction}<button className="btn outline" type="button" disabled>正在查询教师资源广场…</button></>;
-  if (!publication) return <>{practiceAction}<p role="alert">{error}</p><button className="btn outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</button></>;
+  async function toggleFeatured() {
+    if (!publication?.published || busy) return;
+    setBusy(true); setError("");
+    try {
+      const data = await adminApi<Publication>(url, { method: "PATCH", body: JSON.stringify({ featured: !publication.work?.featured }) });
+      setPublication(data);
+      notify(data.work?.featured ? "游戏已设为精选" : "已取消游戏精选", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "精选设置失败，请重新查询", "error"); }
+    finally { setBusy(false); }
+  }
+
+  if (revision === 0) return <>{practiceAction}<Button variant="outline" type="button" onClick={() => setRevision(1)}>查询广场发布状态</Button></>;
+  if (loading) return <>{practiceAction}<Button variant="outline" type="button" disabled>正在查询教师资源广场…</Button></>;
+  if (!publication) return <>{practiceAction}<InlineFeedback >{error}</InlineFeedback><Button variant="outline" type="button" title={error} onClick={() => setRevision(value => value + 1)}>重试教师资源广场状态</Button></>;
   const disabled = busy || practiceBusy || (!publication.published && !canPublish);
   const unavailableReason = blocked ? "作品已下架，请先恢复作品再发布" : "作品尚未生成可播放版本，暂时不能发布";
-  return <>{practiceAction}<button
-    className={`btn ${publication.published ? "outline" : "primary"}`}
+  return <>{practiceAction}<Button
+    variant={publication.published ? "outline" : "primary"}
+    busy={busy}
     type="button"
     disabled={disabled}
     title={error || ((!publication.published && !canPublish) ? unavailableReason : undefined)}
@@ -76,5 +91,5 @@ export default function AdminGamePublication({ jobId, canPublish, blocked, plaza
     onClick={() => void togglePublication()}
   >
     {busy ? "正在处理…" : publication.published ? "取消发布教师资源广场" : "发布到教师资源广场"}
-  </button></>;
+  </Button>{publication.published && <Button type="button" disabled={busy || practiceBusy || (blocked && !publication.work?.featured)} aria-pressed={!!publication.work?.featured} onClick={() => void toggleFeatured()}>{publication.work?.featured ? "取消精选" : "设为精选"}</Button>}</>;
 }

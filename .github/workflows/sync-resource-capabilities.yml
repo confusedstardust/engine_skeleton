@@ -1,0 +1,58 @@
+name: sync-resource-capabilities
+on:
+  workflow_dispatch:
+    inputs:
+      resource_id:
+        description: Existing resource ID whose packaged manifest should be re-read
+        required: true
+        type: string
+      apply:
+        description: Apply after dry-run (creates metadata backup)
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: resource-capabilities-maintenance
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate resource ID
+        env:
+          RESOURCE_ID: ${{ inputs.resource_id }}
+        run: '[[ "$RESOURCE_ID" =~ ^[a-f0-9]{32}$ ]]'
+      - uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: deploy/sync_resource_capabilities.py
+          target: ${{ secrets.DEPLOY_PATH }}
+      - uses: appleboy/ssh-action@v1.0.3
+        env:
+          RESOURCE_ID: ${{ inputs.resource_id }}
+          APPLY: ${{ inputs.apply }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: RESOURCE_ID,APPLY
+          script: |
+            set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            echo "$RESOURCE_ID" | grep -Eq '^[a-f0-9]{32}$'
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            else
+              COMPOSE_CMD="docker-compose"
+            fi
+            set -a
+            . ./.deploy-images.env
+            set +a
+            FLAG=""
+            if [ "$APPLY" = "true" ]; then FLAG="--apply"; fi
+            $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml exec -T backend python - "$RESOURCE_ID" $FLAG < deploy/sync_resource_capabilities.py

@@ -1,4 +1,6 @@
 "use client";
+import { Button } from './ui/button';
+
 
 import { useEffect, useMemo, useState } from "react";
 import { ReactFlow, Background, Controls, Handle, MiniMap, Position, MarkerType, useNodesState, type ReactFlowInstance, type NodeProps, type Node, type Edge } from "@xyflow/react";
@@ -193,9 +195,9 @@ export function StoryFlowView({ graph, viewportVersion = 0, fullscreen = false, 
   return <section className="story-flow">
     <div className="story-flow-toolbar">
       <div className="story-flow-view-switch" aria-label="流程图查看方式">
-        <button type="button" className={viewMode === "reading" ? "active" : ""} onClick={focusReading}>聚焦阅读</button>
-        <button type="button" className={viewMode === "overview" ? "active" : ""} onClick={showOverview}>全图总览</button>
-        <button type="button" onClick={resetLayout}>恢复排列</button>
+        <Button variant="unstyled" type="button" className={viewMode === "reading" ? "active" : ""} onClick={focusReading}>聚焦阅读</Button>
+        <Button variant="unstyled" type="button" className={viewMode === "overview" ? "active" : ""} onClick={showOverview}>全图总览</Button>
+        <Button variant="unstyled" type="button" onClick={resetLayout}>恢复排列</Button>
       </div>
       <div className="story-flow-legend"><span><i className="route" />主干</span><span><i className="secondary" />其他跳转</span><span><i className="ending" />结局</span><span><i className="return" />循环</span></div>
       <small>连线自动吸附四个方向 · 点击场景查看相关路线</small>
@@ -232,7 +234,7 @@ export function StoryFlowView({ graph, viewportVersion = 0, fullscreen = false, 
           fitViewOptions={{ padding: 0.16, duration: 300 }}
           onFitView={() => setViewMode("overview")}
         >
-          {onToggleFullscreen && <button
+          {onToggleFullscreen && <Button variant="unstyled"
             className="react-flow__controls-button story-flow-fullscreen-control"
             type="button"
             aria-label={fullscreen ? "退出全屏" : "全屏查看流程图"}
@@ -245,7 +247,7 @@ export function StoryFlowView({ graph, viewportVersion = 0, fullscreen = false, 
             ) : (
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" /></svg>
             )}
-          </button>}
+          </Button>}
         </Controls>
       </ReactFlow>
       {optionText && <div className="story-flow-option" role="status">{optionText}</div>}

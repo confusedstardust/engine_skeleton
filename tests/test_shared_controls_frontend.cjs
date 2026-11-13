@@ -134,12 +134,14 @@ test('pagination preserves boundaries, loading state, and offset adapters', () =
 });
 
 test('preview renders lazy images, playable audio, and noninteractive audio inside selectable options', () => {
+  const SharedImage = () => null;
   const { AssetPreview } = loadFrontendTs('forge_frontend_next/components/assets/asset-preview.tsx', {
+    '../ui/image-preview': { ImagePreview: SharedImage },
     './audio-preview': { AudioPreview: () => null },
   });
   const base = { url: '/file', name: 'preview' };
   const imageNode = AssetPreview({ asset: { ...base, mime_type: 'image/png' }, decorative: true });
-  assert.equal(imageNode.type, 'img');
+  assert.equal(imageNode.type, SharedImage);
   assert.equal(imageNode.props.alt, '');
   assert.equal(imageNode.props.loading, 'lazy');
   const selectable = AssetPreview({
@@ -153,10 +155,59 @@ test('preview renders lazy images, playable audio, and noninteractive audio insi
 });
 
 test('tooltips keep enabled button as trigger and wrap disabled buttons for keyboard access', () => {
-  const { ActionHint } = loadFrontendTs('forge_frontend_next/components/ui/action-hint.tsx');
+  const cache = new Map();
+  const { ActionHint } = loadFrontendTs('forge_frontend_next/components/ui/action-hint.tsx', {}, cache);
+  const { Button } = loadFrontendTs('forge_frontend_next/components/ui/button.tsx', {}, cache);
   const enabled = React.createElement('button', { disabled: false }, 'run');
   const disabled = React.createElement('button', { disabled: true }, 'run');
   assert.equal(all(ActionHint({ text: 'hint', children: enabled }), 'span').length, 0);
   assert.equal(all(ActionHint({ text: 'hint', children: disabled }), 'span')[0].props.tabIndex, 0);
   assert.equal(ActionHint({ children: enabled }).props.children, enabled);
+  const shared = React.createElement(Button, {}, 'run');
+  assert.equal(all(ActionHint({ text: 'hint', children: shared }), 'span').length, 0);
+  for (const state of [{ disabled: true }, { busy: true }, { 'aria-busy': 'true' }]) {
+    const blocked = React.createElement(Button, state, 'run');
+    assert.equal(all(ActionHint({ text: 'hint', children: blocked }), 'span')[0].props.tabIndex, 0);
+  }
+});
+
+
+test('shared image replaces failed resources and keys loading state by image address', () => {
+  const harness = hookHarness();
+  const { ImagePreview } = loadFrontendTs('forge_frontend_next/components/ui/image-preview.tsx', { react: { ...React, ...harness.react } });
+  const first = ImagePreview({ src: '/old.webp', alt: 'cover', fallback: '无封面' });
+  let rendered = harness.render(() => first.type(first.props));
+  assert.equal(rendered.type, 'img');
+  rendered.props.onError({});
+  rendered = harness.render(() => first.type(first.props));
+  assert.equal(rendered.type, 'span');
+  assert.equal(rendered.props.children, '无封面');
+  const next = ImagePreview({ src: '/new.webp', fallback: '无封面' });
+  assert.notEqual(next.key, first.key);
+  const fresh = hookHarness();
+  const image = loadFrontendTs('forge_frontend_next/components/ui/image-preview.tsx', { react: { ...React, ...fresh.react } }).ImagePreview({ src: '/new.webp' });
+  assert.equal(fresh.render(() => image.type(image.props)).type, 'img');
+});
+
+
+test('Button defaults to non-submit and centralizes busy, disabled, style and forwarded refs', () => {
+  const { Button } = loadFrontendTs('forge_frontend_next/components/ui/button.tsx');
+  const ref = React.createRef();
+  const defaults = Button.render({ children: '关闭' }, ref);
+  assert.equal(defaults.type, 'button');
+  assert.equal(defaults.props.type, 'button');
+  assert.equal(defaults.props.className, 'btn outline');
+  assert.equal(defaults.props.ref, ref);
+  const busy = Button.render({ type: 'submit', variant: 'primary', busy: true, disabled: false, className: 'custom' }, ref);
+  assert.equal(busy.props.disabled, true);
+  assert.equal(busy.props['aria-busy'], true);
+  assert.equal(busy.props.type, 'submit');
+  assert.equal(busy.props.className, 'btn primary custom');
+  assert.equal(busy.props.children.props.children[0].props.size, 'sm');
+  assert.equal(busy.props.children.props.children[0].props.tone, 'current');
+  const compact = Button.render({ size: 'sm', iconOnly: true, 'aria-label': '播放' }, ref);
+  assert.equal(compact.props['data-size'], 'sm');
+  assert.equal(compact.props['data-icon-only'], true);
+  assert.equal(Button.render({ disabled: true }, ref).props.disabled, true);
+  assert.equal(Button.render({ 'aria-busy': 'true' }, ref).props.disabled, true);
 });

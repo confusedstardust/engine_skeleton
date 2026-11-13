@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { MetricCard } from './ui/metric-card';
 
 type InspectorStat = {
   label: string;
@@ -27,10 +28,7 @@ export function LaperInspectorShell(props: LaperInspectorShellProps) {
       {props.stats && props.stats.length > 0 && (
         <div className="laper-stats">
           {props.stats.map((item) => (
-            <div className="laper-stat-card" key={item.label}>
-              <strong>{item.value}</strong>
-              <span>{item.label}</span>
-            </div>
+            <MetricCard key={item.label} variant="compact" label={item.label} value={item.value} />
           ))}
         </div>
       )}

@@ -1,4 +1,6 @@
 "use client";
+import { Button } from './ui/button';
+
 import * as Dialog from "./ui/dialog";
 
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
@@ -223,12 +225,12 @@ export function OnboardingTour() {
             <Dialog.Title asChild><h2 id="onboarding-title">{step.title}</h2></Dialog.Title>
             <Dialog.Description asChild><p id="onboarding-description">{step.body}</p></Dialog.Description>
             <div className="onboarding-actions">
-              <button className="onboarding-skip" type="button" onClick={closeTour}>跳过引导</button>
+              <Button variant="unstyled" className="onboarding-skip" type="button" onClick={closeTour}>跳过引导</Button>
               <span>{stepIndex + 1} / {steps.length}</span>
-              {stepIndex > 0 && <button className="onboarding-prev" type="button" onClick={() => setStepIndex((current) => current - 1)}>上一步</button>}
-              <button className="onboarding-next" type="button" onClick={nextStep}>
+              {stepIndex > 0 && <Button variant="unstyled" className="onboarding-prev" type="button" onClick={() => setStepIndex((current) => current - 1)}>上一步</Button>}
+              <Button variant="unstyled" className="onboarding-next" type="button" onClick={nextStep}>
                 {stepIndex === steps.length - 1 ? "开始创作" : "下一步"}
-              </button>
+              </Button>
             </div>
             </div></Dialog.Content>
           </div></Dialog.Portal></Dialog.Root>
@@ -236,10 +238,10 @@ export function OnboardingTour() {
       )}
 
       {!open && (
-        <button className="onboarding-restart" type="button" onClick={restartTour} aria-label="重新打开新手引导">
+        <Button variant="unstyled" className="onboarding-restart" type="button" onClick={restartTour} aria-label="重新打开新手引导">
           <span aria-hidden="true">?</span>
           新手引导
-        </button>
+        </Button>
       )}
     </>
   );

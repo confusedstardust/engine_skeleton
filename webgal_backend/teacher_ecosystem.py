@@ -9,6 +9,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .storage import read_json
+from .title_cover import local_title_cover
 
 
 class TeacherEcosystemError(RuntimeError):
@@ -124,18 +125,10 @@ def _read_optional_json(path: Path) -> dict[str, Any]:
 
 
 def _cover_url(root: str, job_id: str, job_dir: Path) -> str | None:
-    background_dir = job_dir / "public" / "game" / "background"
-    if not background_dir.exists():
+    cover = local_title_cover(job_dir / "public" / "game")
+    if cover is None:
         return None
-    candidates = sorted(
-        path.name
-        for path in background_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    )
-    if not candidates:
-        return None
-    preferred = next((name for name in candidates if name.lower().startswith(("title", "bg_start", "bg_"))), candidates[0])
-    return f"{root}/play/{job_id}/game/background/{quote(preferred)}"
+    return f"{root}/play/{job_id}/game/background/{quote(cover.name)}"
 
 
 def _subject_from_grade(grade: str | None) -> str | None:
@@ -143,3 +136,12 @@ def _subject_from_grade(grade: str | None) -> str | None:
         return None
     subjects = ["语文", "数学", "英语", "历史", "地理", "物理", "化学", "生物", "道德与法治", "信息科技", "科学"]
     return next((subject for subject in subjects if subject in grade), None)
+
+
+def update_work_cover(owner_user_id: str, job_id: str, cover_url: str) -> dict[str, Any]:
+    return _request("PATCH", payload={"ownerUserId": owner_user_id, "jobId": job_id, "coverUrl": cover_url})
+
+
+def update_work_details(payload: dict[str, Any]) -> dict[str, Any]:
+    keys = ('ownerUserId', 'jobId', 'title', 'summary', 'subject', 'grade', 'tags', 'featured')
+    return _request("PATCH", payload={key: payload[key] for key in keys if key in payload})

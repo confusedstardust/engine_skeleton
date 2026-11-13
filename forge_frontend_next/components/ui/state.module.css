@@ -1,0 +1,13 @@
+:where(.state) { padding:32px 20px; text-align:center; color:var(--ink-muted,#6b6460); font-size:13px; line-height:1.8; }
+:where(.state) > strong { color:var(--ink,#1a1a1a); }
+.actions { display:flex; justify-content:center; gap:10px; margin-top:16px; }
+.spinner { display:inline-block; width:28px; height:28px; border:3px solid var(--border-light,#e8dfcf); border-top-color:var(--cinnabar,#9b2335); border-radius:50%; animation:spin .8s linear infinite; flex-shrink:0; }
+.spinner[data-size="sm"] { width:14px; height:14px; border-width:2px; }
+.spinner[data-size="lg"] { width:48px; height:48px; border-width:2px; }
+.spinner[data-tone="current"] { border-color:currentColor; border-right-color:transparent; }
+.spinner[data-tone="gold"] { border-color:rgba(154,116,47,.2); border-top-color:var(--gold,#9a742f); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation:none; border-top-width:4px; } }
+
+.loading { display:flex; align-items:center; justify-content:center; gap:10px; }
+.inline { margin:0; padding:0; text-align:inherit; justify-content:flex-start; }

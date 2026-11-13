@@ -106,6 +106,7 @@ function editorHarness(lines) {
     function visit(node) {
       if (Array.isArray(node)) return node.forEach(visit);
       if (!node || typeof node !== 'object' || !node.props) return;
+      if (node.type?.$$typeof === Symbol.for('react.forward_ref')) return visit(node.type.render(node.props, null));
       if (predicate(node)) result.push(node);
       visit(node.props.children);
     }

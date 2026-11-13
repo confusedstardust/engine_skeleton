@@ -11,7 +11,14 @@ function loadFrontendTs(filename, mocks = {}, cache = new Map()) {
   cache.set(filename, loaded);
   const originalRequire = loaded.require.bind(loaded);
   loaded.require = name => {
-    if (Object.hasOwn(mocks, name)) return mocks[name];
+    if (Object.hasOwn(mocks, name)) return name === 'react' ? { ...originalRequire(name), ...mocks[name] } : mocks[name];
+    // Node has no CSS loader. Component behavior tests use stable CSS-module keys;
+    // computed styles and layout remain covered by browser tests.
+    if (/\.module\.(css|scss)$/.test(name)) {
+      const source = path.resolve(path.dirname(filename), name);
+      if (!fs.existsSync(source)) throw new Error(`Missing stylesheet: ${source}`);
+      return { __esModule: true, default: new Proxy({}, { get: (_, key) => String(key) }) };
+    }
     const resolve = Module.createRequire(filename).resolve;
     let resolved;
     try { resolved = resolve(name); }

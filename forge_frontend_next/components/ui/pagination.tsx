@@ -1,5 +1,6 @@
 'use client';
 import type { ReactNode } from 'react';
+import { Button, type ButtonProps } from './button';
 
 export type PaginationProps = {
   page: number;
@@ -8,6 +9,7 @@ export type PaginationProps = {
   disabled?: boolean;
   className?: string;
   buttonClassName?: string;
+  buttonVariant?: ButtonProps['variant'];
   ariaLabel?: string;
   total?: number;
   layout?: 'inline' | 'trailing-actions' | 'summary-first';
@@ -23,6 +25,7 @@ export function Pagination({
   disabled = false,
   className,
   buttonClassName,
+  buttonVariant,
   ariaLabel = '列表分页',
   total,
   layout = 'inline',
@@ -30,25 +33,27 @@ export function Pagination({
   children,
   trailing,
 }: PaginationProps) {
+  const PageButton = buttonVariant ? Button : 'button';
+  const buttonProps = buttonVariant ? { variant: buttonVariant } : {};
   const previous = (
-    <button
+    <PageButton {...buttonProps}
       className={buttonClassName}
       type="button"
       disabled={disabled || page <= 1}
       onClick={() => onPageChange(Math.max(1, page - 1))}
     >
       上一页
-    </button>
+    </PageButton>
   );
   const next = (
-    <button
+    <PageButton {...buttonProps}
       className={buttonClassName}
       type="button"
       disabled={disabled || !hasMore}
       onClick={() => onPageChange(page + 1)}
     >
       下一页
-    </button>
+    </PageButton>
   );
   const summary = (
     <span aria-live="polite">

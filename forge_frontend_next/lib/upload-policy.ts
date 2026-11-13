@@ -29,3 +29,5 @@ export function validateUpload(file: Pick<File, 'name' | 'size'>, policy: Upload
   if (!policy.extensions.includes(extension)) return `请选择 ${policy.formats} 格式的文件`;
   return null;
 }
+
+export const htmlResourceUploadPolicy: UploadPolicy = { extensions: ["html", "htm", "zip"], accept: ".html,.htm,.zip", formats: "HTML、ZIP", maxBytes };

@@ -22,6 +22,7 @@
     "lodash": "^4.17.23",
     "mitt": "^3.0.0",
     "modern-css-reset": "^1.4.0",
+    "pinyin-pro": "^3.29.5",
     "pixi-filters": "^4.2.0",
     "pixi-live2d-display-webgal": "^0.5.12",
     "pixi.js": "^6.3.0",

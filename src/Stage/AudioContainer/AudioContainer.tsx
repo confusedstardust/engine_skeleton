@@ -129,7 +129,8 @@ export const AudioContainer = () => {
         loop={true}
         autoPlay={isEnterGame}
       />
-      <audio key={stageStore.playVocal} id="currentVocal" src={stageStore.playVocal} />
+      {/* 嘴型分析通过 Web Audio 读取语音，跨域资源必须以 CORS 模式加载。 */}
+      <audio crossOrigin="anonymous" key={stageStore.playVocal} id="currentVocal" src={stageStore.playVocal} />
     </div>
   );
 };

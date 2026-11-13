@@ -7,6 +7,7 @@ from webgal_backend.admin_metrics import dashboard_metrics
 
 def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
     responses = [
+        [{'date':date(2026,10,6),'visitors':2}, {'date':date(2026,10,7),'visitors':2}],
         [{'date':date(2026,10,7),'tasks':2,'completed':1,'failed':0}],
         [{'date':date(2026,10,7),'new_users':1}],
         [{'date':date(2026,10,7),'active_users':1}],
@@ -17,7 +18,8 @@ def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
     class Cursor:
         def execute(self,sql,args): queries.append((sql,args))
         def fetchall(self): return responses.pop(0)
-        def fetchone(self): return {'users':1}
+        def fetchone(self):
+            return {'visitors':3} if 'site_daily_visitors' in queries[-1][0] else {'users':1}
     @contextmanager
     def transaction(): yield Cursor()
     with patch('webgal_backend.admin_metrics.database_transaction',transaction), patch('webgal_backend.admin_metrics.datetime') as clock:
@@ -28,7 +30,11 @@ def test_daily_metrics_fill_empty_days_and_do_not_double_count_cached_tokens():
     assert result['daily'][0]['input_tokens']==0
     assert result['totals']['tokens']==120
     assert result['totals']['active_users']==1
+    assert result['daily'][0]['visitors']==0
+    assert result['daily'][-1]['visitors']==2
+    assert result['totals']['visitors']==3
     assert result['totals']['settlements_with_usage']==2
     assert any("status='CAPTURED'" in sql for sql,args in queries)
     assert any("action='CAPTURE'" in sql for sql,args in queries)
-    assert all('CONVERT_TZ' in sql for sql,args in queries)
+    assert all('CONVERT_TZ' in sql for sql,args in queries if 'site_daily_visitors' not in sql)
+    assert any('COUNT(DISTINCT visitor_hash)' in sql for sql,args in queries)

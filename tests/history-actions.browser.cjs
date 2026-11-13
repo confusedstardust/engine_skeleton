@@ -6,12 +6,15 @@ const waitUntil = async check => { for(let i=0;i<100;i++){ if(check())return; aw
  const browser=await chromium.launch({headless:true,channel:'chrome'});
  try {
   const page=await browser.newPage();
+  let releaseInitialJobs;
+  const initialJobs = new Promise(resolve => { releaseInitialJobs = resolve; });
+  let firstJobsRead = true;
   let published=false, posting=false, finishPost, finishRead, reads=0, failPost=false, failDelete=false, failRead=false;
   const job={id:'review-job',title:'审查作品',status:'DONE',build_state:'CURRENT',has_published_build:true,options:{generation_mode:'advanced'}};
   await page.route('**/api/forge/**',async route=>{
    const path=new URL(route.request().url()).pathname, method=route.request().method(); let data={};
    if(path.endsWith('/auth/me')) data={id:'owner',name:'Owner'};
-   else if(path.endsWith('/jobs'))data={jobs:[job]};
+   else if(path.endsWith('/jobs')){if(firstJobsRead){firstJobsRead=false;await initialJobs;}data={jobs:[job]};}
    else if(path.endsWith('/nodes'))data={job,nodes:[],scenes:[]};
    else if(path.endsWith('/assets/review'))data={assets:[],voices:[],available_voices:[],scene_music:[],music_assets:[],particle_effects:{effects:[],scenes:[]}};
    else if(path.endsWith('/ecosystem-publication')){
@@ -31,6 +34,9 @@ const waitUntil = async check => { for(let i=0;i<100;i++){ if(check())return; aw
    return route.fulfill({json:data});
   });
   await page.goto(`${base}/history/`);
+  await page.getByRole('status').filter({hasText:'正在加载我的作品'}).locator('.pending-spinner').waitFor();
+  assert.equal(await page.getByText('暂无记录',{exact:true}).count(),0);
+  releaseInitialJobs();
   const more=page.getByRole('button',{name:'作品操作：审查作品'});
   failRead=true;
   await more.click();

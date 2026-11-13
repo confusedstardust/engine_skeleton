@@ -32,7 +32,24 @@ test('shared header retains Next route href, return fallback and one account men
   assert.equal(all(tree, 'return-link')[0].props.onClick, guard);
   assert.equal(all(tree, 'nav')[0].props['aria-label'], '任务导航');
   assert.equal(all(tree, 'account').length, 1);
-  assert.equal(all(tree, 'account')[0].props.includeAdmin, true);
+  assert.equal(all(tree, 'account')[0].props.includeAdmin, undefined);
+});
+
+test('account menu policy stays identical regardless of page options', () => {
+  const { AccountMenu } = loadFrontendTs('forge_frontend_next/components/account-menu.tsx', {
+    'next/link': { default: () => null },
+    '@narrativeos/ui': { AccountMenu: () => null },
+    '../app/invite-identity': { accountClient: {}, accountSettingsUrl: () => 'https://portal.example/account', teacherResourcePlazaUrl: () => '/plaza' },
+    '../app/base-path': { withBasePath: value => value },
+  });
+  const homepage = AccountMenu({});
+  const workspace = AccountMenu({ className: 'nav-login', tour: 'invite', includeAdmin: false });
+  assert.equal(homepage.props.includeAdmin, true);
+  assert.equal(workspace.props.includeAdmin, true);
+  assert.equal(homepage.props.client, workspace.props.client);
+  assert.equal(homepage.props.plazaHref, workspace.props.plazaHref);
+  assert.equal(homepage.props.settingsHref, 'https://portal.example/account');
+  assert.equal(homepage.props.settingsHref, workspace.props.settingsHref);
 });
 
 test('invite navigation omits account and preserves custom actions', () => {

@@ -4,7 +4,9 @@ import hashlib
 import json
 import os
 import re
+from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
@@ -166,14 +168,36 @@ def _invite_principal(request: Request, workspace_root: Path) -> dict[str, Any]:
 
 
 def principal_from_request(request: Request, workspace_root: Path) -> dict[str, Any]:
+    """Resolve once per request, including nested ownership checks.
+
+    A scope can be wrapped by multiple Request instances. Keep the cache on its
+    shared state, isolate workspace-specific invite rules, and return copies so
+    callers cannot mutate the identity seen by subsequent permission checks.
+    Only successful resolutions are cached; later HTTP requests always recheck.
+    """
+    context = request.scope.setdefault('state', {}).setdefault(
+        '_forge_principals', {'lock': Lock(), 'values': {}},
+    )
+    key = str(workspace_root.resolve())
+    with context['lock']:
+        if key not in context['values']:
+            context['values'][key] = _resolve_principal(request, workspace_root)
+        return deepcopy(context['values'][key])
+
+
+def _resolve_principal(request: Request, workspace_root: Path) -> dict[str, Any]:
     mode = auth_mode()
     if mode in {AUTH_MODE_SSO, AUTH_MODE_HYBRID}:
         cookie_name = _sso_cookie_name()
         if request.cookies.get(cookie_name):
-            user = _sso_user_from_request(request)
-            from .platform_admin import blocked
-            if blocked('USER', user['id']):
-                raise HTTPException(status_code=403, detail='此账号已被禁止使用本平台')
+            from .sso_session import local_session_enabled, session_user
+            if local_session_enabled():
+                user = session_user(request.cookies[cookie_name])
+            else:
+                user = _sso_user_from_request(request)
+                from .platform_admin import blocked
+                if blocked('USER', user['id']):
+                    raise HTTPException(status_code=403, detail='此账号已被禁止使用本平台')
             return {
                 "identity": {"type": "sso", "user_id": user["id"]},
                 "user": user,
