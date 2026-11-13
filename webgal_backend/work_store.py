@@ -230,7 +230,7 @@ class WorkStore:
             work = read_json(path / "work.json")
         except (OSError, ValueError):
             raise FileNotFoundError("Public work not found") from None
-        if (not isinstance(work, dict) or work.get("publication_status") != "published" or
+        if (not isinstance(work, dict) or work.get("publication_status") not in {"published", "publishing"} or
                 not work.get("published_version_id")):
             raise FileNotFoundError("Public work not found")
         version = next((item for item in work["versions"]
