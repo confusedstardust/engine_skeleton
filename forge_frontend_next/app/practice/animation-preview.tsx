@@ -6,9 +6,9 @@ import styles from "./practice.module.css";
 
 const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'";
 
-export default function AnimationPreview({ html, artifactId, label = "动画成品预览" }: { html: string; artifactId: string; label?: string }) {
+export default function AnimationPreview({ html, artifactId, label = "动画成品预览", compact = false }: { html: string; artifactId: string; label?: string; compact?: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  return <section className={styles.preview} aria-label={label}>
+  return <section className={`${styles.preview} ${compact ? styles.previewCompact : ""}`} aria-label={label}>
     <header><strong>{label}</strong><div className={styles.actions}><Button size="sm" onClick={() => {
       const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
       const link = document.createElement("a"); link.href = url; link.download = "narrativeos-interactive.html";
