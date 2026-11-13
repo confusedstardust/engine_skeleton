@@ -12,16 +12,16 @@ try {
   if (!['animation', 'html'].includes(kind)) throw new Error('Invalid sandbox build kind');
   report.kind = kind;
   if (kind === 'html') {
-    if (!/^\\s*<!doctype html/i.test(source) || !/<html[\\s>]/i.test(source) || !/<\\/html>/i.test(source)) {
+    if (!/^\s*<!doctype html/i.test(source) || !/<html[\s>]/i.test(source) || !/<\/html>/i.test(source)) {
       throw new Error('Expected complete standalone HTML document');
     }
     // Source-level checks complement, but do not replace, network-disabled execution
     // and CSP in the authenticated preview route.
     const prohibited = [
-      /<\\s*(?:iframe|object|embed|base|meta\\s+http-equiv\\s*=\\s*["']?refresh)\\b/i,
-      /<\\s*(?:script|link|img|audio|video|source)\\b[^>]*\\b(?:src|href|poster)\\s*=\\s*["']?\\s*(?:https?:|\\/\\/|file:)/i,
-      /@import\\b/i, /url\\(\\s*["']?\\s*(?:https?:|\\/\\/|file:)/i,
-      /\\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|serviceWorker)\\b/i,
+      /<\s*(?:iframe|object|embed|base|meta\s+http-equiv\s*=\s*["']?refresh)\b/i,
+      /<\s*(?:script|link|img|audio|video|source)\b[^>]*\b(?:src|href|poster)\s*=\s*["']?\s*(?:https?:|\/\/|file:)/i,
+      /@import\b/i, /url\(\s*["']?\s*(?:https?:|\/\/|file:)/i,
+      /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|serviceWorker)\b/i,
     ];
     if (prohibited.some(rule => rule.test(source))) throw new Error('HTML contains unsupported external resource or network capability');
     writeFileSync('/work/index.html', source);
@@ -38,7 +38,7 @@ try {
     report.build_exit = build.status;
     report.build_signal = build.signal;
     report.build_error = build.error?.message;
-    report.build_log = `${build.stdout || ''}\\n${build.stderr || ''}`.slice(-12000);
+    report.build_log = `${build.stdout || ''}\n${build.stderr || ''}`.slice(-12000);
     if (build.status !== 0) throw new Error('Build failed');
   }
   const file = lstatSync('/work/index.html');
