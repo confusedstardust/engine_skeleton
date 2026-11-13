@@ -61,7 +61,7 @@ def main():
     write_private(target / "nar-agent.env", {
         "NAR_AGENT_DEPLOYMENT_ENV": args.environment,
         "NAR_AGENT_SERVICE_TOKEN": service, "NAR_AGENT_EXECUTION_TOKEN": execution,
-        "NAR_AGENT_API_KEY": key, "NAR_AGENT_MODEL": current.get("NAR_AGENT_MODEL", "deepseek-chat"),
+        "NAR_AGENT_API_KEY": key, "NAR_AGENT_MODEL": current.get("NAR_AGENT_MODEL", "deepseek-flash"),
         "NAR_AGENT_BASE_URL": current.get("NAR_AGENT_BASE_URL", "https://api.deepseek.com"),
         "NAR_AGENT_MAX_CONCURRENT_RUNS": "1", "NAR_AGENT_ANIMATION_TIMEOUT_SECONDS": "600",
     })

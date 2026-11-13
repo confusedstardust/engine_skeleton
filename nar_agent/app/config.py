@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     service_token: SecretStr = SecretStr("")
     api_key: SecretStr = SecretStr("")
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
     base_url: str = "https://api.deepseek.com"
     timeout_seconds: float = Field(default=120, gt=0, le=600)
     max_output_tokens: int = Field(default=2048, ge=128, le=16384)
