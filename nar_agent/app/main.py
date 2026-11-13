@@ -213,9 +213,14 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
 
                     messages = result.get("messages", [])
                     content = messages[-1].content if messages else ""
-                    state["output"] = content if isinstance(content, str) else "\n".join(
-                        block.get("text", "") for block in content if isinstance(block, dict)
-                    ) if isinstance(content, list) else ""
+                    if isinstance(content, str):
+                        state["output"] = content
+                    elif isinstance(content, list):
+                        state["output"] = "\n".join(
+                            block.get("text", "") for block in content if isinstance(block, dict)
+                        )
+                    else:
+                        state["output"] = ""
                     state["artifact_generated"] = bool(state.get("artifact_id"))
                     state["status"] = "SUCCEEDED" if state["artifact_generated"] else "FAILED"
                     if not state["artifact_generated"]:
