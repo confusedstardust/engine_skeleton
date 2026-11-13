@@ -13,16 +13,21 @@ export type WorkPreviewData = GeneratedWork & {
   savedArtifactId?: string;
   currentVersionId?: string;
   expectedParentArtifactId?: string;
+  publicationStatus?: string;
+  publicUrl?: string | null;
 };
 
 export default function WorkInspector({
-  work, onClose, onEdit, onSave, saving = false,
+  work, onClose, onEdit, onSave, onPublish, onUnpublish, saving = false, publishing = false,
 }: {
   work: WorkPreviewData;
   onClose: () => void;
   onEdit: (id: string) => void;
   onSave: (id: string) => void;
+  onPublish: (id: string) => void;
+  onUnpublish: (id: string) => void;
   saving?: boolean;
+  publishing?: boolean;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const closeHandler = useRef(onClose);
@@ -37,6 +42,7 @@ export default function WorkInspector({
   }, [work.artifactId]);
 
   const saved = Boolean(work.workId && work.savedArtifactId === work.artifactId);
+  const published = work.publicationStatus === "published";
   return <aside className={styles.inspector} aria-label={`作品预览：${work.title}`}>
     <header className={styles.inspectorHeader}>
       <div><strong>{work.title}</strong><span>{work.kind === "html" ? "互动网页" : "教学动画"} · V{work.version} · {saved ? "已保存" : "尚未保存"}</span></div>
@@ -50,9 +56,14 @@ export default function WorkInspector({
           {saved ? "已保存到我的作品" : work.workId ? "保存新版本" : "保存到我的作品"}
         </Button>
         {work.kind === "html" && <Button variant="outline" onClick={() => onEdit(work.artifactId)}>继续修改</Button>}
+        {saved && <Button variant="outline" disabled={publishing || saving} busy={publishing}
+          onClick={() => onPublish(work.artifactId)}>
+          {published ? "更新广场发布" : "发布到教师资源广场"}
+        </Button>}
+        {published && <Button variant="outline" disabled={publishing} onClick={() => onUnpublish(work.artifactId)}>撤回发布</Button>}
         {saved && <Link href="/history" className={styles.inspectorSavedLink}>在我的作品中查看</Link>}
       </div>
-      <p className={styles.inspectorFuture}>保存后会进入长期作品库。广场发布和公开分享将在发布接口接通后开放。</p>
+      <p className={styles.inspectorFuture}>{published ? "当前公开版本可供其他学习者访问。私有修改不会自动改变已发布内容。" : "公开前请先检查知识准确性、互动功能及作品中可能存在的私人信息。"}</p>
     </div>
   </aside>;
 }
