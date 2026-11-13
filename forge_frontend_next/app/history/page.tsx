@@ -12,6 +12,7 @@ import { ConfirmDialog, ModalFrame, ModalBody, useConfirmation } from "../../com
 import { CollectionCard } from "@narrativeos/ui/collection-card";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { forgeApi as api } from "../../lib/api-client";
+import { workApi, type SavedWork } from "../../lib/work-api";
 import type { Job } from "../../domain/jobs";
 import { useWorkActions, workTitle as jobTitle, workIsPlayable as playable, workIsBuilding as building } from "../../hooks/use-work-actions";
 
@@ -103,6 +104,8 @@ export default function HistoryPage() {
     }
   }
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [savedWorks, setSavedWorks] = useState<SavedWork[]>([]);
+  const [savedWorksError, setSavedWorksError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [authMissing, setAuthMissing] = useState(false);
@@ -136,6 +139,21 @@ export default function HistoryPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getCurrentUser().then(user => {
+      if (!active || user?.auth_type !== "sso") return;
+      return workApi.list().then(response => {
+        if (active) setSavedWorks(response.works || []);
+      });
+    }).catch(error => {
+      if (active) setSavedWorksError(error instanceof Error ? error.message : "互动作品加载失败");
+    });
+    return () => { active = false; };
+  }, []);
+
+  const filteredSavedWorks = filter === "all" || filter === "done" ? savedWorks : [];
+
   const filteredJobs = useMemo(() => {
     if (filter === "all") return jobs;
     return jobs.filter((job) => statusClass(job.status) === filter);
@@ -143,12 +161,12 @@ export default function HistoryPage() {
 
   const counts = useMemo(
     () => ({
-      all: jobs.length,
+      all: jobs.length + savedWorks.length,
       running: jobs.filter((job) => statusClass(job.status) === "running").length,
-      done: jobs.filter((job) => statusClass(job.status) === "done").length,
+      done: jobs.filter((job) => statusClass(job.status) === "done").length + savedWorks.length,
       failed: jobs.filter((job) => statusClass(job.status) === "failed").length,
     }),
-    [jobs],
+    [jobs, savedWorks],
   );
 
   return (
@@ -186,7 +204,8 @@ export default function HistoryPage() {
           </EmptyState>
         ) : null}
         {error ? <InlineFeedback>{error}</InlineFeedback> : null}
-        {!loading && !authMissing && !error && filteredJobs.length === 0 ? (
+        {savedWorksError ? <InlineFeedback>{savedWorksError}</InlineFeedback> : null}
+        {!loading && !authMissing && !error && filteredJobs.length === 0 && filteredSavedWorks.length === 0 ? (
           <EmptyState className="history-empty">
             <strong>暂无记录</strong>
             <span>新建任务后，我的作品会出现在这里。</span>
@@ -194,7 +213,29 @@ export default function HistoryPage() {
           </EmptyState>
         ) : null}
 
-        <section className="history-list" aria-label="生成任务列表">
+        <section className="history-list" aria-label="我的作品列表">
+          {filteredSavedWorks.map(work => {
+            const current = work.versions.find(version => version.id === work.current_version_id);
+            const href = `/practice/?work=${work.id}`;
+            return <CollectionCard className="history-row" key={`nar:${work.id}`}
+              menuLabel={`作品操作：${work.title}`}
+              actions={[{ id: "open", label: "打开互动作品", href: withBasePath(href) }]}>
+              <div className="history-cover">{current
+                ? <ImagePreview src={withBasePath(`/api/forge/works/${work.id}/assets/${current.id}/preview.png`)}
+                    alt={`${work.title}预览`} fallback="无封面" loading="lazy" />
+                : <span>预览待生成</span>}</div>
+              <div className="history-row-main">
+                <div className="history-title-line">
+                  <h2><Link className="history-card-link" href={href}>{work.title}</Link></h2>
+                  <span className="history-status done">互动{work.kind === "html" ? "网页" : "动画"} · 已保存</span>
+                </div>
+                <div className="history-meta"><span>更新 {formatTime(work.updated_at)}</span>
+                  {current && <span>V{current.version_number}</span>}</div>
+                {work.summary ? <p className="history-error">{work.summary}</p> : null}
+              </div>
+            </CollectionCard>;
+          })}
+
           {filteredJobs.map((job) => (
             <CollectionCard className="history-row" key={job.id} menuLabel={`作品操作：${jobTitle(job)}`}
               onContextMenu={() => void loadPublication(job)}
