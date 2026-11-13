@@ -31,6 +31,14 @@ export type PublicationForm = {
   grade: string | null;
   tags: string[];
 };
+export type SharedWork = {
+  work_id: string;
+  title: string;
+  summary: string;
+  public_url: string;
+  cover_url: string;
+};
+
 export type PublicationResult = {
   published: boolean;
   status: string;
@@ -67,4 +75,5 @@ export const workApi = {
     forgeApi<PublicationResult>(`/works/${id}/publication`, {
       method: "DELETE", headers: mutationHeaders,
     }),
+  share: (id: string) => forgeApi<SharedWork>(`/works/${id}/share`),
 };
