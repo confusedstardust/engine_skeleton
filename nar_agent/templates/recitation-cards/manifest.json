@@ -1,0 +1,27 @@
+{
+  "id": "recitation-cards",
+  "version": "1.0.0",
+  "name": "背诵与知识抽卡",
+  "description": "古诗词、术语、定义、单词、知识点的互动抽背与提示练习，手机端可用，离线单文件。",
+  "keywords": [
+    "背诵",
+    "抽背",
+    "诗词",
+    "英语",
+    "复习",
+    "flashcards",
+    "memorization",
+    "recitation"
+  ],
+  "capabilities": [
+    "reveal-answer",
+    "next-card",
+    "progress",
+    "restart"
+  ],
+  "config_schema": {
+    "title": "string (1..100)",
+    "cards": "array (1..40) of {question:string, answer:string}"
+  },
+  "requires_network": false
+}
