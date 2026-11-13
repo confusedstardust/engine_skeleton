@@ -10,6 +10,7 @@ from langchain.agents.middleware import ModelCallLimitMiddleware
 
 from app.artifacts import ArtifactStore
 from app.config import Settings
+from app.progress_events import enter_phase
 
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
 PROMPT = """你是 NarAgent 教学动画制作助手。下方已提供完整 anatomy skill 和最小示例，直接参考，不必重复用工具读取。
@@ -52,17 +53,20 @@ def build_animation_agent(settings: Settings, owner: str, progress: dict, store:
         if attempts >= 3:
             return json.dumps({"error": "Build limit reached. Stop and explain failure."})
         attempts += 1
-        progress.update(phase="BUILDING", attempts=attempts)
+        enter_phase(progress, "BUILDING")
+        progress["attempts"] = attempts
         try:
             async with httpx.AsyncClient(timeout=125, trust_env=False) as client:
                 response = await client.post(settings.execution_url.rstrip("/") + "/execute", headers={"Authorization": "Bearer " + settings.execution_token.get_secret_value()}, json={"source": source})
                 response.raise_for_status()
                 result = response.json()
             report = result["report"]
-            progress.update(phase="CHECKING", last_report=report)
+            enter_phase(progress, "CHECKING")
+            progress["last_report"] = report
             if report.get("passed"):
                 identifier = store.save(owner, result, source)
-                progress.update(artifact_id=identifier, phase="FINALIZING")
+                enter_phase(progress, "FINALIZING")
+                progress["artifact_id"] = identifier
                 return json.dumps({"artifact_id": identifier, "report": report}, ensure_ascii=False)
             return json.dumps({"report": report, "remaining_attempts": 3 - attempts}, ensure_ascii=False)
         except (httpx.HTTPError, ValueError, KeyError):
