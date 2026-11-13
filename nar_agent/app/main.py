@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 from agents.teaching import build_agent, initial_state
 from app.config import Settings
 from app.artifacts import ArtifactStore
+from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -106,6 +107,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 del app.state.animations[key]
         identifier = uuid4().hex
         state = {"id": identifier, "user_id": user_id, "status": "RUNNING", "phase": "DESIGNING", "attempts": 0, "artifact_generated": False}
+        enter_phase(state, "DESIGNING")
         app.state.animations[identifier] = state
         app.state.animation_active = True
 
@@ -135,6 +137,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 state.update(status="FAILED", error="动画制作失败，请检查执行服务或稍后重试。")
             finally:
                 state.update(usage=usage.usage_metadata, usage_status="reported" if usage.usage_metadata else "unknown")
+                close_phase(state, failed=state.get("status") != "SUCCEEDED")
                 app.state.animation_active = False
 
         handle = asyncio.create_task(work())
@@ -147,7 +150,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         state = app.state.animations.get(identifier)
         if not state or state["user_id"] != user_id:
             raise HTTPException(404, "Animation not found")
-        return state
+        return {**state, "elapsed_ms": public_elapsed_ms(state)}
 
     @app.post("/v1/html", status_code=202)
     async def create_html(payload: HtmlInput, user_id: str = Depends(principal)):
@@ -172,6 +175,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             "phase": "DESIGNING", "attempts": 0, "artifact_generated": False,
             "parent_artifact_id": payload.parent_artifact_id,
         }
+        enter_phase(state, "DESIGNING")
         app.state.html_runs[identifier] = state
         app.state.html_active = True
 
@@ -262,6 +266,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     usage=usage.usage_metadata,
                     usage_status="reported" if usage.usage_metadata else "unknown",
                 )
+                close_phase(state, failed=state.get("status") != "SUCCEEDED")
                 app.state.html_active = False
 
         handle = asyncio.create_task(work())
@@ -274,7 +279,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         state = app.state.html_runs.get(identifier)
         if not state or state["user_id"] != user_id:
             raise HTTPException(404, "HTML task not found")
-        return state
+        return {**state, "elapsed_ms": public_elapsed_ms(state)}
 
     @app.get("/v1/artifacts/{identifier}/{filename}")
     async def artifact(identifier: str, filename: str, user_id: str = Depends(principal)):
