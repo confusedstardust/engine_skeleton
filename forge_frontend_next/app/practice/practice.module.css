@@ -18,3 +18,14 @@
 .markdownTableWrap table{border-collapse:collapse;font-size:13px;min-width:260px;width:100%}
 .markdownTableWrap th,.markdownTableWrap td{border:1px solid #e1e6d9;padding:7px 9px;text-align:left;white-space:normal}
 .markdownTableWrap th{background:#f1f4eb;font-weight:600}
+
+/* User-visible creation history; real server stages, not private model thoughts. */
+.timeline{border:1px solid #dfe5d6;background:#f8faf4;border-radius:13px;padding:12px 15px;margin:10px 0 16px;font-size:13px}
+.timelineToggle{width:100%;display:flex;align-items:center;gap:12px;text-align:left;border:0;background:none;color:#46513e;padding:3px 0;cursor:pointer;font:inherit}
+.timelineHeading{font-weight:650;flex:1}.timelineElapsed{font-size:12px;color:#7b846f;font-variant-numeric:tabular-nums}
+.timelineList{margin:14px 0 0 7px;padding:0 0 0 14px;list-style:none;border-left:1px solid #d5dfcb}
+.timelineItem{position:relative;margin:0 0 17px;padding:0 0 0 14px}.timelineItem:last-child{margin-bottom:4px}
+.timelineMarker{position:absolute;left:-25px;top:1px;width:20px;height:20px;border-radius:50%;background:#edf2e6;border:1px solid #becfb3;text-align:center;line-height:18px;font-size:12px;color:#647b57}
+.timelineBody{min-width:0}.timelineRow{display:flex;align-items:baseline;justify-content:space-between;gap:8px;line-height:1.5}.timelineRow strong{font-weight:600;color:#394538}.timelineRow span{white-space:nowrap;color:#77816f;font-size:11px;font-variant-numeric:tabular-nums}
+.timelineBody p{margin:4px 0 0;color:#6b7766;font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+@media(max-width:760px){.timeline{padding:10px}.timelineRow{flex-wrap:wrap}.timelineItem{padding-left:12px}}
