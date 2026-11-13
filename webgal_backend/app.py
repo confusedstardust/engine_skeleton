@@ -89,6 +89,8 @@ app.include_router(create_works_router(user_for_request=lambda request: user_fro
 from .work_publication import create_router as create_work_publication_router, create_public_router as create_public_work_router
 app.include_router(create_work_publication_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
 app.include_router(create_public_work_router())
+from .work_sharing import create_router as create_work_share_router
+app.include_router(create_work_share_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
 
 
 @app.middleware('http')
