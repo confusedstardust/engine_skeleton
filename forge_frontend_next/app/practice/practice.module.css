@@ -59,3 +59,16 @@
 
 .inspectorSavedLink{display:inline-flex;align-items:center;font-size:12px;color:#557849;text-decoration:underline;text-underline-offset:3px;padding:8px 2px}
 .inspectorSavedLink:hover{color:#2e5932}
+
+/* Reuse the shared accessible modal primitives for public publishing. */
+.publishOverlay{position:fixed;inset:0;z-index:100;background:#1e291f80;display:flex;align-items:center;justify-content:center;padding:16px}
+.publishDialog{background:#fffefa;border-radius:17px;padding:28px;width:min(100%,510px);max-height:90dvh;overflow:auto;box-shadow:0 28px 90px #141e1744}
+.publishDialog h2{margin:0 0 7px;font-weight:650;font-size:20px;color:#35432e}
+.publishDialog>p{margin:0 0 20px;font-size:13px;line-height:1.7;color:#71806b}
+.publishDialog form{display:flex;flex-direction:column;gap:13px}
+.publishDialog label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;color:#46513d}
+.publishDialog input,.publishDialog textarea{width:100%;box-sizing:border-box;background:#fff;border:1px solid #d5dfcb;border-radius:9px;padding:10px 12px;font-size:13px;line-height:1.6;font:inherit;color:#2c352c}
+.publishDialog input:focus-visible,.publishDialog textarea:focus-visible{outline:2px solid #8a9f79;outline-offset:1px}
+.publishFields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.publishFooter{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
+@media(max-width:580px){.publishDialog{padding:18px}.publishFields{grid-template-columns:1fr}}

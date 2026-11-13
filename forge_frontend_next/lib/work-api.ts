@@ -17,9 +17,25 @@ export type SavedWork = {
   tags: string[];
   current_version_id: string;
   versions: SavedWorkVersion[];
-  publication_status: "draft" | "publishing" | "published" | "failed" | "unpublished";
+  publication_status: "draft" | "publishing" | "published" | "failed" | "unpublished" | "unpublish_pending";
+  public_url?: string | null;
+  published_version_id?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type PublicationForm = {
+  title: string;
+  summary: string;
+  subject: string | null;
+  grade: string | null;
+  tags: string[];
+};
+export type PublicationResult = {
+  published: boolean;
+  status: string;
+  public_url?: string | null;
+  published_version_id?: string | null;
 };
 
 const mutationHeaders = { "X-NarAgent-Action": "chat" };
@@ -42,4 +58,13 @@ export const workApi = {
     }),
   html: (id: string, versionId: string) =>
     forgeApi.blob(`/works/${id}/assets/${versionId}/index.html`),
+  publication: (id: string) => forgeApi<PublicationResult>(`/works/${id}/publication`),
+  publish: (id: string, payload: PublicationForm) =>
+    forgeApi<PublicationResult>(`/works/${id}/publication`, {
+      method: "POST", headers: mutationHeaders, body: JSON.stringify(payload),
+    }),
+  unpublish: (id: string) =>
+    forgeApi<PublicationResult>(`/works/${id}/publication`, {
+      method: "DELETE", headers: mutationHeaders,
+    }),
 };
