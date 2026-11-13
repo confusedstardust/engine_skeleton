@@ -176,7 +176,7 @@ class WorkStore:
             write_json(self.path(work_id) / "work.json", work)
             return work
 
-    def finish_publication(self, owner: str, work_id: str, version_id: str, public_url: str) -> dict:
+    def finish_publication(self, owner: str, work_id: str, version_id: str, public_url: str, snapshot: dict) -> dict:
         with self.locked():
             work = self.get(owner, work_id)
             if (work.get("publication_status") != "publishing" or
@@ -186,6 +186,7 @@ class WorkStore:
             work["published_version_id"] = version_id
             work["published_at"] = utc_now()
             work["public_url"] = public_url
+            work["published_metadata"] = {key: snapshot.get(key) for key in ("title", "summary", "subject", "grade", "tags")}
             work.pop("pending_version_id", None)
             work["updated_at"] = utc_now()
             write_json(self.path(work_id) / "work.json", work)
@@ -237,9 +238,14 @@ class WorkStore:
         if not version:
             raise FileNotFoundError("Public work not found")
         return {
-            "id": work_id, "title": work["title"], "summary": work.get("summary", ""),
-            "kind": work["kind"], "subject": work.get("subject"), "grade": work.get("grade"),
-            "tags": work.get("tags", []), "published_at": work.get("published_at"),
+            "id": work_id,
+            "title": (work.get("published_metadata") or {}).get("title", work["title"]),
+            "summary": (work.get("published_metadata") or {}).get("summary", work.get("summary", "")),
+            "kind": work["kind"],
+            "subject": (work.get("published_metadata") or {}).get("subject", work.get("subject")),
+            "grade": (work.get("published_metadata") or {}).get("grade", work.get("grade")),
+            "tags": (work.get("published_metadata") or {}).get("tags", work.get("tags", [])),
+            "published_at": work.get("published_at"),
             "version": version["version_number"], "published_version_id": version["id"],
         }
 
