@@ -11,7 +11,7 @@ import { InlineFeedback } from './ui/feedback';
 import { EmptyState, LoadingState } from './ui/state';
 import styles from './admin-html-resources.module.css';
 
-export type TeachingGame = { id: string; name?: string; owner_user_id?: string; owner_email?: string; status?: string; phase?: string; blocked: boolean; created_at: string };
+export type TeachingGame = { id: string; name?: string; owner_user_id?: string; owner_email?: string; status?: string; phase?: string; blocked: boolean; plaza_published: boolean; is_practice_tool: boolean; created_at: string };
 type GamePage = { items: TeachingGame[]; total: number; total_pages: number };
 type Actions = { onGameDetail: (game: TeachingGame) => void; onGameBlock: (game: TeachingGame) => void };
 type Row = { kind: 'html'; id: string; created: string; value: HtmlResource } | { kind: 'game'; id: string; created: string; value: TeachingGame };
@@ -81,7 +81,7 @@ function TeachingResourceList({ html, onGameDetail, onGameBlock, refreshKey }: A
       {visible.map(row => row.kind === 'html' ? <HtmlRow key={`html:${row.id}`} item={row.value} controls={html} /> : <tr key={`game:${row.id}`}>
         <td><button className={styles.resourceButton} onClick={() => onGameDetail(row.value)} aria-label={`查看游戏：${row.value.name || row.id}`}><span><strong>{row.value.name || row.id}</strong><small>{row.id}</small><em>查看游戏详情 ↗</em></span></button></td>
         <td><span className={styles.typeBadge}>游戏</span></td><td>{row.value.owner_email || row.value.owner_user_id || '—'}</td><td>{row.value.blocked ? '已下架' : states[row.value.status || ''] || row.value.status || '—'}{row.value.phase && <small>{row.value.phase}</small>}</td>
-        <td><div className="admin-actions"><AdminGamePublication jobId={row.id} canPublish={row.value.status === 'SUCCEEDED' && !row.value.blocked} blocked={row.value.blocked}/><Button onClick={() => onGameBlock(row.value)}>{row.value.blocked ? '恢复' : '下架'}</Button></div></td>
+        <td><div className="admin-actions"><AdminGamePublication jobId={row.id} canPublish={row.value.status === 'SUCCEEDED' && !row.value.blocked} blocked={row.value.blocked} plazaPublished={row.value.plaza_published === true} isPracticeTool={row.value.is_practice_tool === true}/><Button onClick={() => onGameBlock(row.value)}>{row.value.blocked ? '恢复' : '下架'}</Button></div></td>
       </tr>)}
     </tbody></DataTable>{!visible.length && <EmptyState>没有匹配的教学资源</EmptyState>}</div>}
     <Pagination className="asset-library-pagination admin-pagination" page={safePage} hasMore={safePage < totalPages} onPageChange={setPage} disabled={pending} summary={`共 ${total} 项 · 第 ${safePage} / ${totalPages} 页`} ariaLabel="教学资源分页" />

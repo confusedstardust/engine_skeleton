@@ -68,6 +68,8 @@ WebGAL Forge 是一个“从教学文本到可玩互动游戏”的生成系统�
 
 - 创建页：`forge_frontend_next/app/page.tsx`
 - 工作台页：`forge_frontend_next/app/jobs/[jobId]/page.tsx`
+- 工作台共用顶栏由 `forge_frontend_next/components/workbench-header.tsx` 渲染，样式定义在同前端的 `app/globals.css`。顶栏最小高度为 44px，采用半透明背景和 16px 背景模糊。窄屏可随导航内容换行。
+- Admin 游戏列表按当前搜索和页码加载。下架或恢复成功后更新对应行的可用状态，保留搜索和分页。教师资源广场发布状态按作品查询，发布或取消发布后用接口响应更新对应按钮。
 - 后端入口：`webgal_backend/app.py`
 - 流水线调度：`webgal_backend/pipeline.py`
 
@@ -1308,3 +1310,15 @@ npm run dev
   更偏 prompt / narrative quality 设计思路
 
 如果两者和 README 冲突，以 README 和代码实现为准。
+
+### 工作台访问统计
+
+发布前将 `webgal_backend/migrations/001_site_daily_visitors.sql` 应用到 Forge 的 MySQL 数据库，再部署 Forge 后端、工作台前端和官网（linchangWeb）。Admin 看板展示北京时间每日 UV 和所选区间去重 UV。官网、教师资源广场、工作台和独立游戏播放器共用访问统计脚本。同源页面共用匿名浏览器标识，跨域名、端口或设备分别计数。官网将 `/play/_telemetry/` 下的脚本和上报请求转发到工作台。Admin 页面和嵌入式预览不采集。数据库保存标识的哈希及访问日期，历史数据不补录。
+
+### 讲练工具
+
+Admin 的「游戏」列表可将已发布到教师资源广场的作品设为讲练工具或移出。作品通过 `job_id` 关联共用 MySQL 中的 `teacher_works`，设置保存在 `is_practice_tool`，与广场精选独立。管理员写入使用 `PUT /api/forge/admin/games/{job_id}/practice-tool`，请求体为 `{"enabled":true}` 或 `{"enabled":false}`，保存成功后只更新对应行。
+
+教师资源广场右侧「讲练工具」在服务端请求 `GET /api/forge/practice-tools`，按发布时间倒序展示已发布、已标记且未被 Forge 下架的作品。取消发布或下架时隐藏，重新发布或恢复时沿用原标记。没有习题链接的作品只提供播放入口。
+
+部署前先在目标环境共用的 MySQL 中应用 linchangWeb 的 Prisma 迁移 `20261113000000_add_practice_tool_flag`，再部署 Forge 后端和工作台前端。发布后检查 Admin 设置与移出、首页按需加载，以及取消发布后隐藏和重新发布后恢复。

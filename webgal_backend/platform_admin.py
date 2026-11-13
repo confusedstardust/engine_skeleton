@@ -244,6 +244,37 @@ def admin_unpublish_ecosystem(identifier: str, request: Request):
     return ecosystem_change(actor, identifier, owner, 'ECOSYSTEM_UNPUBLISH', lambda: unpublish_work(owner['id'], identifier))
 
 
+class PracticeToolChange(BaseModel):
+    enabled: StrictBool
+
+
+@router.put('/games/{identifier}/practice-tool')
+def set_practice_tool(identifier: str, payload: PracticeToolChange, request: Request):
+    require_action_header(request)
+    actor = require_admin(request)
+    if not re.fullmatch(r'[0-9a-f]{32}', identifier):
+        raise HTTPException(422, '无效作品 ID')
+    with database_transaction() as cursor:
+        cursor.execute(
+            'SELECT status,is_practice_tool FROM teacher_works WHERE job_id=%s FOR UPDATE',
+            (identifier,),
+        )
+        work = cursor.fetchone()
+        if not work or work['status'] != 'PUBLISHED':
+            raise HTTPException(409, '作品需已发布到教师资源广场')
+        previous = bool(work['is_practice_tool'])
+        if previous != payload.enabled:
+            cursor.execute(
+                'UPDATE teacher_works SET is_practice_tool=%s WHERE job_id=%s',
+                (payload.enabled, identifier),
+            )
+            cursor.execute(
+                'INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (uuid.uuid4().hex, actor['id'], 'JOB', identifier, 'PRACTICE_TOOL',
+                 json.dumps({'is_practice_tool': previous}), json.dumps({'is_practice_tool': payload.enabled})),
+            )
+    return {'is_practice_tool': payload.enabled}
+
 class GameFeatured(BaseModel):
     featured: StrictBool
 
@@ -387,6 +418,10 @@ def listing(resource: str, request: Request, page: int = 1, search: str = '', as
                'users': 'r.id,r.email,r.nickname,r.created_at'}[resource]
     if resource != 'users':
         columns += ',u.email AS owner_email'
+    publication_join = ''
+    if resource == 'games':
+        columns += ",COALESCE(w.status='PUBLISHED',0) AS plaza_published,COALESCE(w.is_practice_tool,0) AS is_practice_tool"
+        publication_join = ' LEFT JOIN teacher_works w ON w.job_id=CONVERT(r.id USING utf8mb4) COLLATE utf8mb4_unicode_ci'
     field = {'games': "CONCAT(r.owner_user_id,' ',COALESCE(u.email,''),' ',r.source_material)", 'assets': 'r.name', 'users': "CONCAT(COALESCE(r.email,''),' ',COALESCE(r.nickname,''))"}[resource]
     owner_join = ' LEFT JOIN users u ON u.id=r.owner_user_id' if resource != 'users' else ''
     kind_where = ' AND r.kind=%s' if resource == 'assets' and asset_kind else ''
@@ -405,8 +440,12 @@ def listing(resource: str, request: Request, page: int = 1, search: str = '', as
         total_pages = max(1, (total + 19) // 20)
         page = min(page, total_pages)
         parameters = [kind, *filters, (page-1)*20]
-        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id WHERE {where} ORDER BY r.created_at DESC,r.id LIMIT 20 OFFSET %s", parameters)
+        cursor.execute(f"SELECT {columns},COALESCE(c.blocked,0) AS blocked FROM {table} r{owner_join} LEFT JOIN platform_resource_controls c ON c.resource_type=%s AND BINARY c.resource_id=BINARY r.id{publication_join} WHERE {where} ORDER BY r.created_at DESC,r.id LIMIT 20 OFFSET %s", parameters)
         rows = cursor.fetchall()
+    if resource == 'games':
+        for row in rows:
+            row['plaza_published'] = bool(row['plaza_published'])
+            row['is_practice_tool'] = bool(row['is_practice_tool'])
     if resource == 'assets':
         for row in rows:
             row['blocked'] = row['status'] == 'BLOCKED'
