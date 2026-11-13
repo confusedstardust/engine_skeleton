@@ -8,10 +8,11 @@ import { forgeApi, ApiError } from "../../lib/api-client";
 import styles from "./practice.module.css";
 import AnimationPreview from "./animation-preview";
 import MessageMarkdown from "./message-markdown";
+import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number };
 type Reply = { id: string; output: string; duration_ms?: number };
-type BuildTask = { id: string; status: string; phase?: string; attempts?: number; output?: string; error?: string; artifact_id?: string };
+type BuildTask = { id: string; status: string; phase?: string; attempts?: number; output?: string; error?: string; artifact_id?: string; timeline?: TimelineEvent[]; elapsed_ms?: number; learning_plan?: { learning_goal: string; interaction_method: string; key_concepts: string[] } };
 const examples = ["把《赤壁赋》做成可以抽背的互动网页。", "生成一个适合初中生操作的串并联电路实验。", "设计一个知识闯关网页，答完题才能进入下一关。"];
 
 export default function PracticePage() {
@@ -23,6 +24,7 @@ export default function PracticePage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [progress, setProgress] = useState("");
+  const [activeTask, setActiveTask] = useState<BuildTask | null>(null);
   const [preview, setPreview] = useState<{ html: string; artifactId: string; kind: "html" | "animation" } | null>(null);
   const alive = useRef(true);
   const pending = useRef(false);
@@ -42,13 +44,15 @@ export default function PracticePage() {
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
     if (!prompt || pending.current || !loggedIn) return;
-    const history = messages;
+    const history = messages.map(message => ({ role: message.role, content: message.content }));
+    const originalMessages = messages;
+    let lastTask: BuildTask | undefined;
     if (history.length >= 20 || history.reduce((n, m) => n + m.content.length, prompt.length) > 36000) {
       setError("当前对话较长，请开始新对话后继续。"); return;
     }
     pending.current = true;
     setBusy(true); setError(""); setProgress(mode === "animation" ? "正在设计动画…" : mode === "chat" ? "" : "正在制作互动网页…");
-    setMessages([...history, { role: "user", content: prompt }]); setDraft("");
+    setMessages([...originalMessages, { role: "user", content: prompt }]); setDraft("");
     try {
       const parentArtifact = mode === "edit" && preview?.kind === "html" ? preview.artifactId : null;
       const body = JSON.stringify({ prompt, history, ...(parentArtifact ? { parent_artifact_id: parentArtifact } : {}) });
@@ -56,28 +60,32 @@ export default function PracticePage() {
       if (mode !== "chat") {
         const endpoint = mode === "animation" ? "animations" : "html";
         let task = await forgeApi<BuildTask>(`/nar-agent/${endpoint}`, { method: "POST", headers: { "X-NarAgent-Action": "chat" }, body });
+        lastTask = task; setActiveTask(task);
         const started = Date.now();
         while (task.status === "RUNNING") {
           if (Date.now() - started > 930000) throw new Error("等待超时，请联系管理员查看任务状态。");
           await new Promise(resolve => setTimeout(resolve, 2000));
           if (!alive.current) return;
           task = await forgeApi<BuildTask>(`/nar-agent/${endpoint}/${task.id}`);
-          const phases: Record<string, string> = { DESIGNING: "正在规划互动内容", BUILDING: "正在隔离环境构建", CHECKING: "正在浏览器检查与修复", FINALIZING: "正在保存作品版本" };
-          setProgress(`${phases[task.phase || ""] || "正在制作动画"} · 第 ${task.attempts || 0} 次构建`);
+          lastTask = task; setActiveTask(task);
+          const phases: Record<string, string> = { DESIGNING: "正在理解学习需求", PLANNING: "正在规划学习交互", DRAFTING: "正在制作互动内容", BUILDING: "正在组装互动作品", CHECKING: "正在检查作品", FINALIZING: "正在整理作品" };
+          setProgress(phases[task.phase || ""] || "正在制作互动学习作品");
         }
         if (task.status !== "SUCCEEDED" || !task.artifact_id) throw new Error(task.error || "作品未通过检查，请调整要求后重试。");
         const blob = await forgeApi.blob(`/nar-agent/artifacts/${task.artifact_id}/index.html`);
         setPreview({ html: await blob.text(), artifactId: task.artifact_id, kind: mode === "animation" ? "animation" : "html" });
-        reply = { id: task.id, output: task.output || "作品已生成，可在下方预览和继续修改。" };
+        reply = { id: task.id, output: task.output || "作品已经做好，可以打开预览并继续修改。" };
       } else reply = await forgeApi<Reply>("/nar-agent/chat", {
         method: "POST", headers: { "X-NarAgent-Action": "chat" }, body: JSON.stringify({ prompt, history }),
       });
-      setMessages([...history, { role: "user", content: prompt }, { role: "assistant", content: reply.output }]);
+      setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: reply.output, timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms }]);
     } catch (cause) {
-      setMessages(history); setDraft(prompt);
+      if (mode === "chat") setMessages(originalMessages);
+      else setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: "本次作品没有完成。你可以调整需求后再次尝试。", timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms }]);
+      setDraft(prompt);
       if (cause instanceof ApiError && cause.status === 401) { setLoginRequired(true); setLoggedIn(false); }
       setError(cause instanceof Error ? cause.message : "发送失败，请稍后重试。");
-    } finally { pending.current = false; setBusy(false); setProgress(""); input.current?.focus(); }
+    } finally { pending.current = false; setBusy(false); setActiveTask(null); setProgress(""); input.current?.focus(); }
   }
 
   return <main className={styles.page}>
@@ -88,9 +96,9 @@ export default function PracticePage() {
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
-          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}</div></article>)}
+          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}</div></article>)}
           {preview && <AnimationPreview html={preview.html} artifactId={preview.artifactId} label={preview.kind === "html" ? "HTML 互动学习作品" : "动画成品预览"} />}
-          {busy && <p role="status" className={styles.thinking}>{progress || "教学助手正在思考，请稍候…"}</p>}
+          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
         </div>
         <div className={styles.composerArea}>
