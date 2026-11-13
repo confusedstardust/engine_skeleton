@@ -6,7 +6,8 @@ import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/modal";
 import { forgeApi, ApiError } from "../../lib/api-client";
-import { workApi, type SavedWork, type PublicationForm } from "../../lib/work-api";
+import { workApi, type SavedWork, type PublicationForm, type SharedWork } from "../../lib/work-api";
+import WorkShareDialog from "./work-share-dialog";
 import WorkPublishDialog from "./work-publish-dialog";
 import styles from "./practice.module.css";
 import WorkInspector, { type WorkPreviewData } from "./work-inspector";
@@ -34,6 +35,7 @@ export default function PracticePage() {
   const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
   const [revokeArtifactId, setRevokeArtifactId] = useState<string | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
+  const [shareData, setShareData] = useState<SharedWork | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
@@ -140,6 +142,19 @@ export default function PracticePage() {
     } finally { setPublicationBusy(false); }
   }
 
+  async function openShare(artifactId: string) {
+    const item = workPreviews[artifactId];
+    if (!item?.workId || item.publicationStatus !== "published") return;
+    setError("");
+    try {
+      // The server rejects private/unpublished/revoked works, regardless of UI state.
+      const result = await workApi.share(item.workId);
+      setShareData(result);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "当前作品无法分享");
+    }
+  }
+
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
     if (!prompt || pending.current || !loggedIn) return;
@@ -238,8 +253,10 @@ export default function PracticePage() {
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
         onPublish={id => setPublishArtifactId(id)}
         onUnpublish={id => setRevokeArtifactId(id)}
+        onShare={id => { void openShare(id); }}
         publishing={publicationBusy} />}
     </div>
+    {shareData && <WorkShareDialog data={shareData} onClose={() => setShareData(null)} />}
     {publishWork && <WorkPublishDialog key={publishWork.artifactId} work={publishWork}
       onClose={() => setPublishArtifactId(null)} busy={publicationBusy}
       onSubmit={payload => { void submitPublication(payload); }} />}

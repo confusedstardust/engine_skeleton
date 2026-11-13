@@ -18,7 +18,7 @@ export type WorkPreviewData = GeneratedWork & {
 };
 
 export default function WorkInspector({
-  work, onClose, onEdit, onSave, onPublish, onUnpublish, saving = false, publishing = false,
+  work, onClose, onEdit, onSave, onPublish, onUnpublish, onShare, saving = false, publishing = false,
 }: {
   work: WorkPreviewData;
   onClose: () => void;
@@ -26,6 +26,7 @@ export default function WorkInspector({
   onSave: (id: string) => void;
   onPublish: (id: string) => void;
   onUnpublish: (id: string) => void;
+  onShare: (id: string) => void;
   saving?: boolean;
   publishing?: boolean;
 }) {
@@ -60,6 +61,7 @@ export default function WorkInspector({
           onClick={() => onPublish(work.artifactId)}>
           {published ? "更新广场发布" : "发布到教师资源广场"}
         </Button>}
+        {published && <Button variant="outline" onClick={() => onShare(work.artifactId)}>分享作品</Button>}
         {published && <Button variant="outline" disabled={publishing} onClick={() => onUnpublish(work.artifactId)}>撤回发布</Button>}
         {saved && <Link href="/history" className={styles.inspectorSavedLink}>在我的作品中查看</Link>}
       </div>
