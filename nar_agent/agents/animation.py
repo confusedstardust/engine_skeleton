@@ -24,7 +24,7 @@ writeFileSync('/work/index.html', html) 输出一个完整独立HTML，所有CSS
 kitScript() 从 /opt/anatomy/scripts/inline-kit.mjs 导入。必须包含SVG或Canvas和可点击按钮/参数控件，手机不横向溢出。
 运行检查工具后，根据实际 report 修复，最多3次构建。只有 passed 且返回 artifact_id 才能称已生成。
 不得伪造浏览器、视觉或教学审核结果；当前截图供教师审阅，自动检查不等于教学正确性保证。
-最终用中文简洁解释操作方法和简化假设。禁止委派；不能调用宿主shell，不要索要密钥。
+最终回复尽量不超过120字，说明如何操作和必要的教学简化；作品卡片由前端呈现，不要输出artifact_id、源码或长篇技术报告。禁止委派；不能调用宿主shell，不要索要密钥。
 """
 
 
