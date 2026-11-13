@@ -21,7 +21,8 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from .config import settings
-from .platform_admin import require_admin, require_action_header, ecosystem_change
+from .database import database_transaction
+from .platform_admin import PracticeToolChange, require_admin, require_action_header, ecosystem_change, save_practice_tool
 from .storage import read_json, write_json
 from .teacher_ecosystem import publish_work, unpublish_work, update_work_details
 
@@ -257,6 +258,18 @@ def resources(request: Request):
     items = [read_json(p) for p in resource_root().glob('*/metadata.json')]
     for item in items:
         item['classification'] = editable_classification(item)
+    published_ids = [item['id'] for item in items if item['state'] == 'published']
+    selected = set()
+    if published_ids:
+        placeholders = ','.join(['%s'] * len(published_ids))
+        with database_transaction() as cursor:
+            cursor.execute(
+                f"SELECT job_id FROM teacher_works WHERE status='PUBLISHED' AND is_practice_tool=1 AND job_id IN ({placeholders})",
+                published_ids,
+            )
+            selected = {row['job_id'] for row in cursor.fetchall()}
+    for item in items:
+        item['is_practice_tool'] = item['id'] in selected
     return {'items': sorted(items, key=lambda m: m['created_at'], reverse=True)}
 
 
@@ -422,6 +435,17 @@ def feature_resource(identifier: str, body: ResourceFeatured, request: Request):
         metadata = read_json(root / 'metadata.json')
         metadata['payload']['featured'] = body.featured
         return sync_resource_details(actor, identifier, root, metadata)
+
+
+@router.put('/admin/html-resources/{identifier}/practice-tool')
+def set_html_practice_tool(identifier: str, body: PracticeToolChange, request: Request):
+    require_action_header(request)
+    actor = require_admin(request)
+    root, _ = get_resource(identifier)
+    with publication_lock(root):
+        if read_json(root / 'metadata.json')['state'] != 'published':
+            raise HTTPException(409, '资源需已发布到教师资源广场')
+        return save_practice_tool(actor, identifier, body.enabled)
 
 
 @router.patch('/admin/html-resources/{identifier}/tags')

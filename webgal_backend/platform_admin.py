@@ -254,6 +254,10 @@ def set_practice_tool(identifier: str, payload: PracticeToolChange, request: Req
     actor = require_admin(request)
     if not re.fullmatch(r'[0-9a-f]{32}', identifier):
         raise HTTPException(422, '无效作品 ID')
+    return save_practice_tool(actor, identifier, payload.enabled)
+
+
+def save_practice_tool(actor, identifier: str, enabled: bool):
     with database_transaction() as cursor:
         cursor.execute(
             'SELECT status,is_practice_tool FROM teacher_works WHERE job_id=%s FOR UPDATE',
@@ -263,17 +267,17 @@ def set_practice_tool(identifier: str, payload: PracticeToolChange, request: Req
         if not work or work['status'] != 'PUBLISHED':
             raise HTTPException(409, '作品需已发布到教师资源广场')
         previous = bool(work['is_practice_tool'])
-        if previous != payload.enabled:
+        if previous != enabled:
             cursor.execute(
                 'UPDATE teacher_works SET is_practice_tool=%s WHERE job_id=%s',
-                (payload.enabled, identifier),
+                (enabled, identifier),
             )
             cursor.execute(
                 'INSERT INTO platform_admin_audit (id,actor_user_id,resource_type,resource_id,action,before_json,after_json) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                 (uuid.uuid4().hex, actor['id'], 'JOB', identifier, 'PRACTICE_TOOL',
-                 json.dumps({'is_practice_tool': previous}), json.dumps({'is_practice_tool': payload.enabled})),
+                 json.dumps({'is_practice_tool': previous}), json.dumps({'is_practice_tool': enabled})),
             )
-    return {'is_practice_tool': payload.enabled}
+    return {'is_practice_tool': enabled}
 
 class GameFeatured(BaseModel):
     featured: StrictBool
