@@ -393,6 +393,86 @@ def test_truncated_model_response_has_specific_error_code(tmp_path):
         assert job["attempts"] == 0
 
 
+def test_progress_timeline_records_actual_phases_and_durations():
+    from app.progress_events import enter_phase, close_phase, public_elapsed_ms
+
+    state = {"status": "RUNNING"}
+    enter_phase(state, "DESIGNING")
+    enter_phase(state, "PLANNING", "拟采用两种函数对比图，理解函数的变化")
+    enter_phase(state, "DRAFTING")
+    enter_phase(state, "BUILDING")
+    enter_phase(state, "CHECKING")
+    enter_phase(state, "FINALIZING")
+    state["status"] = "SUCCEEDED"
+    close_phase(state)
+    close_phase(state)
+    assert [item["phase"] for item in state["timeline"]] == [
+        "DESIGNING", "PLANNING", "DRAFTING", "BUILDING", "CHECKING", "FINALIZING",
+    ]
+    assert all(item["status"] == "completed" for item in state["timeline"])
+    assert all(isinstance(item["duration_ms"], int) and item["duration_ms"] >= 0
+               for item in state["timeline"])
+    assert len(state["timeline"]) == 6
+    assert state["timeline"][1]["detail"].startswith("拟采用")
+    assert public_elapsed_ms(state) == state["elapsed_ms"]
+
+
+def test_progress_failure_closes_last_actual_stage_only():
+    from app.progress_events import enter_phase, close_phase
+    state = {"status": "RUNNING"}
+    enter_phase(state, "DESIGNING")
+    enter_phase(state, "PLANNING")
+    state["status"] = "FAILED"
+    close_phase(state, failed=True)
+    assert [event["status"] for event in state["timeline"]] == ["completed", "failed"]
+    assert state["phase"] == "PLANNING"
+
+
+def test_html_agent_learning_plan_is_explicit_not_hidden_reasoning(monkeypatch, tmp_path):
+    import agents.html_builder as module
+
+    class Model(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    config = json.dumps({
+        "title": "函数练习",
+        "cards": [{"question": "x=1 时函数值是多少？", "answer": "1"}],
+    }, ensure_ascii=False)
+    model = Model(messages=iter([
+        AIMessage(content="", tool_calls=[
+            {"name": "search_html_templates", "args": {"query": "函数"}, "id": "search"}
+        ]),
+        AIMessage(content="", tool_calls=[
+            {"name": "record_learning_plan", "args": {
+                "learning_goal": "理解函数的变化",
+                "interaction_method": "参数滑块和曲线比较",
+                "key_concepts": ["自变量", "幂函数", "指数函数"],
+            }, "id": "plan"}
+        ]),
+        AIMessage(content="", tool_calls=[
+            {"name": "render_html_template", "args": {
+                "template_id": "recitation-cards", "config_json": config,
+            }, "id": "build"}
+        ]),
+        AIMessage(content="已制作互动作品"),
+    ]))
+    original = httpx.AsyncClient
+    def handler(request):
+        source = json.loads(request.content)["source"]
+        return httpx.Response(200, json=payload(source.encode()))
+    monkeypatch.setattr(module.httpx, "AsyncClient",
+                        lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(handler)))
+    progress = {}
+    graph = build_html_agent(settings(), "teacher-a", progress, ArtifactStore(str(tmp_path)), model=model)
+    asyncio.run(graph.ainvoke(html_initial_state("做一个函数练习", []), config={"recursion_limit": 80}))
+    assert progress["learning_plan"]["learning_goal"] == "理解函数的变化"
+    assert [event["phase"] for event in progress["timeline"]] == [
+        "PLANNING", "BUILDING", "CHECKING", "FINALIZING",
+    ]
+    assert "参数滑块和曲线比较" in progress["timeline"][0]["detail"]
+
+
 @pytest.mark.skipif(os.getenv("NAR_TEST_DOCKER") != "1", reason="Requires real CI Docker + Chromium")
 def test_real_docker_html_browser_smoke():
     source = TemplateCatalog().render("recitation-cards", {
