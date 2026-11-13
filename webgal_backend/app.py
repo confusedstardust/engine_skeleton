@@ -29,6 +29,7 @@ from .asset_library import AssetLibrary, AssetLibraryError
 from .artifacts import contains_hidden_path
 from .auth import auth_mode, identity_from_request, job_belongs_to_identity, user_from_request
 from .config import settings
+from .database import database_transaction
 from .job_options import GenerationOptions, normalize_generation_options
 from .narrative_nodes import NarrativeNodeError, NarrativeNodeKind, generate_narrative_node as generate_narrative_node_payload
 from .narrative_structure import build_synced_narrative_structure, narrative_structure_issues
@@ -77,10 +78,28 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
 from .platform_admin import router as admin_router, blocked as admin_blocked
 from .community import router as community_router
+from .site_visits import router as site_visits_router
 app.include_router(community_router)
+app.include_router(site_visits_router)
 app.include_router(admin_router)
 from .payments import router as payments_router
 app.include_router(payments_router)
+
+
+@app.get("/practice-tools")
+def list_practice_tools() -> dict[str, Any]:
+    with database_transaction() as cursor:
+        cursor.execute("""
+            SELECT w.job_id,w.title,w.summary,w.cover_url,w.play_url,w.quiz_url
+            FROM teacher_works w
+            WHERE w.status='PUBLISHED' AND w.is_practice_tool=1
+              AND NOT EXISTS (
+                  SELECT 1 FROM platform_resource_controls c
+                  WHERE c.resource_type='JOB' AND BINARY c.resource_id=BINARY w.job_id AND c.blocked=1
+              )
+            ORDER BY w.published_at DESC,w.id DESC
+        """)
+        return {"items": cursor.fetchall()}
 
 
 @app.middleware('http')
@@ -1971,7 +1990,8 @@ def play_game_with_slash(job_id: str) -> HTMLResponse:
     html = html.replace("./manifest.json", f"{static_root}manifest.json")
     html = html.replace("./webgal-serviceworker.js", f"{static_root}webgal-serviceworker.js")
     html = html.replace("loadIifePlugin('lib/", f"loadIifePlugin('{static_root}lib/")
-    html = html.replace("<head>", f'<head>\n    <base href="{play_root}" />', 1)
+    visitor_script = _public_app_path("/play/_telemetry/visitor.js")
+    html = html.replace("<head>", f'<head>\n    <base href="{play_root}" />\n    <script defer src="{visitor_script}"></script>', 1)
     return HTMLResponse(content=html)
 
 

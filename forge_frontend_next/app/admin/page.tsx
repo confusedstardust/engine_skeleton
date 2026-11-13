@@ -16,13 +16,13 @@ import AdminAssetUpload from "../../components/admin-asset-upload";
 import AdminGamePublication from "../../components/admin-game-publication";
 import * as Popover from "@radix-ui/react-popover";
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Dialog from "../../components/ui/dialog";
 import { ConfirmDialog } from "../../components/ui/modal";
 import { withBasePath } from "../base-path";
 
-type Item = { id: string; name?: string; nickname?: string; email?: string; kind?: string; status?: string; owner_user_id?: string; owner_email?: string; phase?: string; blocked: boolean; created_at: string; url?: string };
+type Item = { id: string; name?: string; nickname?: string; email?: string; kind?: string; status?: string; owner_user_id?: string; owner_email?: string; phase?: string; blocked: boolean; created_at: string; url?: string; plaza_published?: boolean; is_practice_tool?: boolean };
 type GameDetail = Item & { source_material: string; progress_percent: number; draft_revision: number; published_revision: number; build_state: string; options: Record<string,unknown>; error_code?: string; error_message?: string; updated_at: string; scene_count: number; image_count: number; can_preview: boolean };
 const statusLabels: Record<string,string> = {CREATED:"待生成",RUNNING:"生成中",SUCCEEDED:"生成完成",FAILED:"生成失败",CANCELLED:"已取消",ACTIVE:"正常",BLOCKED:"已停用",DELETED:"已删除"};
 const optionLabels: Record<string,string> = {grade:"适用年级",duration:"游戏时长",difficulty:"学习难度",text_model:"文本模型",image_model:"图像模型",generate_tts:"生成语音",student_goal:"学生学习目标",teacher_goal:"教学目标",voice_enabled:"角色配音",narrative_mode:"叙事模式",classroom_topic:"课堂主题",generate_assets:"生成图片",generation_mode:"生成模式",output_packages:"输出内容",tts_scope:"配音范围",tts_max_total_lines:"配音句数上限",tts_max_lines_per_scene:"每场景配音上限",allow_missing_assets:"允许素材缺失"};
@@ -50,7 +50,9 @@ export default function AdminPage() {
   const [assetStatus,setAssetStatus] = useState("");
   const [ownerFilterOpen,setOwnerFilterOpen] = useState(false);
   const [statusFilterOpen,setStatusFilterOpen] = useState(false);
-  const [items,setItems] = useState<Item[]>([]);
+  const [list,setList] = useState<{resource:string;items:Item[]}>({resource:"",items:[]});
+  const items = list.resource === resource ? list.items : [];
+  const gameListRequest = useRef<AbortController|null>(null);
   const [search,setSearch] = useState("");
   const [query,setQuery] = useState("");
   const [page,setPage] = useState(1);
@@ -85,25 +87,47 @@ export default function AdminPage() {
   }
   useEffect(() => {
     if (!allowed || (resource === "dashboard" || resource === "payment-test" || resource === "community")) return;
-    let active=true;
+    const controller = new AbortController();
+    if (resource === "games") gameListRequest.current = controller;
     setLoading(true); setError("");
-    api<{items:Item[];has_more:boolean;page:number;total:number;total_pages:number;applied_filters?:{owner_query:string;asset_status:string}}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:"",owner_query:resource==="assets"?ownerQuery:"",asset_status:resource==="assets"?assetStatus:""})}`)
-      .then((data) => {if(active){if(resource==="assets"&&(ownerQuery||assetStatus)&&(data.applied_filters?.owner_query!==ownerQuery||data.applied_filters?.asset_status!==assetStatus))throw new Error("后端尚未加载筛选功能，请更新或重启后端服务");setItems(data.items);setHasMore(data.has_more);setTotal(data.total);setTotalPages(data.total_pages);setPage(data.page);setJumpPage(String(data.page));}})
-      .catch((e) => {if(active){setError(e.message);setItems([]);setHasMore(false);setTotal(0);setTotalPages(1);}}).finally(() => {if(active)setLoading(false);});
-    return () => {active=false;};
+    api<{items:Item[];has_more:boolean;page:number;total:number;total_pages:number;applied_filters?:{owner_query:string;asset_status:string}}>(`/${resource}?${new URLSearchParams({page:String(page),search:query,asset_kind:resource==="assets"?assetKind:"",owner_query:resource==="assets"?ownerQuery:"",asset_status:resource==="assets"?assetStatus:""})}`, {signal:controller.signal})
+      .then((data) => {if(!controller.signal.aborted){if(resource==="assets"&&(ownerQuery||assetStatus)&&(data.applied_filters?.owner_query!==ownerQuery||data.applied_filters?.asset_status!==assetStatus))throw new Error("后端尚未加载筛选功能，请更新或重启后端服务");setList({resource,items:data.items});setHasMore(data.has_more);setTotal(data.total);setTotalPages(data.total_pages);setPage(data.page);setJumpPage(String(data.page));}})
+      .catch((e) => {if(!controller.signal.aborted){setError(e.message);setList({resource,items:[]});setHasMore(false);setTotal(0);setTotalPages(1);}})
+      .finally(() => {
+        if (gameListRequest.current === controller) gameListRequest.current = null;
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (gameListRequest.current === controller) gameListRequest.current = null;
+    };
   },[allowed,resource,page,query,revision,assetKind,ownerQuery,assetStatus]);
-  async function change(item: Item, action: string) {
+  async function change(item: Item, action: "rename" | "block" | "restore") {
     setBusy(true);setError("");
     try {
       await api(`/${resource}/${encodeURIComponent(item.id)}`,{method:"PATCH",body:JSON.stringify({action,name})});
-      setTarget(null);setEditing("");setRevision((v)=>v+1);
+      setTarget(null);setEditing("");
+      if (resource === "games") {
+        // Game availability does not affect search membership, ordering or page totals.
+        setList(current => current.resource === "games" ? {
+          ...current,
+          items: current.items.map(row => row.id === item.id ? {...row, blocked:action === "block"} : row),
+        } : current);
+        // A list request already in flight may have read availability before the write.
+        if (gameListRequest.current) {
+          gameListRequest.current.abort();
+          setRevision(value => value + 1);
+        }
+      } else {
+        setRevision(value => value + 1);
+      }
     } catch(e) {setError(e instanceof Error?e.message:"操作失败");}
     finally {setBusy(false);}
   }
   const title = (item:Item) => item.name || item.nickname || item.email || item.id;
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>page+i-2).filter(n=>n>=1&&n<=totalPages), totalPages])).sort((a,b)=>a-b);
   return <>
-    <WorkbenchHeader title="平台管理" subtitle="ADMINISTRATION" afterAccount={<> {allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setItems([]);}).catch(e=>setError(e.message));}}>退出管理</button>:null} </>} />
+    <WorkbenchHeader title="平台管理" subtitle="ADMINISTRATION" afterAccount={<> {allowed?<button className="btn outline" onClick={()=>{void api('/logout',{method:'POST'}).then(()=>{setAllowed(false);setList({resource:"",items:[]});}).catch(e=>setError(e.message));}}>退出管理</button>:null} </>} />
     <main className="main-wrapper asset-library-wrapper admin-page"><section className="page-header"><h1>平台管理</h1>{allowed ? <p>版本 1.2.5</p> : null}</section>
       {error ? <div className="history-empty error" role="alert">{error}</div>:null}
       {!allowed?<form className="admin-login" onSubmit={login}><h2>管理员登录</h2><label>账号<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="btn primary" disabled={busy}>{busy?"正在登录…":"登录"}</button></form>:null}
@@ -113,7 +137,7 @@ export default function AdminPage() {
         {resource!=="dashboard" && resource!=="payment-test" && resource!=="community" ? <form className="asset-library-search" onSubmit={(e)=>{e.preventDefault();setQuery(search.trim());setPage(1);setRevision(v=>v+1);}}><input type="search" value={search} placeholder={resource==="games"?"搜索作品、用户邮箱或 ID":"搜索名称、邮箱或 ID"} aria-label="搜索管理对象" onChange={(e)=>{setSearch(e.target.value);if(!e.target.value){setQuery("");setPage(1);}}}/><button className="btn primary">搜索</button></form> : null}
         <Tabs.Content className="admin-tab-panel" value={resource}>
           {resource==="community"?<AdminCommunity/>:resource==="dashboard"?<AdminDashboard/>:resource==="payment-test"?<PaymentTestPanel embedded/>:<>
-          {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="assets"?<Popover.Root open={ownerFilterOpen} onOpenChange={value=>{setOwnerFilterOpen(value);if(value)setOwnerSearch(ownerQuery);}}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${ownerQuery?"is-filtered":""}`} aria-label="筛选归属用户" aria-haspopup="dialog">归属用户 <FilterIcon/>{ownerQuery?<small>{ownerQuery}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover" sideOffset={8} align="start" collisionPadding={12} aria-label="归属用户筛选"><form onSubmit={e=>{e.preventDefault();setOwnerQuery(ownerSearch.trim());setPage(1);setOwnerFilterOpen(false);}}><label htmlFor="admin-owner-filter">归属用户</label><input id="admin-owner-filter" type="search" value={ownerSearch} placeholder="输入邮箱、昵称或用户 ID" onChange={e=>setOwnerSearch(e.target.value)}/><div className="admin-actions"><button className="btn outline" type="button" onClick={()=>{setOwnerSearch("");setOwnerQuery("");setPage(1);setOwnerFilterOpen(false);}}>清除筛选</button><button className="btn primary" type="submit">应用</button></div></form></Popover.Content></Popover.Portal></Popover.Root>:resource==="users"?"邮箱":"归属用户"}</th><th>{resource==="assets"?<Popover.Root open={statusFilterOpen} onOpenChange={setStatusFilterOpen}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${assetStatus?"is-filtered":""}`} aria-label="筛选素材状态" aria-haspopup="dialog">状态 <FilterIcon/>{assetStatus?<small>{statusLabels[assetStatus]}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover admin-status-filter" sideOffset={8} align="start" collisionPadding={12} aria-label="素材状态筛选">{[["","全部状态"],["ACTIVE","正常"],["BLOCKED","已停用"],["DELETED","已删除"]].map(([value,label])=><button type="button" key={value} className={assetStatus===value?"is-selected":""} aria-pressed={assetStatus===value} onClick={()=>{setAssetStatus(value);setPage(1);setStatusFilterOpen(false);}}>{label}<span aria-hidden="true">{assetStatus===value?"✓":""}</span></button>)}</Popover.Content></Popover.Portal></Popover.Root>:"状态"}</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource==="games"?<AdminGamePublication jobId={item.id} canPublish={item.status==="SUCCEEDED"&&!item.blocked} blocked={item.blocked}/>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
+          {loading?<div className="history-empty">正在加载…</div>:<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{resource==="users"?"用户":"名称 / ID"}</th><th>{resource==="assets"?<Popover.Root open={ownerFilterOpen} onOpenChange={value=>{setOwnerFilterOpen(value);if(value)setOwnerSearch(ownerQuery);}}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${ownerQuery?"is-filtered":""}`} aria-label="筛选归属用户" aria-haspopup="dialog">归属用户 <FilterIcon/>{ownerQuery?<small>{ownerQuery}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover" sideOffset={8} align="start" collisionPadding={12} aria-label="归属用户筛选"><form onSubmit={e=>{e.preventDefault();setOwnerQuery(ownerSearch.trim());setPage(1);setOwnerFilterOpen(false);}}><label htmlFor="admin-owner-filter">归属用户</label><input id="admin-owner-filter" type="search" value={ownerSearch} placeholder="输入邮箱、昵称或用户 ID" onChange={e=>setOwnerSearch(e.target.value)}/><div className="admin-actions"><button className="btn outline" type="button" onClick={()=>{setOwnerSearch("");setOwnerQuery("");setPage(1);setOwnerFilterOpen(false);}}>清除筛选</button><button className="btn primary" type="submit">应用</button></div></form></Popover.Content></Popover.Portal></Popover.Root>:resource==="users"?"邮箱":"归属用户"}</th><th>{resource==="assets"?<Popover.Root open={statusFilterOpen} onOpenChange={setStatusFilterOpen}><Popover.Trigger asChild><button type="button" className={`admin-column-filter ${assetStatus?"is-filtered":""}`} aria-label="筛选素材状态" aria-haspopup="dialog">状态 <FilterIcon/>{assetStatus?<small>{statusLabels[assetStatus]}</small>:null}</button></Popover.Trigger><Popover.Portal><Popover.Content className="admin-filter-popover admin-status-filter" sideOffset={8} align="start" collisionPadding={12} aria-label="素材状态筛选">{[["","全部状态"],["ACTIVE","正常"],["BLOCKED","已停用"],["DELETED","已删除"]].map(([value,label])=><button type="button" key={value} className={assetStatus===value?"is-selected":""} aria-pressed={assetStatus===value} onClick={()=>{setAssetStatus(value);setPage(1);setStatusFilterOpen(false);}}>{label}<span aria-hidden="true">{assetStatus===value?"✓":""}</span></button>)}</Popover.Content></Popover.Portal></Popover.Root>:"状态"}</th><th>操作</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td>{editing===item.id?<form onSubmit={(e)=>{e.preventDefault();void change(item,"rename");}}><input aria-label="修改名称" maxLength={resource==="users"?191:200} value={name} onChange={(e)=>setName(e.target.value)} autoFocus/><button className="btn outline" disabled={busy}>保存</button><button className="btn outline" type="button" onClick={()=>setEditing("")}>取消</button></form>:<>{item.url?<img className="admin-thumb" src={item.url} alt="" loading="lazy" decoding="async"/>:null}{resource==="users"?<button className="admin-user-name" onClick={()=>setUserDetailId(item.id)}>{title(item)}</button>:<strong>{title(item)}</strong>}<small>{item.id}</small></>}</td><td>{item.email || item.owner_email || (item.owner_user_id==="platform-public-assets"?"平台素材库":item.owner_user_id) || "—"}</td><td>{item.blocked?(resource==="games"?"已下架":"已停用"):(statusLabels[item.status||""]||item.status||"正常")}{item.phase?<small>{item.phase}</small>:null}</td><td><div className="admin-actions">{resource==="users"?<button className="btn outline" onClick={()=>setUserDetailId(item.id)}>查看详情</button>:null}{resource==="games"?<button className="btn outline" onClick={()=>void showDetail(item)}>查看详情</button>:null}{resource==="games"?<AdminGamePublication jobId={item.id} canPublish={item.status==="SUCCEEDED"&&!item.blocked} blocked={item.blocked} plazaPublished={item.plaza_published === true} isPracticeTool={item.is_practice_tool === true}/>:null}{resource!=="games"?<button className="btn outline" disabled={busy} onClick={()=>{setEditing(item.id);setName(item.name||item.nickname||"");}}>改名</button>:null}<button className="btn outline" disabled={busy||item.status==="DELETED"} onClick={()=>setTarget(item)}>{item.blocked?"恢复":resource==="games"?"下架":resource==="users"?"禁用":"停用"}</button></div></td></tr>)}</tbody></table>{!items.length?<div className="history-empty">没有匹配记录</div>:null}</div>}
           <Pagination className="asset-library-pagination admin-pagination" buttonClassName="btn outline" ariaLabel="管理列表分页" layout="summary-first"
             page={page} hasMore={hasMore} disabled={loading || Boolean(error)} onPageChange={setPage}
             summary={`共 ${total} 项 · 第 ${page} / ${totalPages} 页`}

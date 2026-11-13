@@ -1,4 +1,4 @@
-"""Daily aggregates from registered jobs and immutable credit settlements."""
+"""Daily aggregates from browser visits, jobs and credit settlements."""
 from datetime import datetime, timedelta, timezone
 
 from .database import database_transaction
@@ -8,7 +8,7 @@ def dashboard_metrics(days: int):
     today = datetime.now(timezone(timedelta(hours=8))).date()
     start = today - timedelta(days=days-1)
     end = today + timedelta(days=1)
-    metrics = ('tasks', 'completed', 'failed', 'new_users', 'active_users', 'input_tokens',
+    metrics = ('visitors', 'tasks', 'completed', 'failed', 'new_users', 'active_users', 'input_tokens',
                'output_tokens', 'cached_input_tokens', 'images', 'tts_characters', 'credits',
                'settlements', 'settlements_with_usage')
     daily = {str(start+timedelta(days=i)): {'date': str(start+timedelta(days=i)), **dict.fromkeys(metrics,0)} for i in range(days)}
@@ -19,6 +19,7 @@ def dashboard_metrics(days: int):
     params = (str(start), str(end))
     usage = lambda field: f"COALESCE(SUM(GREATEST(0,CAST(JSON_UNQUOTE(JSON_EXTRACT(pricing_snapshot,'$.settlement.usage.{field}')) AS SIGNED))),0) AS {field}"
     queries = [
+        ("SELECT visit_date date, COUNT(*) visitors FROM site_daily_visitors WHERE visit_date >= %s AND visit_date < %s GROUP BY visit_date", params),
         (f"SELECT {date('created_at')} date,COUNT(*) tasks,SUM(status='SUCCEEDED') completed,SUM(status='FAILED') failed FROM generation_jobs WHERE {bounds('created_at')} GROUP BY date", params),
         (f"SELECT {date('created_at')} date,COUNT(*) new_users FROM users WHERE {bounds('created_at')} GROUP BY date", params),
         (f"SELECT date,COUNT(DISTINCT user_id) active_users FROM (SELECT {date('created_at')} date,owner_user_id user_id FROM generation_jobs WHERE {bounds('created_at')} UNION ALL SELECT {date('created_at')} date,user_id FROM credit_reservations WHERE {bounds('created_at')}) activity GROUP BY date", params+params),
@@ -34,8 +35,11 @@ def dashboard_metrics(days: int):
                     target.update({key:int(value or 0) for key,value in row.items() if key != 'date'})
         cursor.execute(f"SELECT COUNT(DISTINCT user_id) users FROM (SELECT owner_user_id user_id FROM generation_jobs WHERE {bounds('created_at')} UNION ALL SELECT user_id FROM credit_reservations WHERE {bounds('created_at')}) activity", params+params)
         unique_users = int(cursor.fetchone()['users'])
+        cursor.execute("SELECT COUNT(DISTINCT visitor_hash) visitors FROM site_daily_visitors WHERE visit_date >= %s AND visit_date < %s", params)
+        unique_visitors = int(cursor.fetchone()['visitors'])
     totals = {key:sum(row[key] for row in daily.values()) for key in metrics}
     totals['active_users'] = unique_users
+    totals['visitors'] = unique_visitors
     totals['tokens'] = totals['input_tokens']+totals['output_tokens']
     return {'timezone':'Asia/Shanghai','start':str(start),'end':str(today),'days':days,
             'daily':list(daily.values()),'totals':totals}

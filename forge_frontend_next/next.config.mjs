@@ -13,6 +13,7 @@ const nextConfig = {
     return [
       { source: "/api/forge/community", destination: `${backend}/community` },
       { source: "/api/forge/community/:path*", destination: `${backend}/community/:path*` },
+      { source: "/api/forge/practice-tools", destination: `${backend}/practice-tools` },
       { source: "/api/forge/health", destination: `${backend}/health` },
       { source: "/api/forge/admin/:path*", destination: `${backend}/admin/:path*` },
       { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
