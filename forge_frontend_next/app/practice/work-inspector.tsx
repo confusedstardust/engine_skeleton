@@ -43,7 +43,7 @@ export default function WorkInspector({
       <button ref={closeRef} type="button" aria-label="关闭作品预览" className={styles.inspectorClose} onClick={onClose}>×</button>
     </header>
     <div className={styles.inspectorScroll}>
-      <AnimationPreview html={work.html} artifactId={work.artifactId} label="互动作品预览" compact />
+      <AnimationPreview html={work.html} artifactId={work.artifactId} label="互动作品预览" compact storedAssetsBase={work.workId && work.currentVersionId && work.savedArtifactId === work.artifactId ? `/api/forge/works/${work.workId}/assets/${work.currentVersionId}` : undefined} />
       <p className={styles.inspectorTip}>可直接操作预览中的控件。正式教学使用前，请核对内容和所有交互步骤。</p>
       <div className={styles.inspectorActions}>
         <Button variant="primary" disabled={saved || saving} busy={saving} onClick={() => onSave(work.artifactId)}>
