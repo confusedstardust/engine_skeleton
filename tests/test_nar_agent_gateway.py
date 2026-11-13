@@ -74,3 +74,29 @@ def test_animation_routes_and_preview_isolation(monkeypatch):
     assert r.status_code == 200
     assert "sandbox allow-scripts" in r.headers["content-security-policy"]
     assert "allow-same-origin" not in r.headers["content-security-policy"]
+
+
+def test_html_gateway_is_authorized_and_forwards_parent_revision(monkeypatch):
+    parent = "a" * 32
+    run_id = "b" * 32
+    def handler(request):
+        assert request.headers["X-User-ID"] == "verified-teacher"
+        assert request.url.path.endswith("/v1/html") or request.url.path.endswith("/v1/html/" + run_id)
+        if request.method == "POST":
+            assert json.loads(request.content)["parent_artifact_id"] == parent
+        return httpx.Response(202 if request.method == "POST" else 200, json={
+            "id": run_id, "user_id": "verified-teacher", "status": "RUNNING",
+            "parent_artifact_id": parent, "usage": {"secret": 100},
+        })
+    c = client(monkeypatch, handler)
+    response = c.post("/nar-agent/html", headers=HEADERS, json={
+        "prompt": "改成英语复习卡", "parent_artifact_id": parent,
+    })
+    assert response.status_code == 202 and response.json()["parent_artifact_id"] == parent
+    assert "usage" not in response.text
+    assert c.get("/nar-agent/html/" + run_id).status_code == 200
+    assert c.get("/nar-agent/html/not-an-id").status_code == 404
+    assert c.post("/nar-agent/html", headers=HEADERS, json={
+        "prompt": "bad", "parent_artifact_id": "../outside",
+    }).status_code == 422
+    assert c.post("/nar-agent/html", json={"prompt": "x"}).status_code == 403

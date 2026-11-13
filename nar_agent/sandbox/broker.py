@@ -14,6 +14,7 @@ import uuid
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from typing import Literal
 from starlette.concurrency import run_in_threadpool
 
 app = FastAPI(title="NarAgent execution broker")
@@ -24,6 +25,7 @@ slot = threading.Lock()
 class BuildInput(BaseModel):
     model_config = {"extra": "forbid"}
     source: str = Field(min_length=1, max_length=96000)
+    kind: Literal["animation", "html"] = "animation"
 
 
 class ArtifactNotReady(Exception):
@@ -60,7 +62,7 @@ def exit_diagnostics(container) -> str:
     return json.dumps({"exit_code": state.get("ExitCode"), "oom_killed": state.get("OOMKilled"), "error": str(state.get("Error", ""))[:500], "logs": logs}, ensure_ascii=False)
 
 
-def execute(source: str):
+def execute(source: str, kind: str = "animation"):
     import docker
     client = docker.from_env(timeout=15)
     container = None
@@ -69,7 +71,7 @@ def execute(source: str):
         # Resolve an already-pulled immutable image ID; no image selection by model.
         image_id = client.images.get(image).id
         container = client.containers.run(
-            image_id, command=[base64.b64encode(source.encode()).decode()], detach=True,
+            image_id, command=[base64.b64encode(source.encode()).decode(), kind], detach=True,
             name="nar-sandbox-" + uuid.uuid4().hex,
             network_mode="none", read_only=True, user="0:0",
             cap_drop=["ALL"], cap_add=["SETUID", "SETGID"], security_opt=["no-new-privileges:true"],
@@ -120,7 +122,7 @@ async def build(payload: BuildInput, authorization: str = Header(default="")):
     if not slot.acquire(blocking=False):
         raise HTTPException(429, "Execution capacity reached")
     try:
-        return await run_in_threadpool(execute, payload.source)
+        return await run_in_threadpool(execute, payload.source, payload.kind)
     except Exception as error:
         detail = str(error) if isinstance(error, (RuntimeError, TimeoutError, ValueError)) else type(error).__name__
         logger.warning("Sandbox execution failed: %s", detail)

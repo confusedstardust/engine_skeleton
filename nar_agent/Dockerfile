@@ -6,6 +6,7 @@ RUN uv sync --frozen --no-dev
 COPY app ./app
 COPY agents ./agents
 COPY skills ./skills
+COPY templates ./templates
 RUN useradd --uid 10001 --create-home naragent && mkdir -p /data/artifacts && chown 10001:10001 /data/artifacts
 USER naragent
 ENV PYTHONUNBUFFERED=1

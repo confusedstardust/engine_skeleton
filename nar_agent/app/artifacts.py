@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -12,7 +13,11 @@ class ArtifactStore:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def save(self, owner: str, result: dict, source: str) -> str:
+    def save(self, owner: str, result: dict, source: str, *, kind: str = "animation", parent_id: str | None = None) -> str:
+        if kind not in {"animation", "html"}:
+            raise ValueError("Unknown artifact kind")
+        if parent_id is not None:
+            self.metadata(owner, parent_id)  # Fail closed for nonexistent or foreign revisions.
         if sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file()) > 500 * 1024 * 1024:
             raise ValueError("Local artifact quota reached; configure retention or OSS")
         identifier = uuid.uuid4().hex
@@ -24,8 +29,12 @@ class ArtifactStore:
                 if len(raw) > limit:
                     raise ValueError("Artifact exceeds size limit")
                 (pending / key).write_bytes(raw)
-            (pending / "build.mjs").write_text(source, encoding="utf-8")
-            (pending / "metadata.json").write_text(json.dumps({"owner": owner, "report": result["report"]}, ensure_ascii=False), encoding="utf-8")
+            (pending / ("source.html" if kind == "html" else "build.mjs")).write_text(source, encoding="utf-8")
+            (pending / "metadata.json").write_text(json.dumps({
+                "owner": owner, "kind": kind, "parent_id": parent_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "report": result["report"],
+            }, ensure_ascii=False), encoding="utf-8")
             pending.rename(self.root / identifier)
             return identifier
         except Exception:
@@ -40,3 +49,14 @@ class ArtifactStore:
         if meta["owner"] != owner:
             raise FileNotFoundError
         return (directory / filename).read_bytes()
+
+    def metadata(self, owner: str, identifier: str) -> dict:
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            raise FileNotFoundError
+        try:
+            meta = json.loads((self.root / identifier / "metadata.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise FileNotFoundError from None
+        if meta.get("owner") != owner:
+            raise FileNotFoundError
+        return {key: meta.get(key) for key in ("kind", "parent_id", "created_at", "report")}

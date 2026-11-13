@@ -14,6 +14,7 @@ services:
     env_file: [./deploy/nar-agent.env]
     environment:
       NAR_AGENT_ANIMATION_ENABLED: "true"
+      NAR_AGENT_HTML_BUILDER_ENABLED: "true"
       NAR_AGENT_EXECUTION_URL: http://execution:8030
       NAR_AGENT_ARTIFACT_DIR: /data/artifacts
     volumes: [nar_agent_artifacts:/data/artifacts]

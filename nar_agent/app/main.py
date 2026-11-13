@@ -16,6 +16,7 @@ from agents.teaching import build_agent, initial_state
 from app.config import Settings
 from app.artifacts import ArtifactStore
 from agents.animation import animation_state, build_animation_agent
+from agents.html_builder import build_html_agent, html_initial_state
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,20 @@ class RunInput(BaseModel):
         return self
 
 
-def create_app(settings: Settings | None = None, *, agent_factory=build_agent, animation_factory=build_animation_agent) -> FastAPI:
+class HtmlInput(RunInput):
+    parent_artifact_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
+def create_app(settings: Settings | None = None, *, agent_factory=build_agent, animation_factory=build_animation_agent, html_factory=build_html_agent) -> FastAPI:
     settings = settings or Settings()
     app = FastAPI(title="NarAgent", version="0.1.0")
     app.state.active_runs = 0
     app.state.animations = {}
     app.state.animation_handles = set()
     app.state.animation_active = False
+    app.state.html_runs = {}
+    app.state.html_handles = set()
+    app.state.html_active = False
 
     async def principal(
         authorization: str = Header(default=""),
@@ -80,7 +88,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
     async def ready():
         if not settings.ready:
             raise HTTPException(503, "Configure service token and model API key")
-        if settings.animation_enabled and len(settings.execution_token.get_secret_value()) < 32:
+        if (settings.animation_enabled or settings.html_builder_enabled) and len(settings.execution_token.get_secret_value()) < 32:
             raise HTTPException(503, "Configure execution token")
         return {"status": "configured", "provider_connectivity": "not_checked"}
 
@@ -88,8 +96,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
     async def create_animation(payload: RunInput, user_id: str = Depends(principal)):
         if not settings.ready or not settings.animation_enabled or len(settings.execution_token.get_secret_value()) < 32:
             raise HTTPException(503, "Animation execution is not configured")
-        if app.state.animation_active:
-            raise HTTPException(429, "One animation can run at a time")
+        if app.state.animation_active or app.state.html_active:
+            raise HTTPException(429, "An execution task is already active")
         if len(app.state.animations) >= 100:
             finished = [key for key, item in app.state.animations.items() if item["status"] != "RUNNING"]
             for key in finished[:50]:
@@ -137,6 +145,84 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         state = app.state.animations.get(identifier)
         if not state or state["user_id"] != user_id:
             raise HTTPException(404, "Animation not found")
+        return state
+
+    @app.post("/v1/html", status_code=202)
+    async def create_html(payload: HtmlInput, user_id: str = Depends(principal)):
+        if not settings.ready or not settings.html_builder_enabled or len(settings.execution_token.get_secret_value()) < 32:
+            raise HTTPException(503, "HTML builder is not configured")
+        if app.state.animation_active or app.state.html_active:
+            raise HTTPException(429, "An execution task is already active")
+        store = ArtifactStore(settings.artifact_dir)
+        if payload.parent_artifact_id:
+            try:
+                if store.metadata(user_id, payload.parent_artifact_id).get("kind") != "html":
+                    raise FileNotFoundError
+            except (FileNotFoundError, ValueError):
+                raise HTTPException(404, "Previous HTML artifact not found") from None
+        if len(app.state.html_runs) >= 100:
+            finished = [key for key, value in app.state.html_runs.items() if value["status"] != "RUNNING"]
+            for key in finished[:50]:
+                del app.state.html_runs[key]
+        identifier = uuid4().hex
+        state = {
+            "id": identifier, "user_id": user_id, "status": "RUNNING",
+            "phase": "DESIGNING", "attempts": 0, "artifact_generated": False,
+            "parent_artifact_id": payload.parent_artifact_id,
+        }
+        app.state.html_runs[identifier] = state
+        app.state.html_active = True
+
+        async def work():
+            usage = UsageMetadataCallbackHandler()
+            try:
+                async with asyncio.timeout(settings.animation_timeout_seconds):
+                    graph = html_factory(settings, user_id, state, store, payload.parent_artifact_id)
+                    result = await graph.ainvoke(
+                        html_initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
+                        config={
+                            "callbacks": [usage], "recursion_limit": 80,
+                            "metadata": {"nar_run_id": identifier, "owner_user_id": user_id},
+                        },
+                    )
+                    content = result["messages"][-1].content
+                    state["output"] = content if isinstance(content, str) else "\n".join(
+                        block.get("text", "") for block in content if isinstance(block, dict)
+                    )
+                    state["artifact_generated"] = bool(state.get("artifact_id"))
+                    state["status"] = "SUCCEEDED" if state["artifact_generated"] else "FAILED"
+                    if not state["artifact_generated"]:
+                        state["error"] = "未获得通过浏览器检查的 HTML，请调整要求后重试。"
+            except ModelCallLimitExceededError:
+                state.update(status="FAILED", error="已达到模型调用预算，尚未完成产物。")
+            except TimeoutError:
+                state.update(status="FAILED", error="HTML 制作超时，请缩小交互范围后重试。")
+            except asyncio.CancelledError:
+                state.update(status="FAILED", error="服务停止，HTML 任务已中断。")
+                raise
+            except Exception as error:
+                logger.warning(
+                    "HTML builder failed id=%s phase=%s diagnostics=%s",
+                    identifier, state["phase"], animation_failure_diagnostics(error),
+                )
+                state.update(status="FAILED", error="HTML 制作失败，请检查执行服务或稍后重试。")
+            finally:
+                state.update(
+                    usage=usage.usage_metadata,
+                    usage_status="reported" if usage.usage_metadata else "unknown",
+                )
+                app.state.html_active = False
+
+        handle = asyncio.create_task(work())
+        app.state.html_handles.add(handle)
+        handle.add_done_callback(app.state.html_handles.discard)
+        return {"id": identifier, "user_id": user_id, "status": "RUNNING"}
+
+    @app.get("/v1/html/{identifier}")
+    async def html_status(identifier: str, user_id: str = Depends(principal)):
+        state = app.state.html_runs.get(identifier)
+        if not state or state["user_id"] != user_id:
+            raise HTTPException(404, "HTML task not found")
         return state
 
     @app.get("/v1/artifacts/{identifier}/{filename}")
