@@ -225,10 +225,10 @@ def test_zero_build_result_is_retried_once_and_saved(tmp_path):
                 for message in input_state["messages"]
             )
             app_store = ArtifactStore(str(tmp_path))
-            progress["artifact_id"] = app_store.save(
+            progress["state"]["artifact_id"] = app_store.save(
                 "teacher-a", payload(), "<!doctype html><html></html>", kind="html"
             )
-            progress["phase"] = "FINALIZING"
+            progress["state"]["phase"] = "FINALIZING"
             return {"messages": [*input_state["messages"], AIMessage(content="已生成并保存互动 HTML。")]}
 
     progress = {}
