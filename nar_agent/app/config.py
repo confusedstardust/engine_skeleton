@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     recursion_limit: int = Field(default=20, ge=2, le=100)
     max_concurrent_runs: int = Field(default=2, ge=1, le=8)
     animation_enabled: bool = False
+    html_builder_enabled: bool = False
     execution_url: str = "http://execution:8030"
     execution_token: SecretStr = SecretStr("")
     artifact_dir: str = "./artifacts"
