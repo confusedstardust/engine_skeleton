@@ -111,3 +111,34 @@ Dev 服务器部署已接入 feature 分支 workflow：真实 Docker 测试 → 
 ## 接下来做什么
 
 按 [实施清单](../refactor/nar-agent-implementation-backlog.md) 逐项推进；总体边界见 [架构方案](../refactor/nar-agent-architecture.md)。anatomy 的代码接入不能代替真实 Docker、模型生成质量和生产验收；完整计量、持久化及计费仍待实施。
+
+## HTML Builder（NarAgent 2.0 增量功能）
+
+本分支新增 **L1/L2 单文件 HTML** 生成入口，继续复用原有的 NarAgent 网络隔离
+Docker Broker、Chromium 检查、ArtifactStore、Forge SSO 网关和讲练页面。
+**默认关闭**：本地设置 `NAR_AGENT_HTML_BUILDER_ENABLED=true`，
+需配置与动画相同的 `NAR_AGENT_EXECUTION_URL` / `NAR_AGENT_EXECUTION_TOKEN`。
+Compose overlay 已为准备好的隔离执行部署打开该标志。
+
+- `POST /v1/html`：提交 `{"prompt":"制作互动抽背网页","history":[]}`，
+  修改旧作品时可添加 `"parent_artifact_id":"<旧 32 位十六进制 artifact_id>"`。
+  服务返回 202 和任务 ID；轮询 `GET /v1/html/{id}`。
+- 任务成功后，使用已有的 `GET /v1/artifacts/{id}/index.html` 获得单文件，
+  `preview.png` / `mobile.png` 为自动浏览器检查截图。
+- 前端 `/practice` 增加「生成 HTML」「修改当前作品」和 HTML 下载操作。
+- HTML 模板位于 `templates/<id>/`，由 `app/template_catalog.py` 白名单查找，
+  参数必须通过约束校验；`skills/html-builder/SKILL.md` 描述代理工作方法。
+- 未匹配模板时，模型可生成完整内联 HTML。已授权的旧版本可以读源码或唯一匹配局部替换。
+  每次成功构建产生一个**新的不可变 artifact_id**，metadata 记录 parent_id。
+- 沙箱默认无网络，且对 HTML 做离线资源预检查；代码测试覆盖用户隔离、模板转义、
+  持久化版本链、工具选择及真实 Docker Chromium 冒烟测试。
+
+**当前能力边界**：任务状态仍仅在当前进程内，重启后无法查询旧 Run；
+保存的 HTML artifact 本身留在本地持久卷。不提供持久化任务队列、云端学习者数据、
+完整 Playwright 语义测试、持久跨设备 Thread，也不保证所有任意交互需求都能生成。
+浏览器 Smoke 仅检查控制元素、运行异常和手机溢出，不等于教学准确性或所有按钮分支验证。
+完整规划见 `refactor/nar-agent-html-builder.md`。
+
+测试：`uv run python -m pytest -q`，CI 在 Docker 环境设定 `NAR_TEST_DOCKER=1`
+以执行真实生成 HTML 的 Chromium 冒烟测试。生产上线前请另行配置计量、
+异步排队、存储保留策略、限流与真实端到端测试。
