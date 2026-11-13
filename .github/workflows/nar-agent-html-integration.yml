@@ -1,0 +1,39 @@
+name: nar-agent-html-integration
+on:
+  pull_request:
+    paths:
+      - 'nar_agent/**'
+      - 'webgal_backend/nar_agent_routes.py'
+      - 'forge_frontend_next/app/practice/**'
+      - 'tests/test_nar_agent_gateway.py'
+      - '.github/workflows/nar-agent-html-integration.yml'
+permissions:
+  contents: read
+jobs:
+  gateway:
+    name: Authenticated Forge gateway contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30'
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py
+  frontend:
+    name: Practice UI TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: forge_frontend_next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: forge_frontend_next/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
