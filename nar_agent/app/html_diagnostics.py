@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage
 HTML_TOOL_NAMES = frozenset({
     "search_html_templates", "render_html_template", "submit_custom_html",
     "read_working_html", "inspect_working_html", "replace_working_html",
+    "write_html_chunk", "validate_working_html",
 })
 FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter", "function_call"})
 
@@ -36,8 +37,11 @@ def summarize_html_run(messages) -> dict:
 NO_BUILD_RECOVERY_INSTRUCTION = (
     "系统检查：你尚未实际调用任何 HTML 构建工具，用户还没有获得作品。"
     "你之前表示将编写自定义网页，现在必须执行，而不是继续描述计划。"
-    "立即调用 render_html_template 或 submit_custom_html 提交完整作品，"
+    "如果没有合适模板，直接调用 write_html_chunk(mode='start', html_chunk='...')，"
+    "每块不要超过 6000 字节，分次调用 mode='append' 写完 CSS/JS/HTML，"
+    "随后调用 validate_working_html 提交浏览器验证；简短作品也可 submit_custom_html。"
     "若已提供可编辑的旧作品，也可调用 replace_working_html。"
+    "绝不要在单次工具参数里塞入整个长网页，否则会触发模型输出长度限制。"
     "不要只回复代码块或文字说明。只有得到工具返回的 artifact_id 才能结束。"
     "如无法使用工具，请解释具体阻碍。"
 )
