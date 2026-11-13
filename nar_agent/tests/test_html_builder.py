@@ -296,6 +296,103 @@ def test_html_trace_excludes_prompt_text_and_tool_arguments():
     assert secret not in json.dumps(trace, ensure_ascii=False)
 
 
+def test_chunked_html_build_avoids_large_tool_arguments(monkeypatch, tmp_path):
+    """A model can assemble small safe chunks before one browser build."""
+    import agents.html_builder as module
+    from langchain_core.messages import ToolMessage
+
+    class Model(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    first = "<!doctype html><html><body><h1>二次函数练习</h1>"
+    middle = "<button id='next'>下一题</button><script>document.getElementById('next').onclick=()=>{};</script>"
+    last = "</body></html>"
+    model = Model(messages=iter([
+        AIMessage(content="", tool_calls=[{"name": "search_html_templates", "args": {"query": "二次函数"}, "id": "search"}]),
+        AIMessage(content="", tool_calls=[{"name": "write_html_chunk", "args": {"html_chunk": first, "mode": "start"}, "id": "start"}]),
+        AIMessage(content="", tool_calls=[{"name": "write_html_chunk", "args": {"html_chunk": middle, "mode": "append"}, "id": "append"}]),
+        AIMessage(content="", tool_calls=[{"name": "write_html_chunk", "args": {"html_chunk": last, "mode": "append"}, "id": "end"}]),
+        AIMessage(content="", tool_calls=[{"name": "validate_working_html", "args": {}, "id": "validate"}]),
+        AIMessage(content="已生成并通过 Chromium 检查。"),
+    ]))
+    requests = []
+    original = httpx.AsyncClient
+
+    def handler(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body["kind"] == "html"
+        assert body["source"] == first + middle + last
+        return httpx.Response(200, json=payload(body["source"].encode()))
+
+    monkeypatch.setattr(module.httpx, "AsyncClient",
+                        lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(handler)))
+    progress = {}
+    graph = build_html_agent(settings(), "teacher-a", progress, ArtifactStore(str(tmp_path)), model=model)
+    result = asyncio.run(graph.ainvoke(html_initial_state("做二次函数练习", []), config={"recursion_limit": 80}))
+    assert len(requests) == 1
+    assert progress["attempts"] == 1 and progress["strategy"] == "chunked"
+    assert progress["draft_chunks"] == 3
+    assert progress["draft_bytes"] == len((first + middle + last).encode("utf-8"))
+    assert progress["artifact_id"]
+    assert result["messages"][-1].content == "已生成并通过 Chromium 检查。"
+    assert any(isinstance(m, ToolMessage) and 'draft_chunks' in str(m.content) for m in result["messages"])
+
+
+def test_chunk_limits_and_lookup_budget(monkeypatch, tmp_path):
+    """Oversize segments are refused before build and repeated searches are bounded."""
+    from langchain_core.messages import ToolMessage
+
+    class Model(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    model = Model(messages=iter([
+        AIMessage(content="", tool_calls=[{"name": "search_html_templates", "args": {}, "id": "s1"}]),
+        AIMessage(content="", tool_calls=[{"name": "search_html_templates", "args": {}, "id": "s2"}]),
+        AIMessage(content="", tool_calls=[{"name": "search_html_templates", "args": {}, "id": "s3"}]),
+        AIMessage(content="", tool_calls=[{"name": "write_html_chunk", "args": {"html_chunk": "好" * 2500, "mode": "start"}, "id": "oversize"}]),
+        AIMessage(content="未提交构建"),
+    ]))
+    progress = {}
+    graph = build_html_agent(settings(), "teacher-a", progress, ArtifactStore(str(tmp_path)), model=model)
+    result = asyncio.run(graph.ainvoke(html_initial_state("网页", []), config={"recursion_limit": 80}))
+    assert "attempts" not in progress
+    reports = [str(m.content) for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert any("Template lookup budget reached" in report for report in reports)
+    assert any("6000 UTF-8 bytes" in report for report in reports)
+
+
+def test_truncated_model_response_has_specific_error_code(tmp_path):
+    """An actual length stop and invalid tool arguments are not called a browser failure."""
+    config = settings(artifact_dir=str(tmp_path))
+
+    class Graph:
+        async def ainvoke(self, input_state, **kwargs):
+            return {"messages": [
+                *input_state.get("messages", []),
+                AIMessage(content="", invalid_tool_calls=[{
+                    "name": "submit_custom_html", "args": "{unfinished", "id": "bad",
+                    "error": "invalid tool arguments",
+                }], response_metadata={"finish_reason": "length"}),
+            ]}
+
+    app = create_app(config, html_factory=lambda *args: Graph())
+    with TestClient(app) as client:
+        run = client.post("/v1/html", headers=HEADERS, json={"prompt": "生成互动网页"}).json()["id"]
+        for _ in range(100):
+            job = client.get("/v1/html/" + run, headers=HEADERS).json()
+            if job["status"] != "RUNNING":
+                break
+            time.sleep(0.01)
+        assert job["status"] == "FAILED", job
+        assert job["error_code"] == "MODEL_OUTPUT_TRUNCATED"
+        assert job["model_trace"]["finish_reason"] == "length"
+        assert job["model_trace"]["invalid_tool_calls"] >= 1
+        assert job["attempts"] == 0
+
+
 @pytest.mark.skipif(os.getenv("NAR_TEST_DOCKER") != "1", reason="Requires real CI Docker + Chromium")
 def test_real_docker_html_browser_smoke():
     source = TemplateCatalog().render("recitation-cards", {
