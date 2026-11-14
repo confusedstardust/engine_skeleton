@@ -62,7 +62,7 @@ const mutationHeaders = { "X-NarAgent-Action": "chat" };
 const base = "/nar-agent";
 
 export const conversationApi = {
-  status: () => forgeApi<{ enabled: boolean }>(base + "/conversations/status"),
+  status: () => forgeApi<{ ready: boolean }>(base + "/conversations/status"),
   list: (cursor?: string) =>
     forgeApi<{ items: ConversationSummary[]; nextCursor: string | null }>(
       base + "/conversations?limit=30" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")),
