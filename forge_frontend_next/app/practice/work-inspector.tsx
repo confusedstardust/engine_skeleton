@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
+import { CloseButton } from "../../components/ui/close-button";
 import AnimationPreview from "./animation-preview";
 import type { GeneratedWork } from "./generated-work-card";
 import type { SavedWorkVersion } from "../../lib/work-api";
@@ -59,7 +60,7 @@ export default function WorkInspector({
   return <aside className={styles.inspector} aria-label={`作品预览：${work.title}`}>
     <header className={styles.inspectorHeader}>
       <div><strong>{work.title}</strong><span>{work.kind === "html" ? "互动网页" : "教学动画"} · V{work.version} · {saved ? "已保存" : "尚未保存"}</span></div>
-      <button ref={closeRef} type="button" aria-label="关闭作品预览" className={styles.inspectorClose} onClick={onClose}>×</button>
+      <CloseButton ref={closeRef} size="sm" aria-label="关闭作品预览" onClick={onClose} />
     </header>
     <div className={styles.inspectorScroll}>
       {saved && work.versions && work.versions.length > 1 &&
