@@ -104,7 +104,27 @@ export function extractWorkConversation(
 /** Existing per-work snapshots always win. Legacy general state is read-only source. */
 export function recoverPracticeSession(owner: string, workspace: string): PracticeSession | null {
   const saved = readPracticeSession(owner, workspace);
-  if (saved || workspace === "general") return saved;
+  if (workspace === "general") return saved;
+  if (saved) {
+    const matching = saved.works.filter(work => work.workId === workspace);
+    const containsForeignWork = saved.works.some(work => work.workId !== workspace);
+    if (matching.length && !containsForeignWork) return saved;
+    if (matching.length) {
+      // Older SPA navigation could persist work A in B's session bucket.
+      // Keep only generated turns that can be attributed to B.
+      const messages = extractWorkConversation(saved.messages, saved.works, workspace);
+      return {
+        messages, works: matching,
+        currentArtifactId: matching.some(w => w.artifactId === saved.currentArtifactId)
+          ? saved.currentArtifactId : matching[matching.length - 1]?.artifactId ?? null,
+        selectedArtifactId: matching.some(w => w.artifactId === saved.selectedArtifactId)
+          ? saved.selectedArtifactId : matching[matching.length - 1]?.artifactId ?? null,
+        pending: null,
+      };
+    }
+    if (!saved.works.length && saved.messages.every(m => !m.work)) return saved;
+    // Every referenced work belongs to another ID: don't show it as this work.
+  }
   const general = readPracticeSession(owner, "general");
   if (!general) return null;
   const messages = extractWorkConversation(general.messages, general.works, workspace);
