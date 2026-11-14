@@ -7,9 +7,11 @@ import { NextRequest, NextResponse } from "next/server";
  * actual path so an already-canonical URL can never redirect to itself.
  */
 export function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
+  // NextURL.pathname can normalize away the slash under skipTrailingSlashRedirect.
+  // The raw incoming request path is the only reliable distinction.
+  const canonical = new URL(request.url);
+  const path = canonical.pathname;
   if (/\/practice\/works\/[0-9a-f]{32}$/.test(path)) {
-    const canonical = request.nextUrl.clone();
     canonical.pathname = path + "/";
     return NextResponse.redirect(canonical, 307);
   }
