@@ -53,11 +53,15 @@ services:
     tmpfs: [/tmp:size=32m]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    # Liveness must not depend on host Docker Engine latency during image pulls.
+    # Actual runtime/image readiness is verified separately by DEV CI before
+    # nar-agent is started. Never remove that explicit readiness gate.
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/ready', timeout=3)"]
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/health', timeout=3)"]
       interval: 20s
       timeout: 5s
       retries: 3
+      start_period: 40s
 
 volumes:
   nar_agent_artifacts:

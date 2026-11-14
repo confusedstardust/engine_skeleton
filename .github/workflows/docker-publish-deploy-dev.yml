@@ -321,6 +321,31 @@ jobs:
               docker pull "$NAR_SANDBOX_IMAGE"
               $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull execution nar-agent
               $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d --no-deps execution
+              # /health is cheap liveness; /ready verifies Docker Engine access and
+              # the pinned sandbox image. Retry bounded readiness during image
+              # extraction rather than turning transient Docker slowness into
+              # a persistent Compose "unhealthy" dependency.
+              EXECUTION_READY=false
+              for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+                if timeout 20s $COMPOSE_CMD --env-file .env $COMPOSE_FILES exec -T execution \
+                  python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/ready', timeout=15)" >/dev/null; then
+                  EXECUTION_READY=true
+                  echo "DEV execution broker ready (Docker Engine and sandbox image checked; attempt $attempt)"
+                  break
+                fi
+                echo "DEV execution /ready not yet available (attempt $attempt/12)"
+                sleep 5
+              done
+              if [ "$EXECUTION_READY" != "true" ]; then
+                echo "DEV execution never became ready; refusing to start nar-agent."
+                $COMPOSE_CMD --env-file .env $COMPOSE_FILES ps -a execution || true
+                $COMPOSE_CMD --env-file .env $COMPOSE_FILES logs --tail 80 execution || true
+                EXECUTION_CONTAINER=$($COMPOSE_CMD --env-file .env $COMPOSE_FILES ps -q execution || true)
+                if [ -n "$EXECUTION_CONTAINER" ]; then
+                  docker inspect "$EXECUTION_CONTAINER" --format '{{json .State.Health}}' || true
+                fi
+                exit 1
+              fi
               $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d nar-agent
               # Apply internal URL/shared token even on the first Agent-only deploy.
               if [ "$DEPLOY_BACKEND" != "true" ]; then

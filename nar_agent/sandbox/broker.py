@@ -138,7 +138,7 @@ def ready():
     if len(token) < 32 or token.startswith("replace-with-"):
         raise HTTPException(503, "Execution token not configured")
     try:
-        client = docker.from_env(timeout=3)
+        client = docker.from_env(timeout=5)  # Host Docker may be busy extracting images
         try:
             client.ping()
             client.images.get(os.environ["NAR_SANDBOX_IMAGE"])
