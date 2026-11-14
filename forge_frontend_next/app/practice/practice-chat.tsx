@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Send, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { LoadingState, Spinner } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
 import GeneratedWorkCard from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
+import PracticeMessageAvatar from "./practice-message-avatar";
 import type { usePracticeWorkspace } from "./use-practice-workspace";
 import styles from "./practice.module.css";
 
@@ -24,8 +26,31 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
     serverReady, serverChecked, conversationId, conversationTitle,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
+    userAvatarUrl, userInitial,
   } = workspace;
   const canSubmit = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn && draft.trim());
+  const [burstKeys, setBurstKeys] = useState<string[]>([]);
+  const seen = useRef<{ conversationId?: string; lastKey?: string; initialized: boolean }>({ initialized: false });
+
+  // Only celebrate messages newly appended to the visible conversation, not
+  // restored history or older pages prepended by "load more".
+  useEffect(() => {
+    if (!sessionReady) return;
+    const last = messages[messages.length - 1];
+    const lastKey = last ? last.id ?? `message-${last.seq ?? messages.length - 1}-${last.role}` : undefined;
+    const previous = seen.current;
+    if (!previous.initialized || previous.conversationId !== conversationId) {
+      const justCreated = previous.initialized && !previous.conversationId && Boolean(conversationId)
+        && busy && messages.length === 1 && last?.role === "user";
+      setBurstKeys(justCreated && lastKey ? [lastKey] : []);
+      seen.current = { initialized: true, conversationId, lastKey };
+      return;
+    }
+    if (lastKey && lastKey !== previous.lastKey) {
+      setBurstKeys(current => current.includes(lastKey) ? current : [...current, lastKey]);
+    }
+    previous.lastKey = lastKey;
+  }, [messages, conversationId, sessionReady, busy]);
 
   return <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
     <div className={styles.chatHeader}>
@@ -54,23 +79,30 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </Button>)}
         </div>
       </div>}
-      {sessionReady && messages.map((message, i) => <article key={message.id ?? i}
-        className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}>
-        <span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span>
-        <div>
-          {message.timeline?.length ? <CreationTimeline timeline={message.timeline}
-            elapsedMs={message.durationMs} learningPlan={message.learningPlan}
-            publicBrief={message.publicBrief} /> : null}
-          {message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
-          {message.work && <GeneratedWorkCard work={message.work}
-            savedWorkId={savedCardWorkId(message.work)}
-            onOpen={id => {
-              if (conversationId) void openArtifact(id);
-              else { setSelectedArtifactId(id); setCurrentArtifactId(id); }
-            }} />}
-        </div>
-      </article>)}
-      {busy && <div className={styles.runningBlock}>
+      {sessionReady && messages.map((message, i) => {
+        const key = message.id ?? `message-${message.seq ?? i}-${message.role}`;
+        return <article key={key}
+          className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}
+          aria-label={message.role === "user" ? "用户消息" : "助手消息"}>
+          <PracticeMessageAvatar role={message.role} userAvatarUrl={userAvatarUrl}
+            userInitial={userInitial} burst={burstKeys.includes(key)} />
+          <div className={styles.messagePaper}>
+            {message.timeline?.length ? <CreationTimeline timeline={message.timeline}
+              elapsedMs={message.durationMs} learningPlan={message.learningPlan}
+              publicBrief={message.publicBrief} /> : null}
+            {message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
+            {message.work && <GeneratedWorkCard work={message.work}
+              savedWorkId={savedCardWorkId(message.work)}
+              onOpen={id => {
+                if (conversationId) void openArtifact(id);
+                else { setSelectedArtifactId(id); setCurrentArtifactId(id); }
+              }} />}
+          </div>
+        </article>;
+      })}
+      {busy && <div className={styles.runningRow}>
+        <PracticeMessageAvatar role="assistant" />
+        <div className={styles.runningBlock}>
         <div role="status" aria-live="polite" className={styles.thinking}>
           <Spinner size="sm" tone="accent" />
           <span>{progress || (activeTask ? "正在制作你的学习作品…" : "正在理解学习需求…")}</span>
@@ -79,6 +111,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
           publicBrief={activeTask.public_brief}
           briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
+        </div>
       </div>}
       <div ref={end} />
     </div>
