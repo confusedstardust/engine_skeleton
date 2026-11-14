@@ -20,6 +20,7 @@ export type SavedWork = {
   publication_status: "draft" | "publishing" | "published" | "failed" | "unpublished" | "unpublish_pending";
   public_url?: string | null;
   published_version_id?: string | null;
+  cover_variant?: "preview" | "mobile";
   created_at: string;
   updated_at: string;
 };
@@ -60,7 +61,7 @@ export const workApi = {
       method: "POST", headers: mutationHeaders,
       body: JSON.stringify({ artifact_id: artifactId, expected_parent_artifact_id: parentArtifactId }),
     }),
-  update: (id: string, fields: Partial<Pick<SavedWork, "title" | "summary" | "subject" | "grade" | "tags">>) =>
+  update: (id: string, fields: Partial<Pick<SavedWork, "title" | "summary" | "subject" | "grade" | "tags" | "cover_variant">>) =>
     forgeApi<{ work: SavedWork }>(`/works/${id}`, {
       method: "PATCH", headers: mutationHeaders, body: JSON.stringify(fields),
     }),
