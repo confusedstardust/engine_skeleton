@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+
 import { useEffect, useRef, useState } from "react";
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
@@ -451,7 +451,7 @@ export default function PracticePage() {
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
 
   return <main className={styles.page}>
-    <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
+    <header className={styles.header}><span className={styles.headerTitle}>互动学习创作 <span>／ 工作台</span></span><AccountMenu /></header>
     <ResizableWorkspace userId={sessionUserId}
       navigation={<PracticeNavigation loggedIn={loggedIn} busy={busy}
         refreshKey={savedWorkCount} onNewConversation={beginNewConversation} />}
