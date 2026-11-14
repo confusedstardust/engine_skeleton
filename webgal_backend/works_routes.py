@@ -94,6 +94,9 @@ def create_router(*, user_for_request, store: WorkStore | None = None, transport
     async def save_work(payload: SaveWorkInput, request: Request):
         require_mutation(request)
         owner = await owner_from(request)
+        existing = await run_in_threadpool(works.find_by_artifact, owner, payload.artifact_id)
+        if existing is not None:
+            return {"work": existing}
         assets = await source_artifact(owner, payload.artifact_id, payload.kind)
         work = await run_in_threadpool(works.create, owner, payload.artifact_id,
                                        payload.kind, payload.title, payload.summary, assets)
