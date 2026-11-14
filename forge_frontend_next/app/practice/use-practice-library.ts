@@ -15,12 +15,13 @@ type Args = {
   setError: Dispatch<SetStateAction<string>>;
   setSelectedArtifactId: Dispatch<SetStateAction<string | null>>;
   setCurrentArtifactId: Dispatch<SetStateAction<string | null>>;
+  onSaved?: (artifactId: string, workId: string) => Promise<void>;
 };
 
 /** Save/version/publish/share controls. Conversation and generator state belong elsewhere. */
 export function usePracticeLibrary({
   workPreviews, setWorkPreviews, setMessages, loggedIn, busy, setError,
-  setSelectedArtifactId, setCurrentArtifactId,
+  setSelectedArtifactId, setCurrentArtifactId, onSaved,
 }: Args) {
   const [savingArtifactId, setSavingArtifactId] = useState<string | null>(null);
   const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
@@ -40,6 +41,10 @@ export function usePracticeLibrary({
     try {
       const saved = await persistArtifact(work);
       if (!saved) return;
+      if (onSaved) {
+        try { await onSaved(artifactId, saved.id); }
+        catch { setError("作品已保存，但会话来源关联暂时失败。可稍后再试。"); }
+      }
       const version = saved.versions.find(item => item.id === saved.current_version_id);
       if (!version) throw new Error("作品版本保存失败");
       setWorkPreviews(previous => ({
@@ -107,6 +112,10 @@ export function usePracticeLibrary({
       });
       const workId = saved?.id || item.workId;
       if (!workId) throw new Error("作品尚未保存，请重试");
+      if (saved && onSaved) {
+        try { await onSaved(item.artifactId, workId); }
+        catch { setError("作品已保存，但会话来源关联暂时失败。"); }
+      }
       if (saved) {
         const latest = saved.versions.find(version => version.id === saved.current_version_id);
         setWorkPreviews(previous => ({
