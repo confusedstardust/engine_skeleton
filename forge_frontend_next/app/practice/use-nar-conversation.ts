@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject
 import { useRouter, useSearchParams } from "next/navigation";
 import { conversationApi, type ConversationArtifact, type ServerTurn, type ConversationDetail } from "../../lib/conversation-api";
 import { workApi } from "../../lib/work-api";
+import {
+  CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery,
+  setConversationQuery, upsertConversationSummary, invalidateConversationQuery,
+} from "../../lib/conversation-query-cache";
 import { previewConversationArtifact, messagesFromConversation } from "./practice-conversation";
 import type { PracticeMessage } from "./practice-types";
 import type { WorkPreviewData } from "./work-inspector";
@@ -13,6 +17,7 @@ type Args = {
   conversationId?: string;
   authReady: boolean;
   loggedIn: boolean;
+  ownerId: string | null;
   setSessionReady: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<PracticeMessage[]>>;
   setWorkPreviews: Dispatch<SetStateAction<Record<string, WorkPreviewData>>>;
@@ -43,7 +48,7 @@ function terminal(status: string): boolean {
 /** Durable history does not reuse the per-tab cache. All history reads are
  * owner checked by Forge and body HTML is fetched only on explicit preview. */
 export function useNarConversation({
-  conversationId, authReady, loggedIn, setSessionReady, setMessages,
+  conversationId, authReady, loggedIn, ownerId, setSessionReady, setMessages,
   setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId,
   setBusy, setActiveTask, setError, setDraft, setProgress, input,
 }: Args) {
@@ -56,7 +61,6 @@ export function useNarConversation({
   const [activeTurn, setActiveTurn] = useState<ServerTurn | null>(null);
   const [olderCursor, setOlderCursor] = useState<number | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [revision, setRevision] = useState(0);
   const [conversationTitle, setConversationTitle] = useState("");
   const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string } | null>(null);
   const alive = useRef(true);
@@ -70,10 +74,11 @@ export function useNarConversation({
     if (!authReady) return;
     let active = true;
     setChecked(false);
-    if (!loggedIn) { setReady(false); setChecked(true); return; }
-    // No feature switch or browser chat fallback: the authenticated endpoint
-    // confirms schema readiness. A missing migration is surfaced to the user.
-    void conversationApi.status().then(r => {
+    if (!loggedIn || !ownerId) { setReady(false); setChecked(true); return; }
+    // Readiness is an authenticated server query, cached for 5 minutes.
+    // Never re-check the entire schema on every conversation page mount.
+    void getConversationQuery(ownerId, "readiness", CONVERSATION_STALE_MS.readiness,
+      () => conversationApi.status()).then(r => {
       if (active) setReady(r.ready);
     }).catch(error => {
       if (active) {
@@ -83,7 +88,7 @@ export function useNarConversation({
       }
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
-  }, [authReady, loggedIn]);
+  }, [authReady, loggedIn, ownerId]);
 
   const applyDetail = useCallback((detail: ConversationDetail) => {
     if (!alive.current) return;
@@ -92,7 +97,6 @@ export function useNarConversation({
     setConversationTitle(detail.conversation.title);
     setOlderCursor(detail.nextBefore);
     setActiveTurn(detail.activeTurn);
-    setRevision(v => v + 1);
   }, [setMessages]);
 
   useEffect(() => {
@@ -102,15 +106,30 @@ export function useNarConversation({
       if (loggedIn) setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql");
       return;
     }
+    if (!ownerId) return;
     let active = true;
-    setSessionReady(false);
-    void conversationApi.get(conversationId).then(detail => {
-      if (active) { applyDetail(detail); setSessionReady(true); }
+    const key = "detail:" + conversationId;
+    const cached = peekConversationQuery<ConversationDetail>(ownerId, key);
+    if (cached) {
+      // Stale-while-revalidate: paint the prior conversation instantly, no blank
+      // chat, spinner or global sidebar refresh on back/forward navigation.
+      applyDetail(cached);
+      setSessionReady(true);
+    } else {
+      setSessionReady(false);
+    }
+    void getConversationQuery(ownerId, key, CONVERSATION_STALE_MS.detail,
+      () => conversationApi.get(conversationId)).then(detail => {
+      if (active && (!cached || cached !== detail)) applyDetail(detail);
+      if (active) setSessionReady(true);
     }).catch(e => {
-      if (active) { setError(e instanceof Error ? e.message : "会话加载失败"); setSessionReady(true); }
+      if (active) {
+        if (!cached) setError(e instanceof Error ? e.message : "会话加载失败");
+        setSessionReady(true);
+      }
     });
     return () => { active = false; };
-  }, [conversationId, authReady, checked, loggedIn, ready, applyDetail, setError, setSessionReady]);
+  }, [conversationId, authReady, checked, loggedIn, ready, ownerId, applyDetail, setError, setSessionReady]);
 
   const openArtifact = useCallback(async (id: string) => {
     const target = artifacts.find(item => item.artifactId === id);
@@ -137,7 +156,7 @@ export function useNarConversation({
   // Query a running turn while this conversation is visible. Switching routes
   // cancels the loop. A QUEUED/UNKNOWN dispatch is never blindly retried.
   useEffect(() => {
-    if (!conversationId || !ready || !activeTurn) return;
+    if (!conversationId || !ready || !activeTurn || !ownerId) return;
     if (terminal(activeTurn.status)) {
       setBusy(false);
       if (activeTurn.status === "UNKNOWN") {
@@ -207,8 +226,13 @@ export function useNarConversation({
             }
           }
           if (!cancelled) {
-            const detail = await conversationApi.get(conversationId);
-            if (!cancelled) applyDetail(detail);
+            const detail = await getConversationQuery(ownerId, "detail:" + conversationId, 0,
+              () => conversationApi.get(conversationId), { force: true });
+            if (!cancelled) {
+              applyDetail(detail);
+              upsertConversationSummary(ownerId, detail.conversation);
+              if (turn.status === "SUCCEEDED") invalidateConversationQuery(ownerId, "artifacts");
+            }
           }
           return;
         }
@@ -224,7 +248,7 @@ export function useNarConversation({
     };
     void poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [conversationId, ready, activeTurn?.id, activeTurn?.status, applyDetail,
+  }, [conversationId, ready, ownerId, activeTurn?.id, activeTurn?.status, applyDetail,
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "chat" | "html" | "animation" | "edit",
@@ -243,10 +267,29 @@ export function useNarConversation({
         : await conversationApi.create(targetId, requestId, prompt, mode, parentArtifact);
       inFlight.current = null;
       if (!conversationId) {
+        // Prepare a minimal server-accepted snapshot for instant navigation.
+        // The new route revalidates only this conversation in the background.
+        if (ownerId) {
+          const now = new Date().toISOString();
+          setConversationQuery<ConversationDetail>(ownerId, "detail:" + targetId, {
+            conversation: { id: targetId, title: prompt.slice(0, 160),
+              createdAt: now, activeAt: now },
+            messages: [{ id: requestId, seq: 1, role: "user",
+              content: prompt, createdAt: now }],
+            nextBefore: null,
+            activeTurn: result.turn.status === "RUNNING" || result.turn.status === "QUEUED"
+              || result.turn.status === "UNKNOWN" ? result.turn : null,
+            artifacts: [],
+          });
+          invalidateConversationQuery(ownerId, "detail:" + targetId);
+          upsertConversationSummary(ownerId, { id: targetId, title: prompt.slice(0, 160) });
+        }
         router.push("/practice/chat/" + targetId);
       } else {
-        const detail = await conversationApi.get(targetId);
+        const detail = await getConversationQuery(ownerId!, "detail:" + targetId, 0,
+          () => conversationApi.get(targetId), { force: true });
         applyDetail(detail);
+        upsertConversationSummary(ownerId!, detail.conversation);
         if (!detail.activeTurn) setBusy(false);
       }
       if (terminal(result.turn.status) && result.turn.status !== "SUCCEEDED")
@@ -301,11 +344,12 @@ export function useNarConversation({
   }
 
   return {
-    ready, checked, revision, conversationId, conversationTitle, artifacts,
+    ready, checked, conversationId, conversationTitle, artifacts,
     activeTurn, olderCursor, loadingOlder, loadOlder, chatScroll, skipScroll,
     openArtifact, send, refresh: async () => {
       if (!conversationId || !ready) return;
-      applyDetail(await conversationApi.get(conversationId));
+      applyDetail(await getConversationQuery(ownerId!, "detail:" + conversationId, 0,
+        () => conversationApi.get(conversationId), { force: true }));
     },
   };
 }
