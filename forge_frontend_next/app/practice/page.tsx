@@ -71,9 +71,10 @@ export default function PracticePage() {
     if (!authReady) return;
     if (!sessionUserId) { setSessionReady(true); return; }
     const savedId = new URL(window.location.href).searchParams.get("work");
-    if (savedId) { setSessionReady(true); return; } // Deep link takes precedence.
+    // Different saved works have independent tab conversations; the work loader below
+    // still refreshes the authoritative current version on every deep link visit.
     let mounted = true;
-    const snapshot = readPracticeSession(sessionUserId);
+    const snapshot = readPracticeSession(sessionUserId, savedId || "general");
     void (async () => {
       if (!snapshot) { if (mounted) setSessionReady(true); return; }
       const loaded: Record<string, WorkPreviewData> = {};
@@ -102,13 +103,11 @@ export default function PracticePage() {
   useEffect(() => {
     if (!sessionReady || !sessionUserId) return;
     const { searchParams } = new URL(window.location.href);
-    // A work deep link is an explicit workspace navigation, not an old chat restoration.
-    if (searchParams.has("work")) return;
     writePracticeSession(sessionUserId, {
       messages,
       works: Object.values(workPreviews).map(({ html, ...record }) => record),
       currentArtifactId, selectedArtifactId, pending: pendingRun,
-    });
+    }, searchParams.get("work") || "general");
   }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
 
 
@@ -403,7 +402,10 @@ export default function PracticePage() {
   return <main className={styles.page}>
     <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
     <div className={`${styles.layout} ${selectedWork ? styles.layoutWithInspector : ""}`}>
-      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setWorkPreviews({}); setPendingRun(null); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); if (sessionUserId) clearPracticeSession(sessionUserId); input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
+      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setWorkPreviews({}); setPendingRun(null); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); if (sessionUserId) clearPracticeSession(sessionUserId,
+      new URL(window.location.href).searchParams.get("work") || "general");
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+      input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
       <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
