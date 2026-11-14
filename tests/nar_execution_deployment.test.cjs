@@ -37,3 +37,10 @@ test("changes remain limited to development deployment, not prod job", () => {
   assert.match(workflow, /name: docker-publish-deploy-development/);
   assert.doesNotMatch(workflow, /name: docker-publish-deploy-production/);
 });
+
+
+test("push path-filter detects current changes instead of diffing feature against main", () => {
+  const workflow = read(".github/workflows/docker-publish-deploy-dev.yml");
+  assert.match(workflow, /uses: dorny\/paths-filter@v3[\s\S]*?base: \$\{\{ github\.ref \}\}/);
+  assert.match(workflow, /nar_agent:\s*\n\s+- 'nar_agent\/\*\*'/);
+});
