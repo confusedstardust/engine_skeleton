@@ -9,7 +9,7 @@ The original practice sidebar duplicated five hand-drawn SVGs, a text-based "N" 
 ## Reuse decisions
 
 - **Brand:** `forge_frontend_next/components/brand-logo.tsx`, already backed by `@narrativeos/ui/brand-logo`; no replacement logo/SVG.
-- **Account:** `forge_frontend_next/components/account-menu.tsx` adapts the existing shared `@narrativeos/ui` menu's `dock` option; no second account/session implementation. The menu now lives at the foot of the sidebar.
+- **Account:** reuse the existing shared `@narrativeos/ui` menu through the unchanged Forge adapter; no second account/session implementation. The menu now lives at the foot of the sidebar. Forge pins v0.1.4, which predates the portal's v0.1.5 `dock` API, so this phase does not use the newer prop.
 - **Buttons:** `components/ui/button.tsx`; no new button state/loading primitive.
 - **Icons:** `lucide-react` version matched to the portal, rather than a per-page SVG switch.
 - **Navigation shell:** `components/ui/workspace-sidebar.tsx` and its CSS module are reusable *within Forge*. It accepts route data, main action, custom content and footer; it owns presentation, accessible names and collapse control.
