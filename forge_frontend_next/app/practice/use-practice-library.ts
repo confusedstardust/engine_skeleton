@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { workApi, type SavedWork, type PublicationForm, type SharedWork } from "../../lib/work-api";
+import { workApi, type PublicationForm, type SharedWork } from "../../lib/work-api";
+import { loadSavedWork, persistArtifact } from "./practice-work-service";
 import type { WorkPreviewData } from "./work-inspector";
 import type { PracticeMessage } from "./practice-types";
 
@@ -37,9 +38,8 @@ export function usePracticeLibrary({
     setSavingArtifactId(artifactId);
     setError("");
     try {
-      const saved: SavedWork = work.workId
-        ? (await workApi.attachVersion(work.workId, artifactId, work.expectedParentArtifactId || work.savedArtifactId || "")).work
-        : (await workApi.save({ artifact_id: artifactId, kind: work.kind, title: work.title })).work;
+      const saved = await persistArtifact(work);
+      if (!saved) return;
       const version = saved.versions.find(item => item.id === saved.current_version_id);
       if (!version) throw new Error("作品版本保存失败");
       setWorkPreviews(previous => ({
@@ -64,21 +64,7 @@ export function usePracticeLibrary({
     if (busy) return;
     setError("");
     try {
-      // Retrieve the current owner-scoped version manifest before switching.
-      const { work } = await workApi.get(workId);
-      const version = work.versions.find(item => item.id === versionId);
-      if (!version) throw new Error("该作品版本已不存在");
-      const blob = await workApi.html(workId, versionId);
-      const entry: WorkPreviewData = {
-        artifactId: version.artifact_id, html: await blob.text(), title: work.title,
-        kind: work.kind, version: version.version_number,
-        workId: work.id, savedArtifactId: version.artifact_id,
-        currentVersionId: version.id, latestVersionId: work.current_version_id,
-        versions: work.versions, isHistorical: version.id !== work.current_version_id,
-        publicationStatus: work.publication_status, publicUrl: work.public_url,
-        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
-        coverVariant: work.cover_variant,
-      };
+      const entry = await loadSavedWork(workId, versionId);
       setWorkPreviews(previous => ({ ...previous, [entry.artifactId]: entry }));
       setSelectedArtifactId(entry.artifactId);
       if (!entry.isHistorical) setCurrentArtifactId(entry.artifactId);
@@ -116,18 +102,9 @@ export function usePracticeLibrary({
     try {
       // One publish action handles the underlying save/version step automatically.
       // Never expose an unpublished artifact URL or bypass the explicit publish modal.
-      let saved: SavedWork | undefined;
-      if (!item.workId) {
-        saved = (await workApi.save({
-          artifact_id: item.artifactId, kind: item.kind,
-          title: payload.title, summary: payload.summary,
-        })).work;
-      } else if (item.savedArtifactId !== item.artifactId) {
-        if (!item.expectedParentArtifactId) throw new Error("旧版信息不完整，请重新打开作品后重试");
-        saved = (await workApi.attachVersion(
-          item.workId, item.artifactId, item.expectedParentArtifactId,
-        )).work;
-      }
+      const saved = await persistArtifact(item, {
+        title: payload.title, summary: payload.summary, strictParent: true,
+      });
       const workId = saved?.id || item.workId;
       if (!workId) throw new Error("作品尚未保存，请重试");
       if (saved) {
