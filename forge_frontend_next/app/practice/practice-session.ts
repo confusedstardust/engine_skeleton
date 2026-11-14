@@ -13,6 +13,7 @@ export type SessionMessage = {
   timeline?: TimelineEvent[];
   durationMs?: number;
   learningPlan?: LearningPlan;
+  publicBrief?: string;
   work?: GeneratedWork;
 };
 export type PendingCreation = {

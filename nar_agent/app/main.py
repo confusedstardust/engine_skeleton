@@ -18,6 +18,7 @@ from app.config import Settings
 from app.artifacts import ArtifactStore
 from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.progress_stream import stream_progress
+from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -117,8 +118,19 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             try:
                 async with asyncio.timeout(settings.animation_timeout_seconds):
                     store = ArtifactStore(settings.artifact_dir)
+                    brief = ""
+                    if settings.public_brief_enabled:
+                        try:
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
+                        except Exception as exc:
+                            state["public_brief_state"] = "UNAVAILABLE"
+                            logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
+                    effective_prompt = payload.prompt + (
+                        "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
+                        if brief else ""
+                    )
                     graph = animation_factory(settings, user_id, state, store)
-                    result = await graph.ainvoke(animation_state(payload.prompt, [m.model_dump() for m in payload.history]), config={"callbacks": [usage], "recursion_limit": 80, "metadata": {"nar_run_id": identifier, "owner_user_id": user_id}})
+                    result = await graph.ainvoke(animation_state(effective_prompt, [m.model_dump() for m in payload.history]), config={"callbacks": [usage], "recursion_limit": 80, "metadata": {"nar_run_id": identifier, "owner_user_id": user_id}})
                     content = result["messages"][-1].content
                     state["output"] = content if isinstance(content, str) else "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
                     state["artifact_generated"] = bool(state.get("artifact_id"))
@@ -198,9 +210,20 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             }
             try:
                 async with asyncio.timeout(settings.animation_timeout_seconds):
+                    brief = ""
+                    if settings.public_brief_enabled:
+                        try:
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
+                        except Exception as exc:
+                            state["public_brief_state"] = "UNAVAILABLE"
+                            logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
+                    effective_prompt = payload.prompt + (
+                        "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
+                        if brief else ""
+                    )
                     graph = html_factory(settings, user_id, state, store, payload.parent_artifact_id)
                     result = await graph.ainvoke(
-                        html_initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
+                        html_initial_state(effective_prompt, [m.model_dump() for m in payload.history]),
                         config=config,
                     )
                     state["model_trace"] = summarize_html_run(result.get("messages", []))

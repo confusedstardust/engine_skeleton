@@ -90,7 +90,7 @@ def create_router(*, user_for_request, transport=None):
             data = response.json()
             if data["user_id"] != user["id"]:
                 raise ValueError("owner mismatch")
-            return {key: data[key] for key in ["id", "status", "phase", "attempts", "output", "error", "artifact_id", "artifact_generated", "last_report", "parent_artifact_id", "strategy", "error_code", "recovery_attempts", "model_trace", "timeline", "elapsed_ms", "learning_plan"] if key in data}
+            return {key: data[key] for key in ["id", "status", "phase", "attempts", "output", "error", "artifact_id", "artifact_generated", "last_report", "parent_artifact_id", "strategy", "error_code", "recovery_attempts", "model_trace", "timeline", "elapsed_ms", "learning_plan", "public_brief", "public_brief_state"] if key in data}
         except (ValueError, KeyError, TypeError):
             raise HTTPException(502, "动画服务响应异常") from None
 

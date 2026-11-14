@@ -16,7 +16,7 @@ from .progress_events import public_elapsed_ms
 PUBLIC_FIELDS = (
     "id", "status", "phase", "attempts", "timeline", "learning_plan",
     "artifact_id", "artifact_generated", "parent_artifact_id",
-    "error", "error_code", "output",
+    "error", "error_code", "output", "public_brief", "public_brief_state",
 )
 
 

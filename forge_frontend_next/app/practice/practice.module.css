@@ -191,3 +191,11 @@
  .layoutWithInspector .previewCompact iframe{height:45dvh}
 }
 @media(prefers-reduced-motion:reduce){.resizeHandle::before{transition:none}}
+
+/* Genuine model-token increments for the public learning interpretation. */
+.publicBrief{margin:12px 0 7px;padding:13px 14px;background:#faf8ef;border:1px solid #ebe2cd;border-radius:11px}
+.publicBrief strong{font-size:12px;font-weight:650;color:#6d6c4e}
+.publicBrief p{margin:8px 0 0;color:#4f5a47;line-height:1.8;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.publicBriefCaret{display:inline-block;height:1.1em;vertical-align:middle;margin-left:3px;border-right:2px solid #81936d;animation:publicBriefBlink 1s steps(1) infinite}
+@keyframes publicBriefBlink{50%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.publicBriefCaret{animation:none}}
