@@ -17,10 +17,10 @@ export default function WorkPublishDialog({
   error?: string;
 }) {
   const [title, setTitle] = useState(work.title);
-  const [summary, setSummary] = useState("");
-  const [subject, setSubject] = useState("");
-  const [grade, setGrade] = useState("");
-  const [tags, setTags] = useState("");
+  const [summary, setSummary] = useState(work.summary || "");
+  const [subject, setSubject] = useState(work.subject || "");
+  const [grade, setGrade] = useState(work.grade || "");
+  const [tags, setTags] = useState((work.tags || []).join("，"));
   return <ModalFrame title="发布到教师资源广场" onClose={onClose} busy={busy}>
     <div className={styles.publishOverlay}><ModalBody>
       <section className={styles.publishDialog}>
