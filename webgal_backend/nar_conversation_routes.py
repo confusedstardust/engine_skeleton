@@ -115,7 +115,11 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         # The endpoint is authenticated, NOT a feature flag. A missing migration
         # is a visible setup error: the browser must never use local chat instead.
         await owner_for(request)
-        return {"ready": await run_in_threadpool(ledger.ready)}
+        if not await run_in_threadpool(ledger.ready):
+            raise HTTPException(
+                503, "会话数据库未完成迁移或暂时不可用，请先执行 002_nar_conversation_history.sql"
+            )
+        return {"ready": True}
 
     @router.get("/conversations")
     async def conversations(request: Request, limit: int = 30, cursor: str | None = None):
