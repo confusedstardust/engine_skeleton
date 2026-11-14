@@ -10,6 +10,8 @@ import type { WorkPreviewData } from "./work-inspector";
 export type SessionMessage = {
   role: "user" | "assistant";
   content: string;
+  id?: string;
+  seq?: number;
   timeline?: TimelineEvent[];
   durationMs?: number;
   learningPlan?: LearningPlan;
