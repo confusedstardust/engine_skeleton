@@ -295,6 +295,12 @@ class NarConversationStore:
                 # This text comes from our NarAgent's PUBLIC error string only.
                 # Never include provider exception bodies or stack traces.
                 message = public_error.strip()[:240]
+                detail = ["错误码：" + safe_code]
+                if safe_phase:
+                    detail.insert(0, "阶段：" + safe_phase)
+                if turn.get("agent_run_id"):
+                    detail.append("任务编号：" + str(turn["agent_run_id"])[:80])
+                message += "（" + " · ".join(detail) + "）"
                 info = json.dumps({"errorCode": safe_code, "phase": safe_phase},
                                   ensure_ascii=False)
                 db.execute("INSERT INTO nar_messages "
