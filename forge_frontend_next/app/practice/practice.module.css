@@ -142,16 +142,6 @@
 .resizeGrip svg{display:block;color:#8f9285}
 .resizeHandle:focus-visible .resizeGrip{outline:2px solid #789266;outline-offset:2px}
 
-/* Practice-only recent work list; navigation shell, links and account dock live in components/ui/workspace-sidebar. */
-.navSectionLabel{font-size:11px;color:#8a8275;letter-spacing:.04em;margin:2px 10px 9px}
-.navRecents{display:flex;flex-direction:column;min-height:0;flex:1;overflow-y:auto}
-.navRecentItem{display:flex;align-items:center;gap:10px;padding:10px 9px;text-decoration:none;border-radius:9px;font-size:12px;color:#6c7064;min-width:0}
-.navRecentItem:hover{background:#f4e4c9;color:#9b2335}
-.navRecentItem:focus-visible{outline:2px solid #9b2335;outline-offset:2px}
-.navRecentItem svg{flex:0 0 auto;color:#969a8b}
-.navRecentItem span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.navEmpty{color:#8f897e;line-height:1.65;font-size:11px;padding:0 10px}
-
 @media (min-width:1181px) {
  .layoutWithInspector .inspector{position:static;left:auto;top:auto;right:auto;bottom:auto;width:auto;min-height:570px;box-shadow:0 5px 24px #303a2610}
 }
