@@ -116,3 +116,25 @@ def test_artifact_history_groups_multiple_sources(ledger):
     assert {source["conversationId"] for source in history["items"][0]["sources"]} == set(sessions)
     assert history["nextCursor"] is None
     assert ledger.artifact_history("ci-other-user", limit=30)["items"] == []
+
+def test_failed_html_turn_persists_real_public_reason_and_phase(ledger):
+    owner, cid = "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    turn, created = ledger.start_turn(owner, cid, uuid.uuid4().hex,
+        "生成串并联电路实验", "html", create=True)
+    assert created
+    failed = ledger.fail_turn(owner, cid, turn["id"], "MODEL_AUTH_FAILED",
+        public_error="模型服务认证或权限验证失败，请检查模型服务凭据与权限。",
+        phase="DESIGNING")
+    assert failed["status"] == "FAILED"
+    messages = ledger.get_detail(owner, cid)["messages"]
+    assert len(messages) == 2
+    assert "模型服务认证" in messages[1]["content"]
+    assert messages[1]["metadata"]["phase"] == "DESIGNING"
+    assert messages[1]["metadata"]["errorCode"] == "MODEL_AUTH_FAILED"
+    # Repeated status polls never duplicate a persisted failure message.
+    ledger.fail_turn(owner, cid, turn["id"], "MODEL_AUTH_FAILED",
+        public_error="duplicated failure message")
+    assert len(ledger.get_detail(owner, cid)["messages"]) == 2
+    # A failed turn releases the conversation for future new work.
+    next_turn, new = ledger.start_turn(owner, cid, uuid.uuid4().hex, "换个任务", "chat")
+    assert new and next_turn["status"] == "QUEUED"
