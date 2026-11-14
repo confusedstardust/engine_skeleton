@@ -110,22 +110,50 @@ export default function PracticePage() {
 
   async function submitPublication(payload: PublicationForm) {
     const item = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
-    if (!item?.workId || publicationBusy) return;
-    setPublicationBusy(true); setError("");
+    if (!item || item.kind !== "html" || publicationBusy) return;
+    setPublicationBusy(true); setPublicationError(""); setError("");
     try {
-      const result = await workApi.publish(item.workId, payload);
+      // One publish action handles the underlying save/version step automatically.
+      // Never expose an unpublished artifact URL or bypass the explicit publish modal.
+      let saved: SavedWork | undefined;
+      if (!item.workId) {
+        saved = (await workApi.save({
+          artifact_id: item.artifactId, kind: item.kind,
+          title: payload.title, summary: payload.summary,
+        })).work;
+      } else if (item.savedArtifactId !== item.artifactId) {
+        if (!item.expectedParentArtifactId) throw new Error("旧版信息不完整，请重新打开作品后重试");
+        saved = (await workApi.attachVersion(
+          item.workId, item.artifactId, item.expectedParentArtifactId,
+        )).work;
+      }
+      const workId = saved?.id || item.workId;
+      if (!workId) throw new Error("作品尚未保存，请重试");
+      if (saved) {
+        const latest = saved.versions.find(version => version.id === saved.current_version_id);
+        setWorkPreviews(previous => ({
+          ...previous,
+          [item.artifactId]: {
+            ...previous[item.artifactId], workId,
+            savedArtifactId: item.artifactId,
+            currentVersionId: latest?.id, version: latest?.version_number || item.version,
+          },
+        }));
+      }
+      const result = await workApi.publish(workId, payload);
       if (!result.published) throw new Error("教师资源广场尚未确认发布");
       setWorkPreviews(previous => ({
         ...previous,
         [item.artifactId]: {
-          ...previous[item.artifactId], title: payload.title,
+          ...previous[item.artifactId], workId, title: payload.title,
           publicationStatus: "published", publicUrl: result.public_url,
         },
       }));
       setPublishArtifactId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发布失败，请重试");
-      setPublicationError(err instanceof Error ? err.message : "发布失败，请重试");
+      const message = err instanceof Error ? err.message : "发布失败，请重试";
+      setError(message);
+      setPublicationError(message);
     } finally { setPublicationBusy(false); }
   }
 
@@ -141,8 +169,23 @@ export default function PracticePage() {
       }));
       setRevokeArtifactId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "撤回未完成，请重试");
-      setRevokeError(err instanceof Error ? err.message : "撤回未完成，请重试");
+      const message = err instanceof Error ? err.message : "撤回未完成，请重试";
+      setError(message);
+      setRevokeError(message);
+      // Remote de-indexing can fail after the server has revoked all public reads.
+      // Always refresh authoritative publication status to disable stale Share buttons.
+      if (item.workId) {
+        try {
+          const status = await workApi.publication(item.workId);
+          setWorkPreviews(previous => ({
+            ...previous,
+            [item.artifactId]: {
+              ...previous[item.artifactId], publicationStatus: status.status,
+              publicUrl: status.public_url,
+            },
+          }));
+        } catch { /* Keep the error; the server remains authoritative. */ }
+      }
     } finally { setPublicationBusy(false); }
   }
 
