@@ -36,11 +36,13 @@ test("history routes reuse one practice shell, and URLs carry conversation ident
   assert.match(nav, /aria-selected=\{view === "conversations"\}/);
 });
 
-test("all DB access is gated by manual environment opt-in", () => {
+test("persistent chat uses authenticated APIs without a runtime feature flag", () => {
   const route = read("webgal_backend/nar_conversation_routes.py");
   const migration = read("webgal_backend/migrations/002_nar_conversation_history.sql");
   const app = read("webgal_backend/app.py");
-  assert.match(route, /NAR_CONVERSATIONS_ENABLED/);
+  assert.doesNotMatch(route, /NAR_CONVERSATIONS_ENABLED/);
+  assert.match(route, /async def owner_for/);
+  assert.match(route, /"ready": await run_in_threadpool\(ledger\.ready\)/);
   assert.match(route, /auth_type/);
   assert.match(route, /client_request_id/);
   assert.match(route, /reused.*True/);
