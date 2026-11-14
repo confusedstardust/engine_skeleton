@@ -128,7 +128,13 @@ export function useNarConversation({
   // cancels the loop. A QUEUED/UNKNOWN dispatch is never blindly retried.
   useEffect(() => {
     if (!conversationId || !enabled || !activeTurn) return;
-    if (terminal(activeTurn.status)) { setBusy(false); return; }
+    if (terminal(activeTurn.status)) {
+      setBusy(false);
+      if (activeTurn.status === "UNKNOWN") {
+        setError("这次任务的执行结果尚未确认，请不要重复提交。请检查执行服务状态。");
+      }
+      return;
+    }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
@@ -142,7 +148,8 @@ export function useNarConversation({
         if (response.task) setActiveTask(response.task as unknown as BuildTask);
         if (terminal(turn.status)) {
           setBusy(false); setActiveTask(null);
-          setActiveTurn(null);
+          // Keep the poll effect alive until the final persisted session detail
+          // is refreshed. Clearing activeTurn early cancels this very effect.
           if (turn.status !== "SUCCEEDED") {
             setError(turn.status === "UNKNOWN"
               ? "上次任务是否已执行无法确认，请勿重复提交。可能需要人工检查服务状态。"
