@@ -45,7 +45,9 @@ def test_saved_works_owner_scope_dedup_versions(tmp_path):
 def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path, monkeypatch):
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", TOKEN)
     monkeypatch.setenv("NAR_AGENT_URL", "http://nar-agent:8020")
+    calls = []
     def upstream(request: httpx.Request):
+        calls.append(request.url.path)
         assert request.headers["Authorization"] == "Bearer " + TOKEN
         assert request.headers["X-User-ID"] == "teacher-a"
         if request.url.path.endswith("/metadata"):
@@ -71,10 +73,12 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         }, headers=ACTION)
         assert created.status_code == 201, created.text
         work = created.json()["work"]
+        imported_call_count = len(calls)
         repeated = client.post("/works", json={
             "artifact_id": ARTIFACT_A, "kind": "html", "title": "函数练习",
         }, headers=ACTION)
         assert repeated.json()["work"]["id"] == work["id"]
+        assert len(calls) == imported_call_count  # dedup uses durable owned work, not remote cache
         work_id, version_id = work["id"], work["current_version_id"]
         assert len(client.get("/works").json()["works"]) == 1
         response = client.get(f"/works/{work_id}/assets/{version_id}/index.html")
