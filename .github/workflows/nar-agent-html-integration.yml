@@ -7,6 +7,7 @@ on:
       - 'webgal_backend/nar_conversation_*.py'
       - 'webgal_backend/migrations/002_nar_conversation_history.sql'
       - 'tests/test_nar_conversation_gateway.py'
+      - 'tests/test_nar_conversation_store_mysql.py'
       - 'tests/nar_conversation_architecture.test.cjs'
       - 'webgal_backend/work_store.py'
       - 'webgal_backend/works_routes.py'
@@ -75,3 +76,31 @@ jobs:
         env:
           NEXT_PUBLIC_BASE_PATH: /narrativeos
           FORGE_BACKEND_URL: http://127.0.0.1:8010
+
+  conversation-mysql:
+    name: Disposable MySQL 8 conversation schema and transaction test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-ci-pass
+          MYSQL_DATABASE: nar_conversation_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-only-ci-pass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=25
+    env:
+      NAR_TEST_DB_NAME: nar_conversation_test
+      NAR_TEST_DB_PASSWORD: test-only-ci-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'pytest>=9' 'PyMySQL>=1.1'
+      - run: python -m pytest -q tests/test_nar_conversation_store_mysql.py
