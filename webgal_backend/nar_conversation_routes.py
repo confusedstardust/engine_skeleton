@@ -57,8 +57,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     def enabled():
         if os.getenv("NAR_CONVERSATIONS_ENABLED", "").lower() not in ("1", "true"):
             raise HTTPException(503, "跨设备会话尚未启用，请先完成数据库迁移")
-        if not ledger.ready():
-            raise HTTPException(503, "跨设备会话数据库尚未准备好")
+        # Readiness is checked by /conversations/status before enabling the UI.
+        # Avoid five round-trips per request: transactional queries still fail
+        # closed as HTTP 503 if the database becomes unavailable.
         return True
 
     def mutate(request: Request):
@@ -107,6 +108,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         try:
             data = response.json()
             if str(data["user_id"]) != owner or not isinstance(data.get("id"), str):
+                raise ValueError
+            if mode == "chat" and not isinstance(data.get("output"), str):
                 raise ValueError
             return {key: data[key] for key in (
                 "id", "status", "phase", "output", "error", "error_code", "artifact_id",
@@ -212,8 +215,13 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             # Don't mark an in-flight task failed solely due to temporary network errors.
             return {"turn": turn}
         if task.get("status") in ("SUCCEEDED", "FAILED"):
+            aid = task.get("artifact_id")
+            if task["status"] == "SUCCEEDED" and not (
+                isinstance(aid, str) and re.fullmatch(ID, aid)
+            ):
+                failed = await transaction(ledger.fail_turn, owner, cid, tid, "ARTIFACT_MISSING")
+                return {"turn": failed, "task": task}
             if task["status"] == "SUCCEEDED":
-                aid = task.get("artifact_id")
                 work_kind = "animation" if turn["mode"] == "animation" else "html"
                 result = await transaction(ledger.finish_turn, owner, cid, tid,
                     output=task.get("output") or "学习作品已完成。",
