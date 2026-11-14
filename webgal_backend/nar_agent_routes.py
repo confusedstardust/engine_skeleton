@@ -4,7 +4,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
@@ -123,6 +123,53 @@ def create_router(*, user_for_request, transport=None):
             raise HTTPException(404, "任务不存在")
         user, response = await forward(request, "GET", "/v1/html/" + identifier)
         return public_result(user, response)
+
+    async def stream_events(kind: Literal["html", "animations"], identifier: str, request: Request):
+        """Keep one authenticated SSE connection instead of 2-second browser polls."""
+        import re
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            raise HTTPException(404, "任务不存在")
+        path = f"/v1/{kind}/{identifier}"
+        user, response = await forward(request, "GET", path)
+        # The status preflight prevents an SSE 200 for a foreign/nonexistent job.
+        public_result(user, response)
+        owner = str(user["id"])
+        token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
+        base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
+
+        async def chunks():
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(10.0, read=None),
+                    transport=transport, follow_redirects=False, trust_env=False,
+                ) as client:
+                    async with client.stream("GET", base + path + "/events", headers={
+                        "Authorization": "Bearer " + token, "X-User-ID": owner,
+                        "Accept": "text/event-stream",
+                    }) as upstream:
+                        if upstream.status_code != 200:
+                            yield b'event: stream-error\\ndata: {"message":"progress upstream unavailable"}\\n\\n'
+                            return
+                        async for piece in upstream.aiter_bytes():
+                            if piece:
+                                yield piece
+            except httpx.HTTPError:
+                # This is a *connection* error, not a failed generation.
+                # The browser falls back to authenticated status polling.
+                yield b'event: stream-error\\ndata: {"message":"progress connection lost"}\\n\\n'
+
+        return StreamingResponse(chunks(), media_type="text/event-stream", headers={
+            "Cache-Control": "private, no-cache, no-transform", "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+        })
+
+    @router.get("/animations/{identifier}/events")
+    async def animation_events(identifier: str, request: Request):
+        return await stream_events("animations", identifier, request)
+
+    @router.get("/html/{identifier}/events")
+    async def html_events(identifier: str, request: Request):
+        return await stream_events("html", identifier, request)
 
     @router.get("/artifacts/{identifier}/{filename}")
     async def preview(identifier: str, filename: str, request: Request):
