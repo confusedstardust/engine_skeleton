@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { forgeApi, ApiError } from "../../lib/api-client";
 import { loadSavedWork } from "./practice-work-service";
 import type { WorkPreviewData } from "./work-inspector";
 import type { GeneratedWork } from "./generated-work-card";
 import { followBuildTask, type BuildTask } from "./live-progress";
-import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
+import { readPracticeSession, recoverPracticeSession, writePracticeSession, clearPracticeSession, extractWorkConversation, type PendingCreation } from "./practice-session";
 import { usePracticeLibrary } from "./use-practice-library";
 import type { PracticeMessage, ChatReply } from "./practice-types";
 
-export function usePracticeWorkspace() {
+export function usePracticeWorkspace(workspaceScope = "general") {
+  const router = useRouter();
   const [messages, setMessages] = useState<PracticeMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,11 +56,11 @@ export function usePracticeWorkspace() {
   useEffect(() => {
     if (!authReady) return;
     if (!sessionUserId) { setSessionReady(true); return; }
-    const savedId = new URL(window.location.href).searchParams.get("work");
+    // The scope is provided by the keyed route, never sampled ad hoc from location.
     // Different saved works have independent tab conversations; the work loader below
     // still refreshes the authoritative current version on every deep link visit.
     let mounted = true;
-    const snapshot = readPracticeSession(sessionUserId, savedId || "general");
+    const snapshot = recoverPracticeSession(sessionUserId, workspaceScope);
     void (async () => {
       if (!snapshot) { if (mounted) setSessionReady(true); return; }
       const loaded: Record<string, WorkPreviewData> = {};
@@ -82,32 +84,50 @@ export function usePracticeWorkspace() {
       if (snapshot.pending) void resumePendingRun(snapshot.pending, loaded);
     })();
     return () => { mounted = false; };
-  }, [authReady, sessionUserId]);
+  }, [authReady, sessionUserId, workspaceScope]);
 
   useEffect(() => {
     if (!sessionReady || !sessionUserId) return;
-    const { searchParams } = new URL(window.location.href);
     writePracticeSession(sessionUserId, {
       messages,
       works: Object.values(workPreviews).map(record => ({ ...record, html: undefined })),
       currentArtifactId, selectedArtifactId, pending: pendingRun,
-    }, searchParams.get("work") || "general");
-  }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
+    }, workspaceScope);
+  }, [sessionReady, sessionUserId, workspaceScope, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
 
+
+  // Legacy general sessions may contain works saved before per-work scoping existed.
+  // Only copy transcript pairs that carry an explicit artifact ID linked to the work.
+  useEffect(() => {
+    if (!sessionReady || !sessionUserId || workspaceScope !== "general") return;
+    const candidates = Object.values(workPreviews).filter(item => item.workId);
+    for (const item of candidates) {
+      if (!item.workId || readPracticeSession(sessionUserId, item.workId)) continue;
+      const relatedMessages = extractWorkConversation(messages, candidates, item.workId);
+      if (!relatedMessages.length) continue;
+      const works = candidates.filter(record => record.workId === item.workId);
+      writePracticeSession(sessionUserId, {
+        messages: relatedMessages,
+        works: works.map(record => ({ ...record, html: undefined })),
+        currentArtifactId: item.artifactId,
+        selectedArtifactId: item.artifactId,
+        pending: null,
+      }, item.workId);
+    }
+  }, [sessionReady, sessionUserId, workspaceScope, messages, workPreviews]);
 
   useEffect(() => {
     // Deep link from the existing "我的作品" page; no local browser storage required.
-    const savedId = new URL(window.location.href).searchParams.get("work");
-    if (!savedId || !/^[a-f0-9]{32}$/.test(savedId)) return;
+    if (!/^[a-f0-9]{32}$/.test(workspaceScope) || !authReady || !loggedIn) return;
     let active = true;
-    loadSavedWork(savedId).then(saved => {
+    loadSavedWork(workspaceScope).then(saved => {
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
       setCurrentArtifactId(saved.artifactId);
       setSelectedArtifactId(saved.artifactId);
     }).catch(err => { if (active) setError(err instanceof Error ? err.message : "作品加载失败"); });
     return () => { active = false; };
-  }, []);
+  }, [workspaceScope, authReady, loggedIn]);
 
   async function completeGeneratedWork(
     task: BuildTask, prompt: string, mode: "animation" | "html" | "edit",
@@ -233,19 +253,22 @@ export function usePracticeWorkspace() {
 
   function beginNewConversation() {
     if (busy) return;
+    // Starting a new conversation from a work must NOT erase that work's history.
+    if (workspaceScope !== "general") {
+      router.push("/practice/");
+      return;
+    }
     setMessages([]); setWorkPreviews({}); setPendingRun(null);
     setDraft(""); setError(""); setSelectedArtifactId(null);
     setCurrentArtifactId(null);
-    if (sessionUserId) clearPracticeSession(sessionUserId,
-      new URL(window.location.href).searchParams.get("work") || "general");
-    window.history.replaceState(window.history.state, "", window.location.pathname);
+    if (sessionUserId) clearPracticeSession(sessionUserId, "general");
     input.current?.focus();
   }
 
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
 
   return {
-    messages, draft, setDraft, busy, error, loginRequired, loggedIn, sessionUserId,
+    workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn, sessionUserId,
     sessionReady, authReady, progress, activeTask, workPreviews, selectedWork, publishWork,
     metadataWork, selectedArtifactId, setSelectedArtifactId, currentArtifactId, setCurrentArtifactId,
     end, input, savedWorkCount, send, beginNewConversation, savedCardWorkId,
