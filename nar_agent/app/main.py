@@ -19,7 +19,8 @@ from app.artifacts import ArtifactStore
 from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.progress_stream import stream_progress
 from app.public_brief import stream_public_brief
-from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run, classify_html_exception
+from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
+from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
 
