@@ -73,7 +73,7 @@ export default function WorkInspector({
           </select>
           {historical && <p>正在查看历史版本。请切回最新版本再继续编辑、保存或发布。</p>}
         </div>}
-      <AnimationPreview html={work.html} artifactId={work.artifactId} label="互动作品预览" compact storedAssetsBase={work.workId && work.currentVersionId && work.savedArtifactId === work.artifactId ? `/api/forge/works/${work.workId}/assets/${work.currentVersionId}` : undefined} />
+      <AnimationPreview html={work.html} label="互动作品预览" compact />
       <p className={styles.inspectorTip}>可直接操作预览中的控件。正式教学使用前，请核对内容和所有交互步骤。</p>
       <div className={styles.inspectorActions}>
         <Button variant="primary" disabled={historical || saved || saving} busy={saving} onClick={() => onSave(work.artifactId)}>
