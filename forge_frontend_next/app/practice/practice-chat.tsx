@@ -35,19 +35,19 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   // Only celebrate messages newly appended to the visible conversation, not
   // restored history or older pages prepended by "load more".
   useEffect(() => {
-    if (!sessionReady) return;
+    if (!sessionReady) { seen.current.initialized = false; return; }
     const last = messages[messages.length - 1];
     const lastKey = last ? last.id ?? `message-${last.seq ?? messages.length - 1}-${last.role}` : undefined;
     const previous = seen.current;
     if (!previous.initialized || previous.conversationId !== conversationId) {
-      const justCreated = previous.initialized && !previous.conversationId && Boolean(conversationId)
+      const justCreated = !previous.conversationId && Boolean(conversationId)
         && busy && messages.length === 1 && last?.role === "user";
       setBurstKeys(justCreated && lastKey ? [lastKey] : []);
       seen.current = { initialized: true, conversationId, lastKey };
       return;
     }
     if (lastKey && lastKey !== previous.lastKey) {
-      setBurstKeys(current => current.includes(lastKey) ? current : [...current, lastKey]);
+      setBurstKeys(current => current.includes(lastKey) ? current : [...current.slice(-3), lastKey]);
     }
     previous.lastKey = lastKey;
   }, [messages, conversationId, sessionReady, busy]);
@@ -103,14 +103,14 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {busy && <div className={styles.runningRow}>
         <PracticeMessageAvatar role="assistant" />
         <div className={styles.runningBlock}>
-        <div role="status" aria-live="polite" className={styles.thinking}>
+          <div role="status" aria-live="polite" className={styles.thinking}>
           <Spinner size="sm" tone="accent" />
           <span>{progress || (activeTask ? "正在制作你的学习作品…" : "正在理解学习需求…")}</span>
-        </div>
-        {activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline}
+          </div>
+          {activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline}
           elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
           publicBrief={activeTask.public_brief}
-          briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
+            briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
         </div>
       </div>}
       <div ref={end} />
