@@ -294,10 +294,18 @@ class NarConversationStore:
     def link_work(self, owner: str, cid: str, artifact_id: str, work_id: str) -> None:
         with self._transaction() as db:
             self._own(db, owner, cid, lock=True)
+            db.execute("SELECT work_id FROM nar_conversation_artifacts "
+                       "WHERE conversation_id=%s AND artifact_id=%s FOR UPDATE",
+                       (cid, artifact_id))
+            existing = db.fetchone()
+            if existing is None:
+                raise ConversationMissing("Artifact not in conversation")
+            if existing["work_id"] == work_id:
+                return
+            if existing["work_id"] and existing["work_id"] != work_id:
+                raise ConversationConflict("Artifact is already linked to a different work")
             db.execute("UPDATE nar_conversation_artifacts SET work_id=%s "
                        "WHERE conversation_id=%s AND artifact_id=%s", (work_id, cid, artifact_id))
-            if db.rowcount != 1:
-                raise ConversationMissing("Artifact not in conversation")
 
     def artifact_history(self, owner: str, limit: int = 30, cursor: str | None = None) -> dict:
         """One artifact row per identifier with all owner-verified conversation sources."""
