@@ -1,12 +1,12 @@
 # NarAgent 创作工作台：main 同步与 UI 统一
 
-**状态：已在 `refactor/naragent-main-ui-unification` 提交，等待 CI / 浏览器验收；未合并、未部署。**
+**状态：已在 `refactor/naragent-ui-on-quiz-card` 提交，目标仅为 `feature/quiz-card`；未合并、未部署。绝不合并到生产 `main`。**
 
 ## Git 基线与冲突处理
 
 - 原功能分支：`feature/quiz-card`（包含 NarAgent；旧侧栏重构 PR #88 已合并）。
 - 整合基线：`main`（创建分支时的提交 `2c60f61fcabfca6734e756824415d281f4fee2bd`）。
-- 采用 **main 为父提交、重建合并结果的 squash-style integration**，而不是把原分支的 243 个提交逐个执行 `git rebase`。原分支未被改写。
+- **正确方向：main → feature/quiz-card。** 先整合两者的文件，再创建以 `feature/quiz-card` 为第一父提交、`main` 为第二父提交的 merge commit，放在独立分支 `refactor/naragent-ui-on-quiz-card`，通过 PR 将变更合入 `feature/quiz-card`。不逐个 rebase 243 个提交，也绝不变更 `main`。
 - 以完整 Git Tree 对比共同祖先、main 和 feature 的所有文件，而非依赖 GitHub Compare API（该 API 的文件差异列表最多 300 项）。
 - 保留 main 独有的 HTML 资源管理、讲练工具后端、访问统计、封面回填及相应部署/测试文件。冲突文件逐项合并。
 - 路由冲突有意拆分：`/practice` 继续是 NarAgent 创作工作台；原 main 的讲练工具列表迁移为 `/practice/resources`，由左侧栏进入。后端 `GET /practice-tools` 不变。
@@ -52,4 +52,4 @@
 2. 新增架构守卫：`tests/practice_ui_architecture.test.cjs` 和旧 `tests/practice_shared_navigation.test.cjs`。
 3. 浏览器：PC/手机侧栏、快捷链接、拖拽布局、登录/退出、作品版本、关闭弹窗、Footer。
 4. main 独有功能：HTML 资源管理、`/practice/resources`、`/practice-tools`、配置、首页入口。
-5. 验证并部署之前不应合并，也不能宣称线上完成。
+5. 仅在验证后将本 PR 合并到 `feature/quiz-card`；禁止改 PR base 为 `main`、禁止生产部署。
