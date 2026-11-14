@@ -8,7 +8,7 @@ const read = path => readFileSync(join(root, path), "utf8");
 test("Practice workbench shares the established navigation primitives", () => {
   const navigation = read("forge_frontend_next/app/practice/practice-navigation.tsx");
   const sidebar = read("forge_frontend_next/components/ui/workspace-sidebar.tsx");
-  const page = read("forge_frontend_next/app/practice/page.tsx");
+  const page = read("forge_frontend_next/app/practice/practice-shell.tsx");
   assert.match(navigation, /from "\.\.\/\.\.\/components\/ui\/workspace-sidebar"/);
   assert.match(navigation, /from "\.\.\/\.\.\/components\/account-menu"/);
   assert.doesNotMatch(navigation, /function NavGlyph|<svg/);
