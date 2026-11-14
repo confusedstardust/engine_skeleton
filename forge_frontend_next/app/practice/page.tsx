@@ -19,7 +19,7 @@ import { readPracticeSession, writePracticeSession, clearPracticeSession, type P
 import PracticeNavigation from "./practice-navigation";
 import ResizableWorkspace from "./resizable-workspace";
 
-type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; learningPlan?: LearningPlan; work?: GeneratedWork };
+type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; learningPlan?: LearningPlan; publicBrief?: string; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
 const examples = ["把《赤壁赋》做成可以抽背的互动网页。", "生成一个适合初中生操作的串并联电路实验。", "设计一个知识闯关网页，答完题才能进入下一关。"];
 
@@ -368,11 +368,11 @@ export default function PracticePage() {
       );
       setMessages([...run.originalMessages, { role: "user", content: run.prompt },
         { role: "assistant", content: task.output || "作品已经做好，可以打开预览并继续修改。",
-          timeline: task.timeline, durationMs: task.elapsed_ms, learningPlan: task.learning_plan, work: generated }]);
+          timeline: task.timeline, durationMs: task.elapsed_ms, learningPlan: task.learning_plan, publicBrief: task.public_brief, work: generated }]);
     } catch (error) {
       setMessages([...run.originalMessages, { role: "user", content: run.prompt },
         { role: "assistant", content: "这次创作未能恢复或完成，你可以再次尝试。",
-          timeline: latest?.timeline, durationMs: latest?.elapsed_ms, learningPlan: latest?.learning_plan }]);
+          timeline: latest?.timeline, durationMs: latest?.elapsed_ms, learningPlan: latest?.learning_plan, publicBrief: latest?.public_brief }]);
       setError(error instanceof Error ? error.message : "任务恢复失败，请重试");
       setDraft(run.prompt);
     } finally {
@@ -421,11 +421,11 @@ export default function PracticePage() {
       });
       setMessages([...originalMessages, { role: "user", content: prompt }, {
         role: "assistant", content: reply.output, timeline: lastTask?.timeline,
-        durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan, work: generatedWork,
+        durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan, publicBrief: lastTask?.public_brief, work: generatedWork,
       }]);
     } catch (cause) {
       if (mode === "chat") setMessages(originalMessages);
-      else setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: "本次作品没有完成。你可以调整需求后再次尝试。", timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan }]);
+      else setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: "本次作品没有完成。你可以调整需求后再次尝试。", timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan, publicBrief: lastTask?.public_brief }]);
       setDraft(prompt);
       if (cause instanceof ApiError && cause.status === 401) { setLoginRequired(true); setLoggedIn(false); }
       setError(cause instanceof Error ? cause.message : "发送失败，请稍后重试。");
@@ -459,10 +459,10 @@ export default function PracticePage() {
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
-          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} learningPlan={message.learningPlan} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
+          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} learningPlan={message.learningPlan} publicBrief={message.publicBrief} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
               {message.work && <GeneratedWorkCard work={message.work} savedWorkId={savedCardWorkId(message.work)} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
             </div></article>)}
-          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
+          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} publicBrief={activeTask.public_brief} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
         </div>
         <div className={styles.composerArea}>
