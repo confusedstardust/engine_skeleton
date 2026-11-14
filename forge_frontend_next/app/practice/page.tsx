@@ -128,6 +128,7 @@ export default function PracticePage() {
         currentVersionId: version.id,
         publicationStatus: work.publication_status, publicUrl: work.public_url,
         summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
+        coverVariant: work.cover_variant,
       };
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
@@ -156,6 +157,7 @@ export default function PracticePage() {
           version: version.version_number,
           publicationStatus: saved.publication_status, publicUrl: saved.public_url,
           summary: saved.summary, subject: saved.subject, grade: saved.grade, tags: saved.tags,
+          coverVariant: saved.cover_variant,
         },
       }));
     } catch (err) {
@@ -175,6 +177,7 @@ export default function PracticePage() {
         [item.artifactId]: {
           ...previous[item.artifactId], title: result.work.title, summary: result.work.summary,
           subject: result.work.subject, grade: result.work.grade, tags: result.work.tags,
+          coverVariant: result.work.cover_variant,
         },
       }));
       setMessages(previous => previous.map(message => message.work?.artifactId === item.artifactId
@@ -302,6 +305,7 @@ export default function PracticePage() {
       subject: parentArtifact ? original?.subject : undefined,
       grade: parentArtifact ? original?.grade : undefined,
       tags: parentArtifact ? original?.tags : undefined,
+      coverVariant: parentArtifact ? original?.coverVariant : "preview",
       publicUrl: parentArtifact ? original?.publicUrl : null,
     };
     setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
