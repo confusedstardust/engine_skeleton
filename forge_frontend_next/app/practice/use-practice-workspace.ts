@@ -51,21 +51,20 @@ export function usePracticeWorkspace(workspaceScope = "general") {
   }, []);
   useEffect(() => { if (messages.length || busy) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
 
-  // Restore this tab's authenticated conversation and private artifact references
-  // after SSO verification. HTML source is always fetched from owner-checked APIs.
+  // Each keyed work route has one restoration lifecycle. The owner-checked
+  // latest version is applied AFTER any cached HTML to avoid an async race
+  // that would otherwise overwrite the authoritative version with stale cache.
   useEffect(() => {
     if (!authReady) return;
     if (!sessionUserId) { setSessionReady(true); return; }
-    // The scope is provided by the keyed route, never sampled ad hoc from location.
-    // Different saved works have independent tab conversations; the work loader below
-    // still refreshes the authoritative current version on every deep link visit.
-    let mounted = true;
+    let active = true;
     const snapshot = recoverPracticeSession(sessionUserId, workspaceScope);
     void (async () => {
-      if (!snapshot) { if (mounted) setSessionReady(true); return; }
       const loaded: Record<string, WorkPreviewData> = {};
-      for (const record of snapshot.works) {
-        if (!mounted) break;
+      const records = snapshot?.works.filter(record =>
+        workspaceScope === "general" || record.workId === workspaceScope) ?? [];
+      for (const record of records) {
+        if (!active) return;
         try {
           const url = record.workId && record.currentVersionId &&
             record.savedArtifactId === record.artifactId
@@ -73,17 +72,32 @@ export function usePracticeWorkspace(workspaceScope = "general") {
             : `/nar-agent/artifacts/${record.artifactId}/index.html`;
           const blob = await forgeApi.blob(url);
           loaded[record.artifactId] = { ...record, html: await blob.text() };
-        } catch { /* Expired temporary sources are not added back to the preview list. */ }
+        } catch { /* Expired sources remain unavailable, never treated as another work. */ }
       }
-      if (!mounted) return;
-      setMessages(snapshot.messages);
+
+      let authoritativeId: string | null = null;
+      if (/^[a-f0-9]{32}$/.test(workspaceScope)) {
+        try {
+          const saved = await loadSavedWork(workspaceScope);
+          authoritativeId = saved.artifactId;
+          loaded[saved.artifactId] = saved;
+        } catch (err) {
+          if (active) setError(err instanceof Error ? err.message : "作品加载失败");
+        }
+      }
+      if (!active) return;
+      setMessages(snapshot?.messages ?? []);
       setWorkPreviews(loaded);
-      setCurrentArtifactId(snapshot.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
-      setSelectedArtifactId(snapshot.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      const current = authoritativeId ?? (
+        snapshot?.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
+      const selected = authoritativeId ?? (
+        snapshot?.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      setCurrentArtifactId(current);
+      setSelectedArtifactId(selected);
       setSessionReady(true);
-      if (snapshot.pending) void resumePendingRun(snapshot.pending, loaded);
+      if (snapshot?.pending) void resumePendingRun(snapshot.pending, loaded);
     })();
-    return () => { mounted = false; };
+    return () => { active = false; };
   }, [authReady, sessionUserId, workspaceScope]);
 
   useEffect(() => {
@@ -115,19 +129,6 @@ export function usePracticeWorkspace(workspaceScope = "general") {
       }, item.workId);
     }
   }, [sessionReady, sessionUserId, workspaceScope, messages, workPreviews]);
-
-  useEffect(() => {
-    // Deep link from the existing "我的作品" page; no local browser storage required.
-    if (!/^[a-f0-9]{32}$/.test(workspaceScope) || !authReady || !loggedIn) return;
-    let active = true;
-    loadSavedWork(workspaceScope).then(saved => {
-      if (!active) return;
-      setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
-      setCurrentArtifactId(saved.artifactId);
-      setSelectedArtifactId(saved.artifactId);
-    }).catch(err => { if (active) setError(err instanceof Error ? err.message : "作品加载失败"); });
-    return () => { active = false; };
-  }, [workspaceScope, authReady, loggedIn]);
 
   async function completeGeneratedWork(
     task: BuildTask, prompt: string, mode: "animation" | "html" | "edit",
