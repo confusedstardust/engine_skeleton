@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
+import { CloseButton } from "../../components/ui/close-button";
 import { ModalBody, ModalFrame } from "../../components/ui/modal";
 import { withBasePath } from "../base-path";
 import type { SharedWork } from "../../lib/work-api";
@@ -93,7 +94,7 @@ export default function WorkShareDialog({
     <div className={styles.publishOverlay}><ModalBody>
       <section className={styles.shareDialog}>
         <div className={styles.shareHeading}><h2>分享互动学习作品</h2>
-          <button type="button" onClick={onClose} aria-label="关闭分享弹窗">×</button></div>
+          <CloseButton size="sm" onClick={onClose} aria-label="关闭分享弹窗" /></div>
         <img className={styles.shareCover} src={cover} alt={data.title + " 封面"} />
         <h3>{data.title}</h3>
         {data.summary && <p>{data.summary}</p>}
