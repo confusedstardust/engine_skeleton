@@ -14,6 +14,7 @@ import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
+import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
 
 type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
@@ -27,6 +28,9 @@ export default function PracticePage() {
   const [error, setError] = useState("");
   const [loginRequired, setLoginRequired] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [pendingRun, setPendingRun] = useState<PendingCreation | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [progress, setProgress] = useState("");
   const [activeTask, setActiveTask] = useState<BuildTask | null>(null);
@@ -50,12 +54,59 @@ export default function PracticePage() {
 
   useEffect(() => {
     let active = true;
-    forgeApi<{ auth_type?: string }>("/auth/me").then(user => {
-      if (active) { setLoggedIn(user.auth_type === "sso"); setLoginRequired(user.auth_type !== "sso"); }
+    forgeApi<{ auth_type?: string; id?: string }>("/auth/me").then(user => {
+      if (active) { setLoggedIn(user.auth_type === "sso"); setLoginRequired(user.auth_type !== "sso"); setSessionUserId(user.auth_type === "sso" && user.id ? String(user.id) : null); }
     }).catch(() => { if (active) setLoginRequired(true); }).finally(() => { if (active) setAuthReady(true); });
     return () => { active = false; };
   }, []);
   useEffect(() => { if (messages.length || busy) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
+
+  // Restore this tab's authenticated conversation and private artifact references
+  // after SSO verification. HTML source is always fetched from owner-checked APIs.
+  useEffect(() => {
+    if (!authReady) return;
+    if (!sessionUserId) { setSessionReady(true); return; }
+    const savedId = new URL(window.location.href).searchParams.get("work");
+    if (savedId) { setSessionReady(true); return; } // Deep link takes precedence.
+    let mounted = true;
+    const snapshot = readPracticeSession(sessionUserId);
+    void (async () => {
+      if (!snapshot) { if (mounted) setSessionReady(true); return; }
+      const loaded: Record<string, WorkPreviewData> = {};
+      for (const record of snapshot.works) {
+        if (!mounted) break;
+        try {
+          const url = record.workId && record.currentVersionId &&
+            record.savedArtifactId === record.artifactId
+            ? `/works/${record.workId}/assets/${record.currentVersionId}/index.html`
+            : `/nar-agent/artifacts/${record.artifactId}/index.html`;
+          const blob = await forgeApi.blob(url);
+          loaded[record.artifactId] = { ...record, html: await blob.text() };
+        } catch { /* Expired temporary sources are not added back to the preview list. */ }
+      }
+      if (!mounted) return;
+      setMessages(snapshot.messages);
+      setWorkPreviews(loaded);
+      setCurrentArtifactId(snapshot.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
+      setSelectedArtifactId(snapshot.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      setSessionReady(true);
+      if (snapshot.pending) void resumePendingRun(snapshot.pending, loaded);
+    })();
+    return () => { mounted = false; };
+  }, [authReady, sessionUserId]);
+
+  useEffect(() => {
+    if (!sessionReady || !sessionUserId) return;
+    const { pathname, searchParams } = new URL(window.location.href);
+    // A work deep link is an explicit workspace navigation, not an old chat restoration.
+    if (searchParams.has("work")) return;
+    writePracticeSession(sessionUserId, {
+      messages,
+      works: Object.values(workPreviews).map(({ html, ...record }) => record),
+      currentArtifactId, selectedArtifactId, pending: pendingRun,
+    });
+  }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
+
 
   useEffect(() => {
     // Deep link from the existing "我的作品" page; no local browser storage required.
