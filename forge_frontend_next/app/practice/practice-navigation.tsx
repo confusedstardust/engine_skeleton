@@ -4,7 +4,6 @@ import Link from "next/link";
 import { BookOpen, Grid2X2, PenLine, Plus, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AccountMenu } from "../../components/account-menu";
-import BrandLogo from "../../components/brand-logo";
 import { WorkspaceSidebar } from "../../components/ui/workspace-sidebar";
 import { workApi, type SavedWork } from "../../lib/work-api";
 import styles from "./practice.module.css";
@@ -39,10 +38,7 @@ export default function PracticeNavigation({
       { label: "我的作品", href: "/history", icon: <PenLine aria-hidden="true" /> },
     ]}
     action={{ label: "新建对话", icon: <Plus aria-hidden="true" />, disabled: busy, onClick: onNewConversation }}
-    footer={<AccountMenu dock={{
-      loginLabel: "登录 NarrativeOS",
-      loginContent: <><span className="account-trigger-avatar" aria-hidden="true"><BrandLogo size={25} rounded /></span><span>登录 NarrativeOS</span></>,
-    }} />}>
+    footer={<AccountMenu />}>
     <section className={styles.navRecents} aria-label="最近作品">
       <p className={styles.navSectionLabel}>最近作品</p>
       {recent.length ? recent.map(work =>
