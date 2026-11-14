@@ -142,3 +142,29 @@
 /* Loading is a shared Spinner; only its placement belongs to the chat panel. */
 .runningBlock{max-width:850px;margin:0 auto 16px}
 .runningBlock .thinking{margin:0 0 10px}
+
+/* The plaza sidebar is a fixed viewport rail, not a card inside the studio grid.
+   It intentionally overlays BOTH the header and the global footer. */
+.layout .sidebar{position:fixed!important;inset:0 auto 0 0;z-index:120;width:var(--studio-nav,204px);height:100dvh!important;max-height:100dvh;min-height:0!important;border-radius:0!important;box-shadow:none!important}
+.navPlaceholder{grid-column:1;grid-row:1;min-width:0}
+.layout{transition:grid-template-columns 280ms cubic-bezier(.2,0,0,1)}
+.page :global(.top-nav){position:relative;z-index:10;padding-left:calc(var(--studio-header-offset,64px) + 12px);transition:padding-left 280ms cubic-bezier(.2,0,0,1)}
+.page:has(.sidebar[data-collapsed=false]){--studio-header-offset:204px}
+.page:has(.sidebar[data-collapsed=true]){--studio-header-offset:64px}
+.page :global(.workspace-nav-leading){transition:opacity 180ms ease,visibility 180ms}
+.page:has(.sidebar[data-collapsed=false]) :global(.workspace-nav-leading){opacity:0;visibility:hidden}
+.page:has(.sidebar[data-collapsed=true]) :global(.workspace-nav-leading){opacity:1;visibility:visible}
+@media(max-width:760px){
+ .navPlaceholder{display:none}
+ .layout .sidebar{height:100dvh!important;top:0!important;bottom:0!important;left:0!important;width:52px}
+ .layout .sidebar[data-collapsed=false]{width:204px}
+ .layout .sidebar[data-collapsed=true]{width:52px}
+ .page:has(.sidebar[data-collapsed=true]){--studio-header-offset:52px}
+ .page{padding:0 10px 14px 52px}
+ .page :global(.top-nav){padding-left:12px}
+}
+@media(prefers-reduced-motion:reduce){
+ .layout,.page :global(.top-nav),.page :global(.workspace-nav-leading){transition:none}
+}
+
+.olderHistory{display:flex;justify-content:center;padding:5px 0 16px}

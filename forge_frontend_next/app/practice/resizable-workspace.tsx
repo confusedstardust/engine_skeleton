@@ -136,6 +136,7 @@ export default function ResizableWorkspace({
 
   return <div ref={layout} style={css}
     className={`${styles.layout} ${hasInspector ? styles.layoutWithInspector : ""}`}>
+    <div className={styles.navPlaceholder} aria-hidden="true" />
     {typeof navigation === "function" ? navigation({ collapsed: navCollapsed, onToggle: () => setNavCollapsed(value => !value) }) : navigation}
     <DragHandle kind="navigation" value={navWidth} min={MIN_NAV} max={MAX_NAV} disabled={navCollapsed}
       onChange={setNavWidth} onDragMove={x => {

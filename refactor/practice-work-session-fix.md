@@ -1,3 +1,7 @@
+> **历史设计文档，已由 PR #92 的服务器会话架构替代。**
+> 当前 NarAgent 聊天记录一律通过已登录用户的 Forge 会话 API 持久化，不再读取或写入浏览器会话缓存；下文仅用于了解 PR #91 的问题根因和当时的修复过程。
+> 现行数据库方案见 [docs/nar-agent-conversation-db-migration.md](../docs/nar-agent-conversation-db-migration.md)。
+
 # NarAgent 作品会话隔离与广场侧栏视觉对齐
 
 目标分支：`feature/quiz-card`（开发环境），**禁止向 `main` 合并**。

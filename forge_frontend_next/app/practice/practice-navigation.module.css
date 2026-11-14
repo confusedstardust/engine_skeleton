@@ -15,3 +15,9 @@
 .promo>span{position:relative;z-index:1;max-width:114px;margin-top:5px;color:#88684f;font-size:11px;line-height:1.8}
 .promo> :last-child{position:absolute;right:-9px;bottom:-8px;opacity:.6;pointer-events:none}
 .promo:hover{background:#eed9b7}
+
+.historyTabs{display:flex;align-items:center;gap:4px;border-bottom:1px solid #e6dccb;margin:0 0 12px;padding:0 8px 9px}
+.historyTabs button{flex:1;min-height:32px;border-radius:8px;color:#827a6e;font-size:12px;text-align:center}
+.historyTabs button[aria-selected=true]{background:#f4e4c9;color:#9b2335;font-weight:600}
+.historyTabs button:hover{background:#f4e9d8}
+.navLoading{padding:8px 6px;font-size:11px}
