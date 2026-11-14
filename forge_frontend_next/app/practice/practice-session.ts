@@ -108,7 +108,10 @@ export function recoverPracticeSession(owner: string, workspace: string): Practi
   if (saved) {
     const matching = saved.works.filter(work => work.workId === workspace);
     const containsForeignWork = saved.works.some(work => work.workId !== workspace);
-    if (matching.length && !containsForeignWork) return saved;
+    const matchingArtifacts = new Set(matching.map(work => work.artifactId));
+    const containsForeignResult = saved.messages.some(message =>
+      message.work && !matchingArtifacts.has(message.work.artifactId));
+    if (matching.length && !containsForeignWork && !containsForeignResult) return saved;
     if (matching.length) {
       // Older SPA navigation could persist work A in B's session bucket.
       // Keep only generated turns that can be attributed to B.
