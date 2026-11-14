@@ -81,6 +81,10 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   useEffect(() => {
     if (previousScope.current === workspaceScope) return;
     previousScope.current = workspaceScope;
+    library.setPublishArtifactId(null);
+    library.setMetadataArtifactId(null);
+    library.setRevokeArtifactId(null);
+    library.setShareData(null);
     if (conversationId) return;
     setMessages([]); setWorkPreviews({});
     setSelectedArtifactId(null); setCurrentArtifactId(null);
