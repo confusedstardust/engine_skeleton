@@ -142,30 +142,16 @@
 .resizeGrip i{display:block;width:3px;height:3px;border-radius:50%;background:#999f94}
 .resizeHandle:focus-visible .resizeGrip{outline:2px solid #789266;outline-offset:2px}
 
-/* Brand and navigation inspired by the existing creator ecosystem's warm palette. */
-.navBrand{display:flex;gap:10px;align-items:center;padding:5px 6px 24px;color:#37362f;text-decoration:none;min-width:0}
-.navBrandIcon{height:35px;width:35px;display:grid;place-items:center;flex-shrink:0;border-radius:11px;color:#925f3c;font:800 22px/1 sans-serif;background:linear-gradient(145deg,#fbe8c8,#f7c9a2);box-shadow:0 3px 8px #7f573023}
-.navBrand strong{display:block;font-size:17px;letter-spacing:-.025em;line-height:1.35;white-space:nowrap}
-.navBrand small{display:block;color:#9a9385;font-size:10px;line-height:1.8;white-space:nowrap}
-.navSectionLabel{font-size:11px;font-weight:500;color:#aaa292;margin:10px 10px 11px;letter-spacing:.04em}
-.navItems{display:flex;flex-direction:column;gap:5px}
-.navItem{display:flex;align-items:center;gap:11px;text-decoration:none;color:#66665c;border-radius:11px;padding:11px 13px;font-size:13px;line-height:1.4;font-weight:500;white-space:nowrap;cursor:pointer}
-.navItem:hover,.navRecentItem:hover{background:#f1e9d9;color:#4f573f}
-.navItemActive{background:#f2e1c8;color:#7d5237;font-weight:600;cursor:default}
-.navItemActive svg{color:#ad7650}
-.navItem:focus-visible,.navNewButton:focus-visible,.navRecentItem:focus-visible{outline:2px solid #9b9e74;outline-offset:2px}
-.navDivider{height:1px;background:#eee5d9;margin:18px 4px 13px}
-.navNewButton{background:#fff8ec;border:1px solid #e3d3bd;color:#7b5d42;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;font:600 13px/1.4 inherit;padding:11px 8px;margin:0 3px}
-.navNewButton:hover{background:#f8ead4}.navNewButton:disabled{opacity:.45;cursor:not-allowed}
-.navRecents{min-height:0;margin-top:20px;flex:1;overflow-y:auto}
+/* Practice-only recent work list; navigation shell, links and account dock live in components/ui/workspace-sidebar. */
+.navSectionLabel{font-size:11px;color:#8a8275;letter-spacing:.04em;margin:2px 10px 9px}
+.navRecents{display:flex;flex-direction:column;min-height:0;flex:1;overflow-y:auto}
 .navRecentItem{display:flex;align-items:center;gap:10px;padding:10px 9px;text-decoration:none;border-radius:9px;font-size:12px;color:#6c7064;min-width:0}
+.navRecentItem:hover{background:#f4e4c9;color:#9b2335}
+.navRecentItem:focus-visible{outline:2px solid #9b2335;outline-offset:2px}
 .navRecentItem svg{flex:0 0 auto;color:#969a8b}
 .navRecentItem span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.navEmpty{color:#aaa397;line-height:1.65;font-size:11px;padding:0 10px}
-.navBottom{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-top:16px;padding:15px 13px;border-radius:14px;background:linear-gradient(140deg,#f6e7cf,#faeee0 70%,#f5ded0)}
-.navBottomStar{font-size:20px;color:#d38f59}
-.navBottom strong{font-size:12px;color:#5e523f}
-.navBottom>span:last-child{font-size:11px;color:#8d8171;line-height:1.7}
+.navEmpty{color:#8f897e;line-height:1.65;font-size:11px;padding:0 10px}
+
 @media (min-width:1181px) {
  .layoutWithInspector .inspector{position:static;left:auto;top:auto;right:auto;bottom:auto;width:auto;min-height:570px;box-shadow:0 5px 24px #303a2610}
 }
@@ -175,18 +161,14 @@
  .layoutWithInspector .inspector{position:fixed;right:12px;top:70px;bottom:12px;width:min(540px,calc(100vw - 24px));height:auto;min-height:0;z-index:60;box-shadow:0 18px 85px #29332642}
 }
 @media (max-width:760px) {
- .page{padding:0 10px 14px}
+ .page{padding:0 10px 14px 62px}
  .header{height:56px}
  .layout,.layoutWithInspector{grid-template-columns:minmax(0,1fr);gap:10px}
- .layout .sidebar{height:auto;min-height:0;display:flex;flex-direction:row;align-items:center;gap:10px;border-radius:13px;padding:7px 9px;overflow:visible}
- .navBrand,.navSectionLabel,.navRecents,.navBottom,.navDivider{display:none}
- .navItems{display:flex;flex-direction:row;flex:1;gap:5px;overflow-x:auto}
- .navItem{font-size:11px;padding:8px;gap:5px}
- .navItem svg{height:15px;width:15px}
- .navNewButton{font-size:11px;margin:0;padding:8px;white-space:nowrap}
- .navNewButton svg{height:14px;width:14px}
+ .layout .sidebar{position:fixed;top:0;bottom:0;left:0;z-index:50;width:52px;height:100dvh;min-height:0;display:flex;flex-direction:column;align-items:stretch;gap:0;border-radius:0;padding:12px 5px;overflow-y:auto;overflow-x:hidden}
+ .layout .sidebar[data-collapsed=false]{width:204px;padding:14px 9px}
+ .layout .sidebar[data-collapsed=true]{width:52px}
  .resizeNavigation,.resizePreview{display:none}
- .layout .chat{height:calc(100dvh - 152px);min-height:480px}
+ .layout .chat{height:calc(100dvh - 80px);min-height:480px}
  .layoutWithInspector .inspector{top:8px;bottom:8px;right:8px;left:8px;width:auto;height:auto;min-height:0}
  .layoutWithInspector .previewCompact iframe{height:45dvh}
 }
