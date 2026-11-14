@@ -23,13 +23,14 @@ function formatDuration(ms: number) {
 
 /** Observable server stages, not a transcript of hidden model reasoning. */
 export default function CreationTimeline({
-  timeline, elapsedMs = 0, active = false, learningPlan, publicBrief,
+  timeline, elapsedMs = 0, active = false, learningPlan, publicBrief, briefStreaming = false,
 }: {
   timeline: TimelineEvent[];
   elapsedMs?: number;
   active?: boolean;
   learningPlan?: LearningPlan;
   publicBrief?: string;
+  briefStreaming?: boolean;
 }) {
   const [visible, setVisible] = useState(true);
   const [start, setStart] = useState(() => Date.now());
@@ -53,8 +54,8 @@ export default function CreationTimeline({
       <span aria-hidden="true">{visible ? "⌃" : "⌄"}</span>
     </button>
     {visible && publicBrief && <div className={styles.publicBrief} aria-label="实时需求理解摘要">
-      <strong>我对学习任务的理解 {active ? "· 实时生成中" : ""}</strong>
-      <p>{publicBrief}<span className={active ? styles.publicBriefCaret : undefined} aria-hidden="true" /></p>
+      <strong>我对学习任务的理解 {briefStreaming ? "· 实时生成中" : ""}</strong>
+      <p>{publicBrief}{briefStreaming && <span className={styles.publicBriefCaret} aria-hidden="true" />}</p>
     </div>}
     {visible && learningPlan && <div className={styles.learningPlan}>
       <strong>本次教学设计</strong>
