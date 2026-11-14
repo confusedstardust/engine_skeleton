@@ -53,7 +53,10 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       await conversationApi.associateWork(conversationId, artifactId, workId);
     } : undefined,
   });
-  const { publishArtifactId, metadataArtifactId } = library;
+  const {
+    publishArtifactId, metadataArtifactId, setPublishArtifactId,
+    setMetadataArtifactId, setRevokeArtifactId, setShareData,
+  } = library;
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
   const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
   const metadataWork = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
@@ -81,15 +84,15 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   useEffect(() => {
     if (previousScope.current === workspaceScope) return;
     previousScope.current = workspaceScope;
-    library.setPublishArtifactId(null);
-    library.setMetadataArtifactId(null);
-    library.setRevokeArtifactId(null);
-    library.setShareData(null);
+    setPublishArtifactId(null);
+    setMetadataArtifactId(null);
+    setRevokeArtifactId(null);
+    setShareData(null);
     if (conversationId) return;
     setMessages([]); setWorkPreviews({});
     setSelectedArtifactId(null); setCurrentArtifactId(null);
     setError(""); setDraft(""); setSessionReady(false);
-  }, [workspaceScope, conversationId]);
+  }, [workspaceScope, conversationId, setPublishArtifactId, setMetadataArtifactId, setRevokeArtifactId, setShareData]);
 
   useEffect(() => {
     // /practice/chat/:id is restored by the server hook.
