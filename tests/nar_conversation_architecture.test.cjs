@@ -22,15 +22,15 @@ test("plaza sidebar covers header and footer with graceful width animation", () 
 
 test("history routes reuse one practice shell, and URLs carry conversation identity", () => {
   const shell = read(practice + "practice-shell.tsx");
-  const page = read(practice + "page.tsx");
+  const layout = read(practice + "layout.tsx");
   const dynamic = read(practice + "chat/[conversationId]/page.tsx");
   const hook = read(practice + "use-practice-workspace.ts");
   const nav = read(practice + "practice-navigation.tsx");
   assert.match(shell, /usePracticeWorkspace\(workspaceScope, conversationId\)/);
-  assert.match(page, /PracticeShell key=\{workspaceScope\}/);
-  assert.match(dynamic, /PracticeShell key=\{conversationId\}/);
+  assert.match(layout, /<PracticeShell workspaceScope=\{workspaceScope\}/);
+  assert.match(dynamic, /return null/);
   assert.match(hook, /useNarConversation/);
-  assert.match(nav, /conversationApi\.list\(\)/);
+  assert.match(nav, /getConversationQuery\(ownerId, "list"/);
   assert.match(nav, /conversationApi\.artifacts\(\)/);
   assert.match(nav, /\/practice\/chat\//);
   assert.match(nav, /aria-selected=\{view === "conversations"\}/);
