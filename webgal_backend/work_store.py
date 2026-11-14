@@ -110,7 +110,7 @@ class WorkStore:
                 "id": work_id, "owner_user_id": owner, "kind": kind,
                 "title": title.strip()[:160] or "未命名互动作品",
                 "summary": summary.strip()[:2000], "subject": None, "grade": None,
-                "tags": [], "current_version_id": version["id"],
+                "tags": [], "cover_variant": "preview", "current_version_id": version["id"],
                 "versions": [version], "publication_status": "draft",
                 "published_version_id": None, "public_url": None, "published_at": None,
                 "created_at": now, "updated_at": now, "saved_at": now,
@@ -157,7 +157,7 @@ class WorkStore:
         with self.locked():
             work = self.get(owner, work_id)
             for name, value in fields.items():
-                if name in {"title", "summary", "subject", "grade", "tags"}:
+                if name in {"title", "summary", "subject", "grade", "tags", "cover_variant"}:
                     work[name] = value
             work["updated_at"] = utc_now()
             write_json(self.path(work_id) / "work.json", work)
@@ -170,6 +170,20 @@ class WorkStore:
         if not any(version["id"] == version_id for version in work["versions"]):
             raise FileNotFoundError("Work file not found")
         return (self.path(work_id) / "versions" / version_id / filename).read_bytes()
+
+    def private_cover(self, owner: str, work_id: str) -> bytes:
+        work = self.get(owner, work_id)
+        name = "mobile.png" if work.get("cover_variant") == "mobile" else "preview.png"
+        return self.asset(owner, work_id, work["current_version_id"], name)
+
+    def public_cover(self, work_id: str) -> bytes:
+        self.public(work_id)  # Fail closed when revoked or unpublished.
+        try:
+            work = read_json(self.path(work_id) / "work.json")
+        except (OSError, ValueError):
+            raise FileNotFoundError("Public cover not found") from None
+        name = "mobile.png" if work.get("published_cover_variant") == "mobile" else "preview.png"
+        return self.public_asset(work_id, name)
 
     def start_publication(self, owner: str, work_id: str) -> dict:
         """Mark pending; never switch the public version until remote publication succeeds."""
@@ -196,6 +210,7 @@ class WorkStore:
             work["published_at"] = utc_now()
             work["public_url"] = public_url
             work["published_metadata"] = {key: snapshot.get(key) for key in ("title", "summary", "subject", "grade", "tags")}
+            work["published_cover_variant"] = work.get("cover_variant", "preview")
             # The publish-dialog metadata is also the user's saved work metadata.
             work.update(work["published_metadata"])
             work.pop("pending_version_id", None)
