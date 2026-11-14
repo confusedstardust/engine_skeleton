@@ -14,11 +14,11 @@ import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
+import { followBuildTask, type BuildTask } from "./live-progress";
 import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
 
 type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
-type BuildTask = { id: string; status: string; phase?: string; attempts?: number; output?: string; error?: string; artifact_id?: string; timeline?: TimelineEvent[]; elapsed_ms?: number; learning_plan?: { learning_goal: string; interaction_method: string; key_concepts: string[] } };
 const examples = ["把《赤壁赋》做成可以抽背的互动网页。", "生成一个适合初中生操作的串并联电路实验。", "设计一个知识闯关网页，答完题才能进入下一关。"];
 
 export default function PracticePage() {
@@ -355,15 +355,11 @@ export default function PracticePage() {
     setPendingRun(run);
     setMessages([...run.originalMessages, { role: "user", content: run.prompt }]);
     try {
-      let task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
-      latest = task; setActiveTask(task);
-      while (task.status === "RUNNING") {
-        if (Date.now() - run.startedAt > 930000) throw new Error("任务已经超过可恢复的等待时间，请重新尝试。");
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        if (!alive.current) return;
-        task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
-        latest = task; setActiveTask(task);
-      }
+      const task = await followBuildTask(
+        run.endpoint, run.id, run.startedAt,
+        snapshot => { latest = snapshot; setActiveTask(snapshot); },
+        () => alive.current,
+      );
       const generated = await completeGeneratedWork(
         task, run.prompt, run.mode, run.parentArtifactId || null,
         run.parentArtifactId ? loaded[run.parentArtifactId] : undefined,
@@ -409,14 +405,12 @@ export default function PracticePage() {
           id: task.id, endpoint, mode, prompt, parentArtifactId: parentArtifact,
           originalMessages, startedAt: started,
         });
-        while (task.status === "RUNNING") {
-          if (Date.now() - started > 930000) throw new Error("等待超时，请联系管理员查看任务状态。");
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          if (!alive.current) return;
-          task = await forgeApi<BuildTask>(`/nar-agent/${endpoint}/${task.id}`);
-          lastTask = task; setActiveTask(task);
-          const phases: Record<string, string> = { DESIGNING: "正在理解学习需求", PLANNING: "正在规划学习交互", DRAFTING: "正在制作互动内容", BUILDING: "正在组装互动作品", CHECKING: "正在检查作品", FINALIZING: "正在整理作品" };
-          setProgress(phases[task.phase || ""] || "正在制作互动学习作品");
+        if (task.status === "RUNNING") {
+          task = await followBuildTask(
+            endpoint, task.id, started,
+            snapshot => { lastTask = snapshot; setActiveTask(snapshot); },
+            () => alive.current,
+          );
         }
         generatedWork = await completeGeneratedWork(task, prompt, mode, parentArtifact, currentWork);
         reply = { id: task.id, output: task.output || "作品已经做好，可以打开预览并继续修改。" };
@@ -455,7 +449,7 @@ export default function PracticePage() {
           {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
               {message.work && <GeneratedWorkCard work={message.work} savedWorkId={savedCardWorkId(message.work)} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
             </div></article>)}
-          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
+          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
         </div>
         <div className={styles.composerArea}>
