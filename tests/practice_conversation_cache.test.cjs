@@ -80,3 +80,16 @@ test("task errors display the public agent reason and safe phase/code, not a gen
   assert.match(result, /16696fa0c1fc404fbeb26c9101291bcd/);
   assert.doesNotMatch(result, /上次创作未完成/);
 });
+
+test("a late stale GET must never overwrite a newly confirmed local mutation", async () => {
+  const c = loadTs("forge_frontend_next/lib/conversation-query-cache.ts");
+  c.setConversationQuery("owner", "list", { items: [{ id: "old" }], nextCursor: null });
+  let resolve;
+  const request = c.getConversationQuery("owner", "list", 60000,
+    () => new Promise(done => { resolve = done; }), { force: true });
+  c.setConversationQuery("owner", "list",
+    { items: [{ id: "new" }, { id: "old" }], nextCursor: null });
+  resolve({ items: [{ id: "old" }], nextCursor: null });
+  await request;
+  assert.equal(c.peekConversationQuery("owner", "list").items[0].id, "new");
+});
