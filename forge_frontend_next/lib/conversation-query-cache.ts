@@ -56,8 +56,7 @@ export async function getConversationQuery<T>(
   }
   // Deduplicate concurrent navigation, sidebar, and mutation-driven fetches.
   if (entry?.pending) return entry.pending;
-  let request: Promise<T>;
-  request = fetcher().then((data): T => {
+  const request: Promise<T> = fetcher().then((data): T => {
     const latest = entries.get(id) as CacheEntry<T> | undefined;
     // A mutation may have installed newer data while this read was in flight.
     if (latest?.pending !== request) return latest?.data ?? data;
