@@ -91,6 +91,12 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         assert response.status_code == 200
         assert response.json()["work"]["tags"] == ["数学", "图像"]
         assert client.get("/works/" + work_id).json()["work"]["title"] == "幂函数与指数函数"
+        assert client.get(f"/works/{work_id}/cover.png").content == ASSETS["preview.png"]
+        cover_update = client.patch(f"/works/{work_id}", headers=ACTION, json={"cover_variant": "mobile"})
+        assert cover_update.status_code == 200
+        assert cover_update.json()["work"]["cover_variant"] == "mobile"
+        assert client.get(f"/works/{work_id}/cover.png").content == ASSETS["mobile.png"]
+        assert client.patch(f"/works/{work_id}", headers=ACTION, json={"cover_variant": "../secret"}).status_code == 422
         assert client.get("/works/" + work_id + "/assets/" + "f" * 32 + "/preview.png").status_code == 404
 
     other = FastAPI()
@@ -102,6 +108,7 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         assert c.get("/works").json()["works"] == []
         assert c.get("/works/" + work_id).status_code == 404
         assert c.get(f"/works/{work_id}/assets/{version_id}/preview.png").status_code == 404
+        assert c.get(f"/works/{work_id}/cover.png").status_code == 404
 
 
 def test_api_rejects_unverified_html_and_owner_mismatch(tmp_path, monkeypatch):
