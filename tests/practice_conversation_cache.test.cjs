@@ -66,3 +66,17 @@ test("cached replies include no browser-persistent chat or focus-list reload", (
   assert.match(layout, /Intentionally no key/);
   assert.doesNotMatch(cache, /sessionStorage|localStorage|indexedDB/);
 });
+
+test("task errors display the public agent reason and safe phase/code, not a generic retry hint", () => {
+  const { formatPracticeFailure } = loadTs("forge_frontend_next/app/practice/practice-failure.ts");
+  const result = formatPracticeFailure(
+    { status: "FAILED", errorCode: "AGENT_ERROR", runId: "16696fa0c1fc404fbeb26c9101291bcd" },
+    { id: "16696fa0c1fc404fbeb26c9101291bcd", error: "HTML 制作失败，请检查执行服务或稍后重试。",
+      error_code: "AGENT_ERROR", phase: "DESIGNING" },
+  );
+  assert.match(result, /HTML 制作失败/);
+  assert.match(result, /AGENT_ERROR/);
+  assert.match(result, /DESIGNING/);
+  assert.match(result, /16696fa0c1fc404fbeb26c9101291bcd/);
+  assert.doesNotMatch(result, /上次创作未完成/);
+});
