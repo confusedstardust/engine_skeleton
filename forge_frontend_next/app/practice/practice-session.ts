@@ -83,3 +83,40 @@ export function clearPracticeSession(owner: string, workspace = "general") {
   try { sessionStorage.removeItem(PREFIX + owner + ":" + workspace); }
   catch { /* No-op when private storage is disabled. */ }
 }
+
+/** Recover only the unambiguous user prompt + generated reply for this saved work.
+ * Do not assign unrelated general-chat turns to an arbitrary artifact. */
+export function extractWorkConversation(
+  messages: SessionMessage[],
+  works: Array<Pick<WorkPreviewData, "artifactId" | "workId">>,
+  workId: string,
+): SessionMessage[] {
+  const artifactIds = new Set(works.filter(w => w.workId === workId).map(w => w.artifactId));
+  const selected = new Set<number>();
+  messages.forEach((message, index) => {
+    if (!message.work || !artifactIds.has(message.work.artifactId)) return;
+    selected.add(index);
+    if (index > 0 && messages[index - 1].role === "user") selected.add(index - 1);
+  });
+  return [...selected].sort((a, b) => a - b).map(index => messages[index]);
+}
+
+/** Existing per-work snapshots always win. Legacy general state is read-only source. */
+export function recoverPracticeSession(owner: string, workspace: string): PracticeSession | null {
+  const saved = readPracticeSession(owner, workspace);
+  if (saved || workspace === "general") return saved;
+  const general = readPracticeSession(owner, "general");
+  if (!general) return null;
+  const messages = extractWorkConversation(general.messages, general.works, workspace);
+  if (!messages.length) return null;
+  const works = general.works.filter(work => work.workId === workspace);
+  return {
+    messages,
+    works,
+    currentArtifactId: works.some(w => w.artifactId === general.currentArtifactId)
+      ? general.currentArtifactId : works[works.length - 1]?.artifactId ?? null,
+    selectedArtifactId: works.some(w => w.artifactId === general.selectedArtifactId)
+      ? general.selectedArtifactId : works[works.length - 1]?.artifactId ?? null,
+    pending: null,
+  };
+}
