@@ -17,6 +17,7 @@ on:
       - 'webgal_backend/work_urls.py'
       - 'tests/test_practice_public_page_route.cjs'
       - 'forge_frontend_next/next.config.mjs'
+      - 'forge_frontend_next/middleware.ts'
       - 'tests/test_nar_agent_gateway.py'
       - 'tests/test_practice_work_rewrites.cjs'
       - '.github/workflows/nar-agent-html-integration.yml'
