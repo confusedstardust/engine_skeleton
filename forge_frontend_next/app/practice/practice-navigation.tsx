@@ -35,6 +35,7 @@ export default function PracticeNavigation({
     links={[
       { label: "发现灵感", href: "https://www.narrativeos.cn/teacher-ecosystem/", icon: <Grid2X2 aria-hidden="true" />, external: true },
       { label: "互动学习创作", href: "/practice", icon: <Sparkles aria-hidden="true" />, current: true },
+      { label: "讲练工具", href: "/practice/resources", icon: <BookOpen aria-hidden="true" /> },
       { label: "我的作品", href: "/history", icon: <PenLine aria-hidden="true" /> },
     ]}
     action={{ label: "新建对话", icon: <Plus aria-hidden="true" />, disabled: busy, onClick: onNewConversation }}
