@@ -50,7 +50,7 @@ export function useNarConversation({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedArtifact = searchParams.get("artifact");
-  const [enabled, setEnabled] = useState(false);
+  const [ready, setReady] = useState(false);
   const [checked, setChecked] = useState(false);
   const [artifacts, setArtifacts] = useState<ConversationArtifact[]>([]);
   const [activeTurn, setActiveTurn] = useState<ServerTurn | null>(null);
@@ -70,11 +70,18 @@ export function useNarConversation({
     if (!authReady) return;
     let active = true;
     setChecked(false);
-    if (!loggedIn) { setEnabled(false); setChecked(true); return; }
+    if (!loggedIn) { setReady(false); setChecked(true); return; }
+    // No feature switch or browser chat fallback: the authenticated endpoint
+    // confirms schema readiness. A missing migration is surfaced to the user.
     void conversationApi.status().then(r => {
-      if (active) setEnabled(r.enabled);
-    }).catch(() => { if (active) setEnabled(false); })
-      .finally(() => { if (active) setChecked(true); });
+      if (active) setReady(r.ready);
+    }).catch(error => {
+      if (active) {
+        setReady(false);
+        setError(error instanceof Error ? error.message :
+          "会话数据库不可用，请先执行 002_nar_conversation_history.sql");
+      }
+    }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
   }, [authReady, loggedIn]);
 
@@ -90,9 +97,9 @@ export function useNarConversation({
 
   useEffect(() => {
     if (!conversationId || !authReady || !checked) return;
-    if (!loggedIn || !enabled) {
+    if (!loggedIn || !ready) {
       setSessionReady(true);
-      setError("跨设备会话功能尚未启用，请先由管理员迁移数据库并开启该功能。");
+      if (loggedIn) setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql");
       return;
     }
     let active = true;
@@ -103,7 +110,7 @@ export function useNarConversation({
       if (active) { setError(e instanceof Error ? e.message : "会话加载失败"); setSessionReady(true); }
     });
     return () => { active = false; };
-  }, [conversationId, authReady, checked, loggedIn, enabled, applyDetail, setError, setSessionReady]);
+  }, [conversationId, authReady, checked, loggedIn, ready, applyDetail, setError, setSessionReady]);
 
   const openArtifact = useCallback(async (id: string) => {
     const target = artifacts.find(item => item.artifactId === id);
@@ -130,7 +137,7 @@ export function useNarConversation({
   // Query a running turn while this conversation is visible. Switching routes
   // cancels the loop. A QUEUED/UNKNOWN dispatch is never blindly retried.
   useEffect(() => {
-    if (!conversationId || !enabled || !activeTurn) return;
+    if (!conversationId || !ready || !activeTurn) return;
     if (terminal(activeTurn.status)) {
       setBusy(false);
       if (activeTurn.status === "UNKNOWN") {
@@ -217,12 +224,12 @@ export function useNarConversation({
     };
     void poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [conversationId, enabled, activeTurn?.id, activeTurn?.status, applyDetail,
+  }, [conversationId, ready, activeTurn?.id, activeTurn?.status, applyDetail,
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "chat" | "html" | "animation" | "edit",
                       parentArtifact?: string): Promise<boolean> {
-    if (!enabled || !checked || !loggedIn) return false;
+    if (!ready || !checked || !loggedIn) return false;
     const last = inFlight.current;
     const targetId = last?.prompt === prompt && last.mode === mode ? last.cid : conversationId || uuid();
     const requestId = last?.prompt === prompt && last.mode === mode ? last.requestId : uuid();
@@ -257,7 +264,7 @@ export function useNarConversation({
   }
 
   async function loadOlder() {
-    if (!conversationId || olderCursor == null || loadingOlder || !enabled) return;
+    if (!conversationId || olderCursor == null || loadingOlder || !ready) return;
     setLoadingOlder(true);
     const node = chatScroll.current;
     const previousHeight = node?.scrollHeight ?? 0;
@@ -294,10 +301,10 @@ export function useNarConversation({
   }
 
   return {
-    enabled, checked, revision, conversationId, conversationTitle, artifacts,
+    ready, checked, revision, conversationId, conversationTitle, artifacts,
     activeTurn, olderCursor, loadingOlder, loadOlder, chatScroll, skipScroll,
     openArtifact, send, refresh: async () => {
-      if (!conversationId || !enabled) return;
+      if (!conversationId || !ready) return;
       applyDetail(await conversationApi.get(conversationId));
     },
   };
