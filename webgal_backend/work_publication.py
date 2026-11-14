@@ -151,7 +151,7 @@ def create_public_router(*, store: WorkStore | None = None):
     @router.get("/{work_id}/cover.png")
     async def published_cover(work_id: str):
         try:
-            content = await run_in_threadpool(works.public_asset, work_id, "preview.png")
+            content = await run_in_threadpool(works.public_cover, work_id)
         except (FileNotFoundError, OSError):
             raise HTTPException(404, "公开作品不存在或已撤回") from None
         return Response(content, media_type="image/png", headers={
