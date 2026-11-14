@@ -148,7 +148,7 @@ def create_router(*, user_for_request, transport=None):
                         "Accept": "text/event-stream",
                     }) as upstream:
                         if upstream.status_code != 200:
-                            yield b'event: stream-error\\ndata: {"message":"progress upstream unavailable"}\\n\\n'
+                            yield b'event: stream-error\ndata: {"message":"progress upstream unavailable"}\n\n'
                             return
                         async for piece in upstream.aiter_bytes():
                             if piece:
@@ -156,7 +156,7 @@ def create_router(*, user_for_request, transport=None):
             except httpx.HTTPError:
                 # This is a *connection* error, not a failed generation.
                 # The browser falls back to authenticated status polling.
-                yield b'event: stream-error\\ndata: {"message":"progress connection lost"}\\n\\n'
+                yield b'event: stream-error\ndata: {"message":"progress connection lost"}\n\n'
 
         return StreamingResponse(chunks(), media_type="text/event-stream", headers={
             "Cache-Control": "private, no-cache, no-transform", "X-Accel-Buffering": "no",
