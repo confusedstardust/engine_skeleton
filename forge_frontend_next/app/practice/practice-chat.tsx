@@ -22,10 +22,10 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
     sessionReady, authReady, progress, activeTask, workPreviews, currentArtifactId,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
-    serverEnabled, serverChecked, conversationId, conversationTitle,
+    serverReady, serverChecked, conversationId, conversationTitle,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
   } = workspace;
-  const canSubmit = Boolean(!busy && authReady && sessionReady && serverChecked && loggedIn && (!conversationId || serverEnabled) && draft.trim());
+  const canSubmit = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn && draft.trim());
 
   return <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
     <div className={styles.chatHeader}>
@@ -37,14 +37,14 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
         <Button variant="ghost" size="sm" onClick={() => { void loadOlder(); }}
           disabled={loadingOlder}>{loadingOlder ? "加载中…" : "查看更早的消息"}</Button>
       </div>}
-      {!sessionReady && <LoadingState inline className={styles.thinking}>正在恢复作品会话…</LoadingState>}
+      {!sessionReady && <LoadingState inline className={styles.thinking}>正在从服务器读取会话…</LoadingState>}
       {sessionReady && messages.length === 0 && <div className={styles.empty}>
         <span className={styles.spark} aria-hidden="true"><Sparkles size={33} strokeWidth={1.5} /></span>
         <p className={styles.eyebrow}>从一个学习问题开始</p>
         <h2>{workspaceScope === "general" ? "你想制作什么互动学习体验？" : "继续这次学习创作"}</h2>
         <p>{workspaceScope === "general"
           ? "描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。"
-          : conversationId ? "这个会话还没有消息，你可以开始创作。" : "这件作品没有可恢复的独立对话记录，但已经保存的作品及版本仍可打开、预览和继续修改。"}</p>
+          : conversationId ? "这个会话还没有消息，你可以开始创作。" : "这是以前保存的作品，原对话若未曾上传服务器则无法恢复；你可以开启一段新的云端会话继续创作。"}</p>
         <div className={styles.examples}>
           {examples.map((example, i) => <Button key={example} variant="unstyled" onClick={() => {
             setDraft(example);
