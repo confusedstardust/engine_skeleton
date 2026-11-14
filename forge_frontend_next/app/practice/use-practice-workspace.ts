@@ -38,6 +38,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const previousScope = useRef(workspaceScope);
 
   const server = useNarConversation({
     conversationId, authReady, loggedIn, ownerId: sessionUserId,
@@ -76,6 +77,15 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [messages, busy, server.skipScroll]);
+
+  useEffect(() => {
+    if (previousScope.current === workspaceScope) return;
+    previousScope.current = workspaceScope;
+    if (conversationId) return;
+    setMessages([]); setWorkPreviews({});
+    setSelectedArtifactId(null); setCurrentArtifactId(null);
+    setError(""); setDraft(""); setSessionReady(false);
+  }, [workspaceScope, conversationId]);
 
   useEffect(() => {
     // /practice/chat/:id is restored by the server hook.
