@@ -15,7 +15,7 @@ import type { PracticeMessage } from "./practice-types";
 /**
  * One authenticated conversation source of truth: Forge /nar-agent/conversations.
  * Browser state is ephemeral rendering only; no chat history is persisted to
- * sessionStorage or reconstructed from unrelated saved works.
+ * browser storage or reconstructed from unrelated saved works.
  *
  * Legacy /practice/?work=<id> remains a saved-work preview deep link. It never
  * implies that a historical conversation can be inferred from a work's HTML.
