@@ -19,6 +19,7 @@ export type BuildTask = {
   elapsed_ms?: number;
   learning_plan?: LearningPlan;
   public_brief?: string;
+  public_brief_state?: "STREAMING" | "COMPLETE" | "UNAVAILABLE";
 };
 
 /**
