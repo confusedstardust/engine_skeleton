@@ -41,8 +41,10 @@ test("persistent chat uses authenticated APIs without a runtime feature flag", (
   const migration = read("webgal_backend/migrations/002_nar_conversation_history.sql");
   const app = read("webgal_backend/app.py");
   assert.doesNotMatch(route, /NAR_CONVERSATIONS_ENABLED/);
+  assert.doesNotMatch(read(practice + "use-practice-workspace.ts"), /sessionStorage|recoverPracticeSession/);
   assert.match(route, /async def owner_for/);
-  assert.match(route, /"ready": await run_in_threadpool\(ledger\.ready\)/);
+  assert.match(route, /"ready": True/);
+  assert.match(route, /if not await run_in_threadpool\(ledger\.ready\)/);
   assert.match(route, /auth_type/);
   assert.match(route, /client_request_id/);
   assert.match(route, /reused.*True/);
