@@ -92,7 +92,7 @@ export function useNarConversation({
       }
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
-  }, [authReady, loggedIn, ownerId]);
+  }, [authReady, loggedIn, ownerId, setError]);
 
   // Route changes update only the active pane. Navigation/header/sidebar stay
   // mounted in practice/layout.tsx; never leak work A's private state into B.
@@ -177,13 +177,16 @@ export function useNarConversation({
     void openArtifact(requestedArtifact);
   }, [conversationId, requestedArtifact, artifacts, openArtifact]);
 
+  const activeTurnId = activeTurn?.id;
+  const activeTurnStatus = activeTurn?.status;
+
   // Query a running turn while this conversation is visible. Switching routes
   // cancels the loop. A QUEUED/UNKNOWN dispatch is never blindly retried.
   useEffect(() => {
-    if (!conversationId || !ready || !activeTurn || !ownerId) return;
-    if (terminal(activeTurn.status)) {
+    if (!conversationId || !ready || !activeTurnId || !ownerId) return;
+    if (activeTurnStatus && terminal(activeTurnStatus)) {
       setBusy(false);
-      if (activeTurn.status === "UNKNOWN") {
+      if (activeTurnStatus === "UNKNOWN") {
         setError("这次任务的执行结果尚未确认，请不要重复提交。请检查执行服务状态。");
       }
       return;
@@ -195,7 +198,7 @@ export function useNarConversation({
     const poll = async () => {
       if (cancelled) return;
       try {
-        const response = await conversationApi.turnStatus(conversationId, activeTurn.id);
+        const response = await conversationApi.turnStatus(conversationId, activeTurnId);
         if (cancelled) return;
         const turn = response.turn;
         if (response.task) setActiveTask(response.task as unknown as BuildTask);
@@ -270,7 +273,7 @@ export function useNarConversation({
     };
     void poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [conversationId, ready, ownerId, activeTurn?.id, activeTurn?.status, applyDetail,
+  }, [conversationId, ready, ownerId, activeTurnId, activeTurnStatus, applyDetail,
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "chat" | "html" | "animation" | "edit",
