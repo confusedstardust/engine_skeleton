@@ -125,7 +125,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                         except Exception as exc:
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
                     effective_prompt = payload.prompt + (
-                        "\\n\\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\\n" + brief
+                        "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
                         if brief else ""
                     )
                     graph = animation_factory(settings, user_id, state, store)
@@ -216,7 +216,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                         except Exception as exc:
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
                     effective_prompt = payload.prompt + (
-                        "\\n\\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\\n" + brief
+                        "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
                         if brief else ""
                     )
                     graph = html_factory(settings, user_id, state, store, payload.parent_artifact_id)
