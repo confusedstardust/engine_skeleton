@@ -12,6 +12,7 @@ import { previewConversationArtifact, messagesFromConversation } from "./practic
 import type { PracticeMessage } from "./practice-types";
 import type { WorkPreviewData } from "./work-inspector";
 import type { BuildTask } from "./live-progress";
+import { formatPracticeFailure } from "./practice-failure";
 
 type Args = {
   conversationId?: string;
@@ -180,9 +181,7 @@ export function useNarConversation({
           // Keep the poll effect alive until the final persisted session detail
           // is refreshed. Clearing activeTurn early cancels this very effect.
           if (turn.status !== "SUCCEEDED") {
-            setError(turn.status === "UNKNOWN"
-              ? "上次任务是否已执行无法确认，请勿重复提交。可能需要人工检查服务状态。"
-              : "上次创作未完成，可修改需求后重新发送。");
+            setError(formatPracticeFailure(turn, response.task));
           } else {
             // Persist newly generated artifacts in the existing owner-scoped
             // work library before showing them as long-term history.
@@ -293,7 +292,7 @@ export function useNarConversation({
         if (!detail.activeTurn) setBusy(false);
       }
       if (terminal(result.turn.status) && result.turn.status !== "SUCCEEDED")
-        setError("提交状态未能确认，请勿立即重试。请查看当前会话记录。");
+        setError(formatPracticeFailure(result.turn, result.task));
     } catch (e) {
       // Keep the same idempotency key if the POST may have reached the server.
       setDraft(prompt);
