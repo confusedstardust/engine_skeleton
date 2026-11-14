@@ -46,6 +46,8 @@ def test_schema_and_transactional_idempotency(ledger):
     assert new and turn["status"] == "QUEUED"
     repeat, new_again = ledger.start_turn(owner, cid, request, "学会串并联电路", "html", create=True)
     assert not new_again and repeat["id"] == turn["id"]
+    with pytest.raises(ConversationConflict):
+        ledger.start_turn(owner, cid, request, "同一幂等键不许改成别的请求", "html", create=True)
     assert ledger.model_history(owner, cid, turn["id"]) == []
     with pytest.raises(ConversationConflict):
         ledger.start_turn(owner, cid, uuid.uuid4().hex, "另一个同时发送", "chat")
