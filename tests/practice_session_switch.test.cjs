@@ -93,7 +93,7 @@ test("App Router remounts work-scoped state and preserves saved chat on new conv
   const hook = file(base + "use-practice-workspace.ts");
   const navigation = file(base + "practice-navigation.tsx");
   assert.match(page, /useSearchParams\(\)/);
-  assert.match(page, /<PracticeWorkspace key=\{workspaceScope\}/);
+  assert.match(page, /<PracticeShell key=\{workspaceScope\}/);
   assert.match(hook, /recoverPracticeSession\(sessionUserId, workspaceScope\)/);
   assert.match(hook, /loadSavedWork\(workspaceScope\)/);
   assert.match(hook, /router\.push\("\/practice\/"\)/);
