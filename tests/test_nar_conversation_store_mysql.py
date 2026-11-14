@@ -66,8 +66,12 @@ def test_schema_and_transactional_idempotency(ledger):
     assert ledger.list_conversations(owner)["items"][0]["id"] == cid
     assert ledger.artifact_history(owner)["items"][0]["artifactId"] == aid
     assert len(ledger.get_messages(owner, cid, before=2)["items"]) == 1
-    ledger.link_work(owner, cid, aid, uuid.uuid4().hex)
-    assert ledger.get_detail(owner, cid)["artifacts"][0]["workId"] is not None
+    saved_work_id = uuid.uuid4().hex
+    ledger.link_work(owner, cid, aid, saved_work_id)
+    ledger.link_work(owner, cid, aid, saved_work_id)  # idempotent retry
+    with pytest.raises(ConversationConflict):
+        ledger.link_work(owner, cid, aid, uuid.uuid4().hex)
+    assert ledger.get_detail(owner, cid)["artifacts"][0]["workId"] == saved_work_id
     second, created = ledger.start_turn(owner, cid, uuid.uuid4().hex, "继续讲解", "chat")
     assert created
     assert [m["content"] for m in ledger.model_history(owner, cid, second["id"])] == [
