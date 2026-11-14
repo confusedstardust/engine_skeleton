@@ -153,12 +153,35 @@ export function useNarConversation({
             const artId = response.task?.artifact_id;
             if (typeof artId === "string" && /^[a-f0-9]{32}$/.test(artId)) {
               try {
-                const saved = await workApi.save({
-                  artifact_id: artId,
-                  kind: turn.mode === "animation" ? "animation" : "html",
-                  title: conversationTitle || "互动学习作品",
-                });
-                await conversationApi.associateWork(conversationId, artId, saved.work.id);
+                let savedWorkId: string | undefined;
+                if (turn.mode === "edit" && turn.parentArtifactId) {
+                  const { works } = await workApi.list();
+                  const alreadySaved = works.find(work =>
+                    work.versions.some(version => version.artifact_id === artId));
+                  const parentWork = works.find(work =>
+                    work.versions.some(version => version.artifact_id === turn.parentArtifactId));
+                  if (alreadySaved) {
+                    savedWorkId = alreadySaved.id;
+                  } else if (parentWork) {
+                    const current = parentWork.versions.find(
+                      version => version.id === parentWork.current_version_id);
+                    if (current?.artifact_id !== turn.parentArtifactId) {
+                      throw new Error("作品版本已变化，无法自动追加到旧版本");
+                    }
+                    const updated = await workApi.attachVersion(
+                      parentWork.id, artId, turn.parentArtifactId);
+                    savedWorkId = updated.work.id;
+                  }
+                }
+                if (!savedWorkId) {
+                  const saved = await workApi.save({
+                    artifact_id: artId,
+                    kind: turn.mode === "animation" ? "animation" : "html",
+                    title: conversationTitle || "互动学习作品",
+                  });
+                  savedWorkId = saved.work.id;
+                }
+                await conversationApi.associateWork(conversationId, artId, savedWorkId);
               } catch {
                 // Never turn a successfully completed run into a failed turn.
                 // The generated artifact link may remain ephemeral until saved.
