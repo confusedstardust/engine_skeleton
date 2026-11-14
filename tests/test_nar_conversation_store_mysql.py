@@ -97,3 +97,18 @@ def test_keyset_pagination_and_owner_scope(ledger):
     assert second["items"][0]["id"] != first["items"][0]["id"]
     with pytest.raises(ValueError):
         ledger.list_conversations(owner, limit=1, cursor="malformed_cursor!")
+
+def test_artifact_history_groups_multiple_sources(ledger):
+    owner = "ci-" + uuid.uuid4().hex
+    artifact = uuid.uuid4().hex
+    sessions = [uuid.uuid4().hex, uuid.uuid4().hex]
+    for cid in sessions:
+        t, _ = ledger.start_turn(owner, cid, uuid.uuid4().hex, "制作同一课堂的后续练习", "html", create=True)
+        ledger.finish_turn(owner, cid, t["id"], output="作品关联完成", artifact_id=artifact,
+                           title="共用产物", kind="html")
+    history = ledger.artifact_history(owner, limit=1)
+    assert len(history["items"]) == 1
+    assert history["items"][0]["artifactId"] == artifact
+    assert {source["conversationId"] for source in history["items"][0]["sources"]} == set(sessions)
+    assert history["nextCursor"] is None
+    assert ledger.artifact_history("ci-other-user", limit=30)["items"] == []
