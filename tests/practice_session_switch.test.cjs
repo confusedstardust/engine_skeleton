@@ -39,12 +39,13 @@ test("every new prompt uses the logged-in user's durable Forge conversation endp
 });
 
 test("query changes isolate React state; saved work deep links load only owner-checked HTML", () => {
-  const page = file(base + "page.tsx");
+  const layout = file(base + "layout.tsx");
   const dynamic = file(base + "chat/[conversationId]/page.tsx");
   const hook = file(base + "use-practice-workspace.ts");
-  assert.match(page, /useSearchParams\(\)/);
-  assert.match(page, /<PracticeShell key=\{workspaceScope\}/);
-  assert.match(dynamic, /<PracticeShell key=\{conversationId\}/);
+  assert.match(layout, /useSearchParams\(\)/);
+  assert.match(layout, /<PracticeShell workspaceScope=\{workspaceScope\}/);
+  assert.doesNotMatch(layout, /<PracticeShell key=/);
+  assert.match(dynamic, /return null/);
   assert.match(hook, /loadSavedWork\(workspaceScope\)/);
   assert.match(hook, /router\.push\("\/practice\/"\)/);
   assert.doesNotMatch(hook, /sessionUserId, \{\s*messages/);
