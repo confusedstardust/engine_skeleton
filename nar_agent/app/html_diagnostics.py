@@ -45,3 +45,4 @@ NO_BUILD_RECOVERY_INSTRUCTION = (
     "不要只回复代码块或文字说明。只有得到工具返回的 artifact_id 才能结束。"
     "如无法使用工具，请解释具体阻碍。"
 )
+

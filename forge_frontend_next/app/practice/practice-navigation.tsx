@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BookOpen, Grid2X2, PenLine, Plus, Sparkles, Star } from "lucide-react";
 import BrandLogo from "../../components/brand-logo";
 import { useEffect, useState } from "react";
+import { CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery, setConversationQuery, subscribeConversationQuery } from "../../lib/conversation-query-cache";
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
@@ -16,12 +17,12 @@ type View = "conversations" | "artifacts";
 
 /** Portal-style shell; history queries return only summaries, never HTML/body. */
 export default function PracticeNavigation({
-  loggedIn, busy, serverRevision, serverReady, serverChecked,
+  loggedIn, busy, ownerId, serverReady, serverChecked,
   activeConversationId, collapsed, onToggle, onNewConversation,
 }: {
   loggedIn: boolean;
   busy: boolean;
-  serverRevision: number;
+  ownerId: string | null;
   serverReady: boolean;
   serverChecked: boolean;
   activeConversationId: string | null;
@@ -35,42 +36,47 @@ export default function PracticeNavigation({
   const [nextConversations, setNextConversations] = useState<string | null>(null);
   const [nextArtifacts, setNextArtifacts] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [focusEpoch, setFocusEpoch] = useState(0);
-  useEffect(() => {
-    const refresh = () => setFocusEpoch(value => value + 1);
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, []);
   const [error, setError] = useState("");
 
+  // The sidebar is a subscriber of summary cache, never a follower of every
+  // chat-detail update or browser-focus event. Cache is scoped to SSO owner.
   useEffect(() => {
-    if (!loggedIn || !serverChecked || !serverReady) {
-      setConversations([]); setArtifacts([]);
+    if (!loggedIn || !serverReady || !serverChecked || !ownerId) {
+      setConversations([]); setArtifacts([]); setLoading(false);
       return;
     }
     let active = true;
-    setLoading(true);
-    void conversationApi.list().then(data => {
-      if (!active) return;
-      setConversations(data.items);
-      setNextConversations(data.nextCursor);
-      setError("");
-    }).catch(() => { if (active) setError("会话列表暂时不可用"); })
+    const cached = peekConversationQuery<{ items: ConversationSummary[]; nextCursor: string | null }>(ownerId, "list");
+    if (cached) { setConversations(cached.items); setNextConversations(cached.nextCursor); }
+    else setLoading(true);
+    const sync = () => {
+      const value = peekConversationQuery<{ items: ConversationSummary[]; nextCursor: string | null }>(ownerId, "list");
+      if (active && value) { setConversations(value.items); setNextConversations(value.nextCursor); }
+    };
+    const unsubscribe = subscribeConversationQuery(ownerId, "list", sync);
+    void getConversationQuery(ownerId, "list", CONVERSATION_STALE_MS.list, () => conversationApi.list())
+      .then(sync).catch(() => { if (active && !cached) setError("会话列表暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [loggedIn, serverChecked, serverReady, serverRevision, focusEpoch]);
+    return () => { active = false; unsubscribe(); };
+  }, [loggedIn, serverChecked, serverReady, ownerId]);
 
   useEffect(() => {
-    if (!loggedIn || !serverReady || view !== "artifacts") return;
+    if (!loggedIn || !serverReady || !ownerId || view !== "artifacts") return;
     let active = true;
-    setLoading(true);
-    void conversationApi.artifacts().then(data => {
-      if (!active) return;
-      setArtifacts(data.items); setNextArtifacts(data.nextCursor);
-    }).catch(() => { if (active) setError("产物列表暂时不可用"); })
+    const cached = peekConversationQuery<{ items: ConversationArtifact[]; nextCursor: string | null }>(ownerId, "artifacts");
+    if (cached) { setArtifacts(cached.items); setNextArtifacts(cached.nextCursor); }
+    else setLoading(true);
+    const sync = () => {
+      const value = peekConversationQuery<{ items: ConversationArtifact[]; nextCursor: string | null }>(ownerId, "artifacts");
+      if (active && value) { setArtifacts(value.items); setNextArtifacts(value.nextCursor); }
+    };
+    const unsubscribe = subscribeConversationQuery(ownerId, "artifacts", sync);
+    void getConversationQuery(ownerId, "artifacts", CONVERSATION_STALE_MS.artifacts,
+      () => conversationApi.artifacts()).then(sync)
+      .catch(() => { if (active && !cached) setError("产物列表暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [loggedIn, serverReady, view, serverRevision, focusEpoch]);
+    return () => { active = false; unsubscribe(); };
+  }, [loggedIn, serverReady, ownerId, view]);
 
   async function more() {
     if (loading) return;
@@ -80,13 +86,17 @@ export default function PracticeNavigation({
     try {
       if (view === "conversations") {
         const result = await conversationApi.list(cursor);
-        setConversations(prev => [...prev, ...result.items.filter(item => !prev.some(p => p.id === item.id))]);
+        const combined = [...conversations, ...result.items.filter(item => !conversations.some(p => p.id === item.id))];
+        setConversations(combined);
         setNextConversations(result.nextCursor);
+        if (ownerId) setConversationQuery(ownerId, "list", { items: combined, nextCursor: result.nextCursor });
       } else {
         const result = await conversationApi.artifacts(cursor);
-        setArtifacts(prev => [...prev, ...result.items.filter(item =>
-          !prev.some(p => p.artifactId === item.artifactId && p.conversationId === item.conversationId))]);
+        const combined = [...artifacts, ...result.items.filter(item =>
+          !artifacts.some(p => p.artifactId === item.artifactId && p.conversationId === item.conversationId))];
+        setArtifacts(combined);
         setNextArtifacts(result.nextCursor);
+        if (ownerId) setConversationQuery(ownerId, "artifacts", { items: combined, nextCursor: result.nextCursor });
       }
     } catch { setError("加载更多历史记录失败"); }
     finally { setLoading(false); }

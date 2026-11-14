@@ -271,20 +271,49 @@ class NarConversationStore:
             db.execute("UPDATE nar_conversations SET active_at=CURRENT_TIMESTAMP(6) WHERE id=%s", (cid,))
             return {**_turn(turn), "status": "SUCCEEDED", "runId": run_id or turn.get("agent_run_id")}
 
-    def fail_turn(self, owner: str, cid: str, tid: str, code: str, *, uncertain: bool = False) -> dict:
+    def fail_turn(self, owner: str, cid: str, tid: str, code: str, *, uncertain: bool = False,
+                  public_error: str | None = None, phase: str | None = None) -> dict:
+        """Persist a safe public failure reply in the SAME transaction as the turn.
+
+        No schema changes: metadata uses existing nar_messages.public_metadata.
+        Retried status checks cannot duplicate the reply after terminal failure.
+        """
         status = "UNKNOWN" if uncertain else "FAILED"
+        safe_code = code[:80]
+        safe_phase = phase if phase in (
+            "DESIGNING", "PLANNING", "DRAFTING", "BUILDING", "CHECKING", "FINALIZING"
+        ) else None
         with self._transaction() as db:
             self._own(db, owner, cid, lock=True)
             turn = self._get_turn(db, cid, tid, lock=True)
-            if turn["status"] in FINAL:
+            if turn["status"] in FINAL or (turn["status"] == "UNKNOWN" and uncertain):
                 return _turn(turn)
+            if public_error:
+                db.execute("SELECT COALESCE(MAX(seq),0) AS last_seq FROM nar_messages WHERE conversation_id=%s",
+                           (cid,))
+                seq = int(db.fetchone()["last_seq"]) + 1
+                # This text comes from our NarAgent's PUBLIC error string only.
+                # Never include provider exception bodies or stack traces.
+                message = public_error.strip()[:240]
+                detail = ["错误码：" + safe_code]
+                if safe_phase:
+                    detail.insert(0, "阶段：" + safe_phase)
+                if turn.get("agent_run_id"):
+                    detail.append("任务编号：" + str(turn["agent_run_id"])[:80])
+                message += "（" + " · ".join(detail) + "）"
+                info = json.dumps({"errorCode": safe_code, "phase": safe_phase},
+                                  ensure_ascii=False)
+                db.execute("INSERT INTO nar_messages "
+                           "(id,conversation_id,seq,role,content,turn_id,public_metadata) "
+                           "VALUES (%s,%s,%s,'assistant',%s,%s,%s)",
+                           (_id(), cid, seq, message, tid, info))
             db.execute("UPDATE nar_turns SET status=%s,error_code=%s,"
                        "updated_at=CURRENT_TIMESTAMP(6),"
                        "finished_at=IF(%s,CURRENT_TIMESTAMP(6),NULL) WHERE id=%s",
-                       (status, code[:80], not uncertain, tid))
+                       (status, safe_code, not uncertain, tid))
             db.execute("UPDATE nar_turn_dispatches SET state=%s WHERE turn_id=%s",
                        ("UNCERTAIN" if uncertain else "FINISHED", tid))
-            return {**_turn(turn), "status": status, "errorCode": code[:80]}
+            return {**_turn(turn), "status": status, "errorCode": safe_code}
 
     def get_turn(self, owner: str, cid: str, tid: str) -> dict:
         with self._transaction() as db:

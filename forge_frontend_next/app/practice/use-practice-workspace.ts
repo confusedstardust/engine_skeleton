@@ -38,9 +38,10 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const previousScope = useRef(workspaceScope);
 
   const server = useNarConversation({
-    conversationId, authReady, loggedIn,
+    conversationId, authReady, loggedIn, ownerId: sessionUserId,
     setSessionReady, setMessages, setWorkPreviews,
     setSelectedArtifactId, setCurrentArtifactId, setBusy, setActiveTask,
     setError, setDraft, setProgress, input,
@@ -52,7 +53,10 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       await conversationApi.associateWork(conversationId, artifactId, workId);
     } : undefined,
   });
-  const { publishArtifactId, metadataArtifactId } = library;
+  const {
+    publishArtifactId, metadataArtifactId, setPublishArtifactId,
+    setMetadataArtifactId, setRevokeArtifactId, setShareData,
+  } = library;
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
   const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
   const metadataWork = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
@@ -76,6 +80,19 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [messages, busy, server.skipScroll]);
+
+  useEffect(() => {
+    if (previousScope.current === workspaceScope) return;
+    previousScope.current = workspaceScope;
+    setPublishArtifactId(null);
+    setMetadataArtifactId(null);
+    setRevokeArtifactId(null);
+    setShareData(null);
+    if (conversationId) return;
+    setMessages([]); setWorkPreviews({});
+    setSelectedArtifactId(null); setCurrentArtifactId(null);
+    setError(""); setDraft(""); setSessionReady(false);
+  }, [workspaceScope, conversationId, setPublishArtifactId, setMetadataArtifactId, setRevokeArtifactId, setShareData]);
 
   useEffect(() => {
     // /practice/chat/:id is restored by the server hook.
@@ -142,7 +159,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     currentArtifactId, setCurrentArtifactId, end, input, savedWorkCount, send,
     beginNewConversation, savedCardWorkId,
     serverReady: server.ready, serverChecked: server.checked, conversationId,
-    conversationTitle: server.conversationTitle, serverRevision: server.revision,
+    conversationTitle: server.conversationTitle,
     conversationArtifacts: server.artifacts, olderCursor: server.olderCursor,
     loadOlder: server.loadOlder, loadingOlder: server.loadingOlder,
     chatScroll: server.chatScroll, openArtifact: server.openArtifact,

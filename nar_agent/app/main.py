@@ -20,6 +20,7 @@ from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.progress_stream import stream_progress
 from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
+from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
 
@@ -289,12 +290,15 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                              error="服务停止，HTML 任务已中断。")
                 raise
             except Exception as error:
+                code, public_message = classify_html_exception(error)
                 logger.warning(
-                    "HTML builder failed id=%s phase=%s diagnostics=%s",
-                    identifier, state["phase"], animation_failure_diagnostics(error),
+                    "HTML builder failed id=%s phase=%s code=%s diagnostics=%s",
+                    identifier, state["phase"], code, animation_failure_diagnostics(error),
                 )
-                state.update(status="FAILED", error_code="AGENT_ERROR",
-                             error="HTML 制作失败，请检查执行服务或稍后重试。")
+                # Public payload contains only a safe classification and task id;
+                # internal exception values remain solely in server logs.
+                state.update(status="FAILED", error_code=code,
+                             error=public_message)
             finally:
                 state.update(
                     usage=usage.usage_metadata,

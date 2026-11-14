@@ -4,15 +4,21 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject
 import { useRouter, useSearchParams } from "next/navigation";
 import { conversationApi, type ConversationArtifact, type ServerTurn, type ConversationDetail } from "../../lib/conversation-api";
 import { workApi } from "../../lib/work-api";
+import {
+  CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery,
+  setConversationQuery, upsertConversationSummary, invalidateConversationQuery,
+} from "../../lib/conversation-query-cache";
 import { previewConversationArtifact, messagesFromConversation } from "./practice-conversation";
 import type { PracticeMessage } from "./practice-types";
 import type { WorkPreviewData } from "./work-inspector";
 import type { BuildTask } from "./live-progress";
+import { formatPracticeFailure } from "./practice-failure";
 
 type Args = {
   conversationId?: string;
   authReady: boolean;
   loggedIn: boolean;
+  ownerId: string | null;
   setSessionReady: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<PracticeMessage[]>>;
   setWorkPreviews: Dispatch<SetStateAction<Record<string, WorkPreviewData>>>;
@@ -43,7 +49,7 @@ function terminal(status: string): boolean {
 /** Durable history does not reuse the per-tab cache. All history reads are
  * owner checked by Forge and body HTML is fetched only on explicit preview. */
 export function useNarConversation({
-  conversationId, authReady, loggedIn, setSessionReady, setMessages,
+  conversationId, authReady, loggedIn, ownerId, setSessionReady, setMessages,
   setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId,
   setBusy, setActiveTask, setError, setDraft, setProgress, input,
 }: Args) {
@@ -56,11 +62,13 @@ export function useNarConversation({
   const [activeTurn, setActiveTurn] = useState<ServerTurn | null>(null);
   const [olderCursor, setOlderCursor] = useState<number | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [revision, setRevision] = useState(0);
   const [conversationTitle, setConversationTitle] = useState("");
   const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string } | null>(null);
   const alive = useRef(true);
   const previewRequest = useRef(0);
+  const previousConversation = useRef<string | undefined>(conversationId);
+  const currentConversation = useRef<string | undefined>(conversationId);
+  currentConversation.current = conversationId;
   const chatScroll = useRef<HTMLDivElement>(null);
   const skipScroll = useRef(false);
 
@@ -70,10 +78,11 @@ export function useNarConversation({
     if (!authReady) return;
     let active = true;
     setChecked(false);
-    if (!loggedIn) { setReady(false); setChecked(true); return; }
-    // No feature switch or browser chat fallback: the authenticated endpoint
-    // confirms schema readiness. A missing migration is surfaced to the user.
-    void conversationApi.status().then(r => {
+    if (!loggedIn || !ownerId) { setReady(false); setChecked(true); return; }
+    // Readiness is an authenticated server query, cached for 5 minutes.
+    // Never re-check the entire schema on every conversation page mount.
+    void getConversationQuery(ownerId, "readiness", CONVERSATION_STALE_MS.readiness,
+      () => conversationApi.status()).then(r => {
       if (active) setReady(r.ready);
     }).catch(error => {
       if (active) {
@@ -83,7 +92,24 @@ export function useNarConversation({
       }
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
-  }, [authReady, loggedIn]);
+  }, [authReady, loggedIn, ownerId, setError]);
+
+  // Route changes update only the active pane. Navigation/header/sidebar stay
+  // mounted in practice/layout.tsx; never leak work A's private state into B.
+  useEffect(() => {
+    if (previousConversation.current === conversationId) return;
+    previousConversation.current = conversationId;
+    previewRequest.current++;
+    setMessages([]); setWorkPreviews({});
+    setSelectedArtifactId(null); setCurrentArtifactId(null);
+    setActiveTurn(null); setActiveTask(null);
+    setArtifacts([]); setOlderCursor(null);
+    setConversationTitle(""); setError(""); setDraft("");
+    setBusy(false); setProgress("");
+    setSessionReady(false);
+  }, [conversationId, setMessages, setWorkPreviews, setSelectedArtifactId,
+      setCurrentArtifactId, setActiveTask, setError, setDraft, setBusy,
+      setProgress, setSessionReady]);
 
   const applyDetail = useCallback((detail: ConversationDetail) => {
     if (!alive.current) return;
@@ -92,7 +118,6 @@ export function useNarConversation({
     setConversationTitle(detail.conversation.title);
     setOlderCursor(detail.nextBefore);
     setActiveTurn(detail.activeTurn);
-    setRevision(v => v + 1);
   }, [setMessages]);
 
   useEffect(() => {
@@ -102,15 +127,30 @@ export function useNarConversation({
       if (loggedIn) setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql");
       return;
     }
+    if (!ownerId) return;
     let active = true;
-    setSessionReady(false);
-    void conversationApi.get(conversationId).then(detail => {
-      if (active) { applyDetail(detail); setSessionReady(true); }
+    const key = "detail:" + conversationId;
+    const cached = peekConversationQuery<ConversationDetail>(ownerId, key);
+    if (cached) {
+      // Stale-while-revalidate: paint the prior conversation instantly, no blank
+      // chat, spinner or global sidebar refresh on back/forward navigation.
+      applyDetail(cached);
+      setSessionReady(true);
+    } else {
+      setSessionReady(false);
+    }
+    void getConversationQuery(ownerId, key, CONVERSATION_STALE_MS.detail,
+      () => conversationApi.get(conversationId)).then(detail => {
+      if (active && (!cached || cached !== detail)) applyDetail(detail);
+      if (active) setSessionReady(true);
     }).catch(e => {
-      if (active) { setError(e instanceof Error ? e.message : "会话加载失败"); setSessionReady(true); }
+      if (active) {
+        if (!cached) setError(e instanceof Error ? e.message : "会话加载失败");
+        setSessionReady(true);
+      }
     });
     return () => { active = false; };
-  }, [conversationId, authReady, checked, loggedIn, ready, applyDetail, setError, setSessionReady]);
+  }, [conversationId, authReady, checked, loggedIn, ready, ownerId, applyDetail, setError, setSessionReady]);
 
   const openArtifact = useCallback(async (id: string) => {
     const target = artifacts.find(item => item.artifactId === id);
@@ -118,7 +158,10 @@ export function useNarConversation({
     // A slower old preview must never replace a later click in the same chat.
     const requestId = ++previewRequest.current;
     try {
-      const preview = await previewConversationArtifact(target);
+      const preview = ownerId
+        ? await getConversationQuery(ownerId, "preview:" + id, 10 * 60_000,
+            () => previewConversationArtifact(target))
+        : await previewConversationArtifact(target);
       if (!alive.current || requestId !== previewRequest.current) return;
       setWorkPreviews(previous => ({ ...previous, [preview.artifactId]: preview }));
       setCurrentArtifactId(preview.artifactId);
@@ -126,7 +169,7 @@ export function useNarConversation({
     } catch (error) {
       if (alive.current && requestId === previewRequest.current) setError(error instanceof Error ? error.message : "历史作品预览已过期");
     }
-  }, [artifacts, setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId, setError]);
+  }, [artifacts, ownerId, setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId, setError]);
 
   useEffect(() => {
     if (!conversationId || !requestedArtifact || !/^[a-f0-9]{32}$/.test(requestedArtifact)) return;
@@ -134,13 +177,16 @@ export function useNarConversation({
     void openArtifact(requestedArtifact);
   }, [conversationId, requestedArtifact, artifacts, openArtifact]);
 
+  const activeTurnId = activeTurn?.id;
+  const activeTurnStatus = activeTurn?.status;
+
   // Query a running turn while this conversation is visible. Switching routes
   // cancels the loop. A QUEUED/UNKNOWN dispatch is never blindly retried.
   useEffect(() => {
-    if (!conversationId || !ready || !activeTurn) return;
-    if (terminal(activeTurn.status)) {
+    if (!conversationId || !ready || !activeTurnId || !ownerId) return;
+    if (activeTurnStatus && terminal(activeTurnStatus)) {
       setBusy(false);
-      if (activeTurn.status === "UNKNOWN") {
+      if (activeTurnStatus === "UNKNOWN") {
         setError("这次任务的执行结果尚未确认，请不要重复提交。请检查执行服务状态。");
       }
       return;
@@ -152,7 +198,7 @@ export function useNarConversation({
     const poll = async () => {
       if (cancelled) return;
       try {
-        const response = await conversationApi.turnStatus(conversationId, activeTurn.id);
+        const response = await conversationApi.turnStatus(conversationId, activeTurnId);
         if (cancelled) return;
         const turn = response.turn;
         if (response.task) setActiveTask(response.task as unknown as BuildTask);
@@ -161,9 +207,7 @@ export function useNarConversation({
           // Keep the poll effect alive until the final persisted session detail
           // is refreshed. Clearing activeTurn early cancels this very effect.
           if (turn.status !== "SUCCEEDED") {
-            setError(turn.status === "UNKNOWN"
-              ? "上次任务是否已执行无法确认，请勿重复提交。可能需要人工检查服务状态。"
-              : "上次创作未完成，可修改需求后重新发送。");
+            setError(formatPracticeFailure(turn, response.task));
           } else {
             // Persist newly generated artifacts in the existing owner-scoped
             // work library before showing them as long-term history.
@@ -207,8 +251,13 @@ export function useNarConversation({
             }
           }
           if (!cancelled) {
-            const detail = await conversationApi.get(conversationId);
-            if (!cancelled) applyDetail(detail);
+            const detail = await getConversationQuery(ownerId, "detail:" + conversationId, 0,
+              () => conversationApi.get(conversationId), { force: true });
+            if (!cancelled) {
+              applyDetail(detail);
+              upsertConversationSummary(ownerId, detail.conversation);
+              if (turn.status === "SUCCEEDED") invalidateConversationQuery(ownerId, "artifacts");
+            }
           }
           return;
         }
@@ -224,7 +273,7 @@ export function useNarConversation({
     };
     void poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [conversationId, ready, activeTurn?.id, activeTurn?.status, applyDetail,
+  }, [conversationId, ready, ownerId, activeTurnId, activeTurnStatus, applyDetail,
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "chat" | "html" | "animation" | "edit",
@@ -242,16 +291,39 @@ export function useNarConversation({
         ? await conversationApi.turn(targetId, requestId, prompt, mode, parentArtifact)
         : await conversationApi.create(targetId, requestId, prompt, mode, parentArtifact);
       inFlight.current = null;
+      // Server request may complete after user clicked another conversation.
+      // Keep its DB changes, but never navigate/apply obsolete UI state.
+      if (currentConversation.current !== conversationId) return true;
       if (!conversationId) {
+        // Prepare a minimal server-accepted snapshot for instant navigation.
+        // The new route revalidates only this conversation in the background.
+        if (ownerId) {
+          const now = new Date().toISOString();
+          setConversationQuery<ConversationDetail>(ownerId, "detail:" + targetId, {
+            conversation: { id: targetId, title: prompt.slice(0, 160),
+              createdAt: now, activeAt: now },
+            messages: [{ id: requestId, seq: 1, role: "user",
+              content: prompt, createdAt: now }],
+            nextBefore: null,
+            activeTurn: result.turn.status === "RUNNING" || result.turn.status === "QUEUED"
+              || result.turn.status === "UNKNOWN" ? result.turn : null,
+            artifacts: [],
+          });
+          invalidateConversationQuery(ownerId, "detail:" + targetId);
+          upsertConversationSummary(ownerId, { id: targetId, title: prompt.slice(0, 160) });
+        }
         router.push("/practice/chat/" + targetId);
       } else {
-        const detail = await conversationApi.get(targetId);
+        const detail = await getConversationQuery(ownerId!, "detail:" + targetId, 0,
+          () => conversationApi.get(targetId), { force: true });
         applyDetail(detail);
+        upsertConversationSummary(ownerId!, detail.conversation);
         if (!detail.activeTurn) setBusy(false);
       }
       if (terminal(result.turn.status) && result.turn.status !== "SUCCEEDED")
-        setError("提交状态未能确认，请勿立即重试。请查看当前会话记录。");
+        setError(formatPracticeFailure(result.turn, result.task));
     } catch (e) {
+      if (currentConversation.current !== conversationId) return true;
       // Keep the same idempotency key if the POST may have reached the server.
       setDraft(prompt);
       setError(e instanceof Error ? e.message : "提交失败，重试会复用相同的请求标识。");
@@ -301,11 +373,12 @@ export function useNarConversation({
   }
 
   return {
-    ready, checked, revision, conversationId, conversationTitle, artifacts,
+    ready, checked, conversationId, conversationTitle, artifacts,
     activeTurn, olderCursor, loadingOlder, loadOlder, chatScroll, skipScroll,
     openArtifact, send, refresh: async () => {
       if (!conversationId || !ready) return;
-      applyDetail(await conversationApi.get(conversationId));
+      applyDetail(await getConversationQuery(ownerId!, "detail:" + conversationId, 0,
+        () => conversationApi.get(conversationId), { force: true }));
     },
   };
 }

@@ -61,8 +61,13 @@ class MemoryLedger:
         turn.update(status="SUCCEEDED")
         return turn
 
-    def fail_turn(self, owner, cid, tid, code, uncertain=False):
+    def fail_turn(self, owner, cid, tid, code, uncertain=False, public_error=None, phase=None):
         turn = next(t for (key_cid, _), t in self.requests.items() if key_cid == cid)
+        if turn["status"] not in ("FAILED", "SUCCEEDED") and public_error:
+            self.messages[cid].append({"id": ID_B, "seq": len(self.messages[cid]) + 1,
+                "role": "assistant", "content": public_error,
+                "createdAt": TODAY.isoformat(),
+                "metadata": {"errorCode": code, "phase": phase}})
         turn.update(status="UNKNOWN" if uncertain else "FAILED", errorCode=code)
         return turn
 
@@ -194,3 +199,30 @@ def test_anonymous_or_invite_login_cannot_read_chat_history(monkeypatch):
     assert client.get("/nar-agent/conversations/status").status_code == 401
     assert client.get("/nar-agent/conversations").status_code == 401
     assert client.get("/nar-agent/conversations/" + CID).status_code == 401
+
+
+def test_failed_html_returns_specific_public_message_and_persists_it(monkeypatch):
+    store = MemoryLedger()
+    def agent(req):
+        if req.method == "POST":
+            return httpx.Response(202, json={"id": TID, "user_id": "teacher", "status": "RUNNING"})
+        return httpx.Response(200, json={
+            "id": TID, "user_id": "teacher", "status": "FAILED",
+            "phase": "DESIGNING", "error_code": "MODEL_AUTH_FAILED",
+            "error": "模型服务认证或权限验证失败，请检查模型服务凭据与权限。",
+        })
+    c = make_client(monkeypatch, agent, store)
+    started = c.post("/nar-agent/conversations", headers=HEADERS, json={
+        "conversation_id": CID, "client_request_id": ID_A,
+        "prompt": "串并联电路", "mode": "html",
+    })
+    assert started.status_code == 202
+    ended = c.get(f"/nar-agent/conversations/{CID}/turns/{TID}")
+    assert ended.status_code == 200
+    assert ended.json()["turn"]["errorCode"] == "MODEL_AUTH_FAILED"
+    assert ended.json()["task"]["phase"] == "DESIGNING"
+    again = c.get(f"/nar-agent/conversations/{CID}/turns/{TID}")
+    assert again.json()["turn"]["status"] == "FAILED"
+    detail = c.get("/nar-agent/conversations/" + CID).json()
+    assert "模型服务认证" in detail["messages"][-1]["content"]
+    assert detail["messages"][-1]["metadata"]["phase"] == "DESIGNING"
