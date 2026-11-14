@@ -90,3 +90,12 @@
 @media(max-width:580px){.shareDialog{padding:18px}.shareActions{gap:10px}.shareQr img{width:88px;height:88px}}
 
 .publishDialog .publishError{margin:10px 0;padding:10px 12px;border-radius:9px;background:#fff0e8;color:#8b4639;font-size:12px;line-height:1.65}
+
+/* Two pre-verified screenshots are the only cover choices; no untrusted upload. */
+.coverPicker{margin:7px 0 4px;border:0;padding:0}
+.coverPicker legend{font-size:13px;font-weight:600;color:#4d5d4b;margin-bottom:9px}
+.coverOptions{display:flex;gap:13px;flex-wrap:wrap}
+.publishDialog .coverOptions label{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;border:1px solid #e2e9d9;border-radius:10px;cursor:pointer;background:#fff;color:#677764;font-size:12px}
+.coverOptions img{display:block;width:124px;height:76px;border-radius:6px;object-fit:cover;background:#eef0e8}
+.publishDialog .coverOptions input{position:absolute;top:10px;left:10px;width:auto;accent-color:#729269}
+.publishDialog .coverOptions label:has(input:checked){border-color:#779d70;box-shadow:0 0 0 2px #8cad7a24}
