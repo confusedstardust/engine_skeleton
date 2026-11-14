@@ -22,12 +22,13 @@ export type WorkPreviewData = GeneratedWork & {
 };
 
 export default function WorkInspector({
-  work, onClose, onEdit, onSave, onPublish, onUnpublish, onShare, saving = false, publishing = false,
+  work, onClose, onEdit, onSave, onEditMetadata, onPublish, onUnpublish, onShare, saving = false, publishing = false,
 }: {
   work: WorkPreviewData;
   onClose: () => void;
   onEdit: (id: string) => void;
   onSave: (id: string) => void;
+  onEditMetadata: (id: string) => void;
   onPublish: (id: string) => void;
   onUnpublish: (id: string) => void;
   onShare: (id: string) => void;
@@ -61,6 +62,7 @@ export default function WorkInspector({
           {saved ? "已保存到我的作品" : work.workId ? "保存新版本" : "保存到我的作品"}
         </Button>
         {work.kind === "html" && <Button variant="outline" onClick={() => onEdit(work.artifactId)}>继续修改</Button>}
+        {saved && <Button variant="outline" onClick={() => onEditMetadata(work.artifactId)}>编辑作品信息</Button>}
         {work.kind === "html" && <Button variant="outline" disabled={publishing || saving} busy={publishing}
           onClick={() => onPublish(work.artifactId)}>
           {published ? "更新广场发布" : saved ? "发布到教师资源广场" : "保存并发布到广场"}
