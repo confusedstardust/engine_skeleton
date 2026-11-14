@@ -8,24 +8,27 @@ import type { WorkPreviewData } from "./work-inspector";
 import styles from "./practice.module.css";
 
 export default function WorkPublishDialog({
-  work, onClose, onSubmit, busy, error,
+  work, onClose, onSubmit, busy, error, mode = "publish",
 }: {
   work: WorkPreviewData;
   onClose: () => void;
   onSubmit: (payload: PublicationForm) => void;
   busy: boolean;
   error?: string;
+  mode?: "publish" | "edit";
 }) {
   const [title, setTitle] = useState(work.title);
   const [summary, setSummary] = useState(work.summary || "");
   const [subject, setSubject] = useState(work.subject || "");
   const [grade, setGrade] = useState(work.grade || "");
   const [tags, setTags] = useState((work.tags || []).join("，"));
-  return <ModalFrame title="发布到教师资源广场" onClose={onClose} busy={busy}>
+  const editing = mode === "edit";
+  return <ModalFrame title={editing ? "编辑作品信息" : "发布到教师资源广场"} onClose={onClose} busy={busy}>
     <div className={styles.publishOverlay}><ModalBody>
       <section className={styles.publishDialog}>
-        <h2>发布到教师资源广场</h2>
-        <p>发布后，其他教师和学习者可公开访问这件作品。发布的是当前确认的版本，后续私有修改不会自动更新公开内容。</p>
+        <h2>{editing ? "编辑作品信息" : "发布到教师资源广场"}</h2>
+        <p>{editing ? "完善作品标题、简介、学科、学段和标签。更新资料不会自动修改已公开的版本。" :
+          "发布后，其他教师和学习者可公开访问这件作品。发布的是当前确认的版本，后续私有修改不会自动更新公开内容。"}</p>
         {error && <p className={styles.publishError} role="alert">{error}</p>}
         <form onSubmit={event => {
           event.preventDefault();
@@ -48,7 +51,7 @@ export default function WorkPublishDialog({
             onChange={e => setTags(e.target.value)} /></label>
           <div className={styles.publishFooter}>
             <Button variant="outline" disabled={busy} onClick={onClose}>取消</Button>
-            <Button type="submit" variant="primary" busy={busy} disabled={busy || !title.trim()}>确认发布</Button>
+            <Button type="submit" variant="primary" busy={busy} disabled={busy || !title.trim()}>{editing ? "保存作品信息" : "确认发布"}</Button>
           </div>
         </form>
       </section>
