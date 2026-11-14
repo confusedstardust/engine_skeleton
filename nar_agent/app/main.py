@@ -7,7 +7,7 @@ from uuid import uuid4
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import HumanMessage
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
@@ -17,6 +17,7 @@ from agents.teaching import build_agent, initial_state
 from app.config import Settings
 from app.artifacts import ArtifactStore
 from app.progress_events import enter_phase, close_phase, public_elapsed_ms
+from app.progress_stream import stream_progress
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -152,6 +153,16 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             raise HTTPException(404, "Animation not found")
         return {**state, "elapsed_ms": public_elapsed_ms(state)}
 
+    @app.get("/v1/animations/{identifier}/events")
+    async def animation_events(identifier: str, user_id: str = Depends(principal)):
+        state = app.state.animations.get(identifier)
+        if not state or state["user_id"] != user_id:
+            raise HTTPException(404, "Animation not found")
+        return StreamingResponse(stream_progress(state), media_type="text/event-stream", headers={
+            "Cache-Control": "private, no-cache, no-transform", "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+        })
+
     @app.post("/v1/html", status_code=202)
     async def create_html(payload: HtmlInput, user_id: str = Depends(principal)):
         if not settings.ready or not settings.html_builder_enabled or len(settings.execution_token.get_secret_value()) < 32:
@@ -280,6 +291,16 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         if not state or state["user_id"] != user_id:
             raise HTTPException(404, "HTML task not found")
         return {**state, "elapsed_ms": public_elapsed_ms(state)}
+
+    @app.get("/v1/html/{identifier}/events")
+    async def html_events(identifier: str, user_id: str = Depends(principal)):
+        state = app.state.html_runs.get(identifier)
+        if not state or state["user_id"] != user_id:
+            raise HTTPException(404, "HTML task not found")
+        return StreamingResponse(stream_progress(state), media_type="text/event-stream", headers={
+            "Cache-Control": "private, no-cache, no-transform", "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+        })
 
     @app.get("/v1/artifacts/{identifier}/metadata")
     async def artifact_metadata(identifier: str, user_id: str = Depends(principal)):
