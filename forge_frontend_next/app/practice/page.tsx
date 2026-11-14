@@ -97,7 +97,7 @@ export default function PracticePage() {
 
   useEffect(() => {
     if (!sessionReady || !sessionUserId) return;
-    const { pathname, searchParams } = new URL(window.location.href);
+    const { searchParams } = new URL(window.location.href);
     // A work deep link is an explicit workspace navigation, not an old chat restoration.
     if (searchParams.has("work")) return;
     writePracticeSession(sessionUserId, {
@@ -253,6 +253,66 @@ export default function PracticePage() {
     }
   }
 
+  async function completeGeneratedWork(
+    task: BuildTask, prompt: string, mode: "animation" | "html" | "edit",
+    parentArtifact: string | null, original?: WorkPreviewData,
+  ): Promise<GeneratedWork> {
+    if (task.status !== "SUCCEEDED" || !task.artifact_id) {
+      throw new Error(task.error || "作品未通过检查，请调整要求后重试。");
+    }
+    const blob = await forgeApi.blob(`/nar-agent/artifacts/${task.artifact_id}/index.html`);
+    const title = original?.title || prompt.split(/[。！？!?\n]/)[0].trim().slice(0, 40) || "互动学习作品";
+    const work: WorkPreviewData = {
+      artifactId: task.artifact_id, html: await blob.text(), title,
+      kind: mode === "animation" ? "animation" : "html",
+      version: parentArtifact ? (original?.version || 1) + 1 : 1,
+      workId: parentArtifact ? original?.workId : undefined,
+      savedArtifactId: parentArtifact ? original?.savedArtifactId : undefined,
+      currentVersionId: parentArtifact ? original?.currentVersionId : undefined,
+      expectedParentArtifactId: parentArtifact || undefined,
+      publicationStatus: parentArtifact ? original?.publicationStatus : "draft",
+      publicUrl: parentArtifact ? original?.publicUrl : null,
+    };
+    setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
+    setCurrentArtifactId(work.artifactId);
+    setSelectedArtifactId(work.artifactId);
+    return { artifactId: work.artifactId, kind: work.kind, title, version: work.version };
+  }
+
+  async function resumePendingRun(run: PendingCreation, loaded: Record<string, WorkPreviewData>) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setPendingRun(run);
+    setMessages([...run.originalMessages, { role: "user", content: run.prompt }]);
+    try {
+      let task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
+      setActiveTask(task);
+      while (task.status === "RUNNING") {
+        if (Date.now() - run.startedAt > 930000) throw new Error("任务已经超过可恢复的等待时间，请重新尝试。");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!alive.current) return;
+        task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
+        setActiveTask(task);
+      }
+      const generated = await completeGeneratedWork(
+        task, run.prompt, run.mode, run.parentArtifactId || null,
+        run.parentArtifactId ? loaded[run.parentArtifactId] : undefined,
+      );
+      setMessages([...run.originalMessages, { role: "user", content: run.prompt },
+        { role: "assistant", content: task.output || "作品已经做好，可以打开预览并继续修改。",
+          timeline: task.timeline, durationMs: task.elapsed_ms, work: generated }]);
+    } catch (error) {
+      setMessages([...run.originalMessages, { role: "user", content: run.prompt },
+        { role: "assistant", content: "这次创作未能恢复或完成，你可以再次尝试。",
+          timeline: activeTask?.timeline, durationMs: activeTask?.elapsed_ms }]);
+      setError(error instanceof Error ? error.message : "任务恢复失败，请重试");
+      setDraft(run.prompt);
+    } finally {
+      pending.current = false; setBusy(false); setActiveTask(null); setPendingRun(null);
+    }
+  }
+
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
     if (!prompt || pending.current || !loggedIn) return;
@@ -285,24 +345,7 @@ export default function PracticePage() {
           const phases: Record<string, string> = { DESIGNING: "正在理解学习需求", PLANNING: "正在规划学习交互", DRAFTING: "正在制作互动内容", BUILDING: "正在组装互动作品", CHECKING: "正在检查作品", FINALIZING: "正在整理作品" };
           setProgress(phases[task.phase || ""] || "正在制作互动学习作品");
         }
-        if (task.status !== "SUCCEEDED" || !task.artifact_id) throw new Error(task.error || "作品未通过检查，请调整要求后重试。");
-        const blob = await forgeApi.blob(`/nar-agent/artifacts/${task.artifact_id}/index.html`);
-        const title = prompt.split(/[。！？!?\n]/)[0].trim().slice(0, 40) || "互动学习作品";
-        const work: WorkPreviewData = {
-          artifactId: task.artifact_id, html: await blob.text(), title,
-          kind: mode === "animation" ? "animation" : "html",
-          version: parentArtifact ? (currentWork?.version || 1) + 1 : 1,
-          workId: parentArtifact ? currentWork?.workId : undefined,
-          savedArtifactId: parentArtifact ? currentWork?.savedArtifactId : undefined,
-          currentVersionId: parentArtifact ? currentWork?.currentVersionId : undefined,
-          expectedParentArtifactId: parentArtifact || undefined,
-          publicationStatus: parentArtifact ? currentWork?.publicationStatus : "draft",
-          publicUrl: parentArtifact ? currentWork?.publicUrl : null,
-        };
-        generatedWork = { artifactId: work.artifactId, kind: work.kind, title: work.title, version: work.version };
-        setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
-        setCurrentArtifactId(work.artifactId);
-        setSelectedArtifactId(work.artifactId);
+        generatedWork = await completeGeneratedWork(task, prompt, mode, parentArtifact, currentWork);
         reply = { id: task.id, output: task.output || "作品已经做好，可以打开预览并继续修改。" };
       } else reply = await forgeApi<Reply>("/nar-agent/chat", {
         method: "POST", headers: { "X-NarAgent-Action": "chat" }, body: JSON.stringify({ prompt, history }),
