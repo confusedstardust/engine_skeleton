@@ -15,6 +15,10 @@ export type WorkPreviewData = GeneratedWork & {
   expectedParentArtifactId?: string;
   publicationStatus?: string;
   publicUrl?: string | null;
+  summary?: string;
+  subject?: string | null;
+  grade?: string | null;
+  tags?: string[];
 };
 
 export default function WorkInspector({
