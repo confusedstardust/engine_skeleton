@@ -91,15 +91,23 @@ app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lif
 from .platform_admin import router as admin_router, blocked as admin_blocked
 from .community import router as community_router
 from .site_visits import router as site_visits_router
+from .html_resources import get_resource as get_html_resource, router as html_resources_router
 app.include_router(community_router)
 app.include_router(site_visits_router)
-
-from .html_resources import get_resource as get_html_resource, router as html_resources_router
-# Specific admin paths must precede platform_admin's /admin/{resource} catch-all.
+# Register concrete HTML resource paths before generic admin routes.
 app.include_router(html_resources_router)
 app.include_router(admin_router)
 from .payments import router as payments_router
 app.include_router(payments_router)
+from .nar_agent_routes import create_router as create_nar_agent_router
+app.include_router(create_nar_agent_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+from .works_routes import create_router as create_works_router
+app.include_router(create_works_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+from .work_publication import create_router as create_work_publication_router, create_public_router as create_public_work_router
+app.include_router(create_work_publication_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+app.include_router(create_public_work_router())
+from .work_sharing import create_router as create_work_share_router
+app.include_router(create_work_share_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
 
 
 @app.get("/practice-tools")

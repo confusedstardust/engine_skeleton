@@ -127,10 +127,10 @@ function editorHarness(lines) {
   return { props, render, click, select, all };
 }
 
-test('toolbar has four consistently styled buttons without redundant add-row action', () => {
+test('toolbar shows add label and hides scene jump action', () => {
   const editor = editorHarness([{ ...narration, id: 'first' }]);
   const buttons = editor.all(editor.render(), node => node.type === 'button' && node.props.className === 'laper-tool accent');
-  assert.deepEqual(buttons.map(node => node.props.children), ['旁白', '对话', '互动分支', '场景跳转']);
+  assert.deepEqual(buttons.map(node => node.props.children), ['旁白', '对话', '互动分支']);
 });
 
 test('selected row is highlighted and consecutive additions insert below selection', () => {
@@ -159,21 +159,6 @@ test('interactive choice inserts below selection without placeholder narration, 
   const selects = editor.all(editor.render(), node => node.props.ariaLabel === '跳转场景');
   assert.equal(selects.length, 2);
   for (const select of selects) assert.ok(select.props.options.some(option => option.label === '留在当前场景（互动后继续）'));
-});
-
-test('duplicate jump gives feedback instead of silently disabling; selected exit stays final', () => {
-  const editor = editorHarness([{ ...narration, id: 'first' }]);
-  editor.click('场景跳转');
-  assert.equal(editor.all(editor.render(), node => node.props.role === 'status').length, 0);
-  editor.click('场景跳转');
-  assert.equal(editor.props.scenes[0].lines.filter(line => jumpTarget(line)).length, 1);
-  const status = editor.all(editor.render(), node => node.props.role === 'status')[0];
-  const text = editor.all(status, node => node.props.className === 'laper-editor-notice-text')[0];
-  assert.match(text.props.children, /已经添加了场景跳转/);
-  assert.equal(editor.all(status, node => node.type === 'svg').length, 1);
-  editor.click('对话');
-  assert.equal(editor.props.scenes[0].lines[1].kind, 'dialogue');
-  assert.equal(jumpTarget(editor.props.scenes[0].lines.at(-1)), 'end.txt');
 });
 
 test('existing cross-scene options also offer local continuation and can switch back and forth', () => {

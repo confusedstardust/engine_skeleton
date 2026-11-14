@@ -12,6 +12,20 @@ on:
         required: true
         default: true
         type: boolean
+      portal_action:
+        description: "Inspect the portal using this repository's development SSH profile"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - inspect
+          - deploy
+      portal_image_tag:
+        description: "Existing verified portal image (dev-sha plus 12 hex digits)"
+        required: false
+        default: dev-sha-cda82c439307
+        type: string
 
 permissions:
   contents: read
@@ -27,12 +41,13 @@ concurrency:
 
 jobs:
   detect-changes:
-    if: ${{ startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-') }}
+    if: ${{ (!inputs.portal_action || inputs.portal_action == 'none') && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
     environment: development
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.selection.outputs.backend }}
       frontend: ${{ steps.selection.outputs.frontend }}
+      nar_agent: ${{ steps.selection.outputs.nar_agent }}
       version_tag: ${{ steps.selection.outputs.version_tag }}
     steps:
       - name: Checkout
@@ -61,6 +76,15 @@ jobs:
               - '.dockerignore'
               - 'docker-compose.dev.yml'
               - '.github/workflows/docker-publish-deploy-dev.yml'
+            nar_agent:
+              - 'nar_agent/**'
+              - 'docker-compose.nar-agent.yml'
+              - 'deploy/setup-nar-agent.py'
+              - 'deploy/nar-agent-healthcheck.py'
+              - 'deploy/nar-agent.env.example'
+              - 'deploy/nar-execution.env.example'
+              - '.github/workflows/nar-agent-build.yml'
+              - '.github/workflows/docker-publish-deploy-dev.yml'
             frontend:
               - 'forge_frontend_next/**'
               - 'docker/frontend.Dockerfile'
@@ -74,13 +98,16 @@ jobs:
         env:
           BACKEND_CHANGED: ${{ steps.paths.outputs.backend }}
           FRONTEND_CHANGED: ${{ steps.paths.outputs.frontend }}
+          NAR_AGENT_CHANGED: ${{ steps.paths.outputs.nar_agent }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
             echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "nar_agent=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=${BACKEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
             echo "frontend=${FRONTEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
+            echo "nar_agent=${NAR_AGENT_CHANGED:-false}" >> "$GITHUB_OUTPUT"
           fi
           echo "version_tag=dev-sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
@@ -117,19 +144,34 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Log in to Alibaba Cloud Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+      - name: Log in to Alibaba Cloud Container Registry (retry)
+        shell: bash
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if printf '%s' "$ACR_PASSWORD" | docker login "$REGISTRY" --username "$ACR_USERNAME" --password-stdin; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "::error::ACR login failed after 4 attempts"
+              exit 1
+            fi
+            echo "::warning::ACR login attempt $attempt failed; retrying"
+            sleep $((attempt * 10))
+          done
       - name: Build and push development frontend image
         uses: docker/build-push-action@v6
+        env:
+          BUILDKIT_PROGRESS: plain
         with:
           context: .
           file: ./docker/frontend.Dockerfile
@@ -141,7 +183,18 @@ jobs:
             NEXT_PUBLIC_BASE_PATH=/narrativeos
           tags: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
           cache-from: type=gha,scope=engine-skeleton-development-frontend
-          cache-to: type=gha,mode=max,scope=engine-skeleton-development-frontend
+          # Export only final-image cache layers; cap cache upload and do not fail image publishing on cache errors.
+          # Intermediate dependency layers may rebuild more often than with mode=max.
+          cache-to: type=gha,mode=min,scope=engine-skeleton-development-frontend,timeout=3m,ignore-error=true
+
+  build-nar-agent:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.nar_agent == 'true' }}
+    uses: ./.github/workflows/nar-agent-build.yml
+    with:
+      version_tag: ${{ needs.detect-changes.outputs.version_tag }}
+      publish_development: true
+    secrets: inherit
 
   deploy:
     if: >-
@@ -149,9 +202,10 @@ jobs:
         always() &&
         (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) &&
         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)) &&
-        (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true') &&
+        (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.nar_agent == 'true') &&
         (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
-        (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+        (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped') &&
+        (needs.build-nar-agent.result == 'success' || needs.build-nar-agent.result == 'skipped')
       }}
     environment: development
     runs-on: ubuntu-latest
@@ -160,6 +214,7 @@ jobs:
       - detect-changes
       - build-backend
       - build-frontend
+      - build-nar-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -178,7 +233,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.dev.yml"
+          source: "docker-compose.dev.yml,docker-compose.nar-agent.yml,deploy/setup-nar-agent.py,deploy/nar-agent-healthcheck.py,deploy/nar-agent.env.example,deploy/nar-execution.env.example"
           target: ${{ secrets.DEPLOY_PATH }}
       - name: Deploy on Non-Prod host
         uses: appleboy/ssh-action@v1.0.3
@@ -186,6 +241,7 @@ jobs:
           VERSION_TAG: ${{ needs.detect-changes.outputs.version_tag }}
           DEPLOY_BACKEND: ${{ needs.detect-changes.outputs.backend }}
           DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
+          DEPLOY_NAR_AGENT: ${{ needs.detect-changes.outputs.nar_agent }}
           REGISTRY: ${{ env.REGISTRY }}
           BACKEND_IMAGE_NAME: ${{ env.BACKEND_IMAGE_NAME }}
           FRONTEND_IMAGE_NAME: ${{ env.FRONTEND_IMAGE_NAME }}
@@ -195,7 +251,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,REGISTRY,BACKEND_IMAGE_NAME,FRONTEND_IMAGE_NAME,ACR_USERNAME,ACR_PASSWORD
+          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,DEPLOY_NAR_AGENT,REGISTRY,BACKEND_IMAGE_NAME,FRONTEND_IMAGE_NAME,ACR_USERNAME,ACR_PASSWORD
           command_timeout: 240m
           script: |
             set -e
@@ -224,6 +280,11 @@ jobs:
               echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
               exit 1
             fi
+            if [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              update_image_state NAR_AGENT_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-agent:$VERSION_TAG"
+              update_image_state NAR_EXECUTION_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-execution:$VERSION_TAG"
+              update_image_state NAR_SANDBOX_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-sandbox:$VERSION_TAG"
+            fi
             set -a
             . "./$IMAGE_STATE_FILE"
             set +a
@@ -236,13 +297,136 @@ jobs:
               exit 1
             fi
             docker network inspect narrativeos-development >/dev/null 2>&1 || docker network create narrativeos-development
+            COMPOSE_FILES="-f docker-compose.dev.yml"
+            NAR_ENABLED=false
+            if [ -f .nar-agent-enabled ]; then
+              test -s deploy/nar-agent.env && test -s deploy/nar-execution.env || { echo "Missing DEV Agent env files"; exit 1; }
+              grep -Eq "^NAR_AGENT_DEPLOYMENT_ENV=['\"]?development['\"]?$" deploy/nar-agent.env || { echo "DEV Agent credentials must be configured with --environment development"; exit 1; }
+              for image in "${NAR_AGENT_IMAGE:-}" "${NAR_EXECUTION_IMAGE:-}" "${NAR_SANDBOX_IMAGE:-}"; do
+                case "$image" in *:dev-sha-*) ;; *) echo "Missing or non-development Agent image pin"; exit 1 ;; esac
+              done
+              COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.nar-agent.yml"
+              NAR_ENABLED=true
+            fi
             SERVICES=""
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml pull backend
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull backend
               SERVICES="$SERVICES backend"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml pull frontend
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull frontend
               SERVICES="$SERVICES frontend"
             fi
-            $COMPOSE_CMD --env-file .env -f docker-compose.dev.yml up -d --no-deps $SERVICES
+            if [ "$NAR_ENABLED" = "true" ] && [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              docker pull "$NAR_SANDBOX_IMAGE"
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull execution nar-agent
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d --no-deps execution
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d nar-agent
+              # Apply internal URL/shared token even on the first Agent-only deploy.
+              if [ "$DEPLOY_BACKEND" != "true" ]; then
+                SERVICES="$SERVICES backend"
+              fi
+            fi
+            if [ -n "$SERVICES" ]; then
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d --no-deps $SERVICES
+            fi
+            if [ "$NAR_ENABLED" = "true" ]; then
+              for attempt in 1 2 3 4 5; do
+                if $COMPOSE_CMD --env-file .env $COMPOSE_FILES exec -T backend python - < deploy/nar-agent-healthcheck.py; then
+                  break
+                fi
+                if [ "$attempt" = "5" ]; then exit 1; fi
+                sleep 5
+              done
+            elif [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              echo "DEV Agent images/files prepared. In this DEV directory run: python3 deploy/setup-nar-agent.py --environment development --enable; then rerun a full development deployment."
+            fi
+
+  portal-inspect:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.portal_action == 'inspect' || inputs.portal_action == 'deploy') && (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/feature-')) }}
+    environment: development
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate development target
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          python3 - <<'PY'
+          import os, socket
+          assert '43.138.207.82' in socket.gethostbyname_ex(os.environ['DEPLOY_HOST'])[2], 'Development target is not the requested server'
+          print('Confirmed requested development server')
+          PY
+      - name: Inspect existing portal deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            docker ps --format '{{.Names}} {{.Image}} {{.Ports}}'
+            for container in $(docker ps --format '{{.Names}}' | grep -E 'website|portal|linchang'); do
+              docker inspect "$container" --format '{{.Name}} working_dir={{index .Config.Labels "com.docker.compose.project.working_dir"}} config={{index .Config.Labels "com.docker.compose.project.config_files"}} project={{index .Config.Labels "com.docker.compose.project"}} service={{index .Config.Labels "com.docker.compose.service"}}'
+            done
+            sudo nginx -T 2>&1 | awk '/configuration file|listen |server_name |location |proxy_pass / { print }'
+      - name: Update existing development portal only
+        if: ${{ inputs.portal_action == 'deploy' }}
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PORTAL_IMAGE_TAG: ${{ inputs.portal_image_tag }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          REGISTRY: ${{ env.REGISTRY }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: PORTAL_IMAGE_TAG,ACR_USERNAME,ACR_PASSWORD,REGISTRY
+          command_timeout: 20m
+          script: |
+            set -e
+            echo "$PORTAL_IMAGE_TAG" | grep -Eq '^dev-sha-[0-9a-f]{12}$' || exit 1
+            cd /opt/linchang-web
+            test -s .env && test -s docker-compose.dev.yml
+            previous=$(docker inspect linchang-web-website-1 --format '{{.Config.Image}}')
+            image="$REGISTRY/acr_namespace_narrativeos/linchangweb-website:$PORTAL_IMAGE_TAG"
+            echo "$ACR_PASSWORD" | docker login "$REGISTRY" -u "$ACR_USERNAME" --password-stdin
+            docker pull "$image"
+            override=development-portal-image.yml
+            printf 'services:\n  website:\n    image: %s\n' "$image" > "$override"
+            export WEBSITE_PORT=3002
+            export WEBSITE_IMAGE="$image"
+            if docker compose version >/dev/null 2>&1; then
+              compose() { docker compose "$@"; }
+            else
+              compose() { docker-compose "$@"; }
+            fi
+            rollback() {
+              printf 'services:\n  website:\n    image: %s\n' "$previous" > "$override"
+              export WEBSITE_IMAGE="$previous"
+              compose -p linchang-web --env-file .env -f docker-compose.dev.yml -f "$override" up -d --no-deps website
+            }
+            if ! compose -p linchang-web --env-file .env -f docker-compose.dev.yml -f "$override" up -d --no-deps website; then
+              rollback
+              exit 1
+            fi
+            for attempt in $(seq 1 30); do
+              if curl --max-time 10 -fsS http://127.0.0.1:3002/teacher-ecosystem/ | grep -q 'plaza-resources'; then
+                echo 'Verified new portal on existing port 3002; nginx unchanged'
+                exit 0
+              fi
+              sleep 2
+            done
+            rollback
+            exit 1
+      - name: Verify original public plaza URL
+        if: ${{ inputs.portal_action == 'deploy' }}
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          url = 'http://43.138.207.82/teacher-ecosystem/?returnTo=http%3A%2F%2F43.138.207.82%2Fnarrativeos%2F'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              html = response.read().decode()
+          assert 'plaza-resources' in html and 'ecosystem-hero' not in html, 'Public plaza still serves old layout'
+          print('Verified new layout at the original public URL')
+          PY

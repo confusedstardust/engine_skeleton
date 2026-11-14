@@ -1,0 +1,67 @@
+# Optional production/development overlay. Provision environment-specific files first.
+# docker-compose -f docker-compose.prod.yml -f docker-compose.nar-agent.yml ...
+services:
+  backend:
+    # Dev backend retains its website network and additionally reaches NarAgent.
+    networks: [default]
+    environment:
+      NAR_AGENT_URL: http://nar-agent:8020
+      NAR_AGENT_SERVICE_TOKEN: ${NAR_AGENT_SERVICE_TOKEN:?configure shared service token}
+
+  nar-agent:
+    image: ${NAR_AGENT_IMAGE:?set NAR_AGENT_IMAGE}
+    restart: unless-stopped
+    env_file: [./deploy/nar-agent.env]
+    environment:
+      NAR_AGENT_ANIMATION_ENABLED: "true"
+      NAR_AGENT_HTML_BUILDER_ENABLED: "true"
+      NAR_AGENT_PUBLIC_BRIEF_ENABLED: "true"
+      NAR_AGENT_EXECUTION_URL: http://execution:8030
+      NAR_AGENT_ARTIFACT_DIR: /data/artifacts
+    volumes: [nar_agent_artifacts:/data/artifacts]
+    networks: [default, nar_execution]
+    cpus: "0.5"
+    mem_limit: 1g
+    pids_limit: 128
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, .venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/ready', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      execution:
+        condition: service_healthy
+
+  execution:
+    image: ${NAR_EXECUTION_IMAGE:?set NAR_EXECUTION_IMAGE}
+    restart: unless-stopped
+    env_file: [./deploy/nar-execution.env]
+    environment:
+      NAR_SANDBOX_IMAGE: ${NAR_SANDBOX_IMAGE:?set NAR_SANDBOX_IMAGE}
+      PYTHONDONTWRITEBYTECODE: "1"
+    # Host-authority broker only. No model/prompt tools can change mounts or args.
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    networks: [nar_execution]
+    cpus: "0.25"
+    mem_limit: 256m
+    pids_limit: 64
+    read_only: true
+    tmpfs: [/tmp:size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/ready', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  nar_agent_artifacts:
+
+networks:
+  nar_execution:
+    internal: true

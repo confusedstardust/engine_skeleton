@@ -84,7 +84,7 @@ def parse_line(line: str, line_id: str) -> dict[str, Any] | None:
     original = line.strip()
     if not original:
         return None
-    if re.fullmatch(r"changeScene\s*:\s*[A-Za-z0-9_-]+\.txt\s*;?", original, re.I) or re.fullmatch(r"end\s*;?", original, re.I):
+    if re.fullmatch(r"changeScene\s*:\s*[A-Za-z0-9_-]+\.txt\s*;?", original, re.I) or re.fullmatch(r"jumpLabel\s*:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*;?", original) or re.fullmatch(r"end\s*;?", original, re.I):
         return {"id": line_id, "kind": "command", "speaker": "", "text": original, "rawPrefix": original.split(":", 1)[0].rstrip(";")}
     if original.lower().startswith("choose:") or original.startswith("choose："):
         body = original.split(":", 1)[1] if ":" in original else original.split("：", 1)[1]
@@ -128,6 +128,7 @@ def parse_line(line: str, line_id: str) -> dict[str, Any] | None:
 
 
 def render_json(game_design_json: dict[str, Any]) -> str:
+    from .choice_responses import lower_choice_responses
     chunks = []
     for scene in game_design_json.get("scenes", []):
         if not isinstance(scene, dict):
@@ -137,7 +138,7 @@ def render_json(game_design_json: dict[str, Any]) -> str:
             continue
         marker = "Ending" if str(scene.get("marker") or "").lower() == "ending" else "Scene"
         lines = [f"{marker}:{scene_file}"]
-        for line in scene.get("lines", []):
+        for line in lower_choice_responses(scene.get("lines", []), scene_file):
             if isinstance(line, dict):
                 rendered = render_scene_line(line)
                 if rendered:
@@ -209,6 +210,9 @@ def normalize_completed_json(game_design_json: dict[str, Any]) -> dict[str, Any]
 
 
 def render_scene_line(line: dict[str, Any]) -> str:
+    from .choice_responses import has_responses, lower_choice_responses
+    if has_responses(line):
+        return "\n".join(render_scene_line(item) for item in lower_choice_responses([line], ""))
     kind = str(line.get("kind") or "narration")
     if kind == "choice":
         choices = []
@@ -228,6 +232,9 @@ def render_scene_line(line: dict[str, Any]) -> str:
         return f"旁白:{text};" if text else ""
     text = str(line.get("text") or "").strip().rstrip(";")
     if kind == "command":
+        local_jump = re.fullmatch(r"jumpLabel\s*:\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*", text)
+        if local_jump:
+            return f"jumpLabel:{local_jump.group(1)};"
         jump = re.fullmatch(r"changeScene\s*:\s*([A-Za-z0-9_-]+\.txt)\s*", text, re.I)
         if jump:
             return f"changeScene:{jump.group(1)};"

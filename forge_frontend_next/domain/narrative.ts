@@ -100,6 +100,8 @@ export type SceneLine = {
 };
 
 export type SceneChoice = {
+  id?: string;
+  response_lines?: SceneLine[];
   text: string;
   target: string;
   target_scene_file?: string;
