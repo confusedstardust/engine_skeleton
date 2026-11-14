@@ -17,7 +17,7 @@ services:
       WEBGAL_SOUND_EFFECTS_DIR: ${WEBGAL_SOUND_EFFECTS_DIR:-/opt/forge/sound-effects}
       WEBGAL_INVITE_CODES_FILE: /data/jobs/invite-codes.txt
       WEBGAL_IMAGE_BASE_URL: ${WEBGAL_IMAGE_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
-      WEBGAL_IMAGE_MODEL: ${WEBGAL_IMAGE_MODEL:-doubao-seedream-4-5-251128}
+      WEBGAL_IMAGE_MODEL: ${WEBGAL_IMAGE_MODEL:-doubao-seedream-5-0-flash-260915}
       WEBGAL_IMAGE_API_KEY_ENV: ${WEBGAL_IMAGE_API_KEY_ENV:-ARK_API_KEY}
     volumes:
       - forge_dev_jobs:/data/jobs

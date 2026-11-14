@@ -14,6 +14,8 @@
 
 ## 架构与演进文档入口
 
+- [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、标签、封面、发布和隔离体验；状态详见专题文档。
+
 - [飞书知识库首页](https://my.feishu.cn/wiki/PoQgw5HWTiImkxkuyYrck6iInsh) / [飞书协作与文档迁移](refactor/lark-workflow.md)：应用绑定、用户授权、私有知识库创建和首页读写已验证；完整消息任务往返及专题批量迁移尚待完成。[文档迁移登记](refactor/lark-document-map.csv)。
 - [课堂答题生产表补建记录](refactor/classroom-quiz-production-schema.md)：2026-11-01 已补建并验证7张生产表，线上完整答题流程待验证。
 
@@ -22,6 +24,7 @@
 - [anatomy 接入与部署](refactor/nar-agent-deployment.md)：固定版本、临时执行容器、预览、CI 发布检查和服务器首次启用步骤；真实 Docker 与生产验收尚待完成。
 - Windows 本地三服务启动：首次运行 `uv sync --project nar_agent --frozen`、`python tools/configure_nar_agent_local.py`，再运行 `start_forge_full.bat`；使用前关闭占用 3001/8010/8020 的旧开发服务。
 - [前端 workspace 分阶段重构](refactor/frontend-workspace-plan.md)：共享 UI、仓库组织及构建迁移的分阶段计划；不代表目标结构已经落地。
+- [NarAgent UI 统一与 main 同步记录](refactor/practice-ui-unification.md)：路由、业务 Hook、组件复用、与教师资源广场的共用边界及回归检查。
 - [会话认证流程](refactor/session-auth-flow.md)：认证相关流程与实现说明。
 
 README 继续作为项目总入口；专题文档记录细节。修改相关实现时同步更新对应文档和验收状态，明确区分计划、已实现、已验证与已部署。
@@ -78,6 +81,8 @@ WebGAL Forge 是一个“从教学文本到可玩互动游戏”的生成系统�
 
 - 创建页：`forge_frontend_next/app/page.tsx`
 - 工作台页：`forge_frontend_next/app/jobs/[jobId]/page.tsx`
+- 工作台共用顶栏由 `forge_frontend_next/components/workbench-header.tsx` 渲染，样式定义在同前端的 `app/globals.css`。顶栏最小高度为 44px，采用半透明背景和 16px 背景模糊。窄屏可随导航内容换行。
+- Admin 游戏列表按当前搜索和页码加载。下架或恢复成功后更新对应行的可用状态，保留搜索和分页。教师资源广场发布状态按作品查询，发布或取消发布后用接口响应更新对应按钮。
 - 后端入口：`webgal_backend/app.py`
 - 流水线调度：`webgal_backend/pipeline.py`
 
@@ -1318,3 +1323,15 @@ npm run dev
   更偏 prompt / narrative quality 设计思路
 
 如果两者和 README 冲突，以 README 和代码实现为准。
+
+### 工作台访问统计
+
+发布前将 `webgal_backend/migrations/001_site_daily_visitors.sql` 应用到 Forge 的 MySQL 数据库，再部署 Forge 后端、工作台前端和官网（linchangWeb）。Admin 看板展示北京时间每日 UV 和所选区间去重 UV。官网、教师资源广场、工作台和独立游戏播放器共用访问统计脚本。同源页面共用匿名浏览器标识，跨域名、端口或设备分别计数。官网将 `/play/_telemetry/` 下的脚本和上报请求转发到工作台。Admin 页面和嵌入式预览不采集。数据库保存标识的哈希及访问日期，历史数据不补录。
+
+### 讲练工具
+
+Admin 的「教学资源」列表可将已发布到教师资源广场的游戏和 HTML 资源设为讲练工具或移出。两类资源通过 `job_id` 共用 MySQL 中的 `teacher_works.is_practice_tool`，与广场精选独立。游戏写入接口为 `PUT /api/forge/admin/games/{job_id}/practice-tool`，HTML 写入接口为 `PUT /api/forge/admin/html-resources/{id}/practice-tool`。请求体为 `{"enabled":true}` 或 `{"enabled":false}`，操作有管理员审计，保存成功后只更新当前行。
+
+进入「讲练工具」的 `/practice/resources` 页面时请求 `GET /api/forge/practice-tools`。结果按发布时间倒序，包含已发布、已标记且可访问的游戏和 HTML 资源。取消发布或下架时隐藏，恢复后沿用原标记。HTML 资源通过现有独立播放器打开；作品有习题链接时另显示习题入口。
+
+部署前先在目标环境共用的 MySQL 中应用 linchangWeb 的 Prisma 迁移 `20261113000000_add_practice_tool_flag`，再部署 Forge 后端和工作台前端。发布后检查 Admin 设置与移出、首页按需加载，以及取消发布后隐藏和重新发布后恢复。

@@ -13,3 +13,6 @@ onnxruntime>=1.18
 oss2>=2.19
 PyMySQL>=1.1
 qrcode>=8.0
+
+# Chromium is installed into the backend image for HTML resource covers.
+playwright==1.64.1
