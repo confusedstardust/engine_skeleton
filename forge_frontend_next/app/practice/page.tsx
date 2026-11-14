@@ -2,7 +2,7 @@
 
 
 import { useEffect, useRef, useState } from "react";
-import { AccountMenu } from "../../components/account-menu";
+
 import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/modal";
 import { forgeApi, ApiError } from "../../lib/api-client";
@@ -451,10 +451,11 @@ export default function PracticePage() {
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
 
   return <main className={styles.page}>
-    <header className={styles.header}><span className={styles.headerTitle}>互动学习创作 <span>／ 工作台</span></span><AccountMenu /></header>
+    <header className={styles.header}><span className={styles.headerTitle}>互动学习创作 <span>／ 工作台</span></span></header>
     <ResizableWorkspace userId={sessionUserId}
-      navigation={<PracticeNavigation loggedIn={loggedIn} busy={busy}
-        refreshKey={savedWorkCount} onNewConversation={beginNewConversation} />}
+      navigation={({ collapsed, onToggle }) => <PracticeNavigation loggedIn={loggedIn} busy={busy}
+        refreshKey={savedWorkCount} collapsed={collapsed} onToggle={onToggle}
+        onNewConversation={beginNewConversation} />}
       chat={<section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
