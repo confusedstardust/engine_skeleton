@@ -18,6 +18,7 @@ export type BuildTask = {
   timeline?: TimelineEvent[];
   elapsed_ms?: number;
   learning_plan?: LearningPlan;
+  public_brief?: string;
 };
 
 /**
