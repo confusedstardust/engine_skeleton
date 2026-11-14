@@ -34,10 +34,10 @@ export type PracticeSession = {
 const PREFIX = "narrativeos:practice:session:v1:";
 const ID = /^[0-9a-f]{32}$/;
 
-export function readPracticeSession(owner: string): PracticeSession | null {
+export function readPracticeSession(owner: string, workspace = "general"): PracticeSession | null {
   if (!owner || typeof sessionStorage === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(PREFIX + owner);
+    const raw = sessionStorage.getItem(PREFIX + owner + ":" + workspace);
     if (!raw || raw.length > 250000) return null;
     const stored: unknown = JSON.parse(raw);
     if (!stored || typeof stored !== "object") return null;
@@ -66,17 +66,17 @@ export function readPracticeSession(owner: string): PracticeSession | null {
   } catch { return null; }
 }
 
-export function writePracticeSession(owner: string, data: PracticeSession) {
+export function writePracticeSession(owner: string, data: PracticeSession, workspace = "general") {
   if (!owner || typeof sessionStorage === "undefined") return;
   try {
-    sessionStorage.setItem(PREFIX + owner, JSON.stringify({
+    sessionStorage.setItem(PREFIX + owner + ":" + workspace, JSON.stringify({
       ...data, messages: data.messages.slice(-40), works: data.works.slice(-30),
     }));
   } catch { /* Browsers may disable session storage; generation still works. */ }
 }
 
-export function clearPracticeSession(owner: string) {
+export function clearPracticeSession(owner: string, workspace = "general") {
   if (!owner || typeof sessionStorage === "undefined") return;
-  try { sessionStorage.removeItem(PREFIX + owner); }
+  try { sessionStorage.removeItem(PREFIX + owner + ":" + workspace); }
   catch { /* No-op when private storage is disabled. */ }
 }
