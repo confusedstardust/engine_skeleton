@@ -10,14 +10,6 @@ const nextConfig = {
   basePath: basePath || undefined,
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
-  // Preserve links issued before public works switched to canonical trailing slashes.
-  async redirects() {
-    return [{
-      source: "/practice/works/:workId([0-9a-f]{32})",
-      destination: "/practice/works/:workId/",
-      permanent: false,
-    }];
-  },
   async rewrites() {
     return [
       { source: "/api/forge/community", destination: `${backend}/community` },
