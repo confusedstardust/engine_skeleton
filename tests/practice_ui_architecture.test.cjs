@@ -8,11 +8,13 @@ const practice = "forge_frontend_next/app/practice/";
 
 test("NarAgent route delegates generation, library and conversation rendering", () => {
   const page = read(practice + "page.tsx");
+  const shell = read(practice + "practice-shell.tsx");
   assert.ok(page.split("\n").length < 125, "route should stay a small composition component");
-  assert.match(page, /usePracticeWorkspace/);
-  assert.match(page, /<PracticeChat workspace=\{workspace\}/);
-  assert.doesNotMatch(page, /forgeApi|workApi|<textarea|<button|<svg/);
-  assert.match(page, /<WorkbenchHeader/);
+  assert.match(page, /PracticeShell/);
+  assert.match(shell, /usePracticeWorkspace/);
+  assert.match(shell, /<PracticeChat workspace=\{workspace\}/);
+  assert.doesNotMatch(shell, /forgeApi|workApi|<textarea|<button|<svg/);
+  assert.match(shell, /<WorkbenchHeader/);
   assert.match(read("forge_frontend_next/app/layout.tsx"), /<SiteFooter\s*\/>/);
 });
 
