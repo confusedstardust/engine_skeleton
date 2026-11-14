@@ -58,6 +58,11 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         uses: dorny/paths-filter@v3
         with:
+          # Long-lived feature branches: compare only this push against the
+          # previous commit on the SAME branch, not the merge-base with main.
+          # Without base, paths-filter classifies all feature-only NarAgent
+          # files as changed on every unrelated frontend/backend push.
+          base: ${{ github.ref }}
           filters: |
             backend:
               - 'webgal_backend/**'
