@@ -18,14 +18,15 @@ test("Practice workbench shares the established navigation primitives", () => {
   assert.match(page, /navigation=\{\(\{ collapsed, onToggle \}\) =>/);
 });
 
-test("Collapsing sidebar preserves the resizable studio and recent work route", () => {
+test("Collapsing sidebar preserves the resizable studio and server history links", () => {
   const resizable = read("forge_frontend_next/app/practice/resizable-workspace.tsx");
   const css = read("forge_frontend_next/app/practice/practice.module.css");
   const navigation = read("forge_frontend_next/app/practice/practice-navigation.tsx");
   assert.match(resizable, /effectiveNavWidth = navCollapsed \? 64 : navWidth/);
   assert.match(resizable, /collapsed: navCollapsed/);
   assert.match(resizable, /disabled=\{navCollapsed\}/);
-  assert.match(navigation, /encodeURIComponent\(work.id\)/);
+  assert.match(navigation, /conversationApi\.list\(\)/);
+  assert.match(navigation, /conversationApi\.artifacts\(\)/);
   assert.match(css, /\.layout \.sidebar\[data-collapsed=false\]/);
 });
 
