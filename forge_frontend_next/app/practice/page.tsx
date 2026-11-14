@@ -37,6 +37,9 @@ export default function PracticePage() {
   const [workPreviews, setWorkPreviews] = useState<Record<string, WorkPreviewData>>({});
   const [savingArtifactId, setSavingArtifactId] = useState<string | null>(null);
   const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
+  const [metadataArtifactId, setMetadataArtifactId] = useState<string | null>(null);
+  const [metadataBusy, setMetadataBusy] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
   const [revokeArtifactId, setRevokeArtifactId] = useState<string | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [publicationError, setPublicationError] = useState("");
@@ -46,6 +49,7 @@ export default function PracticePage() {
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
   const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
+  const metadataWork = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
   const alive = useRef(true);
   const pending = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -160,6 +164,27 @@ export default function PracticePage() {
     } finally { setSavingArtifactId(null); }
   }
 
+
+  async function saveMetadata(payload: PublicationForm) {
+    const item = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
+    if (!item?.workId || metadataBusy) return;
+    setMetadataBusy(true); setMetadataError("");
+    try {
+      const result = await workApi.update(item.workId, payload);
+      setWorkPreviews(previous => ({
+        ...previous,
+        [item.artifactId]: {
+          ...previous[item.artifactId], title: result.work.title, summary: result.work.summary,
+          subject: result.work.subject, grade: result.work.grade, tags: result.work.tags,
+        },
+      }));
+      setMessages(previous => previous.map(message => message.work?.artifactId === item.artifactId
+        ? { ...message, work: { ...message.work, title: result.work.title } } : message));
+      setMetadataArtifactId(null);
+    } catch (err) {
+      setMetadataError(err instanceof Error ? err.message : "作品资料保存失败");
+    } finally { setMetadataBusy(false); }
+  }
 
   async function submitPublication(payload: PublicationForm) {
     const item = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
@@ -404,11 +429,16 @@ export default function PracticePage() {
         onClose={() => setSelectedArtifactId(null)}
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
+        onEditMetadata={id => { setMetadataError(""); setMetadataArtifactId(id); }}
         onPublish={id => { setPublicationError(""); setPublishArtifactId(id); }}
         onUnpublish={id => { setRevokeError(""); setRevokeArtifactId(id); }}
         onShare={id => { void openShare(id); }}
         publishing={publicationBusy} />}
     </div>
+    {metadataWork && <WorkPublishDialog key={"metadata:" + metadataWork.artifactId}
+      mode="edit" work={metadataWork} onClose={() => setMetadataArtifactId(null)}
+      busy={metadataBusy} error={metadataError}
+      onSubmit={payload => { void saveMetadata(payload); }} />}
     {shareData && <WorkShareDialog data={shareData} onClose={() => setShareData(null)} />}
     {publishWork && <WorkPublishDialog key={publishWork.artifactId} work={publishWork}
       onClose={() => setPublishArtifactId(null)} busy={publicationBusy} error={publicationError}
