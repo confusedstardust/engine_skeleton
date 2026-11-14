@@ -121,8 +121,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     brief = ""
                     if settings.public_brief_enabled:
                         try:
-                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=24)
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
                         except Exception as exc:
+                            state["public_brief_state"] = "UNAVAILABLE"
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
                     effective_prompt = payload.prompt + (
                         "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
@@ -212,8 +213,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     brief = ""
                     if settings.public_brief_enabled:
                         try:
-                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=24)
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
                         except Exception as exc:
+                            state["public_brief_state"] = "UNAVAILABLE"
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
                     effective_prompt = payload.prompt + (
                         "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
