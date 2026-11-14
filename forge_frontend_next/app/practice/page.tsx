@@ -129,6 +129,7 @@ export default function PracticePage() {
         publicationStatus: work.publication_status, publicUrl: work.public_url,
         summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
         coverVariant: work.cover_variant,
+        versions: work.versions, latestVersionId: work.current_version_id, isHistorical: false,
       };
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
@@ -158,6 +159,7 @@ export default function PracticePage() {
           publicationStatus: saved.publication_status, publicUrl: saved.public_url,
           summary: saved.summary, subject: saved.subject, grade: saved.grade, tags: saved.tags,
           coverVariant: saved.cover_variant,
+          versions: saved.versions, latestVersionId: saved.current_version_id, isHistorical: false,
         },
       }));
     } catch (err) {
@@ -165,6 +167,34 @@ export default function PracticePage() {
     } finally { setSavingArtifactId(null); }
   }
 
+
+  async function viewSavedVersion(workId: string, versionId: string) {
+    if (busy) return;
+    setError("");
+    try {
+      // Retrieve the current owner-scoped version manifest before switching.
+      const { work } = await workApi.get(workId);
+      const version = work.versions.find(item => item.id === versionId);
+      if (!version) throw new Error("该作品版本已不存在");
+      const blob = await workApi.html(workId, versionId);
+      const existing = Object.values(workPreviews).find(item => item.workId === workId);
+      const entry: WorkPreviewData = {
+        artifactId: version.artifact_id, html: await blob.text(), title: work.title,
+        kind: work.kind, version: version.version_number,
+        workId: work.id, savedArtifactId: version.artifact_id,
+        currentVersionId: version.id, latestVersionId: work.current_version_id,
+        versions: work.versions, isHistorical: version.id !== work.current_version_id,
+        publicationStatus: work.publication_status, publicUrl: work.public_url,
+        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
+        coverVariant: work.cover_variant,
+      };
+      setWorkPreviews(previous => ({ ...previous, [entry.artifactId]: entry }));
+      setSelectedArtifactId(entry.artifactId);
+      if (!entry.isHistorical) setCurrentArtifactId(entry.artifactId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取历史版本失败");
+    }
+  }
 
   async function saveMetadata(payload: PublicationForm) {
     const item = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
@@ -217,6 +247,7 @@ export default function PracticePage() {
             ...previous[item.artifactId], workId,
             savedArtifactId: item.artifactId,
             currentVersionId: latest?.id, version: latest?.version_number || item.version,
+            versions: saved.versions, latestVersionId: saved.current_version_id, isHistorical: false,
           },
         }));
       }
@@ -306,6 +337,9 @@ export default function PracticePage() {
       grade: parentArtifact ? original?.grade : undefined,
       tags: parentArtifact ? original?.tags : undefined,
       coverVariant: parentArtifact ? original?.coverVariant : "preview",
+      versions: parentArtifact ? original?.versions : undefined,
+      latestVersionId: parentArtifact ? original?.latestVersionId : undefined,
+      isHistorical: false,
       publicUrl: parentArtifact ? original?.publicUrl : null,
     };
     setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
@@ -436,6 +470,7 @@ export default function PracticePage() {
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
         onEditMetadata={id => { setMetadataError(""); setMetadataArtifactId(id); }}
+        onViewVersion={(workId, versionId) => { void viewSavedVersion(workId, versionId); }}
         onPublish={id => { setPublicationError(""); setPublishArtifactId(id); }}
         onUnpublish={id => { setRevokeError(""); setRevokeArtifactId(id); }}
         onShare={id => { void openShare(id); }}
