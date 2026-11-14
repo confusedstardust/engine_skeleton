@@ -160,6 +160,8 @@
  .layout .sidebar[data-collapsed=false]{width:204px}
  .layout .sidebar[data-collapsed=true]{width:52px}
  .page:has(.sidebar[data-collapsed=true]){--studio-header-offset:52px}
+ .page{padding:0 10px 14px 52px}
+ .page :global(.top-nav){padding-left:12px}
 }
 @media(prefers-reduced-motion:reduce){
  .layout,.page :global(.top-nav),.page :global(.workspace-nav-leading){transition:none}
