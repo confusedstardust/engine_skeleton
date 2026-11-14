@@ -166,10 +166,10 @@
 .navBottomStar{font-size:20px;color:#d38f59}
 .navBottom strong{font-size:12px;color:#5e523f}
 .navBottom>span:last-child{font-size:11px;color:#8d8171;line-height:1.7}
-@media (min-width:1001px) {
+@media (min-width:1181px) {
  .layoutWithInspector .inspector{position:static;left:auto;top:auto;right:auto;bottom:auto;width:auto;min-height:570px;box-shadow:0 5px 24px #303a2610}
 }
-@media (max-width:1000px) {
+@media (max-width:1180px) {
  .layoutWithInspector{grid-template-columns:var(--studio-nav,216px) 10px minmax(0,1fr)}
  .layoutWithInspector .resizePreview{display:none}
  .layoutWithInspector .inspector{position:fixed;right:12px;top:70px;bottom:12px;width:min(540px,calc(100vw - 24px));height:auto;min-height:0;z-index:60;box-shadow:0 18px 85px #29332642}
