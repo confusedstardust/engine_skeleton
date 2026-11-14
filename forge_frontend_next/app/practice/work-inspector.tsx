@@ -62,7 +62,7 @@ export default function WorkInspector({
       <button ref={closeRef} type="button" aria-label="关闭作品预览" className={styles.inspectorClose} onClick={onClose}>×</button>
     </header>
     <div className={styles.inspectorScroll}>
-      {work.workId && work.versions && work.versions.length > 1 &&
+      {saved && work.versions && work.versions.length > 1 &&
         <div className={styles.versionPicker}>
           <label htmlFor="work-version-select">作品版本</label>
           <select id="work-version-select" value={work.currentVersionId || ""}
@@ -80,7 +80,7 @@ export default function WorkInspector({
           {saved ? "已保存到我的作品" : work.workId ? "保存新版本" : "保存到我的作品"}
         </Button>
         {work.kind === "html" && !historical && <Button variant="outline" onClick={() => onEdit(work.artifactId)}>继续修改</Button>}
-        {saved && <Button variant="outline" onClick={() => onEditMetadata(work.artifactId)}>编辑作品信息</Button>}
+        {saved && !historical && <Button variant="outline" onClick={() => onEditMetadata(work.artifactId)}>编辑作品信息</Button>}
         {work.kind === "html" && !historical && <Button variant="outline" disabled={publishing || saving} busy={publishing}
           onClick={() => onPublish(work.artifactId)}>
           {published ? "更新广场发布" : saved ? "发布到教师资源广场" : "保存并发布到广场"}
