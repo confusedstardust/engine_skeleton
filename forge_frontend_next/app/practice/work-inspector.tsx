@@ -19,6 +19,7 @@ export type WorkPreviewData = GeneratedWork & {
   subject?: string | null;
   grade?: string | null;
   tags?: string[];
+  coverVariant?: "preview" | "mobile";
 };
 
 export default function WorkInspector({
