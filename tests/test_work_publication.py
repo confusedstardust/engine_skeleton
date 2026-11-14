@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from webgal_backend.teacher_ecosystem import TeacherEcosystemError
-from webgal_backend.work_store import WorkStore
+from webgal_backend.work_store import WorkStore, WorkConflictError
 from webgal_backend.work_publication import create_router, create_public_router
 
 ACTION = {"X-NarAgent-Action": "chat"}
@@ -106,3 +106,56 @@ def test_unpublish_blocks_public_even_if_remote_service_is_offline(tmp_path):
         assert client.get(url).status_code == 404
         assert client.delete(f"/works/{work['id']}/publication", headers=ACTION).status_code == 200
         assert store.get("teacher-a", work["id"])["publication_status"] == "unpublished"
+
+
+def test_publication_metadata_sync_and_race_guards(tmp_path):
+    store = WorkStore(tmp_path)
+    work = store.create("teacher-a", A, "html", "旧名字", "旧摘要", assets())
+    pending = store.start_publication("teacher-a", work["id"])
+    with pytest.raises(WorkConflictError):
+        store.start_unpublish("teacher-a", work["id"])
+    current = store.finish_publication(
+        "teacher-a", work["id"], pending["pending_version_id"],
+        "https://example.com/work", {
+            "title": "新名字", "summary": "新摘要", "subject": "数学",
+            "grade": "高中", "tags": ["函数"],
+        },
+    )
+    assert current["title"] == "新名字"
+    assert current["summary"] == "新摘要"
+    assert current["subject"] == "数学"
+    assert current["grade"] == "高中"
+    assert current["tags"] == ["函数"]
+    store.start_unpublish("teacher-a", work["id"])
+    with pytest.raises(WorkConflictError):
+        store.start_publication("teacher-a", work["id"])
+    with pytest.raises(FileNotFoundError):
+        store.public(work["id"])
+    store.finish_unpublish("teacher-a", work["id"])
+    with pytest.raises(WorkConflictError):
+        store.finish_unpublish("teacher-a", work["id"])
+
+
+
+def test_cover_choice_is_pinned_to_published_version(tmp_path):
+    store = WorkStore(tmp_path)
+    work = store.create("teacher-a", A, "html", "可交互函数", "简介", assets())
+    assert store.private_cover("teacher-a", work["id"]) == b"png"
+    store.update("teacher-a", work["id"], cover_variant="mobile")
+    assert store.private_cover("teacher-a", work["id"]) == b"mobile"
+    with pytest.raises(FileNotFoundError):
+        store.private_cover("teacher-b", work["id"])
+    pending = store.start_publication("teacher-a", work["id"])
+    store.finish_publication(
+        "teacher-a", work["id"], pending["pending_version_id"],
+        "https://example.com/work",
+        {"title": "可交互函数", "summary": "简介", "subject": "数学", "grade": "高中", "tags": []},
+    )
+    assert store.public_cover(work["id"]) == b"mobile"
+    store.update("teacher-a", work["id"], cover_variant="preview")
+    assert store.private_cover("teacher-a", work["id"]) == b"png"
+    assert store.public_cover(work["id"]) == b"mobile"  # No silent change to public cover.
+    store.start_unpublish("teacher-a", work["id"])
+    with pytest.raises(FileNotFoundError):
+        store.public_cover(work["id"])
+

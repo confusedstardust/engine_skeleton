@@ -31,7 +31,7 @@ MAX_HTML_CHUNKS = 20
 PROMPT = """你是 NarrativeOS NarAgent，负责真正制作可下载的 L1/L2 单文件 HTML 互动学习资源。
 用户提出创作请求时，必须尝试使用工具生成并验证真实网页，不能只交付代码片段或教学方案。
 只调用一次 search_html_templates 查找模板。若适用，直接调用 render_html_template。
-可调用一次 record_learning_plan 记录实际选择的学习目标、关键知识与交互方式，用于向用户展示创作进度；不要记录内部推理。
+在制作前调用一次 record_learning_plan，记录实际选择的学习目标、关键知识与交互方式，用于向用户展示创作进度；只提交简短、确定的教学设计摘要，不要记录内部推理。
 
 若不适用，不要重复搜索或继续口头描述，立即开始编写完整 HTML/CSS/JavaScript。
 短网页（约 3000 字符内）可直接 submit_custom_html。

@@ -107,7 +107,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 del app.state.animations[key]
         identifier = uuid4().hex
         state = {"id": identifier, "user_id": user_id, "status": "RUNNING", "phase": "DESIGNING", "attempts": 0, "artifact_generated": False}
-        enter_phase(state, "DESIGNING")
+        enter_phase(state, "DESIGNING", detail="正在理解这次学习创作需求：" + payload.prompt.strip()[:110])
         app.state.animations[identifier] = state
         app.state.animation_active = True
 
@@ -175,7 +175,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             "phase": "DESIGNING", "attempts": 0, "artifact_generated": False,
             "parent_artifact_id": payload.parent_artifact_id,
         }
-        enter_phase(state, "DESIGNING")
+        enter_phase(state, "DESIGNING", detail="正在理解这次学习创作需求：" + payload.prompt.strip()[:110])
         app.state.html_runs[identifier] = state
         app.state.html_active = True
 

@@ -14,6 +14,7 @@ import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
+import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
 
 type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
@@ -27,12 +28,18 @@ export default function PracticePage() {
   const [error, setError] = useState("");
   const [loginRequired, setLoginRequired] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [pendingRun, setPendingRun] = useState<PendingCreation | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [progress, setProgress] = useState("");
   const [activeTask, setActiveTask] = useState<BuildTask | null>(null);
   const [workPreviews, setWorkPreviews] = useState<Record<string, WorkPreviewData>>({});
   const [savingArtifactId, setSavingArtifactId] = useState<string | null>(null);
   const [publishArtifactId, setPublishArtifactId] = useState<string | null>(null);
+  const [metadataArtifactId, setMetadataArtifactId] = useState<string | null>(null);
+  const [metadataBusy, setMetadataBusy] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
   const [revokeArtifactId, setRevokeArtifactId] = useState<string | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [publicationError, setPublicationError] = useState("");
@@ -42,6 +49,7 @@ export default function PracticePage() {
   const [currentArtifactId, setCurrentArtifactId] = useState<string | null>(null);
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
   const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
+  const metadataWork = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
   const alive = useRef(true);
   const pending = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -50,12 +58,58 @@ export default function PracticePage() {
 
   useEffect(() => {
     let active = true;
-    forgeApi<{ auth_type?: string }>("/auth/me").then(user => {
-      if (active) { setLoggedIn(user.auth_type === "sso"); setLoginRequired(user.auth_type !== "sso"); }
+    forgeApi<{ auth_type?: string; id?: string }>("/auth/me").then(user => {
+      if (active) { setLoggedIn(user.auth_type === "sso"); setLoginRequired(user.auth_type !== "sso"); setSessionUserId(user.auth_type === "sso" && user.id ? String(user.id) : null); }
     }).catch(() => { if (active) setLoginRequired(true); }).finally(() => { if (active) setAuthReady(true); });
     return () => { active = false; };
   }, []);
   useEffect(() => { if (messages.length || busy) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
+
+  // Restore this tab's authenticated conversation and private artifact references
+  // after SSO verification. HTML source is always fetched from owner-checked APIs.
+  useEffect(() => {
+    if (!authReady) return;
+    if (!sessionUserId) { setSessionReady(true); return; }
+    const savedId = new URL(window.location.href).searchParams.get("work");
+    // Different saved works have independent tab conversations; the work loader below
+    // still refreshes the authoritative current version on every deep link visit.
+    let mounted = true;
+    const snapshot = readPracticeSession(sessionUserId, savedId || "general");
+    void (async () => {
+      if (!snapshot) { if (mounted) setSessionReady(true); return; }
+      const loaded: Record<string, WorkPreviewData> = {};
+      for (const record of snapshot.works) {
+        if (!mounted) break;
+        try {
+          const url = record.workId && record.currentVersionId &&
+            record.savedArtifactId === record.artifactId
+            ? `/works/${record.workId}/assets/${record.currentVersionId}/index.html`
+            : `/nar-agent/artifacts/${record.artifactId}/index.html`;
+          const blob = await forgeApi.blob(url);
+          loaded[record.artifactId] = { ...record, html: await blob.text() };
+        } catch { /* Expired temporary sources are not added back to the preview list. */ }
+      }
+      if (!mounted) return;
+      setMessages(snapshot.messages);
+      setWorkPreviews(loaded);
+      setCurrentArtifactId(snapshot.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
+      setSelectedArtifactId(snapshot.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      setSessionReady(true);
+      if (snapshot.pending) void resumePendingRun(snapshot.pending, loaded);
+    })();
+    return () => { mounted = false; };
+  }, [authReady, sessionUserId]);
+
+  useEffect(() => {
+    if (!sessionReady || !sessionUserId) return;
+    const { searchParams } = new URL(window.location.href);
+    writePracticeSession(sessionUserId, {
+      messages,
+      works: Object.values(workPreviews).map(({ html, ...record }) => record),
+      currentArtifactId, selectedArtifactId, pending: pendingRun,
+    }, searchParams.get("work") || "general");
+  }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
+
 
   useEffect(() => {
     // Deep link from the existing "我的作品" page; no local browser storage required.
@@ -73,6 +127,9 @@ export default function PracticePage() {
         workId: work.id, savedArtifactId: version.artifact_id,
         currentVersionId: version.id,
         publicationStatus: work.publication_status, publicUrl: work.public_url,
+        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
+        coverVariant: work.cover_variant,
+        versions: work.versions, latestVersionId: work.current_version_id, isHistorical: false,
       };
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
@@ -100,6 +157,9 @@ export default function PracticePage() {
           savedArtifactId: artifactId, currentVersionId: version.id,
           version: version.version_number,
           publicationStatus: saved.publication_status, publicUrl: saved.public_url,
+          summary: saved.summary, subject: saved.subject, grade: saved.grade, tags: saved.tags,
+          coverVariant: saved.cover_variant,
+          versions: saved.versions, latestVersionId: saved.current_version_id, isHistorical: false,
         },
       }));
     } catch (err) {
@@ -108,24 +168,103 @@ export default function PracticePage() {
   }
 
 
+  async function viewSavedVersion(workId: string, versionId: string) {
+    if (busy) return;
+    setError("");
+    try {
+      // Retrieve the current owner-scoped version manifest before switching.
+      const { work } = await workApi.get(workId);
+      const version = work.versions.find(item => item.id === versionId);
+      if (!version) throw new Error("该作品版本已不存在");
+      const blob = await workApi.html(workId, versionId);
+      const entry: WorkPreviewData = {
+        artifactId: version.artifact_id, html: await blob.text(), title: work.title,
+        kind: work.kind, version: version.version_number,
+        workId: work.id, savedArtifactId: version.artifact_id,
+        currentVersionId: version.id, latestVersionId: work.current_version_id,
+        versions: work.versions, isHistorical: version.id !== work.current_version_id,
+        publicationStatus: work.publication_status, publicUrl: work.public_url,
+        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
+        coverVariant: work.cover_variant,
+      };
+      setWorkPreviews(previous => ({ ...previous, [entry.artifactId]: entry }));
+      setSelectedArtifactId(entry.artifactId);
+      if (!entry.isHistorical) setCurrentArtifactId(entry.artifactId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取历史版本失败");
+    }
+  }
+
+  async function saveMetadata(payload: PublicationForm) {
+    const item = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
+    if (!item?.workId || metadataBusy) return;
+    setMetadataBusy(true); setMetadataError("");
+    try {
+      const result = await workApi.update(item.workId, payload);
+      setWorkPreviews(previous => ({
+        ...previous,
+        [item.artifactId]: {
+          ...previous[item.artifactId], title: result.work.title, summary: result.work.summary,
+          subject: result.work.subject, grade: result.work.grade, tags: result.work.tags,
+          coverVariant: result.work.cover_variant,
+        },
+      }));
+      setMessages(previous => previous.map(message => message.work?.artifactId === item.artifactId
+        ? { ...message, work: { ...message.work, title: result.work.title } } : message));
+      setMetadataArtifactId(null);
+    } catch (err) {
+      setMetadataError(err instanceof Error ? err.message : "作品资料保存失败");
+    } finally { setMetadataBusy(false); }
+  }
+
   async function submitPublication(payload: PublicationForm) {
     const item = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
-    if (!item?.workId || publicationBusy) return;
-    setPublicationBusy(true); setError("");
+    if (!item || item.kind !== "html" || publicationBusy) return;
+    setPublicationBusy(true); setPublicationError(""); setError("");
     try {
-      const result = await workApi.publish(item.workId, payload);
+      // One publish action handles the underlying save/version step automatically.
+      // Never expose an unpublished artifact URL or bypass the explicit publish modal.
+      let saved: SavedWork | undefined;
+      if (!item.workId) {
+        saved = (await workApi.save({
+          artifact_id: item.artifactId, kind: item.kind,
+          title: payload.title, summary: payload.summary,
+        })).work;
+      } else if (item.savedArtifactId !== item.artifactId) {
+        if (!item.expectedParentArtifactId) throw new Error("旧版信息不完整，请重新打开作品后重试");
+        saved = (await workApi.attachVersion(
+          item.workId, item.artifactId, item.expectedParentArtifactId,
+        )).work;
+      }
+      const workId = saved?.id || item.workId;
+      if (!workId) throw new Error("作品尚未保存，请重试");
+      if (saved) {
+        const latest = saved.versions.find(version => version.id === saved.current_version_id);
+        setWorkPreviews(previous => ({
+          ...previous,
+          [item.artifactId]: {
+            ...previous[item.artifactId], workId,
+            savedArtifactId: item.artifactId,
+            currentVersionId: latest?.id, version: latest?.version_number || item.version,
+            versions: saved.versions, latestVersionId: saved.current_version_id, isHistorical: false,
+          },
+        }));
+      }
+      const result = await workApi.publish(workId, payload);
       if (!result.published) throw new Error("教师资源广场尚未确认发布");
       setWorkPreviews(previous => ({
         ...previous,
         [item.artifactId]: {
-          ...previous[item.artifactId], title: payload.title,
+          ...previous[item.artifactId], workId, title: payload.title,
           publicationStatus: "published", publicUrl: result.public_url,
+          summary: payload.summary, subject: payload.subject, grade: payload.grade, tags: payload.tags,
         },
       }));
       setPublishArtifactId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发布失败，请重试");
-      setPublicationError(err instanceof Error ? err.message : "发布失败，请重试");
+      const message = err instanceof Error ? err.message : "发布失败，请重试";
+      setError(message);
+      setPublicationError(message);
     } finally { setPublicationBusy(false); }
   }
 
@@ -141,8 +280,23 @@ export default function PracticePage() {
       }));
       setRevokeArtifactId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "撤回未完成，请重试");
-      setRevokeError(err instanceof Error ? err.message : "撤回未完成，请重试");
+      const message = err instanceof Error ? err.message : "撤回未完成，请重试";
+      setError(message);
+      setRevokeError(message);
+      // Remote de-indexing can fail after the server has revoked all public reads.
+      // Always refresh authoritative publication status to disable stale Share buttons.
+      if (item.workId) {
+        try {
+          const status = await workApi.publication(item.workId);
+          setWorkPreviews(previous => ({
+            ...previous,
+            [item.artifactId]: {
+              ...previous[item.artifactId], publicationStatus: status.status,
+              publicUrl: status.public_url,
+            },
+          }));
+        } catch { /* Keep the error; the server remains authoritative. */ }
+      }
     } finally { setPublicationBusy(false); }
   }
 
@@ -159,9 +313,78 @@ export default function PracticePage() {
     }
   }
 
+  async function completeGeneratedWork(
+    task: BuildTask, prompt: string, mode: "animation" | "html" | "edit",
+    parentArtifact: string | null, original?: WorkPreviewData,
+  ): Promise<GeneratedWork> {
+    if (task.status !== "SUCCEEDED" || !task.artifact_id) {
+      throw new Error(task.error || "作品未通过检查，请调整要求后重试。");
+    }
+    const blob = await forgeApi.blob(`/nar-agent/artifacts/${task.artifact_id}/index.html`);
+    const title = original?.title || prompt.split(/[。！？!?\n]/)[0].trim().slice(0, 40) || "互动学习作品";
+    const work: WorkPreviewData = {
+      artifactId: task.artifact_id, html: await blob.text(), title,
+      kind: mode === "animation" ? "animation" : "html",
+      version: parentArtifact ? (original?.version || 1) + 1 : 1,
+      workId: parentArtifact ? original?.workId : undefined,
+      savedArtifactId: parentArtifact ? original?.savedArtifactId : undefined,
+      currentVersionId: parentArtifact ? original?.currentVersionId : undefined,
+      expectedParentArtifactId: parentArtifact || undefined,
+      publicationStatus: parentArtifact ? original?.publicationStatus : "draft",
+      summary: parentArtifact ? original?.summary : undefined,
+      subject: parentArtifact ? original?.subject : undefined,
+      grade: parentArtifact ? original?.grade : undefined,
+      tags: parentArtifact ? original?.tags : undefined,
+      coverVariant: parentArtifact ? original?.coverVariant : "preview",
+      versions: parentArtifact ? original?.versions : undefined,
+      latestVersionId: parentArtifact ? original?.latestVersionId : undefined,
+      isHistorical: false,
+      publicUrl: parentArtifact ? original?.publicUrl : null,
+    };
+    setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
+    setCurrentArtifactId(work.artifactId);
+    setSelectedArtifactId(work.artifactId);
+    return { artifactId: work.artifactId, kind: work.kind, title, version: work.version };
+  }
+
+  async function resumePendingRun(run: PendingCreation, loaded: Record<string, WorkPreviewData>) {
+    if (pending.current) return;
+    let latest: BuildTask | undefined;
+    pending.current = true;
+    setBusy(true);
+    setPendingRun(run);
+    setMessages([...run.originalMessages, { role: "user", content: run.prompt }]);
+    try {
+      let task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
+      latest = task; setActiveTask(task);
+      while (task.status === "RUNNING") {
+        if (Date.now() - run.startedAt > 930000) throw new Error("任务已经超过可恢复的等待时间，请重新尝试。");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!alive.current) return;
+        task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
+        latest = task; setActiveTask(task);
+      }
+      const generated = await completeGeneratedWork(
+        task, run.prompt, run.mode, run.parentArtifactId || null,
+        run.parentArtifactId ? loaded[run.parentArtifactId] : undefined,
+      );
+      setMessages([...run.originalMessages, { role: "user", content: run.prompt },
+        { role: "assistant", content: task.output || "作品已经做好，可以打开预览并继续修改。",
+          timeline: task.timeline, durationMs: task.elapsed_ms, work: generated }]);
+    } catch (error) {
+      setMessages([...run.originalMessages, { role: "user", content: run.prompt },
+        { role: "assistant", content: "这次创作未能恢复或完成，你可以再次尝试。",
+          timeline: latest?.timeline, durationMs: latest?.elapsed_ms }]);
+      setError(error instanceof Error ? error.message : "任务恢复失败，请重试");
+      setDraft(run.prompt);
+    } finally {
+      pending.current = false; setBusy(false); setActiveTask(null); setPendingRun(null);
+    }
+  }
+
   async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
     const prompt = draft.trim();
-    if (!prompt || pending.current || !loggedIn) return;
+    if (!prompt || pending.current || !loggedIn || !sessionReady) return;
     const history = messages.map(message => ({ role: message.role, content: message.content }));
     const originalMessages = messages;
     let lastTask: BuildTask | undefined;
@@ -182,6 +405,10 @@ export default function PracticePage() {
         let task = await forgeApi<BuildTask>(`/nar-agent/${endpoint}`, { method: "POST", headers: { "X-NarAgent-Action": "chat" }, body });
         lastTask = task; setActiveTask(task);
         const started = Date.now();
+        if (task.status === "RUNNING") setPendingRun({
+          id: task.id, endpoint, mode, prompt, parentArtifactId: parentArtifact,
+          originalMessages, startedAt: started,
+        });
         while (task.status === "RUNNING") {
           if (Date.now() - started > 930000) throw new Error("等待超时，请联系管理员查看任务状态。");
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -191,24 +418,7 @@ export default function PracticePage() {
           const phases: Record<string, string> = { DESIGNING: "正在理解学习需求", PLANNING: "正在规划学习交互", DRAFTING: "正在制作互动内容", BUILDING: "正在组装互动作品", CHECKING: "正在检查作品", FINALIZING: "正在整理作品" };
           setProgress(phases[task.phase || ""] || "正在制作互动学习作品");
         }
-        if (task.status !== "SUCCEEDED" || !task.artifact_id) throw new Error(task.error || "作品未通过检查，请调整要求后重试。");
-        const blob = await forgeApi.blob(`/nar-agent/artifacts/${task.artifact_id}/index.html`);
-        const title = prompt.split(/[。！？!?\n]/)[0].trim().slice(0, 40) || "互动学习作品";
-        const work: WorkPreviewData = {
-          artifactId: task.artifact_id, html: await blob.text(), title,
-          kind: mode === "animation" ? "animation" : "html",
-          version: parentArtifact ? (currentWork?.version || 1) + 1 : 1,
-          workId: parentArtifact ? currentWork?.workId : undefined,
-          savedArtifactId: parentArtifact ? currentWork?.savedArtifactId : undefined,
-          currentVersionId: parentArtifact ? currentWork?.currentVersionId : undefined,
-          expectedParentArtifactId: parentArtifact || undefined,
-          publicationStatus: parentArtifact ? currentWork?.publicationStatus : "draft",
-          publicUrl: parentArtifact ? currentWork?.publicUrl : null,
-        };
-        generatedWork = { artifactId: work.artifactId, kind: work.kind, title: work.title, version: work.version };
-        setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
-        setCurrentArtifactId(work.artifactId);
-        setSelectedArtifactId(work.artifactId);
+        generatedWork = await completeGeneratedWork(task, prompt, mode, parentArtifact, currentWork);
         reply = { id: task.id, output: task.output || "作品已经做好，可以打开预览并继续修改。" };
       } else reply = await forgeApi<Reply>("/nar-agent/chat", {
         method: "POST", headers: { "X-NarAgent-Action": "chat" }, body: JSON.stringify({ prompt, history }),
@@ -223,13 +433,16 @@ export default function PracticePage() {
       setDraft(prompt);
       if (cause instanceof ApiError && cause.status === 401) { setLoginRequired(true); setLoggedIn(false); }
       setError(cause instanceof Error ? cause.message : "发送失败，请稍后重试。");
-    } finally { pending.current = false; setBusy(false); setActiveTask(null); setProgress(""); input.current?.focus(); }
+    } finally { pending.current = false; setBusy(false); setActiveTask(null); setPendingRun(null); setProgress(""); input.current?.focus(); }
   }
 
   return <main className={styles.page}>
     <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
     <div className={`${styles.layout} ${selectedWork ? styles.layoutWithInspector : ""}`}>
-      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
+      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setWorkPreviews({}); setPendingRun(null); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); if (sessionUserId) clearPracticeSession(sessionUserId,
+      new URL(window.location.href).searchParams.get("work") || "general");
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+      input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
       <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
@@ -246,7 +459,7 @@ export default function PracticePage() {
           <form className={styles.composer} onSubmit={event => { event.preventDefault(); void send(); }}>
             <label htmlFor="teaching-prompt" className="sr-only">输入教学问题</label>
             <textarea id="teaching-prompt" ref={input} value={draft} onChange={event => setDraft(event.target.value)} maxLength={12000} rows={3} placeholder="例如：用串联电路讲解电流，学生可以点击开关…" disabled={busy} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-            <div><small>Enter 发送 · Shift + Enter 换行</small><span className={styles.actions}><Button onClick={() => { void send("animation"); }} disabled={busy || !authReady || !loggedIn || !draft.trim()}>制作动画</Button><Button onClick={() => { void send("html"); }} disabled={busy || !authReady || !loggedIn || !draft.trim()}>生成 HTML</Button>{currentArtifactId && workPreviews[currentArtifactId]?.kind === "html" && <Button onClick={() => { void send("edit"); }} disabled={busy || !authReady || !loggedIn || !draft.trim()}>修改当前作品</Button>}<Button type="submit" variant="primary" disabled={!authReady || !loggedIn || !draft.trim()} busy={busy}>{busy ? "处理中" : "发送 ↗"}</Button></span></div>
+            <div><small>Enter 发送 · Shift + Enter 换行</small><span className={styles.actions}><Button onClick={() => { void send("animation"); }} disabled={busy || !authReady || !sessionReady || !loggedIn || !draft.trim()}>制作动画</Button><Button onClick={() => { void send("html"); }} disabled={busy || !authReady || !sessionReady || !loggedIn || !draft.trim()}>生成 HTML</Button>{currentArtifactId && workPreviews[currentArtifactId]?.kind === "html" && <Button onClick={() => { void send("edit"); }} disabled={busy || !authReady || !sessionReady || !loggedIn || !draft.trim()}>修改当前作品</Button>}<Button type="submit" variant="primary" disabled={!authReady || !sessionReady || !loggedIn || !draft.trim()} busy={busy}>{busy ? "处理中" : "发送 ↗"}</Button></span></div>
           </form>
           <p className={styles.disclaimer}>生成内容用于备课参考，课堂使用前请核对知识与参数。</p>
         </div>
@@ -255,11 +468,17 @@ export default function PracticePage() {
         onClose={() => setSelectedArtifactId(null)}
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
+        onEditMetadata={id => { setMetadataError(""); setMetadataArtifactId(id); }}
+        onViewVersion={(workId, versionId) => { void viewSavedVersion(workId, versionId); }}
         onPublish={id => { setPublicationError(""); setPublishArtifactId(id); }}
         onUnpublish={id => { setRevokeError(""); setRevokeArtifactId(id); }}
         onShare={id => { void openShare(id); }}
         publishing={publicationBusy} />}
     </div>
+    {metadataWork && <WorkPublishDialog key={"metadata:" + metadataWork.artifactId}
+      mode="edit" work={metadataWork} onClose={() => setMetadataArtifactId(null)}
+      busy={metadataBusy} error={metadataError}
+      onSubmit={payload => { void saveMetadata(payload); }} />}
     {shareData && <WorkShareDialog data={shareData} onClose={() => setShareData(null)} />}
     {publishWork && <WorkPublishDialog key={publishWork.artifactId} work={publishWork}
       onClose={() => setPublishArtifactId(null)} busy={publicationBusy} error={publicationError}

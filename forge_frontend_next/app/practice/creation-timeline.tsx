@@ -58,7 +58,9 @@ export default function CreationTimeline({
           <div className={styles.timelineRow}>
             <strong>{event.title}</strong>
             <span>{event.duration_ms != null ? formatDuration(event.duration_ms) :
-              event.status === "running" ? "进行中" : ""}</span>
+              event.status === "running" && active
+                ? formatDuration(Math.max(0, Date.now() - new Date(event.started_at).getTime()))
+                : event.status === "running" ? "进行中" : ""}</span>
           </div>
           {event.detail && <p>{event.detail}</p>}
         </div>

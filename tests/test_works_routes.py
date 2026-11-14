@@ -45,7 +45,9 @@ def test_saved_works_owner_scope_dedup_versions(tmp_path):
 def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path, monkeypatch):
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", TOKEN)
     monkeypatch.setenv("NAR_AGENT_URL", "http://nar-agent:8020")
+    calls = []
     def upstream(request: httpx.Request):
+        calls.append(request.url.path)
         assert request.headers["Authorization"] == "Bearer " + TOKEN
         assert request.headers["X-User-ID"] == "teacher-a"
         if request.url.path.endswith("/metadata"):
@@ -71,10 +73,12 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         }, headers=ACTION)
         assert created.status_code == 201, created.text
         work = created.json()["work"]
+        imported_call_count = len(calls)
         repeated = client.post("/works", json={
             "artifact_id": ARTIFACT_A, "kind": "html", "title": "函数练习",
         }, headers=ACTION)
         assert repeated.json()["work"]["id"] == work["id"]
+        assert len(calls) == imported_call_count  # dedup uses durable owned work, not remote cache
         work_id, version_id = work["id"], work["current_version_id"]
         assert len(client.get("/works").json()["works"]) == 1
         response = client.get(f"/works/{work_id}/assets/{version_id}/index.html")
@@ -87,6 +91,12 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         assert response.status_code == 200
         assert response.json()["work"]["tags"] == ["数学", "图像"]
         assert client.get("/works/" + work_id).json()["work"]["title"] == "幂函数与指数函数"
+        assert client.get(f"/works/{work_id}/cover.png").content == ASSETS["preview.png"]
+        cover_update = client.patch(f"/works/{work_id}", headers=ACTION, json={"cover_variant": "mobile"})
+        assert cover_update.status_code == 200
+        assert cover_update.json()["work"]["cover_variant"] == "mobile"
+        assert client.get(f"/works/{work_id}/cover.png").content == ASSETS["mobile.png"]
+        assert client.patch(f"/works/{work_id}", headers=ACTION, json={"cover_variant": "../secret"}).status_code == 422
         assert client.get("/works/" + work_id + "/assets/" + "f" * 32 + "/preview.png").status_code == 404
 
     other = FastAPI()
@@ -98,6 +108,7 @@ def test_works_api_imports_verified_owner_artifact_and_keeps_it_private(tmp_path
         assert c.get("/works").json()["works"] == []
         assert c.get("/works/" + work_id).status_code == 404
         assert c.get(f"/works/{work_id}/assets/{version_id}/preview.png").status_code == 404
+        assert c.get(f"/works/{work_id}/cover.png").status_code == 404
 
 
 def test_api_rejects_unverified_html_and_owner_mismatch(tmp_path, monkeypatch):

@@ -221,7 +221,7 @@ export default function HistoryPage() {
               menuLabel={`作品操作：${work.title}`}
               actions={[{ id: "open", label: "打开互动作品", href: withBasePath(href) }]}>
               <div className="history-cover">{current
-                ? <ImagePreview src={withBasePath(`/api/forge/works/${work.id}/assets/${current.id}/preview.png`)}
+                ? <ImagePreview src={withBasePath(`/api/forge/works/${work.id}/cover.png`)}
                     alt={`${work.title}预览`} fallback="无封面" loading="lazy" />
                 : <span>预览待生成</span>}</div>
               <div className="history-row-main">

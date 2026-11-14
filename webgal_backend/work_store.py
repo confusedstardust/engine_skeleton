@@ -65,6 +65,15 @@ class WorkStore:
                 continue
         return sorted(works, key=lambda item: item.get("updated_at") or "", reverse=True)
 
+    def find_by_artifact(self, owner: str, artifact_id: str) -> dict | None:
+        """Resolve an already-saved immutable artifact without depending on NarAgent retention."""
+        if not IDENTIFIER.fullmatch(artifact_id):
+            return None
+        for item in self.list_for(owner):
+            if any(version["artifact_id"] == artifact_id for version in item.get("versions", [])):
+                return item
+        return None
+
     @staticmethod
     def validate_assets(assets: dict[str, bytes]):
         for filename, limit in ASSET_LIMITS.items():
@@ -91,9 +100,9 @@ class WorkStore:
             raise ValueError("Invalid artifact ID or kind")
         self.validate_assets(assets)
         with self.locked():
-            for existing in self.list_for(owner):
-                if any(version["artifact_id"] == artifact_id for version in existing.get("versions", [])):
-                    return existing
+            existing = self.find_by_artifact(owner, artifact_id)
+            if existing:
+                return existing
             work_id = uuid.uuid4().hex
             version = self._make_version(artifact_id, 1)
             now = utc_now()
@@ -101,7 +110,7 @@ class WorkStore:
                 "id": work_id, "owner_user_id": owner, "kind": kind,
                 "title": title.strip()[:160] or "未命名互动作品",
                 "summary": summary.strip()[:2000], "subject": None, "grade": None,
-                "tags": [], "current_version_id": version["id"],
+                "tags": [], "cover_variant": "preview", "current_version_id": version["id"],
                 "versions": [version], "publication_status": "draft",
                 "published_version_id": None, "public_url": None, "published_at": None,
                 "created_at": now, "updated_at": now, "saved_at": now,
@@ -148,7 +157,7 @@ class WorkStore:
         with self.locked():
             work = self.get(owner, work_id)
             for name, value in fields.items():
-                if name in {"title", "summary", "subject", "grade", "tags"}:
+                if name in {"title", "summary", "subject", "grade", "tags", "cover_variant"}:
                     work[name] = value
             work["updated_at"] = utc_now()
             write_json(self.path(work_id) / "work.json", work)
@@ -162,14 +171,28 @@ class WorkStore:
             raise FileNotFoundError("Work file not found")
         return (self.path(work_id) / "versions" / version_id / filename).read_bytes()
 
+    def private_cover(self, owner: str, work_id: str) -> bytes:
+        work = self.get(owner, work_id)
+        name = "mobile.png" if work.get("cover_variant") == "mobile" else "preview.png"
+        return self.asset(owner, work_id, work["current_version_id"], name)
+
+    def public_cover(self, work_id: str) -> bytes:
+        self.public(work_id)  # Fail closed when revoked or unpublished.
+        try:
+            work = read_json(self.path(work_id) / "work.json")
+        except (OSError, ValueError):
+            raise FileNotFoundError("Public cover not found") from None
+        name = "mobile.png" if work.get("published_cover_variant") == "mobile" else "preview.png"
+        return self.public_asset(work_id, name)
+
     def start_publication(self, owner: str, work_id: str) -> dict:
         """Mark pending; never switch the public version until remote publication succeeds."""
         with self.locked():
             work = self.get(owner, work_id)
             if work["kind"] != "html":
                 raise WorkConflictError("Only verified interactive HTML works can be published.")
-            if work.get("publication_status") == "publishing":
-                raise WorkConflictError("Publication is already in progress")
+            if work.get("publication_status") in {"publishing", "unpublish_pending"}:
+                raise WorkConflictError("Publication or revocation is already in progress")
             work["publication_status"] = "publishing"
             work["pending_version_id"] = work["current_version_id"]
             work["updated_at"] = utc_now()
@@ -187,6 +210,9 @@ class WorkStore:
             work["published_at"] = utc_now()
             work["public_url"] = public_url
             work["published_metadata"] = {key: snapshot.get(key) for key in ("title", "summary", "subject", "grade", "tags")}
+            work["published_cover_variant"] = work.get("cover_variant", "preview")
+            # The publish-dialog metadata is also the user's saved work metadata.
+            work.update(work["published_metadata"])
             work.pop("pending_version_id", None)
             work["updated_at"] = utc_now()
             write_json(self.path(work_id) / "work.json", work)
@@ -205,8 +231,8 @@ class WorkStore:
         """Immediately revoke public access, even if remote de-indexing fails."""
         with self.locked():
             work = self.get(owner, work_id)
-            if not work.get("published_version_id"):
-                raise WorkConflictError("Work has no published version")
+            if not work.get("published_version_id") or work.get("publication_status") not in {"published", "unpublish_pending"}:
+                raise WorkConflictError("Work has no currently revocable publication")
             work["publication_status"] = "unpublish_pending"
             work["updated_at"] = utc_now()
             write_json(self.path(work_id) / "work.json", work)
@@ -215,6 +241,8 @@ class WorkStore:
     def finish_unpublish(self, owner: str, work_id: str) -> dict:
         with self.locked():
             work = self.get(owner, work_id)
+            if work.get("publication_status") != "unpublish_pending":
+                raise WorkConflictError("Publication state changed before revocation completed")
             work["publication_status"] = "unpublished"
             work["published_version_id"] = None
             work["public_url"] = None
