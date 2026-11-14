@@ -1,0 +1,20 @@
+.page { min-height: 100vh; background: #f4f1eb; color: #292c28; }
+.content { width: min(1100px, calc(100% - 32px)); margin: 32px auto; }
+.content h1 { margin-bottom: 20px; }
+.actions { display: flex; gap: 12px; }
+.resourceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 14px;
+}
+.resourceCard {
+  border: 1px solid #e3e2d8;
+  border-radius: 14px;
+  padding: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.resourceCard img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
+.resourceCard h2 { margin: 8px 0; font-size: 16px; }
+.resourceCard p { color: #59614f; font-size: 13px; line-height: 1.6; }
+.resourceCard .actions { flex-wrap: wrap; margin-top: 10px; font-size: 13px; }

@@ -1,0 +1,70 @@
+.root { display: grid; gap: 24px; }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.heading h2 { margin: 6px 0 10px; font-size: 24px; }
+.heading p, .actions p, .file p { color: var(--ink-muted); font-size: 13px; line-height: 1.8; margin: 0; }
+.heading .eyebrow { color: var(--cinnabar); font-size: 11px; letter-spacing: .16em; }
+.badge { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; white-space: nowrap; font-size: 12px; }
+.form { border: 1px solid var(--border); border-radius: 8px; padding: 24px; background: var(--paper); }
+.fields { border: 0; padding: 0; margin: 0; display: grid; gap: 20px; min-width: 0; }
+.fields label { display: grid; gap: 8px; font-size: 13px; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.fields input:not([type=file]), .fields textarea { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--rice); color: inherit; font: inherit; }
+.file { display: grid; gap: 10px; }
+.classification { border-top: 1px dashed var(--border); }
+.row { display: grid; grid-template-columns: 80px 1fr; gap: 12px; align-items: start; padding: 14px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
+.row > span { padding-top: 8px; color: var(--ink-muted); }
+.choices { display: flex; flex-wrap: wrap; gap: 5px; }
+.choices button { color: inherit; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; font: inherit; cursor: pointer; }
+.choices button[data-state=on] { color: var(--cinnabar); background: #f2dfe2; }
+.choices button:hover { background: #f2e9dd; }
+.choices button:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+.actions, .listHeading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.listHeading h3 { margin: 0; white-space: nowrap; }
+.table { overflow-x: auto; }
+.table table { min-width: 760px; }
+@media(max-width: 700px) { .columns { grid-template-columns: 1fr; gap: 20px; } .form { padding: 16px; } .actions { flex-direction: column; align-items: stretch; } .badge { display: none; } .row { grid-template-columns: 65px 1fr; } }
+
+.addTag { display: flex; gap: 8px; margin-top: 8px; max-width: 320px; }
+.addTag input { min-width: 0; flex: 1; width: 0 !important; }
+.addTag button { flex: none; white-space: nowrap; width:auto; min-width:0; }
+.row > div { min-width:0; }
+.editDialog { width: min(1000px, calc(100vw - 32px)); max-height: 85dvh; overflow-y: auto; }
+
+.coverThumb { display: block; width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; margin-bottom: 8px; }
+.coverError { color: var(--cinnabar); max-width: 300px; }
+.resourceToolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.typeFilters { display:flex; gap:8px; }
+.resourceSearch { display:flex; gap:8px; min-width:0; }
+.resourceSearch input { min-width:0; width:260px; padding:9px 12px; border:1px solid var(--border); border-radius:7px; background:var(--paper); color:inherit; font:inherit; }
+.typeBadge { display:inline-block; white-space:nowrap; padding:4px 8px; border-radius:5px; background:var(--rice); color:var(--ink-muted); font-size:11px; }
+.teachingTable table { min-width:1000px; }
+.teachingTable td:first-child { min-width:300px; }
+.teachingTable .resourceButton>span:last-child { min-width:150px; }
+.teachingTable td:nth-child(3) { min-width:150px; max-width:320px; overflow-wrap:anywhere; }
+.teachingTable td:last-child { min-width:210px; }
+@media(max-width:650px) { .resourceSearch { width:100%; } .resourceSearch input { flex:1; width:0; } .resourceSearch button,.typeFilters button { width:auto; } }
+.resourceButton { display:flex; align-items:center; gap:16px; padding:0; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.resourceButton:focus-visible { outline:2px solid var(--cinnabar); outline-offset:5px; border-radius:6px; }
+.resourceButton .coverThumb { width:128px; margin:0; flex:none; border-radius:8px; }
+.resourceButton strong { display:block; max-width:240px; overflow-wrap:anywhere; }
+.resourceButton small { display:block; margin-top:7px; font-size:10px; color:var(--ink-muted); }
+.resourceButton em { display:block; font-size:11px; font-style:normal; margin-top:8px; color:var(--cinnabar); }
+.noCover { display:grid; place-items:center; aspect-ratio:16/9; background:var(--rice); color:var(--ink-muted); border:1px dashed var(--border); border-radius:8px; font-size:12px; min-width:128px; }
+.featuredBadge { display:block; width:fit-content; margin-top:7px; padding:3px 7px; border-radius:4px; background:#f5e4b6; color:#826326; }
+.editDialog { width:min(920px,calc(100vw - 28px)); max-height:90dvh; padding:0; overflow:auto; overscroll-behavior:contain; }
+.editDialog>header { padding:24px 28px 18px; }
+.editForm { padding:0 28px 24px; }
+.editorTop { display:grid; grid-template-columns:220px minmax(0,1fr); gap:24px; }
+.coverEditor { display:grid; align-content:start; gap:10px; }
+.coverEditor>img { width:100%; aspect-ratio:16/9; object-fit:cover; border:1px solid var(--border); border-radius:10px; }
+.coverEditor input { max-width:100%; font-size:11px; }
+.coverEditor small,.editorInfo>small,.packageDetails p { color:var(--ink-muted); font-size:11px; line-height:1.8; }
+.editorInfo { display:grid; gap:14px; align-content:start; min-width:0; }
+.featureToggle { justify-self:start; }
+.featureToggle[aria-pressed=true] { color:#826326; background:#f9ebc9; border-color:#e3c888; }
+.packageDetails { border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.packageDetails summary { cursor:pointer; font-size:12px; }
+.packageDetails label { margin-top:16px; }
+.sectionTitle { font-size:14px; margin:0 0 12px; }
+.editorFooter { position:sticky; bottom:-24px; z-index:1; padding:16px 0; background:var(--paper); border-top:1px solid var(--border); }
+@media(max-width:650px) { .editorTop { grid-template-columns:1fr; gap:18px; } .coverEditor { max-width:240px; } .editForm { padding:0 18px 20px; } .editDialog>header { padding:20px 18px; } .resourceButton { align-items:start; } .resourceButton .coverThumb { width:96px; } }

@@ -19,6 +19,7 @@ on:
       - 'forge_frontend_next/package.json'
       - 'forge_frontend_next/package-lock.json'
       - 'tests/practice_shared_navigation.test.cjs'
+      - 'tests/practice_ui_architecture.test.cjs'
       - 'webgal_backend/work_urls.py'
       - 'tests/test_practice_public_page_route.cjs'
       - 'forge_frontend_next/next.config.mjs'
@@ -58,6 +59,7 @@ jobs:
       - run: npx tsc --noEmit --incremental false
       - run: node ../tests/test_practice_work_rewrites.cjs
       - run: node ../tests/practice_shared_navigation.test.cjs
+      - run: node ../tests/practice_ui_architecture.test.cjs
       - run: npm run build
         env:
           FORGE_BACKEND_URL: http://backend:8010

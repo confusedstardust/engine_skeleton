@@ -14,6 +14,7 @@ const nextConfig = {
     return [
       { source: "/api/forge/community", destination: `${backend}/community` },
       { source: "/api/forge/community/:path*", destination: `${backend}/community/:path*` },
+      { source: "/api/forge/practice-tools", destination: `${backend}/practice-tools` },
       { source: "/api/forge/health", destination: `${backend}/health` },
       { source: "/api/forge/admin/:path*", destination: `${backend}/admin/:path*` },
       { source: "/api/forge/auth/me", destination: `${backend}/auth/me` },
@@ -34,6 +35,7 @@ const nextConfig = {
       { source: "/api/forge/quiz/:path*", destination: `${backend}/quiz/:path*` },
       { source: "/api/forge/public/quiz/:path*", destination: `${backend}/public/quiz/:path*` },
       { source: "/api/forge/generation-options/:path*", destination: `${backend}/generation-options/:path*` },
+      { source: "/resources-play/:path*", destination: `${backend}/resources-play/:path*` },
       { source: "/play/:path*", destination: `${backend}/play/:path*` }
     ];
   }

@@ -7,7 +7,7 @@ from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 DOUBAO_IMAGE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-DOUBAO_IMAGE_MODEL = "doubao-seedream-4-5-251128"
+DOUBAO_IMAGE_MODEL = "doubao-seedream-5-0-flash-260915"
 DOUBAO_IMAGE_API_KEY_ENV = "ARK_API_KEY"
 
 

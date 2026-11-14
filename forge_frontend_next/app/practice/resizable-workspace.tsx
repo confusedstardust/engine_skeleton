@@ -2,6 +2,7 @@
 
 import { type CSSProperties, type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import styles from "./practice.module.css";
+import { GripVertical } from "lucide-react";
 
 const HANDLE = 10;
 const MIN_NAV = 180;
@@ -66,7 +67,7 @@ function DragHandle({ kind, value, min, max, onChange, onDragMove, disabled = fa
         onChange(event.key === "Home" ? min : max);
       }
     }}>
-    <span aria-hidden="true" className={styles.resizeGrip}><i/><i/><i/></span>
+    <span aria-hidden="true" className={styles.resizeGrip}><GripVertical size={17} strokeWidth={1.6} /></span>
   </div>;
 }
 

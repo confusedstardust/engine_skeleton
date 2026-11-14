@@ -47,7 +47,7 @@ const textModels: Array<{ id: TextModel; name: string; model: string; note: stri
 ];
 
 const imageModels: Array<{ id: ImageModel; name: string; model: string; note: string }> = [
-  { id: "default", name: "Seedream 4.5", model: "doubao-seedream-4-5-251128", note: "火山引擎 · 默认" },
+  { id: "default", name: "Seedream 5.0 Flash", model: "doubao-seedream-5-0-flash-260915", note: "火山引擎 · 默认" },
   { id: "qwen-image-2.0-pro", name: "Qwen Image Pro", model: "qwen-image-2.0-pro", note: "阿里云百炼 · 高质量" },
   { id: "qwen-image-2.0", name: "Qwen Image 2.0", model: "qwen-image-2.0", note: "阿里云百炼 · 标准" },
   { id: "qwen-image-max", name: "Qwen Image Max", model: "qwen-image-max", note: "阿里云百炼 · Max" }

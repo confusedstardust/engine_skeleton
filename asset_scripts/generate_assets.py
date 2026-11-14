@@ -35,7 +35,7 @@ DEFAULT_BASE_URL = (
     or os.getenv("ARK_IMAGE_BASE_URL")
     or "https://ark.cn-beijing.volces.com/api/v3"
 ).rstrip("/")
-DEFAULT_MODEL = os.getenv("WEBGAL_IMAGE_MODEL") or os.getenv("ARK_IMAGE_MODEL") or "doubao-seedream-4-5-251128"
+DEFAULT_MODEL = os.getenv("WEBGAL_IMAGE_MODEL") or os.getenv("ARK_IMAGE_MODEL") or "doubao-seedream-5-0-flash-260915"
 DEFAULT_API_KEY_ENV = os.getenv("WEBGAL_IMAGE_API_KEY_ENV", "ARK_API_KEY").strip() or "ARK_API_KEY"
 MAX_WORKERS = int(os.getenv("WEBGAL_IMAGE_MAX_WORKERS", "3"))
 
@@ -145,15 +145,15 @@ def generate_image(
         else:
             if client is None:
                 raise RuntimeError("OpenAI-compatible image client is not configured")
+            extra_body = {"watermark": False}
+            if model != "doubao-seedream-5-0-flash-260915":
+                extra_body["sequential_image_generation"] = "disabled"
             response = client.images.generate(
                 model=model,
                 prompt=prompt,
                 size=size,
                 n=1,
-                extra_body={
-                "sequential_image_generation": "disabled",
-                "watermark": False,
-                },
+                extra_body=extra_body,
             )
             image_url = response.data[0].url
     except Exception as exc:
