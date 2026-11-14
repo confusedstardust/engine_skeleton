@@ -120,8 +120,8 @@ export default function ResizableWorkspace({
 
   const css = {
     "--studio-nav": `${navWidth}px`,
-    "--studio-chat": chatShare.toString(),
-    "--studio-preview": (1 - chatShare).toString(),
+    "--studio-chat": `${chatShare}fr`,
+    "--studio-preview": `${1 - chatShare}fr`,
   } as CSSProperties;
 
   return <div ref={layout} style={css}
