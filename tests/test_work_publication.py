@@ -106,3 +106,32 @@ def test_unpublish_blocks_public_even_if_remote_service_is_offline(tmp_path):
         assert client.get(url).status_code == 404
         assert client.delete(f"/works/{work['id']}/publication", headers=ACTION).status_code == 200
         assert store.get("teacher-a", work["id"])["publication_status"] == "unpublished"
+
+
+def test_publication_metadata_sync_and_race_guards(tmp_path):
+    store = WorkStore(tmp_path)
+    work = store.create("teacher-a", A, "html", "旧名字", "旧摘要", assets())
+    pending = store.start_publication("teacher-a", work["id"])
+    with pytest.raises(Exception):
+        store.start_unpublish("teacher-a", work["id"])
+    current = store.finish_publication(
+        "teacher-a", work["id"], pending["pending_version_id"],
+        "https://example.com/work", {
+            "title": "新名字", "summary": "新摘要", "subject": "数学",
+            "grade": "高中", "tags": ["函数"],
+        },
+    )
+    assert current["title"] == "新名字"
+    assert current["summary"] == "新摘要"
+    assert current["subject"] == "数学"
+    assert current["grade"] == "高中"
+    assert current["tags"] == ["函数"]
+    store.start_unpublish("teacher-a", work["id"])
+    with pytest.raises(Exception):
+        store.start_publication("teacher-a", work["id"])
+    with pytest.raises(FileNotFoundError):
+        store.public(work["id"])
+    store.finish_unpublish("teacher-a", work["id"])
+    with pytest.raises(Exception):
+        store.finish_unpublish("teacher-a", work["id"])
+
