@@ -40,7 +40,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const input = useRef<HTMLTextAreaElement>(null);
 
   const server = useNarConversation({
-    conversationId, authReady, loggedIn,
+    conversationId, authReady, loggedIn, ownerId: sessionUserId,
     setSessionReady, setMessages, setWorkPreviews,
     setSelectedArtifactId, setCurrentArtifactId, setBusy, setActiveTask,
     setError, setDraft, setProgress, input,
@@ -142,7 +142,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     currentArtifactId, setCurrentArtifactId, end, input, savedWorkCount, send,
     beginNewConversation, savedCardWorkId,
     serverReady: server.ready, serverChecked: server.checked, conversationId,
-    conversationTitle: server.conversationTitle, serverRevision: server.revision,
+    conversationTitle: server.conversationTitle,
     conversationArtifacts: server.artifacts, olderCursor: server.olderCursor,
     loadOlder: server.loadOlder, loadingOlder: server.loadingOlder,
     chatScroll: server.chatScroll, openArtifact: server.openArtifact,
