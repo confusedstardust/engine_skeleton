@@ -84,6 +84,7 @@ def _turn(row: dict) -> dict:
 
 def _artifact(row: dict) -> dict:
     return {"artifactId": row["artifact_id"], "conversationId": row["conversation_id"],
+            "originMessageId": row.get("origin_message_id"),
             "workId": row.get("work_id"), "title": row["title"],
             "kind": row["kind"], "createdAt": _time(row["created_at"])}
 
