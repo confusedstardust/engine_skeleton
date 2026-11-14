@@ -78,24 +78,31 @@ function DragHandle({ kind, value, min, max, onChange, onDragMove, disabled = fa
 export default function ResizableWorkspace({
   navigation, chat, inspector, userId,
 }: {
-  navigation: ReactNode;
+  navigation: ReactNode | ((state: { collapsed: boolean; onToggle: () => void }) => ReactNode);
   chat: ReactNode;
   inspector?: ReactNode;
   userId: string | null;
 }) {
   const [navWidth, setNavWidth] = useState(DEFAULT_NAV);
   const [chatShare, setChatShare] = useState(DEFAULT_CHAT_SHARE);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const layout = useRef<HTMLDivElement>(null);
   const hasInspector = Boolean(inspector);
 
   useEffect(() => {
+    // Match the resource plaza: a compact rail is the mobile default.
+    setNavCollapsed(window.matchMedia("(max-width:760px)").matches);
+  }, []);
+
+  useEffect(() => {
     if (!userId) { setLoaded(false); return; }
     try {
       const raw = localStorage.getItem(`narrativeos:practice:layout:v1:${userId}`);
-      const data = raw ? JSON.parse(raw) as { nav?: number; chat?: number } : null;
+      const data = raw ? JSON.parse(raw) as { nav?: number; chat?: number; collapsed?: boolean } : null;
       if (data && Number.isFinite(data.nav)) setNavWidth(bounded(data.nav!, MIN_NAV, MAX_NAV));
       if (data && Number.isFinite(data.chat)) setChatShare(bounded(data.chat!, 0.24, 0.68));
+      if (typeof data?.collapsed === "boolean") setNavCollapsed(data.collapsed);
     } catch { /* Storage may be disabled. */ }
     setLoaded(true);
   }, [userId]);
@@ -104,30 +111,32 @@ export default function ResizableWorkspace({
     if (!loaded || !userId) return;
     try {
       localStorage.setItem(`narrativeos:practice:layout:v1:${userId}`,
-        JSON.stringify({ nav: navWidth, chat: chatShare }));
+        JSON.stringify({ nav: navWidth, chat: chatShare, collapsed: navCollapsed }));
     } catch { /* Resize works even without persistent preferences. */ }
-  }, [navWidth, chatShare, userId, loaded]);
+  }, [navWidth, chatShare, navCollapsed, userId, loaded]);
+
+  const effectiveNavWidth = navCollapsed ? 64 : navWidth;
 
   function movePreview(clientX: number) {
     const bounds = layout.current?.getBoundingClientRect();
     if (!bounds || !hasInspector) return;
-    const available = bounds.width - navWidth - HANDLE * 2;
+    const available = bounds.width - effectiveNavWidth - HANDLE * 2;
     if (available < MIN_CHAT + MIN_PREVIEW) return;
-    const chatWidth = bounded(clientX - bounds.left - navWidth - HANDLE,
+    const chatWidth = bounded(clientX - bounds.left - effectiveNavWidth - HANDLE,
       MIN_CHAT, available - MIN_PREVIEW);
     setChatShare(bounded(chatWidth / available, 0.20, 0.75));
   }
 
   const css = {
-    "--studio-nav": `${navWidth}px`,
+    "--studio-nav": `${effectiveNavWidth}px`,
     "--studio-chat": `${chatShare}fr`,
     "--studio-preview": `${1 - chatShare}fr`,
   } as CSSProperties;
 
   return <div ref={layout} style={css}
     className={`${styles.layout} ${hasInspector ? styles.layoutWithInspector : ""}`}>
-    {navigation}
-    <DragHandle kind="navigation" value={navWidth} min={MIN_NAV} max={MAX_NAV}
+    {typeof navigation === "function" ? navigation({ collapsed: navCollapsed, onToggle: () => setNavCollapsed(value => !value) }) : navigation}
+    <DragHandle kind="navigation" value={navWidth} min={MIN_NAV} max={MAX_NAV} disabled={navCollapsed}
       onChange={setNavWidth} onDragMove={x => {
         const bounds = layout.current?.getBoundingClientRect();
         if (bounds) setNavWidth(bounded(x - bounds.left, MIN_NAV, MAX_NAV));
