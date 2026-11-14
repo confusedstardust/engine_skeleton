@@ -177,10 +177,15 @@ class NarConversationStore:
                 db.execute("INSERT IGNORE INTO nar_conversations (id,owner_id,title) VALUES (%s,%s,%s)",
                            (cid, owner, prompt.strip()[:160]))
             self._own(db, owner, cid, lock=True)
-            db.execute("SELECT * FROM nar_turns WHERE conversation_id=%s AND client_request_id=%s",
+            db.execute("SELECT t.*, m.content AS stored_prompt FROM nar_turns t "
+                       "JOIN nar_messages m ON m.id=t.prompt_message_id "
+                       "WHERE t.conversation_id=%s AND t.client_request_id=%s",
                        (cid, request_id))
             existing = db.fetchone()
             if existing:
+                if (existing["stored_prompt"] != prompt or existing["mode"] != mode
+                        or existing["parent_artifact_id"] != parent_artifact_id):
+                    raise ConversationConflict("Idempotency key already belongs to another request")
                 return _turn(existing), False
             db.execute("SELECT id FROM nar_turns WHERE conversation_id=%s AND status IN "
                        "('QUEUED','RUNNING','UNKNOWN') LIMIT 1", (cid,))
@@ -273,8 +278,9 @@ class NarConversationStore:
             if turn["status"] in FINAL:
                 return _turn(turn)
             db.execute("UPDATE nar_turns SET status=%s,error_code=%s,"
-                       "updated_at=CURRENT_TIMESTAMP(6),finished_at=%s WHERE id=%s",
-                       (status, code[:80], None if uncertain else datetime.utcnow(), tid))
+                       "updated_at=CURRENT_TIMESTAMP(6),"
+                       "finished_at=IF(%s,CURRENT_TIMESTAMP(6),NULL) WHERE id=%s",
+                       (status, code[:80], not uncertain, tid))
             db.execute("UPDATE nar_turn_dispatches SET state=%s WHERE turn_id=%s",
                        ("UNCERTAIN" if uncertain else "FINISHED", tid))
             return {**_turn(turn), "status": status, "errorCode": code[:80]}
