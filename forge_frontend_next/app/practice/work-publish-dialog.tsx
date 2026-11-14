@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/button";
 import { ModalBody, ModalFrame } from "../../components/ui/modal";
 import type { PublicationForm } from "../../lib/work-api";
 import type { WorkPreviewData } from "./work-inspector";
+import { withBasePath } from "../base-path";
 import styles from "./practice.module.css";
 
 export default function WorkPublishDialog({
@@ -22,6 +23,7 @@ export default function WorkPublishDialog({
   const [subject, setSubject] = useState(work.subject || "");
   const [grade, setGrade] = useState(work.grade || "");
   const [tags, setTags] = useState((work.tags || []).join("，"));
+  const [coverVariant, setCoverVariant] = useState<"preview" | "mobile">(work.coverVariant || "preview");
   const editing = mode === "edit";
   return <ModalFrame title={editing ? "编辑作品信息" : "发布到教师资源广场"} onClose={onClose} busy={busy}>
     <div className={styles.publishOverlay}><ModalBody>
@@ -37,6 +39,7 @@ export default function WorkPublishDialog({
             title: title.trim(), summary: summary.trim(),
             subject: subject.trim() || null, grade: grade.trim() || null,
             tags: tags.split(/[,，]/).map(t => t.trim()).filter(Boolean).slice(0, 8),
+            ...(editing ? { cover_variant: coverVariant } : {}),
           });
         }}>
           <label>作品名称<input maxLength={160} required value={title} disabled={busy}
@@ -49,6 +52,19 @@ export default function WorkPublishDialog({
           </div>
           <label>标签<input value={tags} disabled={busy} placeholder="用逗号分隔，例如：函数、可视化、探究"
             onChange={e => setTags(e.target.value)} /></label>
+          {editing && work.workId && work.currentVersionId && <fieldset className={styles.coverPicker}>
+            <legend>作品封面</legend>
+            <div className={styles.coverOptions}>{(["preview", "mobile"] as const).map(variant => (
+              <label key={variant}>
+                <input type="radio" name="work-cover" value={variant}
+                  checked={coverVariant === variant} disabled={busy}
+                  onChange={() => setCoverVariant(variant)} />
+                <img alt={variant === "preview" ? "桌面检查截图" : "手机检查截图"}
+                  src={withBasePath(`/api/forge/works/${work.workId}/assets/${work.currentVersionId}/${variant}.png`)} />
+                <span>{variant === "preview" ? "桌面截图" : "手机截图"}</span>
+              </label>
+            ))}</div>
+          </fieldset>}
           <div className={styles.publishFooter}>
             <Button variant="outline" disabled={busy} onClick={onClose}>取消</Button>
             <Button type="submit" variant="primary" busy={busy} disabled={busy || !title.trim()}>{editing ? "保存作品信息" : "确认发布"}</Button>
