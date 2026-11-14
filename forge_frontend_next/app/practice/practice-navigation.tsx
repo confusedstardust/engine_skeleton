@@ -39,6 +39,12 @@ export default function PracticeNavigation({
   const [nextConversations, setNextConversations] = useState<string | null>(null);
   const [nextArtifacts, setNextArtifacts] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [focusEpoch, setFocusEpoch] = useState(0);
+  useEffect(() => {
+    const refresh = () => setFocusEpoch(value => value + 1);
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -61,7 +67,7 @@ export default function PracticeNavigation({
       }).catch(() => { /* Works are accessible through the history route. */ });
     }
     return () => { active = false; };
-  }, [loggedIn, serverChecked, serverEnabled, refreshKey, serverRevision]);
+  }, [loggedIn, serverChecked, serverEnabled, refreshKey, serverRevision, focusEpoch]);
 
   useEffect(() => {
     if (!loggedIn || !serverEnabled || view !== "artifacts") return;
@@ -73,7 +79,7 @@ export default function PracticeNavigation({
     }).catch(() => { if (active) setError("产物列表暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [loggedIn, serverEnabled, view, serverRevision]);
+  }, [loggedIn, serverEnabled, view, serverRevision, focusEpoch]);
 
   async function more() {
     if (loading) return;
