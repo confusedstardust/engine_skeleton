@@ -205,13 +205,16 @@ class NarConversationStore:
         with self._transaction() as db:
             self._own(db, owner, cid)
             turn = self._get_turn(db, cid, tid)
+            db.execute("SELECT content FROM nar_messages WHERE id=%s", (turn["prompt_message_id"],))
+            prompt_row = db.fetchone()
+            remaining_budget = max(0, 36000 - len(prompt_row["content"])) if prompt_row else 0
             db.execute("SELECT m.role,m.content FROM nar_messages m "
                        "JOIN nar_messages prompt ON prompt.id=%s "
                        "WHERE m.conversation_id=%s AND m.seq<prompt.seq "
                        "ORDER BY m.seq DESC LIMIT 20", (turn["prompt_message_id"], cid))
             rows = list(db.fetchall())
         selected = []
-        budget = 36000
+        budget = remaining_budget
         for row in rows:
             if len(row["content"]) > 12000 or len(row["content"]) > budget:
                 break
