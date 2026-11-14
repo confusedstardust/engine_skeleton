@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .teacher_ecosystem import TeacherEcosystemError, publish_work, unpublish_work
 from .work_store import WorkConflictError, WorkStore
+from .work_urls import work_page_url, work_cover_url, canonical_published_url
 
 
 class PublicationInput(BaseModel):
@@ -55,7 +56,7 @@ def create_router(*, user_for_request, store: WorkStore | None = None,
         return {
             "published": work.get("publication_status") == "published",
             "status": work.get("publication_status", "draft"),
-            "public_url": work.get("public_url") if work.get("publication_status") == "published" else None,
+            "public_url": canonical_published_url(root, work_id, work.get("public_url")) if work.get("publication_status") == "published" else None,
             "published_version_id": work.get("published_version_id"),
         }
 
@@ -74,12 +75,18 @@ def create_router(*, user_for_request, store: WorkStore | None = None,
             "grade": payload.grade.strip() if payload.grade else None,
             "tags": [tag.strip()[:40] for tag in payload.tags if tag.strip()],
         }
+        # Next.js is mounted under a basePath and has trailingSlash enabled.
+        # Old published records without the final slash can resolve to Next 404.
+        try:
+            play_url = work_page_url(root, work_id)
+            cover_url = work_cover_url(root, work_id)
+        except ValueError:
+            raise HTTPException(503, "公开作品地址配置不正确，请联系管理员") from None
         if (work.get("publication_status") == "published" and
                 work.get("published_version_id") == work["current_version_id"] and
-                work.get("published_metadata") == snapshot):
-            return {"published": True, "status": "published", "public_url": work["public_url"]}
-        play_url = f"{root}/practice/works/{work_id}"
-        cover_url = f"{root}/api/forge/public/works/{work_id}/cover.png"
+                work.get("published_metadata") == snapshot and
+                work.get("public_url") == play_url):
+            return {"published": True, "status": "published", "public_url": play_url}
         try:
             pending = await run_in_threadpool(works.start_publication, owner, work_id)
         except WorkConflictError:
