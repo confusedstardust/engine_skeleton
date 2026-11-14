@@ -60,6 +60,7 @@ export function useNarConversation({
   const [conversationTitle, setConversationTitle] = useState("");
   const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string } | null>(null);
   const alive = useRef(true);
+  const previewRequest = useRef(0);
   const chatScroll = useRef<HTMLDivElement>(null);
   const skipScroll = useRef(false);
 
@@ -107,14 +108,16 @@ export function useNarConversation({
   const openArtifact = useCallback(async (id: string) => {
     const target = artifacts.find(item => item.artifactId === id);
     if (!target) return;
+    // A slower old preview must never replace a later click in the same chat.
+    const requestId = ++previewRequest.current;
     try {
       const preview = await previewConversationArtifact(target);
-      if (!alive.current) return;
+      if (!alive.current || requestId !== previewRequest.current) return;
       setWorkPreviews(previous => ({ ...previous, [preview.artifactId]: preview }));
       setCurrentArtifactId(preview.artifactId);
       setSelectedArtifactId(preview.artifactId);
     } catch (error) {
-      if (alive.current) setError(error instanceof Error ? error.message : "历史作品预览已过期");
+      if (alive.current && requestId === previewRequest.current) setError(error instanceof Error ? error.message : "历史作品预览已过期");
     }
   }, [artifacts, setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId, setError]);
 
