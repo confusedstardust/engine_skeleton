@@ -60,4 +60,5 @@ async def stream_public_brief(settings, prompt: str, state: dict, *, model=None)
         if len(previous) >= MAX_BRIEF_CHARS:
             break
         state["public_brief"] = previous + delta[:MAX_BRIEF_CHARS - len(previous)]
+    state["public_brief_state"] = "COMPLETE"
     return state["public_brief"].strip()
