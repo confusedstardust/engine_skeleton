@@ -26,6 +26,7 @@ export type SavedWork = {
 };
 
 export type PublicationForm = {
+  cover_variant?: "preview" | "mobile";
   title: string;
   summary: string;
   subject: string | null;
