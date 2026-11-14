@@ -79,6 +79,7 @@ def _turn(row: dict) -> dict:
     return {"id": row["id"], "conversationId": row["conversation_id"],
             "status": row["status"], "mode": row["mode"],
             "runId": row.get("agent_run_id"), "errorCode": row.get("error_code"),
+            "parentArtifactId": row.get("parent_artifact_id"),
             "createdAt": _time(row["created_at"])}
 
 
