@@ -54,7 +54,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </Button>)}
         </div>
       </div>}
-      {sessionReady && messages.map((message, i) => <article key={i}
+      {sessionReady && messages.map((message, i) => <article key={message.id ?? i}
         className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}>
         <span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span>
         <div>
