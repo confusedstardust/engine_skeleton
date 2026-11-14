@@ -158,7 +158,10 @@ export function useNarConversation({
     // A slower old preview must never replace a later click in the same chat.
     const requestId = ++previewRequest.current;
     try {
-      const preview = await previewConversationArtifact(target);
+      const preview = ownerId
+        ? await getConversationQuery(ownerId, "preview:" + id, 10 * 60_000,
+            () => previewConversationArtifact(target))
+        : await previewConversationArtifact(target);
       if (!alive.current || requestId !== previewRequest.current) return;
       setWorkPreviews(previous => ({ ...previous, [preview.artifactId]: preview }));
       setCurrentArtifactId(preview.artifactId);
@@ -166,7 +169,7 @@ export function useNarConversation({
     } catch (error) {
       if (alive.current && requestId === previewRequest.current) setError(error instanceof Error ? error.message : "历史作品预览已过期");
     }
-  }, [artifacts, setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId, setError]);
+  }, [artifacts, ownerId, setWorkPreviews, setSelectedArtifactId, setCurrentArtifactId, setError]);
 
   useEffect(() => {
     if (!conversationId || !requestedArtifact || !/^[a-f0-9]{32}$/.test(requestedArtifact)) return;
