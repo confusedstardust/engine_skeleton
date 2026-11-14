@@ -57,9 +57,9 @@ export default function WorkInspector({
           {saved ? "已保存到我的作品" : work.workId ? "保存新版本" : "保存到我的作品"}
         </Button>
         {work.kind === "html" && <Button variant="outline" onClick={() => onEdit(work.artifactId)}>继续修改</Button>}
-        {saved && <Button variant="outline" disabled={publishing || saving} busy={publishing}
+        {work.kind === "html" && <Button variant="outline" disabled={publishing || saving} busy={publishing}
           onClick={() => onPublish(work.artifactId)}>
-          {published ? "更新广场发布" : "发布到教师资源广场"}
+          {published ? "更新广场发布" : saved ? "发布到教师资源广场" : "保存并发布到广场"}
         </Button>}
         {published && <Button variant="outline" onClick={() => onShare(work.artifactId)}>分享作品</Button>}
         {published && <Button variant="outline" disabled={publishing} onClick={() => onUnpublish(work.artifactId)}>撤回发布</Button>}
