@@ -436,6 +436,11 @@ export default function PracticePage() {
     } finally { pending.current = false; setBusy(false); setActiveTask(null); setPendingRun(null); setProgress(""); input.current?.focus(); }
   }
 
+  function savedCardWorkId(work: GeneratedWork): string | undefined {
+    const preview = workPreviews[work.artifactId];
+    return preview?.savedArtifactId === work.artifactId ? preview.workId : undefined;
+  }
+
   return <main className={styles.page}>
     <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
     <div className={`${styles.layout} ${selectedWork ? styles.layoutWithInspector : ""}`}>
@@ -448,7 +453,7 @@ export default function PracticePage() {
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
           {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
-              {message.work && <GeneratedWorkCard work={message.work} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
+              {message.work && <GeneratedWorkCard work={message.work} savedWorkId={savedCardWorkId(message.work)} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
             </div></article>)}
           {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
