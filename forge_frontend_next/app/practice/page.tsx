@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+
 import { useEffect, useRef, useState } from "react";
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
@@ -16,6 +16,8 @@ import MessageMarkdown from "./message-markdown";
 import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
 import { followBuildTask, type BuildTask, type LearningPlan } from "./live-progress";
 import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
+import PracticeNavigation from "./practice-navigation";
+import ResizableWorkspace from "./resizable-workspace";
 
 type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; learningPlan?: LearningPlan; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
@@ -435,14 +437,25 @@ export default function PracticePage() {
     return preview?.savedArtifactId === work.artifactId ? preview.workId : undefined;
   }
 
-  return <main className={styles.page}>
-    <header className={styles.header}><Link href="/" className={styles.brand}>NarrativeOS <span>／ 讲练工具</span></Link><AccountMenu /></header>
-    <div className={`${styles.layout} ${selectedWork ? styles.layoutWithInspector : ""}`}>
-      <aside className={styles.sidebar}><p className={styles.eyebrow}>TEACHING STUDIO</p><h1>讲练工具</h1><div className={styles.activeTool}><span aria-hidden="true">✦</span><div>互动学习创作<small>生成、测试与继续修改 HTML 作品</small></div></div><Button onClick={() => { setMessages([]); setWorkPreviews({}); setPendingRun(null); setDraft(""); setError(""); setSelectedArtifactId(null); setCurrentArtifactId(null); if (sessionUserId) clearPracticeSession(sessionUserId,
+  function beginNewConversation() {
+    if (busy) return;
+    setMessages([]); setWorkPreviews({}); setPendingRun(null);
+    setDraft(""); setError(""); setSelectedArtifactId(null);
+    setCurrentArtifactId(null);
+    if (sessionUserId) clearPracticeSession(sessionUserId,
       new URL(window.location.href).searchParams.get("work") || "general");
-      window.history.replaceState(window.history.state, "", window.location.pathname);
-      input.current?.focus(); }} disabled={busy}>＋ 开始新对话</Button><p className={styles.note}>可以直接生成互动网页，或制作教学动画。作品可保存到「我的作品」并在下次登录后打开；未保存的聊天内容刷新后清空。</p></aside>
-      <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    input.current?.focus();
+  }
+
+  const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
+
+  return <main className={styles.page}>
+    <header className={styles.header}><span className={styles.headerTitle}>互动学习创作 <span>／ 工作台</span></span><AccountMenu /></header>
+    <ResizableWorkspace userId={sessionUserId}
+      navigation={<PracticeNavigation loggedIn={loggedIn} busy={busy}
+        refreshKey={savedWorkCount} onNewConversation={beginNewConversation} />}
+      chat={<section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
@@ -462,8 +475,8 @@ export default function PracticePage() {
           </form>
           <p className={styles.disclaimer}>生成内容用于备课参考，课堂使用前请核对知识与参数。</p>
         </div>
-      </section>
-      {selectedWork && <WorkInspector work={selectedWork}
+      </section>}
+      inspector={selectedWork ? <WorkInspector work={selectedWork}
         onClose={() => setSelectedArtifactId(null)}
         onEdit={id => { setCurrentArtifactId(id); input.current?.focus(); }}
         onSave={id => { void saveWork(id); }} saving={savingArtifactId === selectedWork.artifactId}
@@ -472,8 +485,7 @@ export default function PracticePage() {
         onPublish={id => { setPublicationError(""); setPublishArtifactId(id); }}
         onUnpublish={id => { setRevokeError(""); setRevokeArtifactId(id); }}
         onShare={id => { void openShare(id); }}
-        publishing={publicationBusy} />}
-    </div>
+        publishing={publicationBusy} /> : undefined} />
     {metadataWork && <WorkPublishDialog key={"metadata:" + metadataWork.artifactId}
       mode="edit" work={metadataWork} onClose={() => setMetadataArtifactId(null)}
       busy={metadataBusy} error={metadataError}

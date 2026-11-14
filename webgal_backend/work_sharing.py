@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 from .work_store import WorkStore
+from .work_urls import work_page_url, work_cover_url
 
 
 def create_router(*, user_for_request, store: WorkStore | None = None,
@@ -37,8 +38,8 @@ def create_router(*, user_for_request, store: WorkStore | None = None,
             "work_id": work_id,
             "title": public["title"],
             "summary": public.get("summary", ""),
-            "public_url": saved["public_url"],
-            "cover_url": f"{root}/api/forge/public/works/{work_id}/cover.png",
+            "public_url": work_page_url(root, work_id),
+            "cover_url": work_cover_url(root, work_id),
         }
 
     @router.get("/{work_id}/share")

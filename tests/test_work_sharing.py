@@ -36,7 +36,7 @@ def test_share_is_published_only_and_owner_scoped(tmp_path):
         )
         result = client.get(f"/works/{work_id}/share")
         assert result.status_code == 200
-        assert result.json()["public_url"].endswith("/practice/works/" + work_id)
+        assert result.json()["public_url"] == f"https://example.com/narrativeos/practice/works/{work_id}/"
         assert result.json()["title"] == "诗词互动学习"
         assert "owner_user_id" not in result.text
         qr = client.get(f"/works/{work_id}/share/qr.png")

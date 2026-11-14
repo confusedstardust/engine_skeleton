@@ -180,3 +180,35 @@ def test_publish_sso_user_without_nickname_or_email(tmp_path):
                                json={"title": "数学探索"}, headers=ACTION)
         assert response.status_code == 200, response.text
         assert sent[0]["authorName"] == "NarrativeOS 教师"
+
+
+def test_canonical_public_urls_repair_legacy_slashless_published_work(tmp_path):
+    from webgal_backend.work_urls import work_page_url, work_cover_url
+    store = WorkStore(tmp_path)
+    saved = store.create("teacher-a", A, "html", "函数图像", "", assets())
+    work_id = saved["id"]
+    base = "https://example.com/narrativeos/"
+    assert work_page_url(base, work_id) == f"https://example.com/narrativeos/practice/works/{work_id}/"
+    assert work_cover_url(base, work_id) == f"https://example.com/narrativeos/api/forge/public/works/{work_id}/cover.png"
+    calls = []
+    old_url = f"https://example.com/narrativeos/practice/works/{work_id}"
+    status = store.start_publication("teacher-a", work_id)
+    store.finish_publication(
+        "teacher-a", work_id, status["pending_version_id"], old_url,
+        {"title": "函数图像", "summary": "", "subject": None, "grade": None, "tags": []},
+    )
+    with make_client(store, lambda payload: calls.append(payload) or {"published": True}) as client:
+        status = client.get(f"/works/{work_id}/publication").json()
+        assert status["public_url"] == old_url + "/"
+        result = client.post(f"/works/{work_id}/publication", headers=ACTION,
+                             json={"title": "函数图像"})
+        assert result.status_code == 200, result.text
+        assert len(calls) == 1
+        assert calls[0]["playUrl"] == old_url + "/"
+        assert calls[0]["coverUrl"].endswith(f"/public/works/{work_id}/cover.png")
+        assert store.get("teacher-a", work_id)["public_url"] == old_url + "/"
+        # The repaired publication is now idempotent.
+        again = client.post(f"/works/{work_id}/publication", headers=ACTION,
+                            json={"title": "函数图像"})
+        assert again.status_code == 200
+        assert len(calls) == 1
