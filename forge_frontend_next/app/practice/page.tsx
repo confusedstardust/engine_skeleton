@@ -177,7 +177,6 @@ export default function PracticePage() {
       const version = work.versions.find(item => item.id === versionId);
       if (!version) throw new Error("该作品版本已不存在");
       const blob = await workApi.html(workId, versionId);
-      const existing = Object.values(workPreviews).find(item => item.workId === workId);
       const entry: WorkPreviewData = {
         artifactId: version.artifact_id, html: await blob.text(), title: work.title,
         kind: work.kind, version: version.version_number,
