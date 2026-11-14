@@ -1,4 +1,4 @@
-"""Owner-checked conversation API, deliberately opt-in until schema migration.
+"""SSO-owned, always-on durable conversation API. Manual schema migration required.
 
 Model execution remains in NarAgent; Forge owns visible messages, idempotency,
 turn status, artifact lineage and user permission checks. An uncertain dispatch
@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import re
 from typing import Literal
-from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -54,14 +53,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             raise HTTPException(401, "请先登录 NarrativeOS")
         return str(user["id"])
 
-    def enabled():
-        if os.getenv("NAR_CONVERSATIONS_ENABLED", "").lower() not in ("1", "true"):
-            raise HTTPException(503, "跨设备会话尚未启用，请先完成数据库迁移")
-        # Readiness is checked by /conversations/status before enabling the UI.
-        # Avoid five round-trips per request: transactional queries still fail
-        # closed as HTTP 503 if the database becomes unavailable.
-        return True
-
     def mutate(request: Request):
         if request.headers.get("x-naragent-action") != "chat":
             raise HTTPException(403, "缺少会话操作校验标识")
@@ -80,7 +71,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         except Exception:
             # Missing tables, DB outage and untrusted driver errors must not
             # leak credentials/queries in response bodies.
-            raise HTTPException(503, "会话数据库暂时不可用") from None
+            raise HTTPException(503, "会话数据库不可用或尚未迁移，请先执行 002_nar_conversation_history.sql") from None
 
     async def agent_request(owner: str, mode: str, payload: dict, *,
                             run_id: str | None = None) -> dict:
@@ -121,14 +112,14 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
 
     @router.get("/conversations/status")
     async def availability(request: Request):
+        # The endpoint is authenticated, NOT a feature flag. A missing migration
+        # is a visible setup error: the browser must never use local chat instead.
         await owner_for(request)
-        return {"enabled": os.getenv("NAR_CONVERSATIONS_ENABLED", "").lower() in ("1", "true")
-                and await run_in_threadpool(ledger.ready)}
+        return {"ready": await run_in_threadpool(ledger.ready)}
 
     @router.get("/conversations")
     async def conversations(request: Request, limit: int = 30, cursor: str | None = None):
         owner = await owner_for(request)
-        enabled()
         if not 1 <= limit <= 50:
             raise HTTPException(422, "列表长度需在 1～50 之间")
         return await transaction(ledger.list_conversations, owner, limit, cursor)
@@ -136,7 +127,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.get("/conversations/{cid}")
     async def conversation(cid: str, request: Request):
         owner = await owner_for(request)
-        enabled()
         if not re.fullmatch(ID, cid):
             raise HTTPException(404, "会话不存在")
         return await transaction(ledger.get_detail, owner, cid)
@@ -144,7 +134,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.get("/conversations/{cid}/messages")
     async def messages(cid: str, request: Request, before: int | None = None, limit: int = 30):
         owner = await owner_for(request)
-        enabled()
         if not re.fullmatch(ID, cid) or not 1 <= limit <= 50 or (before is not None and before <= 0):
             raise HTTPException(422, "会话或分页参数错误")
         return await transaction(ledger.get_messages, owner, cid, before, limit)
@@ -184,14 +173,12 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     async def create_conversation(payload: FirstTurnRequest, request: Request):
         mutate(request)
         owner = await owner_for(request)
-        enabled()
         return await submit_turn(owner, payload.conversation_id, payload, create=True)
 
     @router.post("/conversations/{cid}/turns", status_code=202)
     async def post_turn(cid: str, payload: TurnRequest, request: Request):
         mutate(request)
         owner = await owner_for(request)
-        enabled()
         if not re.fullmatch(ID, cid):
             raise HTTPException(404, "会话不存在")
         return await submit_turn(owner, cid, payload)
@@ -199,7 +186,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.get("/conversations/{cid}/turns/{tid}")
     async def poll_turn(cid: str, tid: str, request: Request):
         owner = await owner_for(request)
-        enabled()
         if not re.fullmatch(ID, cid) or not re.fullmatch(ID, tid):
             raise HTTPException(404, "轮次不存在")
         turn = await transaction(ledger.get_turn, owner, cid, tid)
@@ -240,7 +226,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.get("/artifact-history")
     async def artifact_history(request: Request, limit: int = 30, cursor: str | None = None):
         owner = await owner_for(request)
-        enabled()
         if not 1 <= limit <= 50:
             raise HTTPException(422, "列表长度需在 1～50 之间")
         return await transaction(ledger.artifact_history, owner, limit, cursor)
@@ -249,7 +234,6 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     async def link_work(cid: str, payload: WorkAssociation, request: Request):
         mutate(request)
         owner = await owner_for(request)
-        enabled()
         if not re.fullmatch(ID, cid):
             raise HTTPException(404, "会话不存在")
         try:
