@@ -2,6 +2,7 @@
 
 import { ArrowUpRight, Send, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import { LoadingState, Spinner } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
 import GeneratedWorkCard from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
@@ -18,7 +19,7 @@ const examples = [
 /** Chat, timeline and composer render only; all business actions come from the workspace hook. */
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
-    messages, draft, setDraft, busy, error, loginRequired, loggedIn,
+    workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
     sessionReady, authReady, progress, activeTask, workPreviews, currentArtifactId,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
   } = workspace;
@@ -30,11 +31,14 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       <span className={styles.badge}>方案对话</span>
     </div>
     <div className={styles.conversation}>
-      {messages.length === 0 && <div className={styles.empty}>
+      {!sessionReady && <LoadingState inline className={styles.thinking}>正在恢复作品会话…</LoadingState>}
+      {sessionReady && messages.length === 0 && <div className={styles.empty}>
         <span className={styles.spark} aria-hidden="true"><Sparkles size={33} strokeWidth={1.5} /></span>
         <p className={styles.eyebrow}>从一个学习问题开始</p>
-        <h2>你想制作什么互动学习体验？</h2>
-        <p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p>
+        <h2>{workspaceScope === "general" ? "你想制作什么互动学习体验？" : "继续完善这件学习作品"}</h2>
+        <p>{workspaceScope === "general"
+          ? "描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。"
+          : "这件作品没有可恢复的独立对话记录，但已经保存的作品及版本仍可打开、预览和继续修改。"}</p>
         <div className={styles.examples}>
           {examples.map((example, i) => <Button key={example} variant="unstyled" onClick={() => {
             setDraft(example);
@@ -44,7 +48,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </Button>)}
         </div>
       </div>}
-      {messages.map((message, i) => <article key={i}
+      {sessionReady && messages.map((message, i) => <article key={i}
         className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}>
         <span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span>
         <div>
@@ -57,11 +61,16 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
             onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
         </div>
       </article>)}
-      {busy && (activeTask?.timeline?.length
-        ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms}
-            learningPlan={activeTask.learning_plan} publicBrief={activeTask.public_brief}
-            briefStreaming={activeTask.public_brief_state === "STREAMING"} active />
-        : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
+      {busy && <div className={styles.runningBlock}>
+        <div role="status" aria-live="polite" className={styles.thinking}>
+          <Spinner size="sm" tone="accent" />
+          <span>{progress || (activeTask ? "正在制作你的学习作品…" : "正在理解学习需求…")}</span>
+        </div>
+        {activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline}
+          elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
+          publicBrief={activeTask.public_brief}
+          briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
+      </div>}
       <div ref={end} />
     </div>
     <div className={styles.composerArea}>

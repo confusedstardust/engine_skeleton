@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { forgeApi, ApiError } from "../../lib/api-client";
 import { loadSavedWork } from "./practice-work-service";
 import type { WorkPreviewData } from "./work-inspector";
 import type { GeneratedWork } from "./generated-work-card";
 import { followBuildTask, type BuildTask } from "./live-progress";
-import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
+import { readPracticeSession, recoverPracticeSession, writePracticeSession, clearPracticeSession, extractWorkConversation, type PendingCreation } from "./practice-session";
 import { usePracticeLibrary } from "./use-practice-library";
 import type { PracticeMessage, ChatReply } from "./practice-types";
 
-export function usePracticeWorkspace() {
+export function usePracticeWorkspace(workspaceScope = "general") {
+  const router = useRouter();
   const [messages, setMessages] = useState<PracticeMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,21 +51,20 @@ export function usePracticeWorkspace() {
   }, []);
   useEffect(() => { if (messages.length || busy) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
 
-  // Restore this tab's authenticated conversation and private artifact references
-  // after SSO verification. HTML source is always fetched from owner-checked APIs.
+  // Each keyed work route has one restoration lifecycle. The owner-checked
+  // latest version is applied AFTER any cached HTML to avoid an async race
+  // that would otherwise overwrite the authoritative version with stale cache.
   useEffect(() => {
     if (!authReady) return;
     if (!sessionUserId) { setSessionReady(true); return; }
-    const savedId = new URL(window.location.href).searchParams.get("work");
-    // Different saved works have independent tab conversations; the work loader below
-    // still refreshes the authoritative current version on every deep link visit.
-    let mounted = true;
-    const snapshot = readPracticeSession(sessionUserId, savedId || "general");
+    let active = true;
+    const snapshot = recoverPracticeSession(sessionUserId, workspaceScope);
     void (async () => {
-      if (!snapshot) { if (mounted) setSessionReady(true); return; }
       const loaded: Record<string, WorkPreviewData> = {};
-      for (const record of snapshot.works) {
-        if (!mounted) break;
+      const records = snapshot?.works.filter(record =>
+        workspaceScope === "general" || record.workId === workspaceScope) ?? [];
+      for (const record of records) {
+        if (!active) return;
         try {
           const url = record.workId && record.currentVersionId &&
             record.savedArtifactId === record.artifactId
@@ -71,43 +72,63 @@ export function usePracticeWorkspace() {
             : `/nar-agent/artifacts/${record.artifactId}/index.html`;
           const blob = await forgeApi.blob(url);
           loaded[record.artifactId] = { ...record, html: await blob.text() };
-        } catch { /* Expired temporary sources are not added back to the preview list. */ }
+        } catch { /* Expired sources remain unavailable, never treated as another work. */ }
       }
-      if (!mounted) return;
-      setMessages(snapshot.messages);
+
+      let authoritativeId: string | null = null;
+      if (/^[a-f0-9]{32}$/.test(workspaceScope)) {
+        try {
+          const saved = await loadSavedWork(workspaceScope);
+          authoritativeId = saved.artifactId;
+          loaded[saved.artifactId] = saved;
+        } catch (err) {
+          if (active) setError(err instanceof Error ? err.message : "作品加载失败");
+        }
+      }
+      if (!active) return;
+      setMessages(snapshot?.messages ?? []);
       setWorkPreviews(loaded);
-      setCurrentArtifactId(snapshot.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
-      setSelectedArtifactId(snapshot.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      const current = authoritativeId ?? (
+        snapshot?.currentArtifactId && loaded[snapshot.currentArtifactId] ? snapshot.currentArtifactId : null);
+      const selected = authoritativeId ?? (
+        snapshot?.selectedArtifactId && loaded[snapshot.selectedArtifactId] ? snapshot.selectedArtifactId : null);
+      setCurrentArtifactId(current);
+      setSelectedArtifactId(selected);
       setSessionReady(true);
-      if (snapshot.pending) void resumePendingRun(snapshot.pending, loaded);
+      if (snapshot?.pending) void resumePendingRun(snapshot.pending, loaded);
     })();
-    return () => { mounted = false; };
-  }, [authReady, sessionUserId]);
+    return () => { active = false; };
+  }, [authReady, sessionUserId, workspaceScope]);
 
   useEffect(() => {
     if (!sessionReady || !sessionUserId) return;
-    const { searchParams } = new URL(window.location.href);
     writePracticeSession(sessionUserId, {
       messages,
       works: Object.values(workPreviews).map(record => ({ ...record, html: undefined })),
       currentArtifactId, selectedArtifactId, pending: pendingRun,
-    }, searchParams.get("work") || "general");
-  }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
+    }, workspaceScope);
+  }, [sessionReady, sessionUserId, workspaceScope, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);
 
 
+  // Legacy general sessions may contain works saved before per-work scoping existed.
+  // Only copy transcript pairs that carry an explicit artifact ID linked to the work.
   useEffect(() => {
-    // Deep link from the existing "我的作品" page; no local browser storage required.
-    const savedId = new URL(window.location.href).searchParams.get("work");
-    if (!savedId || !/^[a-f0-9]{32}$/.test(savedId)) return;
-    let active = true;
-    loadSavedWork(savedId).then(saved => {
-      if (!active) return;
-      setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
-      setCurrentArtifactId(saved.artifactId);
-      setSelectedArtifactId(saved.artifactId);
-    }).catch(err => { if (active) setError(err instanceof Error ? err.message : "作品加载失败"); });
-    return () => { active = false; };
-  }, []);
+    if (!sessionReady || !sessionUserId || workspaceScope !== "general") return;
+    const candidates = Object.values(workPreviews).filter(item => item.workId);
+    for (const item of candidates) {
+      if (!item.workId || readPracticeSession(sessionUserId, item.workId)) continue;
+      const relatedMessages = extractWorkConversation(messages, candidates, item.workId);
+      if (!relatedMessages.length) continue;
+      const works = candidates.filter(record => record.workId === item.workId);
+      writePracticeSession(sessionUserId, {
+        messages: relatedMessages,
+        works: works.map(record => ({ ...record, html: undefined })),
+        currentArtifactId: item.artifactId,
+        selectedArtifactId: item.artifactId,
+        pending: null,
+      }, item.workId);
+    }
+  }, [sessionReady, sessionUserId, workspaceScope, messages, workPreviews]);
 
   async function completeGeneratedWork(
     task: BuildTask, prompt: string, mode: "animation" | "html" | "edit",
@@ -233,19 +254,22 @@ export function usePracticeWorkspace() {
 
   function beginNewConversation() {
     if (busy) return;
+    // Starting a new conversation from a work must NOT erase that work's history.
+    if (workspaceScope !== "general") {
+      router.push("/practice/");
+      return;
+    }
     setMessages([]); setWorkPreviews({}); setPendingRun(null);
     setDraft(""); setError(""); setSelectedArtifactId(null);
     setCurrentArtifactId(null);
-    if (sessionUserId) clearPracticeSession(sessionUserId,
-      new URL(window.location.href).searchParams.get("work") || "general");
-    window.history.replaceState(window.history.state, "", window.location.pathname);
+    if (sessionUserId) clearPracticeSession(sessionUserId, "general");
     input.current?.focus();
   }
 
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
 
   return {
-    messages, draft, setDraft, busy, error, loginRequired, loggedIn, sessionUserId,
+    workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn, sessionUserId,
     sessionReady, authReady, progress, activeTask, workPreviews, selectedWork, publishWork,
     metadataWork, selectedArtifactId, setSelectedArtifactId, currentArtifactId, setCurrentArtifactId,
     end, input, savedWorkCount, send, beginNewConversation, savedCardWorkId,

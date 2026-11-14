@@ -8,3 +8,10 @@
 .navRecentItem span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .navEmpty{color:#8f897e;line-height:1.65;font-size:11px;padding:0 10px}
 
+
+.navRecentItem[aria-current="page"]{background:#f4e4c9;color:#9b2335;font-weight:600}
+.promo{position:relative;display:flex;flex-direction:column;min-height:110px;overflow:hidden;padding:16px 12px;border-radius:15px;background:#f0e2ca;color:#312a22;text-decoration:none}
+.promo strong{position:relative;z-index:1;font-size:14px;font-weight:500}
+.promo>span{position:relative;z-index:1;max-width:114px;margin-top:5px;color:#88684f;font-size:11px;line-height:1.8}
+.promo> :last-child{position:absolute;right:-9px;bottom:-8px;opacity:.6;pointer-events:none}
+.promo:hover{background:#eed9b7}

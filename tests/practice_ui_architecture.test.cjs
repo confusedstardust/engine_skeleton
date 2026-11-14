@@ -35,7 +35,7 @@ test("Single work service handles deep links, history and save/publish", () => {
   const service = read(practice + "practice-work-service.ts");
   const workspace = read(practice + "use-practice-workspace.ts");
   const library = read(practice + "use-practice-library.ts");
-  assert.match(workspace, /loadSavedWork\(savedId\)/);
+  assert.match(workspace, /loadSavedWork\(workspaceScope\)/);
   assert.match(library, /loadSavedWork\(workId, versionId\)/);
   assert.match(library, /persistArtifact\(work\)/);
   assert.match(library, /persistArtifact\(item, \{/);

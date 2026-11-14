@@ -9,7 +9,7 @@ const MIN_NAV = 180;
 const MAX_NAV = 284;
 const MIN_CHAT = 310;
 const MIN_PREVIEW = 370;
-const DEFAULT_NAV = 216;
+const DEFAULT_NAV = 204;
 const DEFAULT_CHAT_SHARE = 0.36;
 
 function bounded(value: number, low: number, high: number) {

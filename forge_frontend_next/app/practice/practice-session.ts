@@ -83,3 +83,63 @@ export function clearPracticeSession(owner: string, workspace = "general") {
   try { sessionStorage.removeItem(PREFIX + owner + ":" + workspace); }
   catch { /* No-op when private storage is disabled. */ }
 }
+
+/** Recover only the unambiguous user prompt + generated reply for this saved work.
+ * Do not assign unrelated general-chat turns to an arbitrary artifact. */
+export function extractWorkConversation(
+  messages: SessionMessage[],
+  works: Array<Pick<WorkPreviewData, "artifactId" | "workId">>,
+  workId: string,
+): SessionMessage[] {
+  const artifactIds = new Set(works.filter(w => w.workId === workId).map(w => w.artifactId));
+  const selected = new Set<number>();
+  messages.forEach((message, index) => {
+    if (!message.work || !artifactIds.has(message.work.artifactId)) return;
+    selected.add(index);
+    if (index > 0 && messages[index - 1].role === "user") selected.add(index - 1);
+  });
+  return [...selected].sort((a, b) => a - b).map(index => messages[index]);
+}
+
+/** Existing per-work snapshots always win. Legacy general state is read-only source. */
+export function recoverPracticeSession(owner: string, workspace: string): PracticeSession | null {
+  const saved = readPracticeSession(owner, workspace);
+  if (workspace === "general") return saved;
+  if (saved) {
+    const matching = saved.works.filter(work => work.workId === workspace);
+    const containsForeignWork = saved.works.some(work => work.workId !== workspace);
+    const matchingArtifacts = new Set(matching.map(work => work.artifactId));
+    const containsForeignResult = saved.messages.some(message =>
+      message.work && !matchingArtifacts.has(message.work.artifactId));
+    if (matching.length && !containsForeignWork && !containsForeignResult) return saved;
+    if (matching.length) {
+      // Older SPA navigation could persist work A in B's session bucket.
+      // Keep only generated turns that can be attributed to B.
+      const messages = extractWorkConversation(saved.messages, saved.works, workspace);
+      return {
+        messages, works: matching,
+        currentArtifactId: matching.some(w => w.artifactId === saved.currentArtifactId)
+          ? saved.currentArtifactId : matching[matching.length - 1]?.artifactId ?? null,
+        selectedArtifactId: matching.some(w => w.artifactId === saved.selectedArtifactId)
+          ? saved.selectedArtifactId : matching[matching.length - 1]?.artifactId ?? null,
+        pending: null,
+      };
+    }
+    if (!saved.works.length && saved.messages.every(m => !m.work)) return saved;
+    // Every referenced work belongs to another ID: don't show it as this work.
+  }
+  const general = readPracticeSession(owner, "general");
+  if (!general) return null;
+  const messages = extractWorkConversation(general.messages, general.works, workspace);
+  if (!messages.length) return null;
+  const works = general.works.filter(work => work.workId === workspace);
+  return {
+    messages,
+    works,
+    currentArtifactId: works.some(w => w.artifactId === general.currentArtifactId)
+      ? general.currentArtifactId : works[works.length - 1]?.artifactId ?? null,
+    selectedArtifactId: works.some(w => w.artifactId === general.selectedArtifactId)
+      ? general.selectedArtifactId : works[works.length - 1]?.artifactId ?? null,
+    pending: null,
+  };
+}

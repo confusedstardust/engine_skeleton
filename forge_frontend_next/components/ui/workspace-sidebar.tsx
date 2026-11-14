@@ -32,6 +32,7 @@ export function WorkspaceSidebar({
   links,
   action,
   children,
+  promo,
   footer,
   ariaLabel = "工作台导航",
 }: {
@@ -43,6 +44,7 @@ export function WorkspaceSidebar({
   links: WorkspaceNavLink[];
   action?: SidebarAction;
   children?: ReactNode;
+  promo?: ReactNode;
   footer?: ReactNode;
   ariaLabel?: string;
 }) {
@@ -78,6 +80,7 @@ export function WorkspaceSidebar({
       </Button>
     </div>}
     {children && <div className={styles.extra}>{children}</div>}
+    {promo && <div className={styles.promo}>{promo}</div>}
     {footer && <div className={styles.footer}>{footer}</div>}
   </aside>;
 }
