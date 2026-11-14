@@ -30,7 +30,7 @@ export function usePracticeWorkspace() {
     workPreviews, setWorkPreviews, setMessages, loggedIn, busy, setError,
     setSelectedArtifactId, setCurrentArtifactId,
   });
-  const { publishArtifactId, metadataArtifactId, revokeArtifactId } = library;
+  const { publishArtifactId, metadataArtifactId } = library;
   const selectedWork = selectedArtifactId ? workPreviews[selectedArtifactId] : undefined;
   const publishWork = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
   const metadataWork = metadataArtifactId ? workPreviews[metadataArtifactId] : undefined;
