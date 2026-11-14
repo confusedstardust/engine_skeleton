@@ -40,7 +40,6 @@ export async function followBuildTask(
     let channel: EventSource | null = null;
     let polling = false;
     let lastEventAt = Date.now();
-    let lastState: BuildTask | null = null;
     let lastConnectAttempt = 0;
     let fallback = false;
 
@@ -64,7 +63,6 @@ export async function followBuildTask(
     const accept = (task: BuildTask) => {
       if (settled || !task || task.id !== identifier || typeof task.status !== "string") return;
       lastEventAt = Date.now();
-      lastState = task;
       if (!isMounted()) { fail(new Error("页面已关闭")); return; }
       onUpdate(task);
       if (task.status !== "RUNNING") finish(task);
@@ -74,7 +72,7 @@ export async function followBuildTask(
       polling = true;
       try {
         accept(await forgeApi<BuildTask>(statusPath));
-      } catch (error) {
+      } catch {
         // Temporary connection errors must not mark the background model failed.
         if (!channel || channel.readyState === EventSource.CLOSED) {
           // Continue retrying: the final status remains the source of truth.
@@ -131,7 +129,6 @@ export async function followBuildTask(
       if (fallback || !channel || quiet > 18000) void poll();
       if ((!channel || channel.readyState === EventSource.CLOSED) &&
           Date.now() - lastConnectAttempt > 12000) connect();
-      void lastState; // A snapshot can arrive before the watchdog starts.
     }, 2000);
 
     connect();
