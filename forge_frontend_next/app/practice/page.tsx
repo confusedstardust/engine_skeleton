@@ -14,11 +14,11 @@ import WorkInspector, { type WorkPreviewData } from "./work-inspector";
 import GeneratedWorkCard, { type GeneratedWork } from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import CreationTimeline, { type TimelineEvent } from "./creation-timeline";
+import { followBuildTask, type BuildTask, type LearningPlan } from "./live-progress";
 import { readPracticeSession, writePracticeSession, clearPracticeSession, type PendingCreation } from "./practice-session";
 
-type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; work?: GeneratedWork };
+type Message = { role: "user" | "assistant"; content: string; timeline?: TimelineEvent[]; durationMs?: number; learningPlan?: LearningPlan; work?: GeneratedWork };
 type Reply = { id: string; output: string; duration_ms?: number };
-type BuildTask = { id: string; status: string; phase?: string; attempts?: number; output?: string; error?: string; artifact_id?: string; timeline?: TimelineEvent[]; elapsed_ms?: number; learning_plan?: { learning_goal: string; interaction_method: string; key_concepts: string[] } };
 const examples = ["把《赤壁赋》做成可以抽背的互动网页。", "生成一个适合初中生操作的串并联电路实验。", "设计一个知识闯关网页，答完题才能进入下一关。"];
 
 export default function PracticePage() {
@@ -355,26 +355,22 @@ export default function PracticePage() {
     setPendingRun(run);
     setMessages([...run.originalMessages, { role: "user", content: run.prompt }]);
     try {
-      let task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
-      latest = task; setActiveTask(task);
-      while (task.status === "RUNNING") {
-        if (Date.now() - run.startedAt > 930000) throw new Error("任务已经超过可恢复的等待时间，请重新尝试。");
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        if (!alive.current) return;
-        task = await forgeApi<BuildTask>(`/nar-agent/${run.endpoint}/${run.id}`);
-        latest = task; setActiveTask(task);
-      }
+      const task = await followBuildTask(
+        run.endpoint, run.id, run.startedAt,
+        snapshot => { latest = snapshot; setActiveTask(snapshot); },
+        () => alive.current,
+      );
       const generated = await completeGeneratedWork(
         task, run.prompt, run.mode, run.parentArtifactId || null,
         run.parentArtifactId ? loaded[run.parentArtifactId] : undefined,
       );
       setMessages([...run.originalMessages, { role: "user", content: run.prompt },
         { role: "assistant", content: task.output || "作品已经做好，可以打开预览并继续修改。",
-          timeline: task.timeline, durationMs: task.elapsed_ms, work: generated }]);
+          timeline: task.timeline, durationMs: task.elapsed_ms, learningPlan: task.learning_plan, work: generated }]);
     } catch (error) {
       setMessages([...run.originalMessages, { role: "user", content: run.prompt },
         { role: "assistant", content: "这次创作未能恢复或完成，你可以再次尝试。",
-          timeline: latest?.timeline, durationMs: latest?.elapsed_ms }]);
+          timeline: latest?.timeline, durationMs: latest?.elapsed_ms, learningPlan: latest?.learning_plan }]);
       setError(error instanceof Error ? error.message : "任务恢复失败，请重试");
       setDraft(run.prompt);
     } finally {
@@ -409,14 +405,12 @@ export default function PracticePage() {
           id: task.id, endpoint, mode, prompt, parentArtifactId: parentArtifact,
           originalMessages, startedAt: started,
         });
-        while (task.status === "RUNNING") {
-          if (Date.now() - started > 930000) throw new Error("等待超时，请联系管理员查看任务状态。");
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          if (!alive.current) return;
-          task = await forgeApi<BuildTask>(`/nar-agent/${endpoint}/${task.id}`);
-          lastTask = task; setActiveTask(task);
-          const phases: Record<string, string> = { DESIGNING: "正在理解学习需求", PLANNING: "正在规划学习交互", DRAFTING: "正在制作互动内容", BUILDING: "正在组装互动作品", CHECKING: "正在检查作品", FINALIZING: "正在整理作品" };
-          setProgress(phases[task.phase || ""] || "正在制作互动学习作品");
+        if (task.status === "RUNNING") {
+          task = await followBuildTask(
+            endpoint, task.id, started,
+            snapshot => { lastTask = snapshot; setActiveTask(snapshot); },
+            () => alive.current,
+          );
         }
         generatedWork = await completeGeneratedWork(task, prompt, mode, parentArtifact, currentWork);
         reply = { id: task.id, output: task.output || "作品已经做好，可以打开预览并继续修改。" };
@@ -425,11 +419,11 @@ export default function PracticePage() {
       });
       setMessages([...originalMessages, { role: "user", content: prompt }, {
         role: "assistant", content: reply.output, timeline: lastTask?.timeline,
-        durationMs: lastTask?.elapsed_ms, work: generatedWork,
+        durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan, work: generatedWork,
       }]);
     } catch (cause) {
       if (mode === "chat") setMessages(originalMessages);
-      else setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: "本次作品没有完成。你可以调整需求后再次尝试。", timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms }]);
+      else setMessages([...originalMessages, { role: "user", content: prompt }, { role: "assistant", content: "本次作品没有完成。你可以调整需求后再次尝试。", timeline: lastTask?.timeline, durationMs: lastTask?.elapsed_ms, learningPlan: lastTask?.learning_plan }]);
       setDraft(prompt);
       if (cause instanceof ApiError && cause.status === 401) { setLoginRequired(true); setLoggedIn(false); }
       setError(cause instanceof Error ? cause.message : "发送失败，请稍后重试。");
@@ -452,10 +446,10 @@ export default function PracticePage() {
         <div className={styles.chatHeader}><div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的教学网页。</span></div><span className={styles.badge}>方案对话</span></div>
         <div className={styles.conversation}>
           {messages.length === 0 && <div className={styles.empty}><span className={styles.spark} aria-hidden="true">✦</span><p className={styles.eyebrow}>从一个课堂问题开始</p><h2>你想制作什么<br />互动学习体验？</h2><p>描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。</p><div className={styles.examples}>{examples.map((example, i) => <button key={example} type="button" onClick={() => { setDraft(example); input.current?.focus(); }}><span>0{i + 1}</span>{example}<b aria-hidden="true">↗</b></button>)}</div></div>}
-          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
+          {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} learningPlan={message.learningPlan} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
               {message.work && <GeneratedWorkCard work={message.work} savedWorkId={savedCardWorkId(message.work)} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
             </div></article>)}
-          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
+          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
         </div>
         <div className={styles.composerArea}>

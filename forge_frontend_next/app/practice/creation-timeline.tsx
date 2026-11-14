@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import styles from "./practice.module.css";
+import type { LearningPlan } from "./live-progress";
 
 export type TimelineEvent = {
   id: string;
@@ -22,11 +23,12 @@ function formatDuration(ms: number) {
 
 /** Observable server stages, not a transcript of hidden model reasoning. */
 export default function CreationTimeline({
-  timeline, elapsedMs = 0, active = false,
+  timeline, elapsedMs = 0, active = false, learningPlan,
 }: {
   timeline: TimelineEvent[];
   elapsedMs?: number;
   active?: boolean;
+  learningPlan?: LearningPlan;
 }) {
   const [visible, setVisible] = useState(true);
   const [start, setStart] = useState(() => Date.now());
@@ -49,6 +51,12 @@ export default function CreationTimeline({
       <span className={styles.timelineElapsed}>用时 {elapsed}</span>
       <span aria-hidden="true">{visible ? "⌃" : "⌄"}</span>
     </button>
+    {visible && learningPlan && <div className={styles.learningPlan}>
+      <strong>本次教学设计</strong>
+      <p><b>学习目标</b>{learningPlan.learning_goal}</p>
+      <p><b>互动方式</b>{learningPlan.interaction_method}</p>
+      {learningPlan.key_concepts.length > 0 && <p><b>关键知识</b>{learningPlan.key_concepts.join(" · ")}</p>}
+    </div>}
     {visible && <ol className={styles.timelineList}>
       {timeline.map(event => <li key={event.id} className={styles.timelineItem}>
         <span aria-label={event.status === "completed" ? "已完成" : event.status === "failed" ? "已失败" : "进行中"} className={styles.timelineMarker}>

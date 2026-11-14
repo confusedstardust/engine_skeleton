@@ -105,3 +105,9 @@
 .versionPicker label{font-size:12px;font-weight:600;color:#52644d}
 .versionPicker select{font:inherit;border:1px solid #cedbc7;background:#fff;border-radius:7px;padding:7px 9px;color:#465b44;font-size:12px}
 .versionPicker p{font-size:11px;line-height:1.5;color:#8f6545;margin:0}
+
+/* Real-time public teaching choices, surfaced only after the model records them. */
+.learningPlan{padding:10px 12px;margin:12px 0 4px;background:#fff;border:1px solid #e3e8dd;border-radius:9px}
+.learningPlan>strong{display:block;font-size:12px;font-weight:650;color:#506a4b;margin-bottom:7px}
+.learningPlan p{margin:4px 0;font-size:12px;line-height:1.6;color:#506048;overflow-wrap:anywhere}
+.learningPlan b{display:inline-block;margin-right:10px;color:#87947b;font-weight:550}
