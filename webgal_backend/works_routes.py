@@ -35,6 +35,7 @@ class UpdateWorkInput(BaseModel):
     subject: str | None = Field(default=None, max_length=80)
     grade: str | None = Field(default=None, max_length=80)
     tags: list[str] | None = Field(default=None, max_length=8)
+    cover_variant: Literal["preview", "mobile"] | None = None
 
 
 class AddVersionInput(BaseModel):
@@ -143,6 +144,17 @@ def create_router(*, user_for_request, store: WorkStore | None = None, transport
             raise HTTPException(404, "作品不存在") from None
         except WorkConflictError:
             raise HTTPException(409, "作品当前版本已变化，请刷新后再试") from None
+
+    @router.get("/{work_id}/cover.png")
+    async def current_cover(work_id: str, request: Request):
+        owner = await owner_from(request)
+        try:
+            content = await run_in_threadpool(works.private_cover, owner, work_id)
+        except (FileNotFoundError, OSError, ValueError):
+            raise HTTPException(404, "封面不存在") from None
+        return Response(content, media_type="image/png", headers={
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        })
 
     @router.get("/{work_id}/assets/{version_id}/{filename}")
     async def asset(work_id: str, version_id: str, filename: str, request: Request):
