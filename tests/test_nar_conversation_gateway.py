@@ -73,7 +73,7 @@ class MemoryLedger:
 
     def get_detail(self, owner, cid):
         if self.owners.get(cid) != owner:
-            raise LookupError("Not found")
+            raise ConversationMissing("Not found")
         turn = self.get_turn(owner, cid, TID)
         return {"conversation": {"id": cid, "title": "测试会话", "activeAt": TODAY.isoformat()},
                 "messages": self.messages[cid], "nextBefore": None,
@@ -86,7 +86,7 @@ class MemoryLedger:
 
     def get_messages(self, owner, cid, before, limit):
         if self.owners.get(cid) != owner:
-            raise LookupError("Not found")
+            raise ConversationMissing("Not found")
         return {"items": self.messages.get(cid, []), "nextBefore": None}
 
     def artifact_history(self, owner, limit, cursor):
@@ -94,7 +94,7 @@ class MemoryLedger:
 
     def link_work(self, owner, cid, aid, wid):
         if self.owners.get(cid) != owner:
-            raise LookupError("Not found")
+            raise ConversationMissing("Not found")
 
 
 def make_client(monkeypatch, handler, store=None, user="teacher"):
