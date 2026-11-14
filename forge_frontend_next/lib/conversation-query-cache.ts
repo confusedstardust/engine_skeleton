@@ -56,13 +56,14 @@ export async function getConversationQuery<T>(
   }
   // Deduplicate concurrent navigation, sidebar, and mutation-driven fetches.
   if (entry?.pending) return entry.pending;
-  const request = fetcher().then(data => {
+  let request: Promise<T>;
+  request = fetcher().then((data): T => {
     const latest = entries.get(id) as CacheEntry<T> | undefined;
     // A mutation may have installed newer data while this read was in flight.
     if (latest?.pending !== request) return latest?.data ?? data;
     setConversationQuery(owner, key, data);
-    const written = entries.get(id) as CacheEntry<T>;
-    delete written.pending;
+    const written = entries.get(id) as CacheEntry<T> | undefined;
+    if (written?.pending === request) delete written.pending;
     // Bound memory without touching browser storage.
     if (entries.size > MAX_ENTRIES) {
       const victim = [...entries.entries()].find(([k, v]) =>
@@ -75,7 +76,7 @@ export async function getConversationQuery<T>(
     if (latest?.pending === request) delete latest.pending;
     throw error;
   });
-  entries.set(id, { ...entry, pending: request });
+  entries.set(id, { data: entry?.data, at: entry?.at ?? 0, pending: request });
   return request;
 }
 
