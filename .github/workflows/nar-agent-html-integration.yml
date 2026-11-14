@@ -14,6 +14,8 @@ on:
       - 'forge_frontend_next/app/history/**'
       - 'tests/test_works_routes.py'
       - 'forge_frontend_next/app/practice/**'
+      - 'webgal_backend/work_urls.py'
+      - 'tests/test_practice_public_page_route.cjs'
       - 'forge_frontend_next/next.config.mjs'
       - 'tests/test_nar_agent_gateway.py'
       - 'tests/test_practice_work_rewrites.cjs'
@@ -53,3 +55,7 @@ jobs:
         env:
           FORGE_BACKEND_URL: http://backend:8010
           NEXT_PUBLIC_BASE_PATH: /narrativeos
+      - run: node ../tests/test_practice_public_page_route.cjs
+        env:
+          NEXT_PUBLIC_BASE_PATH: /narrativeos
+          FORGE_BACKEND_URL: http://127.0.0.1:8010
