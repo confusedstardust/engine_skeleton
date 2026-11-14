@@ -11,12 +11,16 @@ export type GeneratedWork = {
 };
 
 export default function GeneratedWorkCard({
-  work, onOpen,
+  work, onOpen, savedWorkId,
 }: {
   work: GeneratedWork;
   onOpen: (id: string) => void;
+  savedWorkId?: string;
 }) {
-  const cover = withBasePath(`/api/forge/nar-agent/artifacts/${work.artifactId}/preview.png`);
+  // Durable cover for saved works, temporary NarAgent thumbnail for draft artifacts.
+  const cover = withBasePath(savedWorkId
+    ? `/api/forge/works/${savedWorkId}/cover.png`
+    : `/api/forge/nar-agent/artifacts/${work.artifactId}/preview.png`);
   return <button type="button" className={styles.generatedCard} onClick={() => onOpen(work.artifactId)}
     aria-label={`打开作品：${work.title}`}>
     <img alt="" src={cover} loading="lazy" />
