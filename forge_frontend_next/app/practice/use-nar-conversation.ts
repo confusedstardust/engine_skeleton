@@ -27,7 +27,13 @@ type Args = {
 };
 
 function uuid(): string {
-  return crypto.randomUUID().replaceAll("-", "");
+  // The development workbench also runs on HTTP. randomUUID() requires a
+  // secure context; getRandomValues() does not.
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  return Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
 }
 
 function terminal(status: string): boolean {
