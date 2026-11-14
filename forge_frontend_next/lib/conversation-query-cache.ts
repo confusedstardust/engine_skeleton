@@ -39,8 +39,10 @@ function notify(id: string) { listeners.get(id)?.forEach(listener => listener())
 
 export function setConversationQuery<T>(owner: string, key: string, data: T): void {
   const id = makeKey(owner, key);
-  const old = entries.get(id);
-  entries.set(id, { data, at: Date.now(), pending: old?.pending as Promise<T> | undefined });
+  // A local mutation supersedes any stale in-flight GET. Do not keep that
+  // request as the entry's owner, or its late response would overwrite the
+  // optimistic/current server-acknowledged UI state.
+  entries.set(id, { data, at: Date.now() });
   notify(id);
 }
 
