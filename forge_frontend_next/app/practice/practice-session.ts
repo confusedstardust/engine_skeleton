@@ -1,4 +1,5 @@
 import type { TimelineEvent } from "./creation-timeline";
+import type { LearningPlan } from "./live-progress";
 import type { GeneratedWork } from "./generated-work-card";
 import type { WorkPreviewData } from "./work-inspector";
 
@@ -11,6 +12,7 @@ export type SessionMessage = {
   content: string;
   timeline?: TimelineEvent[];
   durationMs?: number;
+  learningPlan?: LearningPlan;
   work?: GeneratedWork;
 };
 export type PendingCreation = {
