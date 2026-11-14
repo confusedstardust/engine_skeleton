@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from webgal_backend.nar_conversation_routes import create_router
+from webgal_backend.nar_conversation_store import ConversationMissing
 
 
 TODAY = datetime(2026, 11, 14, tzinfo=timezone.utc)
@@ -26,9 +27,9 @@ class MemoryLedger:
 
     def start_turn(self, owner, cid, req, prompt, mode, parent=None, create=False):
         if cid in self.owners and self.owners[cid] != owner:
-            raise LookupError("Wrong owner")
+            raise ConversationMissing("Wrong owner")
         if cid not in self.owners and not create:
-            raise LookupError("Missing")
+            raise ConversationMissing("Missing")
         self.owners[cid] = owner
         key = cid, req
         if key in self.requests:
@@ -67,7 +68,7 @@ class MemoryLedger:
 
     def get_turn(self, owner, cid, tid):
         if self.owners.get(cid) != owner:
-            raise LookupError("Not found")
+            raise ConversationMissing("Not found")
         return next(t for (key_cid, _), t in self.requests.items() if key_cid == cid)
 
     def get_detail(self, owner, cid):
@@ -166,8 +167,7 @@ def test_cross_user_reads_are_denied_and_status_requires_auth(monkeypatch):
     first = make_client(monkeypatch, lambda req: httpx.Response(200), store, user="teacher")
     other = make_client(monkeypatch, lambda req: httpx.Response(200), store, user="attacker")
     assert first.get("/nar-agent/conversations").status_code == 200
-    assert other.get("/nar-agent/conversations/" + CID).status_code == 503 or \
-           other.get("/nar-agent/conversations/" + CID).status_code == 404
+    assert other.get("/nar-agent/conversations/" + CID).status_code == 404
 
 
 def test_opt_in_flag_prevents_db_migration_requirement_on_old_sessions(monkeypatch):
