@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from webgal_backend.teacher_ecosystem import TeacherEcosystemError
-from webgal_backend.work_store import WorkStore
+from webgal_backend.work_store import WorkStore, WorkConflictError
 from webgal_backend.work_publication import create_router, create_public_router
 
 ACTION = {"X-NarAgent-Action": "chat"}
@@ -112,7 +112,7 @@ def test_publication_metadata_sync_and_race_guards(tmp_path):
     store = WorkStore(tmp_path)
     work = store.create("teacher-a", A, "html", "旧名字", "旧摘要", assets())
     pending = store.start_publication("teacher-a", work["id"])
-    with pytest.raises(Exception):
+    with pytest.raises(WorkConflictError):
         store.start_unpublish("teacher-a", work["id"])
     current = store.finish_publication(
         "teacher-a", work["id"], pending["pending_version_id"],
@@ -127,11 +127,11 @@ def test_publication_metadata_sync_and_race_guards(tmp_path):
     assert current["grade"] == "高中"
     assert current["tags"] == ["函数"]
     store.start_unpublish("teacher-a", work["id"])
-    with pytest.raises(Exception):
+    with pytest.raises(WorkConflictError):
         store.start_publication("teacher-a", work["id"])
     with pytest.raises(FileNotFoundError):
         store.public(work["id"])
     store.finish_unpublish("teacher-a", work["id"])
-    with pytest.raises(Exception):
+    with pytest.raises(WorkConflictError):
         store.finish_unpublish("teacher-a", work["id"])
 
