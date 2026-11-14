@@ -16,7 +16,7 @@ export function PracticeShell({ workspaceScope, conversationId }: { workspaceSco
   const workspace = usePracticeWorkspace(workspaceScope, conversationId);
   const {
     loggedIn, busy, sessionUserId, selectedWork, publishWork, metadataWork,
-    serverReady, serverChecked, serverRevision,
+    serverReady, serverChecked,
     setSelectedArtifactId, setCurrentArtifactId, input, beginNewConversation,
     savingArtifactId, setPublishArtifactId, setMetadataArtifactId, metadataBusy, metadataError, setMetadataError,
     setRevokeArtifactId, publicationBusy, publicationError, setPublicationError,
@@ -29,7 +29,7 @@ export function PracticeShell({ workspaceScope, conversationId }: { workspaceSco
       account={null} brandHref={null} returnHref="/" />
     <ResizableWorkspace userId={sessionUserId}
       navigation={({ collapsed, onToggle }) => <PracticeNavigation loggedIn={loggedIn} busy={busy}
-        serverReady={serverReady} serverChecked={serverChecked} serverRevision={serverRevision} activeConversationId={conversationId ?? null} collapsed={collapsed} onToggle={onToggle}
+        serverReady={serverReady} serverChecked={serverChecked} ownerId={sessionUserId} activeConversationId={conversationId ?? null} collapsed={collapsed} onToggle={onToggle}
         onNewConversation={beginNewConversation} />}
       chat={<PracticeChat workspace={workspace} />}
       inspector={selectedWork ? <WorkInspector work={selectedWork}
