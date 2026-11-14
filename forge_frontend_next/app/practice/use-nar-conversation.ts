@@ -66,6 +66,9 @@ export function useNarConversation({
   const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string } | null>(null);
   const alive = useRef(true);
   const previewRequest = useRef(0);
+  const previousConversation = useRef<string | undefined>(conversationId);
+  const currentConversation = useRef<string | undefined>(conversationId);
+  currentConversation.current = conversationId;
   const chatScroll = useRef<HTMLDivElement>(null);
   const skipScroll = useRef(false);
 
@@ -90,6 +93,23 @@ export function useNarConversation({
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
   }, [authReady, loggedIn, ownerId]);
+
+  // Route changes update only the active pane. Navigation/header/sidebar stay
+  // mounted in practice/layout.tsx; never leak work A's private state into B.
+  useEffect(() => {
+    if (previousConversation.current === conversationId) return;
+    previousConversation.current = conversationId;
+    previewRequest.current++;
+    setMessages([]); setWorkPreviews({});
+    setSelectedArtifactId(null); setCurrentArtifactId(null);
+    setActiveTurn(null); setActiveTask(null);
+    setArtifacts([]); setOlderCursor(null);
+    setConversationTitle(""); setError(""); setDraft("");
+    setBusy(false); setProgress("");
+    setSessionReady(false);
+  }, [conversationId, setMessages, setWorkPreviews, setSelectedArtifactId,
+      setCurrentArtifactId, setActiveTask, setError, setDraft, setBusy,
+      setProgress, setSessionReady]);
 
   const applyDetail = useCallback((detail: ConversationDetail) => {
     if (!alive.current) return;
@@ -265,6 +285,9 @@ export function useNarConversation({
         ? await conversationApi.turn(targetId, requestId, prompt, mode, parentArtifact)
         : await conversationApi.create(targetId, requestId, prompt, mode, parentArtifact);
       inFlight.current = null;
+      // Server request may complete after user clicked another conversation.
+      // Keep its DB changes, but never navigate/apply obsolete UI state.
+      if (currentConversation.current !== conversationId) return true;
       if (!conversationId) {
         // Prepare a minimal server-accepted snapshot for instant navigation.
         // The new route revalidates only this conversation in the background.
@@ -294,6 +317,7 @@ export function useNarConversation({
       if (terminal(result.turn.status) && result.turn.status !== "SUCCEEDED")
         setError(formatPracticeFailure(result.turn, result.task));
     } catch (e) {
+      if (currentConversation.current !== conversationId) return true;
       // Keep the same idempotency key if the POST may have reached the server.
       setDraft(prompt);
       setError(e instanceof Error ? e.message : "提交失败，重试会复用相同的请求标识。");
