@@ -462,7 +462,7 @@ export default function PracticePage() {
           {messages.map((message, i) => <article key={i} className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}><span className={styles.speaker}>{message.role === "user" ? "你" : "教学助手"}</span><div>{message.timeline?.length ? <CreationTimeline timeline={message.timeline} elapsedMs={message.durationMs} learningPlan={message.learningPlan} publicBrief={message.publicBrief} /> : null}{message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
               {message.work && <GeneratedWorkCard work={message.work} savedWorkId={savedCardWorkId(message.work)} onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
             </div></article>)}
-          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} publicBrief={activeTask.public_brief} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
+          {busy && (activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline} elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan} publicBrief={activeTask.public_brief} briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : <p role="status" className={styles.thinking}>{progress || "正在理解学习需求…"}</p>)}
           <div ref={end} />
         </div>
         <div className={styles.composerArea}>
