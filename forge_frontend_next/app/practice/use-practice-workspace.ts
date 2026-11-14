@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { forgeApi, ApiError } from "../../lib/api-client";
-import { workApi } from "../../lib/work-api";
+import { loadSavedWork } from "./practice-work-service";
 import type { WorkPreviewData } from "./work-inspector";
 import type { GeneratedWork } from "./generated-work-card";
 import { followBuildTask, type BuildTask } from "./live-progress";
@@ -100,21 +100,7 @@ export function usePracticeWorkspace() {
     const savedId = new URL(window.location.href).searchParams.get("work");
     if (!savedId || !/^[a-f0-9]{32}$/.test(savedId)) return;
     let active = true;
-    workApi.get(savedId).then(async ({ work }) => {
-      const version = work.versions.find(v => v.id === work.current_version_id);
-      if (!version) return;
-      const blob = await workApi.html(work.id, version.id);
-      if (!active) return;
-      const saved: WorkPreviewData = {
-        artifactId: version.artifact_id, html: await blob.text(), title: work.title,
-        kind: work.kind, version: version.version_number,
-        workId: work.id, savedArtifactId: version.artifact_id,
-        currentVersionId: version.id,
-        publicationStatus: work.publication_status, publicUrl: work.public_url,
-        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
-        coverVariant: work.cover_variant,
-        versions: work.versions, latestVersionId: work.current_version_id, isHistorical: false,
-      };
+    loadSavedWork(savedId).then(saved => {
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
       setCurrentArtifactId(saved.artifactId);
