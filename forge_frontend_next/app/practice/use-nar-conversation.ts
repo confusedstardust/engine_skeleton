@@ -234,10 +234,21 @@ export function useNarConversation({
       if (!alive.current) return;
       // Do not duplicate messages whose sequence range overlaps a refresh.
       const older = page.items.map(item => ({
-        role: item.role, content: item.content,
+        id: item.id, seq: item.seq, role: item.role, content: item.content,
         publicBrief: item.metadata?.publicBrief,
+        timeline: item.metadata?.timeline as PracticeMessage["timeline"],
+        learningPlan: item.metadata?.learningPlan as PracticeMessage["learningPlan"],
+        durationMs: item.metadata?.elapsedMs,
+        ...(artifacts.find(a => a.originMessageId === item.id)
+          ? { work: (() => {
+            const a = artifacts.find(a => a.originMessageId === item.id)!;
+            return { artifactId: a.artifactId, title: a.title, kind: a.kind, version: 1 };
+          })() } : {}),
       } as PracticeMessage));
-      setMessages(current => [...older, ...current]);
+      setMessages(current => {
+        const known = new Set(current.map(m => m.id).filter(Boolean));
+        return [...older.filter(item => !known.has(item.id)), ...current];
+      });
       setOlderCursor(page.nextBefore);
       requestAnimationFrame(() => {
         if (node) node.scrollTop += node.scrollHeight - previousHeight;
