@@ -222,8 +222,15 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                                      "learningPlan": task.get("learning_plan"),
                                      "elapsedMs": task.get("elapsed_ms")})
             else:
+                safe_error = task.get("error")
+                if not isinstance(safe_error, str) or not safe_error.strip():
+                    safe_error = "任务执行失败，请查看错误码并联系维护人员排查。"
+                safe_code = str(task.get("error_code") or "GENERATION_FAILED")[:80]
+                safe_phase = task.get("phase")
+                safe_phase = safe_phase if isinstance(safe_phase, str) else None
                 result = await transaction(ledger.fail_turn, owner, cid, tid,
-                             str(task.get("error_code") or "GENERATION_FAILED")[:80])
+                    safe_code, public_error=safe_error,
+                    phase=safe_phase)
             return {"turn": result, "task": task}
         return {"turn": turn, "task": task}
 
