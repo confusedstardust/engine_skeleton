@@ -22,23 +22,29 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
     sessionReady, authReady, progress, activeTask, workPreviews, currentArtifactId,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
+    serverEnabled, serverChecked, conversationId, conversationTitle,
+    olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
   } = workspace;
-  const canSubmit = Boolean(!busy && authReady && sessionReady && loggedIn && draft.trim());
+  const canSubmit = Boolean(!busy && authReady && sessionReady && serverChecked && loggedIn && (!conversationId || serverEnabled) && draft.trim());
 
   return <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
     <div className={styles.chatHeader}>
-      <div><strong>互动学习创作</strong><span>用自然语言制作可操作、可修改的学习体验。</span></div>
+      <div><strong>{conversationTitle || "互动学习创作"}</strong><span>用自然语言制作可操作、可修改的学习体验。</span></div>
       <span className={styles.badge}>方案对话</span>
     </div>
-    <div className={styles.conversation}>
+    <div className={styles.conversation} ref={chatScroll}>
+      {conversationId && olderCursor !== null && <div className={styles.olderHistory}>
+        <Button variant="ghost" size="sm" onClick={() => { void loadOlder(); }}
+          disabled={loadingOlder}>{loadingOlder ? "加载中…" : "查看更早的消息"}</Button>
+      </div>}
       {!sessionReady && <LoadingState inline className={styles.thinking}>正在恢复作品会话…</LoadingState>}
       {sessionReady && messages.length === 0 && <div className={styles.empty}>
         <span className={styles.spark} aria-hidden="true"><Sparkles size={33} strokeWidth={1.5} /></span>
         <p className={styles.eyebrow}>从一个学习问题开始</p>
-        <h2>{workspaceScope === "general" ? "你想制作什么互动学习体验？" : "继续完善这件学习作品"}</h2>
+        <h2>{workspaceScope === "general" ? "你想制作什么互动学习体验？" : "继续这次学习创作"}</h2>
         <p>{workspaceScope === "general"
           ? "描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。"
-          : "这件作品没有可恢复的独立对话记录，但已经保存的作品及版本仍可打开、预览和继续修改。"}</p>
+          : conversationId ? "这个会话还没有消息，你可以开始创作。" : "这件作品没有可恢复的独立对话记录，但已经保存的作品及版本仍可打开、预览和继续修改。"}</p>
         <div className={styles.examples}>
           {examples.map((example, i) => <Button key={example} variant="unstyled" onClick={() => {
             setDraft(example);
@@ -58,7 +64,10 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           {message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
           {message.work && <GeneratedWorkCard work={message.work}
             savedWorkId={savedCardWorkId(message.work)}
-            onOpen={id => { setSelectedArtifactId(id); setCurrentArtifactId(id); }} />}
+            onOpen={id => {
+              if (conversationId) void openArtifact(id);
+              else { setSelectedArtifactId(id); setCurrentArtifactId(id); }
+            }} />}
         </div>
       </article>)}
       {busy && <div className={styles.runningBlock}>
@@ -104,3 +113,4 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     </div>
   </section>;
 }
+
