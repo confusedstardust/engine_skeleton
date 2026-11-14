@@ -299,22 +299,49 @@ class NarConversationStore:
                 raise ConversationMissing("Artifact not in conversation")
 
     def artifact_history(self, owner: str, limit: int = 30, cursor: str | None = None) -> dict:
-        position = _decode_cursor(cursor, 3)
+        """One artifact row per identifier with all owner-verified conversation sources."""
+        position = _decode_cursor(cursor, 2)
         with self._transaction() as db:
-            q = ("SELECT a.*,c.title AS session_title FROM nar_conversation_artifacts a "
-                 "JOIN nar_conversations c ON c.id=a.conversation_id WHERE c.owner_id=%s")
+            # Page unique artifacts, not association rows: a single artifact can
+            # be produced/referenced in several conversations.
+            q = ("SELECT a.artifact_id, MAX(a.created_at) AS latest_at "
+                 "FROM nar_conversation_artifacts a "
+                 "JOIN nar_conversations c ON c.id=a.conversation_id "
+                 "WHERE c.owner_id=%s GROUP BY a.artifact_id")
             params: list[Any] = [owner]
             if position:
-                q += " AND (a.created_at,a.artifact_id,a.conversation_id)<(%s,%s,%s)"
+                q += " HAVING (MAX(a.created_at),a.artifact_id)<(%s,%s)"
                 params.extend(position)
-            q += " ORDER BY a.created_at DESC,a.artifact_id DESC,a.conversation_id DESC LIMIT %s"
+            q += " ORDER BY latest_at DESC,a.artifact_id DESC LIMIT %s"
             params.append(limit + 1)
             db.execute(q, tuple(params))
-            rows = list(db.fetchall())
-        more = len(rows) > limit
-        rows = rows[:limit]
-        return {"items": [{**_artifact(row), "sources": [
-                    {"conversationId": row["conversation_id"], "title": row["session_title"]}]}
-                  for row in rows],
-                "nextCursor": _encode_cursor(rows[-1], "created_at", "artifact_id", "conversation_id")
-                if rows and more else None}
+            page = list(db.fetchall())
+            more = len(page) > limit
+            page = page[:limit]
+            if not page:
+                return {"items": [], "nextCursor": None}
+            placeholders = ",".join(["%s"] * len(page))
+            db.execute(
+                "SELECT a.*,c.title AS session_title "
+                "FROM nar_conversation_artifacts a "
+                "JOIN nar_conversations c ON c.id=a.conversation_id "
+                "WHERE c.owner_id=%s AND a.artifact_id IN (" + placeholders + ") "
+                "ORDER BY a.created_at DESC,a.conversation_id DESC",
+                (owner, *(p["artifact_id"] for p in page)),
+            )
+            sources = list(db.fetchall())
+        grouped: dict[str, dict] = {}
+        for row in sources:
+            artifact = grouped.get(row["artifact_id"])
+            if not artifact:
+                artifact = {**_artifact(row), "sources": []}
+                grouped[row["artifact_id"]] = artifact
+            artifact["sources"].append({
+                "conversationId": row["conversation_id"],
+                "title": row["session_title"],
+            })
+        cursor_row = {"created_at": page[-1]["latest_at"],
+                      "artifact_id": page[-1]["artifact_id"]}
+        return {"items": [grouped[p["artifact_id"]] for p in page],
+                "nextCursor": _encode_cursor(cursor_row, "created_at", "artifact_id")
+                if more else None}
