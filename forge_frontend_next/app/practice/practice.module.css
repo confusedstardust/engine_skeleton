@@ -19,14 +19,6 @@
 .markdownTableWrap th,.markdownTableWrap td{border:1px solid #e1e6d9;padding:7px 9px;text-align:left;white-space:normal}
 .markdownTableWrap th{background:#f1f4eb;font-weight:600}
 
-/* Generated artifacts remain in their respective messages, not as a global last preview. */
-.generatedCard{width:min(100%,430px);display:flex;gap:12px;align-items:center;margin:15px 0 5px;padding:8px;background:#fff;border:1px solid #e1e7d8;border-radius:13px;text-align:left;color:#344032;cursor:pointer;transition:border-color .2s,box-shadow .2s;font:inherit}
-.generatedCard:hover,.generatedCard:focus-visible{border-color:#a6b997;box-shadow:0 4px 14px #52664718;outline-offset:3px}
-.generatedCard img{width:110px;height:78px;object-fit:cover;border-radius:8px;background:#edf1e8;border:1px solid #e8ebdf}
-.generatedCardContent{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
-.generatedCardContent strong{font-size:13px;line-height:1.45;font-weight:600;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-.generatedCardContent small{font-size:11px;color:#87907c}
-.generatedCardContent>span{font-size:12px;color:#596f50;font-weight:550}
 .layoutWithInspector{grid-template-columns:210px minmax(0,1fr) minmax(330px,430px);gap:14px;max-width:1600px}
 .layoutWithInspector .conversation{padding:22px 22px}
 .inspector{height:calc(100dvh - 110px);min-height:580px;display:flex;flex-direction:column;border:1px solid #e3e2d8;background:#fffefa;border-radius:20px;overflow:hidden;box-shadow:0 12px 50px #343b2610}
@@ -44,7 +36,7 @@
 .inspectorActions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .inspectorFuture{font-size:11px;color:#92998e;line-height:1.55}
 @media(max-width:1180px){.layoutWithInspector{grid-template-columns:210px minmax(0,1fr)}.inspector{position:fixed;right:12px;top:70px;bottom:12px;height:auto;min-height:0;width:min(465px,calc(100vw - 24px));z-index:60;box-shadow:0 18px 85px #29332642}}
-@media(max-width:760px){.layoutWithInspector{grid-template-columns:1fr}.inspector{top:8px;bottom:8px;right:8px;left:8px;width:auto;border-radius:15px}.previewCompact iframe{height:45dvh}.generatedCard img{width:90px;height:70px}}
+@media(max-width:760px){.layoutWithInspector{grid-template-columns:1fr}.inspector{top:8px;bottom:8px;right:8px;left:8px;width:auto;border-radius:15px}.previewCompact iframe{height:45dvh}}
 
 .inspectorSavedLink{display:inline-flex;align-items:center;font-size:12px;color:#557849;text-decoration:underline;text-underline-offset:3px;padding:8px 2px}
 .inspectorSavedLink:hover{color:#2e5932}
@@ -146,4 +138,3 @@
 }
 @media(prefers-reduced-motion:reduce){.resizeHandle::before{transition:none}}
 
-.generatedCardContent>span:last-child{display:inline-flex;align-items:center;gap:5px}
