@@ -3,7 +3,7 @@
 import { withBasePath } from "../base-path";
 import { Button } from "../../components/ui/button";
 import { ArrowUpRight } from "lucide-react";
-import styles from "./practice.module.css";
+import styles from "./generated-work-card.module.css";
 
 export type GeneratedWork = {
   artifactId: string;
