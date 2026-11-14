@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import styles from "./practice.module.css";
+import styles from "./creation-timeline.module.css";
 import type { LearningPlan } from "./live-progress";
 
 export type TimelineEvent = {
