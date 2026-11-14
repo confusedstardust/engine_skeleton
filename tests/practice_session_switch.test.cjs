@@ -66,6 +66,20 @@ test("authoritative work session wins over legacy reconstruction", () => {
   assert.ok(s.readPracticeSession("owner", A.workId));
 });
 
+test("repairs a legacy work B cache contaminated by work A", () => {
+  const s = sessionModule();
+  const A = item("a", "6".repeat(32));
+  const B = item("b", "7".repeat(32));
+  s.writePracticeSession("owner", snapshot([
+    user("create A"), generated("result A", A.artifactId),
+    user("create B"), generated("result B", B.artifactId),
+  ], [A, B]), B.workId);
+  const BSession = s.recoverPracticeSession("owner", B.workId);
+  assert.deepEqual(Array.from(BSession.messages, m => m.content), ["create B", "result B"]);
+  assert.deepEqual(Array.from(BSession.works, w => w.workId), [B.workId]);
+  assert.equal(BSession.pending, null);
+});
+
 test("does not invent old messages when saved work has no traceable transcript", () => {
   const s = sessionModule();
   const A = item("a", "4".repeat(32));
