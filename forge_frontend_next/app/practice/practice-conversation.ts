@@ -30,7 +30,8 @@ export async function previewConversationArtifact(artifact: ConversationArtifact
   if (artifact.workId) {
     const { work } = await workApi.get(artifact.workId);
     const matching = work.versions.find(v => v.artifact_id === artifact.artifactId);
-    return loadSavedWork(artifact.workId, matching?.id);
+    if (!matching) throw new Error("目标产物版本不属于这件已保存作品");
+    return loadSavedWork(artifact.workId, matching.id);
   }
   const blob = await forgeApi.blob("/nar-agent/artifacts/" + artifact.artifactId + "/index.html");
   return {
