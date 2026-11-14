@@ -135,3 +135,27 @@ def test_publication_metadata_sync_and_race_guards(tmp_path):
     with pytest.raises(WorkConflictError):
         store.finish_unpublish("teacher-a", work["id"])
 
+
+
+def test_cover_choice_is_pinned_to_published_version(tmp_path):
+    store = WorkStore(tmp_path)
+    work = store.create("teacher-a", A, "html", "可交互函数", "简介", assets())
+    assert store.private_cover("teacher-a", work["id"]) == b"png"
+    store.update("teacher-a", work["id"], cover_variant="mobile")
+    assert store.private_cover("teacher-a", work["id"]) == b"mobile"
+    with pytest.raises(FileNotFoundError):
+        store.private_cover("teacher-b", work["id"])
+    pending = store.start_publication("teacher-a", work["id"])
+    store.finish_publication(
+        "teacher-a", work["id"], pending["pending_version_id"],
+        "https://example.com/work",
+        {"title": "可交互函数", "summary": "简介", "subject": "数学", "grade": "高中", "tags": []},
+    )
+    assert store.public_cover(work["id"]) == b"mobile"
+    store.update("teacher-a", work["id"], cover_variant="preview")
+    assert store.private_cover("teacher-a", work["id"]) == b"png"
+    assert store.public_cover(work["id"]) == b"mobile"  # No silent change to public cover.
+    store.start_unpublish("teacher-a", work["id"])
+    with pytest.raises(FileNotFoundError):
+        store.public_cover(work["id"])
+
