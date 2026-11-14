@@ -9,7 +9,6 @@ import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
 import { WorkspaceSidebar } from "../../components/ui/workspace-sidebar";
 import { conversationApi, type ConversationSummary, type ConversationArtifact } from "../../lib/conversation-api";
-import { workApi, type SavedWork } from "../../lib/work-api";
 import styles from "./practice.module.css";
 import navStyles from "./practice-navigation.module.css";
 
@@ -17,22 +16,19 @@ type View = "conversations" | "artifacts";
 
 /** Portal-style shell; history queries return only summaries, never HTML/body. */
 export default function PracticeNavigation({
-  loggedIn, busy, refreshKey, serverRevision, serverEnabled, serverChecked,
-  activeWorkId, activeConversationId, collapsed, onToggle, onNewConversation,
+  loggedIn, busy, serverRevision, serverReady, serverChecked,
+  activeConversationId, collapsed, onToggle, onNewConversation,
 }: {
   loggedIn: boolean;
   busy: boolean;
-  refreshKey: number;
   serverRevision: number;
-  serverEnabled: boolean;
+  serverReady: boolean;
   serverChecked: boolean;
-  activeWorkId: string | null;
   activeConversationId: string | null;
   collapsed: boolean;
   onToggle: () => void;
   onNewConversation: () => void;
 }) {
-  const [recent, setRecent] = useState<SavedWork[]>([]);
   const [view, setView] = useState<View>("conversations");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [artifacts, setArtifacts] = useState<ConversationArtifact[]>([]);
@@ -48,29 +44,24 @@ export default function PracticeNavigation({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!loggedIn || !serverChecked) {
-      setRecent([]); setConversations([]); setArtifacts([]);
+    if (!loggedIn || !serverChecked || !serverReady) {
+      setConversations([]); setArtifacts([]);
       return;
     }
     let active = true;
-    if (serverEnabled) {
-      setLoading(true);
-      void conversationApi.list().then(data => {
-        if (!active) return;
-        setConversations(data.items);
-        setNextConversations(data.nextCursor);
-      }).catch(() => { if (active) setError("会话列表暂时不可用"); })
-        .finally(() => { if (active) setLoading(false); });
-    } else {
-      void workApi.list().then(({ works }) => {
-        if (active) setRecent(works.slice(0, 5));
-      }).catch(() => { /* Works are accessible through the history route. */ });
-    }
+    setLoading(true);
+    void conversationApi.list().then(data => {
+      if (!active) return;
+      setConversations(data.items);
+      setNextConversations(data.nextCursor);
+      setError("");
+    }).catch(() => { if (active) setError("会话列表暂时不可用"); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [loggedIn, serverChecked, serverEnabled, refreshKey, serverRevision, focusEpoch]);
+  }, [loggedIn, serverChecked, serverReady, serverRevision, focusEpoch]);
 
   useEffect(() => {
-    if (!loggedIn || !serverEnabled || view !== "artifacts") return;
+    if (!loggedIn || !serverReady || view !== "artifacts") return;
     let active = true;
     setLoading(true);
     void conversationApi.artifacts().then(data => {
@@ -79,7 +70,7 @@ export default function PracticeNavigation({
     }).catch(() => { if (active) setError("产物列表暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [loggedIn, serverEnabled, view, serverRevision, focusEpoch]);
+  }, [loggedIn, serverReady, view, serverRevision, focusEpoch]);
 
   async function more() {
     if (loading) return;
@@ -118,8 +109,8 @@ export default function PracticeNavigation({
       <BrandLogo size={64} rounded={false} />
     </a>}
     footer={<AccountMenu />}>
-    <section className={navStyles.navRecents} aria-label={serverEnabled ? "历史记录" : "最近作品"}>
-      {serverEnabled ? <>
+    <section className={navStyles.navRecents} aria-label="历史会话和产物">
+      {loggedIn && serverReady ? <>
         <div className={navStyles.historyTabs} role="tablist" aria-label="历史分类">
           <Button variant="unstyled" role="tab" aria-selected={view === "conversations"}
             onClick={() => setView("conversations")}>对话</Button>
@@ -147,17 +138,11 @@ export default function PracticeNavigation({
         {error && <p className={navStyles.navEmpty} role="alert">{error}</p>}
         {(view === "conversations" ? nextConversations : nextArtifacts) &&
           <Button variant="ghost" size="sm" disabled={loading} onClick={() => { void more(); }}>加载更多</Button>}
-      </> : <>
-        <p className={navStyles.navSectionLabel}>最近作品</p>
-        {recent.length ? recent.map(work =>
-          <Link key={work.id} href={"/practice/?work=" + encodeURIComponent(work.id)}
-            className={navStyles.navRecentItem}
-            aria-current={activeWorkId === work.id ? "page" : undefined} title={work.title}>
-            <BookOpen size={17} strokeWidth={1.65} aria-hidden="true" />
-            <span>{work.title}</span>
-          </Link>,
-        ) : <p className={navStyles.navEmpty}>保存作品后，会在这里快速找到它们。</p>}
-      </>}
+      </> : <p className={navStyles.navEmpty}>
+        {!loggedIn ? "请先登录以查看历史对话。" :
+          !serverChecked ? "正在检查会话数据库…" :
+          "会话数据库尚未完成迁移。已保存作品仍可从「我的作品」打开。"}
+      </p>}
     </section>
   </WorkspaceSidebar>;
 }
