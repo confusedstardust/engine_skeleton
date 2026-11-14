@@ -172,7 +172,25 @@ def test_cross_user_reads_are_denied_and_status_requires_auth(monkeypatch):
 def test_authenticated_status_reports_database_readiness_not_environment_flag(monkeypatch):
     store = MemoryLedger()
     c = make_client(monkeypatch, lambda req: httpx.Response(200), store)
-    monkeypatch.delenv("NAR_CONVERSATIONS_ENABLED", raising=False)
     assert c.get("/nar-agent/conversations/status").json() == {"ready": True}
     assert c.get("/nar-agent/conversations").status_code == 200
     assert store.ready_calls == 1
+
+
+def test_missing_migration_is_explicit_http_503_not_a_browser_fallback(monkeypatch):
+    store = MemoryLedger()
+    store.ready = lambda: False
+    c = make_client(monkeypatch, lambda req: httpx.Response(200), store)
+    result = c.get("/nar-agent/conversations/status")
+    assert result.status_code == 503
+    assert "002_nar_conversation_history.sql" in result.json()["detail"]
+
+
+def test_anonymous_or_invite_login_cannot_read_chat_history(monkeypatch):
+    app = FastAPI()
+    app.include_router(create_router(user_for_request=lambda _: {"id": "invite", "auth_type": "invite"},
+                                    store=MemoryLedger()))
+    client = TestClient(app)
+    assert client.get("/nar-agent/conversations/status").status_code == 401
+    assert client.get("/nar-agent/conversations").status_code == 401
+    assert client.get("/nar-agent/conversations/" + CID).status_code == 401
