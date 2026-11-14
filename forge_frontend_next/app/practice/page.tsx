@@ -124,6 +124,7 @@ export default function PracticePage() {
         workId: work.id, savedArtifactId: version.artifact_id,
         currentVersionId: version.id,
         publicationStatus: work.publication_status, publicUrl: work.public_url,
+        summary: work.summary, subject: work.subject, grade: work.grade, tags: work.tags,
       };
       if (!active) return;
       setWorkPreviews(previous => ({ ...previous, [saved.artifactId]: saved }));
@@ -151,6 +152,7 @@ export default function PracticePage() {
           savedArtifactId: artifactId, currentVersionId: version.id,
           version: version.version_number,
           publicationStatus: saved.publication_status, publicUrl: saved.public_url,
+          summary: saved.summary, subject: saved.subject, grade: saved.grade, tags: saved.tags,
         },
       }));
     } catch (err) {
@@ -198,6 +200,7 @@ export default function PracticePage() {
         [item.artifactId]: {
           ...previous[item.artifactId], workId, title: payload.title,
           publicationStatus: "published", publicUrl: result.public_url,
+          summary: payload.summary, subject: payload.subject, grade: payload.grade, tags: payload.tags,
         },
       }));
       setPublishArtifactId(null);
@@ -271,6 +274,10 @@ export default function PracticePage() {
       currentVersionId: parentArtifact ? original?.currentVersionId : undefined,
       expectedParentArtifactId: parentArtifact || undefined,
       publicationStatus: parentArtifact ? original?.publicationStatus : "draft",
+      summary: parentArtifact ? original?.summary : undefined,
+      subject: parentArtifact ? original?.subject : undefined,
+      grade: parentArtifact ? original?.grade : undefined,
+      tags: parentArtifact ? original?.tags : undefined,
       publicUrl: parentArtifact ? original?.publicUrl : null,
     };
     setWorkPreviews(previous => ({ ...previous, [work.artifactId]: work }));
