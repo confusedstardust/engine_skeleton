@@ -48,6 +48,7 @@ async def stream_public_brief(settings, prompt: str, state: dict, *, model=None)
             streaming=True,
         )
     state["public_brief"] = ""
+    state["public_brief_state"] = "STREAMING"
     async for piece in model.astream([
         SystemMessage(content=BRIEF_SYSTEM_PROMPT),
         HumanMessage(content=prompt[:12000]),
