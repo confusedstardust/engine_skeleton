@@ -99,3 +99,9 @@
 .coverOptions img{display:block;width:124px;height:76px;border-radius:6px;object-fit:cover;background:#eef0e8}
 .publishDialog .coverOptions input{position:absolute;top:10px;left:10px;width:auto;accent-color:#729269}
 .publishDialog .coverOptions label:has(input:checked){border-color:#779d70;box-shadow:0 0 0 2px #8cad7a24}
+
+/* Immutable version history: older builds are preview-only, never silently republished. */
+.versionPicker{display:flex;flex-direction:column;gap:7px;padding:10px 12px;margin-bottom:13px;background:#f6f7f1;border:1px solid #e0e8da;border-radius:10px}
+.versionPicker label{font-size:12px;font-weight:600;color:#52644d}
+.versionPicker select{font:inherit;border:1px solid #cedbc7;background:#fff;border-radius:7px;padding:7px 9px;color:#465b44;font-size:12px}
+.versionPicker p{font-size:11px;line-height:1.5;color:#8f6545;margin:0}
