@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'nar_agent/**'
+      - 'docker-compose.nar-agent.yml'
+      - '.github/workflows/docker-publish-deploy-dev.yml'
+      - 'tests/nar_execution_deployment.test.cjs'
       - 'webgal_backend/nar_agent_routes.py'
       - 'webgal_backend/nar_conversation_*.py'
       - 'webgal_backend/migrations/002_nar_conversation_history.sql'
@@ -68,6 +71,7 @@ jobs:
       - run: node ../tests/practice_ui_architecture.test.cjs
       - run: node ../tests/practice_session_switch.test.cjs
       - run: node ../tests/nar_conversation_architecture.test.cjs
+      - run: node ../tests/nar_execution_deployment.test.cjs
       - run: npm run build
         env:
           FORGE_BACKEND_URL: http://backend:8010
