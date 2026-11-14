@@ -98,7 +98,6 @@ class MemoryLedger:
 
 
 def make_client(monkeypatch, handler, store=None, user="teacher"):
-    monkeypatch.setenv("NAR_CONVERSATIONS_ENABLED", "1")
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", "testing-" + "s" * 40)
     app = FastAPI()
     app.include_router(create_router(user_for_request=lambda _: {"id": user, "auth_type": "sso"},
@@ -170,14 +169,10 @@ def test_cross_user_reads_are_denied_and_status_requires_auth(monkeypatch):
     assert other.get("/nar-agent/conversations/" + CID).status_code == 404
 
 
-def test_opt_in_flag_prevents_db_migration_requirement_on_old_sessions(monkeypatch):
+def test_authenticated_status_reports_database_readiness_not_environment_flag(monkeypatch):
     store = MemoryLedger()
     c = make_client(monkeypatch, lambda req: httpx.Response(200), store)
-    monkeypatch.delenv("NAR_CONVERSATIONS_ENABLED")
-    assert c.get("/nar-agent/conversations/status").json() == {"enabled": False}
-    assert c.get("/nar-agent/conversations").status_code == 503
-    assert store.ready_calls == 0
-    assert c.post("/nar-agent/conversations", json={
-        "conversation_id": CID, "client_request_id": ID_A,
-        "prompt": "start", "mode": "chat"
-    }, headers=HEADERS).status_code == 503
+    monkeypatch.delenv("NAR_CONVERSATIONS_ENABLED", raising=False)
+    assert c.get("/nar-agent/conversations/status").json() == {"ready": True}
+    assert c.get("/nar-agent/conversations").status_code == 200
+    assert store.ready_calls == 1
