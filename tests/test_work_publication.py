@@ -159,3 +159,24 @@ def test_cover_choice_is_pinned_to_published_version(tmp_path):
     with pytest.raises(FileNotFoundError):
         store.public_cover(work["id"])
 
+
+
+def test_publish_sso_user_without_nickname_or_email(tmp_path):
+    """WeChat-created SSO accounts may lack an email and display name."""
+    store = WorkStore(tmp_path)
+    saved = store.create("teacher-a", A, "html", "数学探索", "", assets())
+    sent = []
+    app = FastAPI()
+    app.include_router(create_router(
+        user_for_request=lambda request: {
+            "id": "teacher-a", "auth_type": "sso", "email": None, "nickname": None,
+        },
+        store=store,
+        publisher=lambda body: sent.append(body) or {"published": True},
+        frontend_url="https://example.com/narrativeos",
+    ))
+    with TestClient(app) as client:
+        response = client.post(f"/works/{saved['id']}/publication",
+                               json={"title": "数学探索"}, headers=ACTION)
+        assert response.status_code == 200, response.text
+        assert sent[0]["authorName"] == "NarrativeOS 教师"

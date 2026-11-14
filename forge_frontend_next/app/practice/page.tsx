@@ -105,7 +105,7 @@ export default function PracticePage() {
     const { searchParams } = new URL(window.location.href);
     writePracticeSession(sessionUserId, {
       messages,
-      works: Object.values(workPreviews).map(({ html, ...record }) => record),
+      works: Object.values(workPreviews).map(record => ({ ...record, html: undefined })),
       currentArtifactId, selectedArtifactId, pending: pendingRun,
     }, searchParams.get("work") || "general");
   }, [sessionReady, sessionUserId, messages, workPreviews, currentArtifactId, selectedArtifactId, pendingRun]);

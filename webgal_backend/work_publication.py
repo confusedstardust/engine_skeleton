@@ -86,7 +86,7 @@ def create_router(*, user_for_request, store: WorkStore | None = None,
             raise HTTPException(409, "作品尚不能发布或已有发布任务正在进行") from None
         version_id = pending["pending_version_id"]
         body = {
-            "ownerUserId": owner, "authorName": user.get("nickname") or user.get("email", "").split("@")[0] or None,
+            "ownerUserId": owner, "authorName": user.get("nickname") or (user.get("email") or "").split("@")[0] or "NarrativeOS 教师",
             "jobId": work_id, "resourceType": "INTERACTIVE_HTML",
             "title": snapshot["title"], "summary": snapshot["summary"],
             "subject": snapshot["subject"], "grade": snapshot["grade"], "tags": snapshot["tags"],

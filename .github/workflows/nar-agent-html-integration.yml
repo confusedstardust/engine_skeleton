@@ -14,7 +14,9 @@ on:
       - 'forge_frontend_next/app/history/**'
       - 'tests/test_works_routes.py'
       - 'forge_frontend_next/app/practice/**'
+      - 'forge_frontend_next/next.config.mjs'
       - 'tests/test_nar_agent_gateway.py'
+      - 'tests/test_practice_work_rewrites.cjs'
       - '.github/workflows/nar-agent-html-integration.yml'
 permissions:
   contents: read
@@ -46,3 +48,8 @@ jobs:
           cache-dependency-path: forge_frontend_next/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit --incremental false
+      - run: node ../tests/test_practice_work_rewrites.cjs
+      - run: npm run build
+        env:
+          FORGE_BACKEND_URL: http://backend:8010
+          NEXT_PUBLIC_BASE_PATH: /narrativeos
