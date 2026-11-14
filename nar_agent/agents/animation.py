@@ -15,7 +15,7 @@ from app.progress_events import enter_phase
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
 PROMPT = """你是 NarAgent 教学动画制作助手。下方已提供完整 anatomy skill 和最小示例，直接参考，不必重复用工具读取。
 目标：单机制、中文、浅色、响应式、可操作的课堂 SVG 演示。只生成 Figure 范围，不做复杂3D。
-先说明简化模型与参数。使用 anatomy kit 构建图形，数值与运动由同一模型驱动。
+先调用一次 record_animation_plan 记录学习目标、要演示的关键概念和互动方法，让教师实时看到教学设计概要（不要输出私有推理）。然后使用 anatomy kit 构建图形，数值与运动由同一模型驱动。
 用虚拟文件工具阅读参考。然后调用 build_animation，source 参数为完整 Node ESM 构建脚本。
 总共最多12次模型调用，包含读取参考后的继续调用。不要遍历所有示例或分块重复读取skill。
 优先使用下方最小示例；只查缺少的具体API，最多两轮补充阅读后提交第一版build_animation，将剩余额度用于检查后的修复。
@@ -47,6 +47,21 @@ def animation_state(prompt: str, history: list[dict]) -> dict:
 def build_animation_agent(settings: Settings, owner: str, progress: dict, store: ArtifactStore, *, model=None):
     attempts = 0
 
+    def record_animation_plan(learning_goal: str, interaction_method: str, key_concepts: list[str]) -> str:
+        """Explain the chosen educational goals and interaction, not internal reasoning."""
+        if not learning_goal.strip() or not interaction_method.strip():
+            return json.dumps({"error": "Learning goal and interaction are required."})
+        progress["learning_plan"] = {
+            "learning_goal": learning_goal.strip()[:160],
+            "interaction_method": interaction_method.strip()[:160],
+            "key_concepts": [str(concept).strip()[:80] for concept in key_concepts[:6]],
+        }
+        enter_phase(progress, "PLANNING", detail=(
+            "将通过" + progress["learning_plan"]["interaction_method"] +
+            "，理解：" + progress["learning_plan"]["learning_goal"]
+        )[:160])
+        return json.dumps({"recorded": True, "next_step": "Build the animation now."})
+
     async def build_animation(source: str) -> str:
         """Build a complete Node ESM script in an isolated container and check its standalone index.html. Returns report and artifact_id only if checks pass."""
         nonlocal attempts
@@ -74,4 +89,4 @@ def build_animation_agent(settings: Settings, owner: str, progress: dict, store:
 
     model = model if model is not None else ChatOpenAI(model=settings.model, api_key=settings.api_key.get_secret_value(), base_url=settings.base_url, max_tokens=max(settings.max_output_tokens, 8192), timeout=90, max_retries=0, stream_usage=True)
     register_harness_profile(settings.model, HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)))
-    return create_deep_agent(model=model, backend=StateBackend(), skills=["/skills/"], tools=[build_animation], middleware=[ModelCallLimitMiddleware(run_limit=12, exit_behavior="error")], system_prompt=animation_prompt(), name="nar-animation")
+    return create_deep_agent(model=model, backend=StateBackend(), skills=["/skills/"], tools=[record_animation_plan, build_animation], middleware=[ModelCallLimitMiddleware(run_limit=12, exit_behavior="error")], system_prompt=animation_prompt(), name="nar-animation")
