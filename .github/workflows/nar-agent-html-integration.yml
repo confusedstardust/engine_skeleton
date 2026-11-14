@@ -74,6 +74,7 @@ jobs:
       - run: node ../tests/practice_session_switch.test.cjs
       - run: node ../tests/practice_conversation_cache.test.cjs
       - run: node ../tests/nar_conversation_architecture.test.cjs
+      - run: node ../tests/practice_paper_chat.test.cjs
       - run: node ../tests/nar_execution_deployment.test.cjs
       - run: npm run build
         env:

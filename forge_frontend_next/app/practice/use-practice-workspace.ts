@@ -29,6 +29,8 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const [loginRequired, setLoginRequired] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
+  const [userInitial, setUserInitial] = useState("");
   const [sessionReady, setSessionReady] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [progress, setProgress] = useState("");
@@ -63,14 +65,17 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
 
   useEffect(() => {
     let active = true;
-    forgeApi<{ auth_type?: string; id?: string }>("/auth/me").then(user => {
+    forgeApi<{ auth_type?: string; id?: string; avatar_url?: string | null; nickname?: string | null }>("/auth/me").then(user => {
       if (!active) return;
       const isSso = user.auth_type === "sso" && Boolean(user.id);
       setLoggedIn(isSso);
       setLoginRequired(!isSso);
       setSessionUserId(isSso ? String(user.id) : null);
+      const avatar = user.avatar_url?.trim();
+      setUserAvatarUrl(isSso && avatar && /^(https?:\/\/|\/)/i.test(avatar) ? avatar : null);
+      setUserInitial(isSso && user.nickname ? Array.from(user.nickname.trim())[0] || "" : "");
     }).catch(() => {
-      if (active) { setLoggedIn(false); setLoginRequired(true); setSessionUserId(null); }
+      if (active) { setLoggedIn(false); setLoginRequired(true); setSessionUserId(null); setUserAvatarUrl(null); setUserInitial(""); }
     }).finally(() => { if (active) setAuthReady(true); });
     return () => { active = false; };
   }, []);
@@ -154,7 +159,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
   return {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
-    sessionUserId, sessionReady, authReady, progress, activeTask, workPreviews,
+    sessionUserId, userAvatarUrl, userInitial, sessionReady, authReady, progress, activeTask, workPreviews,
     selectedWork, publishWork, metadataWork, selectedArtifactId, setSelectedArtifactId,
     currentArtifactId, setCurrentArtifactId, end, input, savedWorkCount, send,
     beginNewConversation, savedCardWorkId,

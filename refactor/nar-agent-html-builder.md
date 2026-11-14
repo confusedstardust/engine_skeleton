@@ -89,3 +89,30 @@ Chromium checks fail. `read_working_html`, `inspect_working_html`, and
 `replace_working_html` operate on that latest draft. Only successful validated builds
 create immutable artifacts; failed drafts are not published or saved as user revisions.
 This allows bounded repair without re-sending an entire generated L2 document.
+
+
+## Practice chat visual presentation (paper / sticky notes)
+
+This is a **presentation-only** change in `forge_frontend_next/app/practice/`;
+the NarAgent run protocol, conversation persistence, artifact and billing contracts
+are unchanged.
+
+- The existing shared `BrandLogo` is the assistant avatar.
+- The current authenticated `/auth/me` response supplies `avatar_url` and
+  `nickname` for the user avatar and text/icon fallback. No new profile API or
+  browser-persisted personal data is introduced.
+- Messages retain the same timeline, generated work actions, safe Markdown, and
+  input controls; the visible speaker labels are replaced with avatar positions
+  and accessible message descriptions.
+- The conversation pane is parchment-toned with lightweight CSS crease/line
+  layers. Assistant replies render as yellow sticky-note cards and user turns
+  as green sticky-note cards, aligned near opposite edges.
+- An eight-ray, one-shot burst plays only for an appended message; the effect is
+  decorative and disabled under `prefers-reduced-motion: reduce`.
+- Mobile layout keeps smaller cards/avatars and visible copy, while the original
+  workspace resizer is untouched.
+
+Verification: `node --test tests/practice_paper_chat.test.cjs` plus a full
+Next type-check, desktop/mobile screenshot review and authenticated SSO avatar
+check before production release. These verification steps are **not** marked
+complete without actual execution.
