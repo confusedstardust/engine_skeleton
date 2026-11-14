@@ -10,7 +10,8 @@ test("NarAgent route delegates generation, library and conversation rendering", 
   const page = read(practice + "page.tsx");
   const shell = read(practice + "practice-shell.tsx");
   assert.ok(page.split("\n").length < 125, "route should stay a small composition component");
-  assert.match(page, /PracticeShell/);
+  assert.match(read(practice + "layout.tsx"), /<PracticeShell workspaceScope/);
+  assert.doesNotMatch(page, /PracticeShell/);
   assert.match(shell, /usePracticeWorkspace/);
   assert.match(shell, /<PracticeChat workspace=\{workspace\}/);
   assert.doesNotMatch(shell, /forgeApi|workApi|<textarea|<button|<svg/);
