@@ -39,6 +39,7 @@ export type ServerTurn = {
   mode: "chat" | "html" | "animation" | "edit";
   runId: string | null;
   errorCode: string | null;
+  parentArtifactId: string | null;
   createdAt: string;
 };
 
