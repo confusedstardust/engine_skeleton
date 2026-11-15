@@ -36,6 +36,7 @@ class MemoryLedger:
             return self.requests[key], False
         turn = {"id": TID, "conversationId": cid, "status": "QUEUED",
                 "mode": mode, "runId": None, "errorCode": None,
+                "parentArtifactId": parent,
                 "createdAt": TODAY.isoformat()}
         self.requests[key] = turn
         self.messages.setdefault(cid, []).append({"role": "user", "content": prompt,
@@ -378,3 +379,72 @@ def test_opted_in_billing_reserves_once_and_captures_reported_stream_tokens(monk
     reused = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=payload)
     assert reused.json()["reused"] is True
     assert len(events) == 3
+
+
+def test_followup_animation_edit_uses_original_anatomy_generator_not_html(monkeypatch):
+    parent_id = "e" * 32
+    ledger = MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation"}]}
+    ledger.messages[CID] = [
+        {"role": "user", "content": "给我制作一个马达的原理拆解动画", "id": ID_A, "seq": 1},
+        {"role": "assistant", "content": "已完成动画。", "id": ID_B, "seq": 2},
+        {"role": "user", "content": "整体位置太靠上了，能不能居中啊", "id": "1" * 32, "seq": 3},
+        {"role": "assistant", "content": "可以将布局居中。", "id": "2" * 32, "seq": 4},
+    ]
+    requests = []
+
+    def agent(req):
+        requests.append((req.url.path, json.loads(req.content)))
+        if req.url.path == "/v1/intent":
+            assert requests[-1][1]["current_artifact_kind"] == "animation"
+            return httpx.Response(200, json={"user_id": "teacher", "mode": "edit_animation"})
+        assert req.url.path == "/v1/animations"
+        assert json.loads(req.content)["parent_artifact_id"] == parent_id
+        return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
+
+    c = make_client(monkeypatch, agent, ledger)
+    response = c.post("/nar-agent/conversations/" + CID + "/turns",
+                      headers=HEADERS, json={"client_request_id": "f" * 32,
+                       "prompt": "补充要求：直接给我东西啊", "mode": "auto",
+                       "parent_artifact_id": parent_id})
+    assert response.status_code == 202
+    assert response.json()["turn"]["mode"] == "animation"
+    assert response.json()["turn"]["parentArtifactId"] == parent_id
+    assert [path for path, _ in requests] == ["/v1/intent", "/v1/animations"]
+
+
+def test_auto_new_animation_does_not_reuse_parent(monkeypatch):
+    parent_id = "e" * 32
+    ledger = MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation"}]}
+    ledger.messages[CID] = [{"role": "user", "content": "马达", "id": ID_A, "seq": 1}]
+    requests = []
+    def agent(req):
+        requests.append((req.url.path, json.loads(req.content)))
+        if req.url.path == "/v1/intent":
+            return httpx.Response(200, json={"user_id": "teacher", "mode": "animation"})
+        assert "parent_artifact_id" not in json.loads(req.content)
+        return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
+    c = make_client(monkeypatch, agent, ledger)
+    response = c.post("/nar-agent/conversations/" + CID + "/turns",
+                      headers=HEADERS, json={"client_request_id": "b" * 32,
+                       "prompt": "新做一个磁场的独立动画", "mode": "auto",
+                       "parent_artifact_id": parent_id})
+    assert response.status_code == 202
+    assert response.json()["turn"]["parentArtifactId"] is None
+    assert [path for path, _ in requests] == ["/v1/intent", "/v1/animations"]
+
+
+def test_cross_conversation_artifact_cannot_be_used_as_edit_parent(monkeypatch):
+    ledger = MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    ledger.artifacts = {CID: [{"artifactId": "e" * 32, "kind": "animation"}]}
+    ledger.messages[CID] = []
+    c = make_client(monkeypatch, lambda _: httpx.Response(200), ledger)
+    res = c.post("/nar-agent/conversations/" + CID + "/turns",
+                 headers=HEADERS, json={"client_request_id": "b" * 32,
+                        "prompt": "调成居中", "mode": "auto",
+                        "parent_artifact_id": "d" * 32})
+    assert res.status_code == 404
