@@ -1,5 +1,6 @@
 import type { TimelineEvent } from "./creation-timeline";
 import type { AgentChoiceQuestion } from "./agent-choice-protocol";
+import type { TaskUsageReceipt } from "./task-receipt";
 import type { LearningPlan } from "./live-progress";
 import type { GeneratedWork } from "./generated-work-card";
 
@@ -10,6 +11,7 @@ export type PracticeMessage = {
   role: "user" | "assistant";
   content: string;
   choices?: AgentChoiceQuestion;
+  billing?: TaskUsageReceipt;
   timeline?: TimelineEvent[];
   durationMs?: number;
   learningPlan?: LearningPlan;
