@@ -54,7 +54,7 @@ def animation_state(prompt: str, history: list[dict], *, parent_source: str | No
     return {"messages": [*history, {"role": "user", "content": prompt}], "files": files}
 
 
-def build_animation_agent(settings: Settings, owner: str, progress: dict, store: ArtifactStore, *, model=None):
+def build_animation_agent(settings: Settings, owner: str, progress: dict, store: ArtifactStore, *, model=None, parent_id: str | None = None):
     attempts = 0
 
     def record_animation_plan(learning_goal: str, interaction_method: str, key_concepts: list[str]) -> str:
