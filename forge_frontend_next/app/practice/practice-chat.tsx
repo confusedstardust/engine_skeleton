@@ -5,6 +5,8 @@ import { ArrowUpRight, Send, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { LoadingState, Spinner } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
+import AgentChoicePrompt from "./agent-choice-prompt";
+import { parseAgentChoiceMessage } from "./agent-choice-protocol";
 import GeneratedWorkCard from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import PracticeMessageAvatar from "./practice-message-avatar";
@@ -28,7 +30,8 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
     userAvatarUrl, userInitial,
   } = workspace;
-  const canSubmit = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn && draft.trim());
+  const canAnswer = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn);
+  const canSubmit = Boolean(canAnswer && draft.trim());
   const [burstKeys, setBurstKeys] = useState<string[]>([]);
   const seen = useRef<{ conversationId?: string; lastKey?: string; initialized: boolean }>({ initialized: false });
 
@@ -81,6 +84,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       </div>}
       {sessionReady && messages.map((message, i) => {
         const key = message.id ?? `message-${message.seq ?? i}-${message.role}`;
+        const parsed = message.role === "assistant" ? parseAgentChoiceMessage(message.content) : null;
         return <article key={key}
           className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}
           aria-label={message.role === "user" ? "用户消息" : "助手消息"}>
@@ -90,7 +94,11 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
             {message.timeline?.length ? <CreationTimeline timeline={message.timeline}
               elapsedMs={message.durationMs} learningPlan={message.learningPlan}
               publicBrief={message.publicBrief} /> : null}
-            {message.role === "assistant" ? <MessageMarkdown content={message.content} /> : message.content}
+            {message.role === "assistant" ? <>
+              {parsed?.body ? <MessageMarkdown content={parsed.body} /> : null}
+              {parsed?.choice && <AgentChoicePrompt choice={parsed.choice} disabled={!canAnswer || i !== messages.length - 1}
+                onAnswer={answer => { void send(answer); }} />}
+            </> : message.content}
             {message.work && <GeneratedWorkCard work={message.work}
               savedWorkId={savedCardWorkId(message.work)}
               onOpen={id => {
