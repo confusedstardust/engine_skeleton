@@ -442,9 +442,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 )
                 yield event("done", {"id": run_id, "user_id": user_id, "output": output,
                                      "duration_ms": round((monotonic() - started) * 1000)})
-            except Exception:
-                # Provider diagnostics and private tool traces stay server-side.
-                logger.warning("Streaming agent failed id=%s", run_id)
+            except Exception as exc:
+                # Log only the exception class; provider messages can contain credentials.
+                logger.warning("Streaming agent failed id=%s class=%s", run_id, type(exc).__name__)
                 yield event("error", {"code": "AGENT_ERROR",
                                       "message": "教学对话执行失败，请稍后重试。"})
             finally:
