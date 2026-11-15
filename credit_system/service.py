@@ -61,6 +61,11 @@ class CreditService:
             or {"schema_version": 2, "plan": "metered_generation_v1", "hold_units": units},
         )
 
+    def find_reservation(self, *, user_id: str, job_id: str,
+                         operation_key: str) -> CreditReservation | None:
+        return self._store.find_reservation(
+            user_id=user_id, job_id=job_id, operation_key=operation_key)
+
     def capture(self, reservation_id: str, units: int | None = None, settlement: Mapping[str, Any] | None = None) -> CreditReservation:
         """Permanently charge a successful generation operation."""
         return self._store.capture(reservation_id, units=units, settlement=settlement)
