@@ -27,7 +27,8 @@ from .nar_conversation_store import (
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
 from .nar_intent_v2 import build_context_packet, plan_v2
-from .nar_pending_v2 import ClarificationAnswer, make_clarification_metadata, validate_clarification_answer
+from .nar_pending_schema_v2 import ClarificationAnswer
+from .nar_pending_v2 import make_clarification_metadata, validate_clarification_answer
 from .nar_billing import NarTurnBilling, safe_usage_metadata
 from credit_system import InsufficientCreditsError
 
