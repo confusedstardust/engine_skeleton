@@ -55,7 +55,8 @@ async def evaluate(limit: int):
         expect = row["expected"]
         match = {key: got.get(key) == expect.get(key) for key in LABELS}
         results.append({"id": row["case_id"], "group": row["group"], "valid": valid,
-                        "match": match, "latency_ms": elapsed_ms})
+                        "match": match, "predicted": {key: got.get(key) for key in LABELS},
+                        "latency_ms": elapsed_ms})
         print(row["case_id"], "valid=" + str(valid),
               "exact=" + str(valid and all(match.values())),
               "latency_ms=" + str(elapsed_ms))
@@ -66,16 +67,10 @@ async def evaluate(limit: int):
         print(key, "accuracy:", round(sum(x["match"][key] for x in results) / len(results), 3))
     for key in ("action", "target_relation", "desired_output", "next_step"):
         gold = [row["expected"][key] for row in rows]
-        predicted = []
-        # Invalid schema is a distinct class, not silently interpreted as chat/html.
-        for x in results:
-            if not x["valid"]:
-                predicted.append("__invalid__")
-                continue
-            predicted.append(next((row["expected"][key] for row in rows
-                                   if row["case_id"] == x["id"]), "__missing__")
-                             if x["match"][key] else "__wrong__")
-        print(key, "macro-F1 lower bound:", round(macro_f1(gold, predicted), 3))
+        # Invalid output is an explicit error class, not converted to chat/html.
+        predicted = [x["predicted"].get(key) if x["valid"] else "__invalid__"
+                     for x in results]
+        print(key, "macro-F1:", round(macro_f1(gold, predicted), 3))
     print("Groups:", dict(Counter(x["group"] for x in results)))
     print("Invalid and mismatched cases:", [x["id"] for x in results
                                            if not x["valid"] or not all(x["match"].values())])
