@@ -14,6 +14,7 @@ export function messagesFromConversation(detail: ConversationDetail): PracticeMe
     return {
       role: message.role,
       content: message.content,
+      choices: message.metadata?.choices,
       id: message.id,
       seq: message.seq,
       timeline: message.metadata?.timeline as PracticeMessage["timeline"],
