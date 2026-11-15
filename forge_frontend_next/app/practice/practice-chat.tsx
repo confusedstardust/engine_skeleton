@@ -34,7 +34,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   } = workspace;
   const canAnswer = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn);
   const canSubmit = Boolean(canAnswer && draft.trim());
-  const latestReceipt = [...messages].reverse().find(m => m.role === "assistant" && m.billing)?.billing;
   const [burstKeys, setBurstKeys] = useState<string[]>([]);
   const seen = useRef<{ conversationId?: string; lastKey?: string; initialized: boolean }>({ initialized: false });
 
@@ -62,7 +61,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     <div className={styles.chatHeader}>
       <div><strong>{conversationTitle || "互动学习创作"}</strong><span>用自然语言制作可操作、可修改的学习体验。</span></div>
     </div>
-    {!busy && latestReceipt ? <TaskReceipt value={latestReceipt} /> : null}
     <ScrollArea.Root className={styles.scrollRoot} type="scroll">
       <ScrollArea.Viewport className={styles.conversation} ref={chatScroll}>
       {conversationId && olderCursor !== null && <div className={styles.olderHistory}>
@@ -96,6 +94,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           <PracticeMessageAvatar role={message.role} userAvatarUrl={userAvatarUrl}
             userInitial={userInitial} burst={burstKeys.includes(key)} />
           <div className={styles.messagePaper}>
+            {message.role === "assistant" && message.billing && <TaskReceipt value={message.billing} compact />}
             {message.timeline?.length ? <CreationTimeline timeline={message.timeline}
               elapsedMs={message.durationMs} learningPlan={message.learningPlan}
               publicBrief={message.publicBrief} /> : null}
