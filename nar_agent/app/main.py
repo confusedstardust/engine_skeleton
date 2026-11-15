@@ -22,6 +22,7 @@ from app.progress_stream import stream_progress
 from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from app.intent_router import classify_intent
+from app.intent_v2 import IntentContext, interpret_intent_v2
 from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -61,8 +62,19 @@ class RunInput(BaseModel):
 
 
 class IntentInput(RunInput):
+    schema_version: Literal["1.0", "2.0"] = "1.0"
+    context_v2: IntentContext | None = None
     has_editable_html: bool = False
     current_artifact_kind: str | None = Field(default=None, pattern=r"^(html|animation)$")
+
+    @model_validator(mode="after")
+    def check_v2_contract(self):
+        if self.schema_version == "2.0":
+            if self.context_v2 is None or self.context_v2.current_message != self.prompt:
+                raise ValueError("V2 intent requires matching server-built context")
+        elif self.context_v2 is not None:
+            raise ValueError("V2 context requires schema_version=2.0")
+        return self
 
 
 class AnimationInput(RunInput):
@@ -118,6 +130,10 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         app.state.active_runs += 1
         try:
             async with asyncio.timeout(min(settings.timeout_seconds, 25)):
+                if payload.schema_version == "2.0":
+                    decision = await interpret_intent_v2(settings, payload.context_v2)
+                    return {"user_id": user_id, "schema_version": "2.0",
+                            "decision": decision.model_dump()}
                 mode = await classify_intent(
                     settings, payload.prompt, [message.model_dump() for message in payload.history],
                     has_editable_html=payload.has_editable_html,

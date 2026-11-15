@@ -7,7 +7,9 @@ is NOT automatically repeated while NarAgent lacks durable idempotency support.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -24,10 +26,30 @@ from .nar_conversation_store import (
 )
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
+from .nar_intent_v2 import build_context_packet, plan_v2
 from .nar_billing import NarTurnBilling, safe_usage_metadata
 from credit_system import InsufficientCreditsError
 
 ID = r"^[0-9a-f]{32}$"
+logger = logging.getLogger(__name__)
+
+
+def _shadow_v2_enabled(owner: str, cid: str, request_id: str) -> bool:
+    """Stable request-level sample; completely disabled by default.
+
+    Config is optional and server-owned. Shadow NEVER authorizes execution.
+    """
+    try:
+        percent = float(os.getenv("NAR_INTENT_V2_SHADOW_PERCENT", "0"))
+    except ValueError:
+        return False
+    if not 0 < percent <= 100:
+        return False
+    value = int.from_bytes(hashlib.sha256(
+        f"{owner}:{cid}:{request_id}".encode("utf-8")).digest()[:8], "big")
+    return value / (2 ** 64) < percent / 100
+
+
 
 
 class ConversationUpdate(BaseModel):
@@ -60,6 +82,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
     live_chat_jobs: set[asyncio.Task] = set()
+    live_shadow_jobs: set[asyncio.Task] = set()
     biller_type = billing_factory or NarTurnBilling
 
     async def reserve_turn(owner: str, tid: str, mode: str):
@@ -180,6 +203,52 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             return data["mode"]
         except (ValueError, KeyError, TypeError):
             raise HTTPException(502, "需求识别结果无效") from None
+
+    async def resolve_intent_v2(owner: str, prompt: str, packet: dict) -> dict:
+        """Call the opt-in V2 interpreter; its proposal has NO execution authority."""
+        token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
+        if len(token) < 32:
+            raise ValueError("V2 shadow unavailable")
+        base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
+        async with httpx.AsyncClient(
+            timeout=25, transport=transport, trust_env=False, follow_redirects=False
+        ) as client:
+            response = await client.post(
+                base + "/v1/intent",
+                json={"prompt": prompt, "schema_version": "2.0",
+                      "context_v2": packet},
+                headers={"Authorization": "Bearer " + token, "X-User-ID": owner},
+            )
+        if response.status_code != 200:
+            raise ValueError("V2 shadow service error")
+        data = response.json()
+        if (data.get("user_id") != owner or data.get("schema_version") != "2.0"
+                or not isinstance(data.get("decision"), dict)):
+            raise ValueError("V2 shadow returned invalid envelope")
+        return data["decision"]
+
+    async def compare_v2_shadow(owner: str, cid: str, payload: TurnRequest,
+                                recent: list[dict], legacy_mode: str,
+                                selected_id: str | None, *, create: bool):
+        """Side-effect free comparison: no extra turn, dispatch, or credit reserve."""
+        try:
+            candidates = [] if create else await transaction(
+                ledger.artifact_candidates, owner, cid, selected_id)
+            packet = build_context_packet(
+                payload.prompt, cid, recent, candidates, selected_id)
+            v2 = await resolve_intent_v2(owner, payload.prompt, packet)
+            plan = plan_v2(v2, packet)
+            first = v2.get("tasks", [{}])[0]
+            logger.info(
+                "nar_v2_shadow schema=2.0 action=%s relation=%s output=%s "
+                "step=%s planned_mode=%s legacy_mode=%s mismatch=%s",
+                first.get("action"), first.get("target_relation"),
+                first.get("desired_output"), plan["next_step"], plan["mode"],
+                legacy_mode, plan["mode"] is not None and plan["mode"] != legacy_mode,
+            )
+        except Exception:
+            # Shadow failure must not fail, retry, charge or re-route the live turn.
+            logger.warning("nar_v2_shadow failed; live V1 dispatch unchanged")
 
     @router.get("/conversations/status")
     async def availability(request: Request):
@@ -358,6 +427,15 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                         selected = await transaction(ledger.latest_artifact, owner, cid)
                 current_kind = selected["kind"] if selected else None
                 choice = await resolve_intent(owner, payload.prompt, history, current_kind)
+                if _shadow_v2_enabled(owner, cid, payload.client_request_id):
+                    # Original browser parent is an explicit selection hint only;
+                    # legacy latest_artifact() fallback is NOT a V2 target.
+                    selected_id = parent_artifact_id if parent_artifact_id else None
+                    shadow_job = asyncio.create_task(compare_v2_shadow(
+                        owner, cid, payload, history, choice,
+                        selected_id, create=create))
+                    live_shadow_jobs.add(shadow_job)
+                    shadow_job.add_done_callback(live_shadow_jobs.discard)
                 if choice in ("edit", "edit_animation"):
                     expected = "html" if choice == "edit" else "animation"
                     if selected and selected["kind"] == expected:
