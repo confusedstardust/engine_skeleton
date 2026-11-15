@@ -27,6 +27,7 @@ from .nar_conversation_store import (
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
 from .nar_intent_v2 import build_context_packet, plan_v2
+from .nar_pending_v2 import ClarificationAnswer, make_clarification_metadata, validate_clarification_answer
 from .nar_billing import NarTurnBilling, safe_usage_metadata
 from credit_system import InsufficientCreditsError
 
@@ -64,6 +65,8 @@ class TurnRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=12000, pattern=r"\S")
     mode: Literal["auto", "chat", "html", "animation", "edit"] = "chat"
     parent_artifact_id: str | None = Field(default=None, pattern=ID)
+    selected_artifact_id: str | None = Field(default=None, pattern=ID)
+    clarification_answer: ClarificationAnswer | None = None
 
 
 class FirstTurnRequest(TurnRequest):
