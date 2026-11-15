@@ -131,7 +131,17 @@ def test_streaming_chat_emits_real_chunks_and_final_answer():
 def test_real_deepagents_stream_path_emits_public_model_text():
     # Unlike the pure FakeStream contract, this exercises the actual SDK graph
     # and verifies that our langgraph_node filter does not swallow all chunks.
-    client = TestClient(create_app(settings(), agent_factory=factory))
+    def streaming_factory(config):
+        # ToolModel's fake tool-call stream is not supported by all fake
+        # providers; this checks the *real DeepAgents graph* with a plain
+        # streamed assistant response and the production metadata filter.
+        model = ToolModel(messages=iter([AIMessage(
+            content="教学方案已准备；尚未生成动画。",
+            response_metadata={"model_name": "fake-test-model"},
+        )]))
+        return build_agent(config, model=model)
+
+    client = TestClient(create_app(settings(), agent_factory=streaming_factory))
     response = client.post("/v1/runs/stream",
                            json={"prompt": "设计串联电路演示"}, headers=HEADERS)
     assert response.status_code == 200, response.text
