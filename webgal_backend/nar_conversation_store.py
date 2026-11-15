@@ -167,8 +167,12 @@ class NarConversationStore:
                        "('QUEUED','RUNNING','UNKNOWN') LIMIT 1", (cid,))
             if db.fetchone():
                 raise ConversationConflict("Cannot delete an active conversation")
-            # CASCADE removes conversation messages and artifact associations,
-            # never independent saved work-library items.
+            # Explicit child deletion avoids MySQL's cross-table cascade cycle:
+            # turns reference prompt messages, while both reference conversations.
+            # Saved works live independently and are never removed here.
+            db.execute("DELETE FROM nar_conversation_artifacts WHERE conversation_id=%s", (cid,))
+            db.execute("DELETE FROM nar_turns WHERE conversation_id=%s", (cid,))
+            db.execute("DELETE FROM nar_messages WHERE conversation_id=%s", (cid,))
             db.execute("DELETE FROM nar_conversations WHERE id=%s AND owner_id=%s", (cid, owner))
         return {"deleted": True}
 
