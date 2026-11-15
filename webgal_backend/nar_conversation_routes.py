@@ -151,7 +151,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             raise HTTPException(502, "执行服务的用户归属或响应内容无效") from None
 
     async def resolve_intent(owner: str, prompt: str, history: list[dict],
-                             has_editable_html: bool) -> str:
+                             current_artifact_kind: str | None) -> str:
         """Classify on NarAgent using the existing model credentials and owner boundary."""
         token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
         if len(token) < 32:
@@ -164,7 +164,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 response = await client.post(
                     base + "/v1/intent",
                     json={"prompt": prompt, "history": history[-8:],
-                          "has_editable_html": has_editable_html},
+                          "has_editable_html": current_artifact_kind == "html",
+                          "current_artifact_kind": current_artifact_kind},
                     headers={"Authorization": "Bearer " + token, "X-User-ID": owner},
                 )
         except httpx.HTTPError:
@@ -176,7 +177,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         try:
             data = response.json()
             if str(data["user_id"]) != owner or data["mode"] not in (
-                "chat", "html", "animation", "edit"
+                "chat", "html", "animation", "edit", "edit_animation"
             ):
                 raise ValueError
             return data["mode"]
@@ -337,21 +338,40 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         mode = payload.mode
         parent_artifact_id = payload.parent_artifact_id
         if mode == "auto":
-            # Persist only a concrete mode. On ambiguous HTTP retries, reuse
-            # the originally accepted mode instead of spending another LLM call.
+            # Idempotent retries retain the original mode AND parent; never
+            # route or select a different work on the same request ID.
             previous = await transaction(ledger.find_request, owner, cid,
                                          payload.client_request_id)
             if previous:
                 mode = previous["mode"]
+                parent_artifact_id = previous.get("parentArtifactId")
             else:
                 recent = [] if create else (await transaction(
                     ledger.get_messages, owner, cid, None, 10))["items"]
                 history = [{"role": row["role"], "content": row["content"]}
-                           for row in recent][-8:]
-                mode = await resolve_intent(owner, payload.prompt, history,
-                                            bool(parent_artifact_id))
-            if mode != "edit":
-                parent_artifact_id = None
+                           for row in recent][-10:]
+                selected = None
+                if not create:
+                    selected = await transaction(ledger.latest_artifact, owner, cid,
+                                                 parent_artifact_id)
+                    if parent_artifact_id and not selected:
+                        # Do not edit a deleted, different-user or different-conversation work.
+                        raise HTTPException(404, "所选作品在当前对话中不存在，请重新打开作品")
+                    if not selected:
+                        selected = await transaction(ledger.latest_artifact, owner, cid)
+                current_kind = selected["kind"] if selected else None
+                choice = await resolve_intent(owner, payload.prompt, history, current_kind)
+                if choice in ("edit", "edit_animation"):
+                    expected = "html" if choice == "edit" else "animation"
+                    if selected and selected["kind"] == expected:
+                        mode = "edit" if expected == "html" else "animation"
+                        parent_artifact_id = selected["artifactId"]
+                    else:
+                        # No matching artifact: ask an accessible question in chat
+                        # rather than start a new builder of the wrong kind.
+                        mode, parent_artifact_id = "chat", None
+                else:
+                    mode, parent_artifact_id = choice, None
         turn, new = await transaction(ledger.start_turn, owner, cid,
              payload.client_request_id, payload.prompt, mode,
              parent_artifact_id, create=create)
@@ -370,7 +390,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "errorCode": "CREDITS_INSUFFICIENT" if exc.status_code == 402 else "BILLING_UNAVAILABLE"}}
         history = await transaction(ledger.model_history, owner, cid, turn["id"])
         request_body = {"prompt": payload.prompt, "history": history}
-        if mode == "edit":
+        if mode == "edit" or (mode == "animation" and parent_artifact_id):
             if not parent_artifact_id:
                 await finish_billing(owner, turn["id"], None, success=False)
                 await transaction(ledger.fail_turn, owner, cid, turn["id"], "MISSING_PARENT")
