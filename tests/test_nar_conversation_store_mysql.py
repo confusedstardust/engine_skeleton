@@ -163,3 +163,37 @@ def test_failed_html_turn_persists_real_public_reason_and_phase(ledger):
     # A failed turn releases the conversation for future new work.
     next_turn, new = ledger.start_turn(owner, cid, uuid.uuid4().hex, "换个任务", "chat")
     assert new and next_turn["status"] == "QUEUED"
+
+
+
+def test_v2_pending_clarification_json_is_owner_scoped_and_cas_superseded(ledger):
+    # Uses the existing public_metadata JSON column, no schema migration.
+    from webgal_backend.nar_pending_v2 import make_clarification_metadata
+    owner, other, cid = "ci-" + uuid.uuid4().hex, "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    clarification_id = uuid.uuid4().hex
+    turn, _ = ledger.start_turn(owner, cid, uuid.uuid4().hex, "把那个居中", "chat", create=True)
+    proposal = {"schema_version": "2.0", "tasks": [{
+        "action": "revise", "target_relation": "ambiguous",
+        "candidate_artifact_id": None, "desired_output": "unspecified",
+        "goal": "把作品居中", "requirements": []}],
+        "next_step": "clarify", "uncertainty": "target",
+        "clarification": {
+            "question": "你想修改哪件作品？",
+            "options": ["马达动画", "函数网页"], "allow_custom": True}}
+    metadata = make_clarification_metadata(
+        proposal, origin_turn_id=turn["id"],
+        verified_target_artifact_id=None, clarification_id=clarification_id)
+    ledger.finish_turn(owner, cid, turn["id"], output="你想修改哪件作品？",
+                       public_metadata=metadata)
+    loaded = ledger.get_pending_clarification(owner, cid, clarification_id)
+    assert loaded and loaded["metadata"]["choices"]["status"] == "pending"
+    assert loaded["metadata"]["clarification_v2"]["origin_turn_id"] == turn["id"]
+    assert ledger.get_detail(owner, cid)["messages"][-1]["metadata"]["choices"]["clarificationId"] == clarification_id
+    with pytest.raises(ConversationMissing):
+        ledger.get_pending_clarification(other, cid, clarification_id)
+    assert ledger.supersede_pending_clarification(owner, cid) is True
+    assert ledger.supersede_pending_clarification(owner, cid) is False
+    assert ledger.get_pending_clarification(owner, cid) is None
+    archived = ledger.get_pending_clarification(owner, cid, clarification_id)
+    assert archived["metadata"]["clarification_v2"]["status"] == "superseded"
+    assert archived["metadata"]["choices"]["status"] == "superseded"

@@ -101,7 +101,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
             {message.role === "assistant" ? <>
               {parsed?.body ? <MessageMarkdown content={parsed.body} /> : null}
               {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}
-                onAnswer={answer => { void send(answer); }} />}
+                onAnswer={(answer, structured) => { void send(answer, structured); }} />}
             </> : message.content}
             {message.work && <GeneratedWorkCard work={message.work}
               savedWorkId={savedCardWorkId(message.work)}
