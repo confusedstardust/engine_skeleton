@@ -264,6 +264,9 @@ export function useNarConversation({
                   savedWorkId = saved.work.id;
                 }
                 await conversationApi.associateWork(conversationId, artId, savedWorkId);
+                // Subsequent "move it a little more" requests must target the
+                // newly generated version, not the original source ID.
+                if (!cancelled) setCurrentArtifactId(artId);
               } catch {
                 // Never turn a successfully completed run into a failed turn.
                 // The generated artifact link may remain ephemeral until saved.
