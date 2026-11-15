@@ -90,7 +90,7 @@ export function useNarConversation({
       if (active) {
         setReady(false);
         setError(error instanceof Error ? error.message :
-          "会话数据库不可用，请先执行 002_nar_conversation_history.sql");
+          "会话数据库不可用，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql");
       }
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
@@ -135,7 +135,7 @@ export function useNarConversation({
     if (!conversationId || !authReady || !checked) return;
     if (!loggedIn || !ready) {
       setSessionReady(true);
-      if (loggedIn) setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql");
+      if (loggedIn) setError("会话数据库尚未准备好，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql");
       return;
     }
     if (!ownerId) return;
