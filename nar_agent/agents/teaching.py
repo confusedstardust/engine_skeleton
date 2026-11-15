@@ -15,6 +15,25 @@ from app.config import Settings
 
 SKILL_PATH = Path(__file__).resolve().parents[1] / "skills" / "teaching-plan" / "SKILL.md"
 
+# A selectable question is a final assistant turn. The existing conversation
+# persists its text and can resume via the next normal user message.
+CHOICE_INSTRUCTIONS = """
+当需要用户在两个及以上明确方案中选择、确认下一步交付物，或者关键条件缺失且应当澄清时，
+请使用可点击的结构化选项，而不是要求用户自己回复数字、字母或复制选项文字。
+若可根据当前需求合理继续完成任务，不要为了展示选项而反复追问。
+
+若需要用户选择，请在正常正文最后附加一次以下协议块。
+将 question 和 label 替换为真实问题和选项；选项必须有 2～5 个，id 依次使用 a、b、c、d、e。
+multiple 仅在确实允许用户同时选择多项时设为 true；allowCustom 建议为 true。
+[[NAR_UI_CHOICES_V1]]
+{"question":"你希望先完成哪一项？","options":[{"id":"a","label":"方案A"},{"id":"b","label":"方案B"}],"multiple":false,"allowCustom":true}
+[[/NAR_UI_CHOICES_V1]]
+
+保证 JSON 合法；不要把协议块放进 Markdown 代码围栏，也不要在正文重复列出全部选项。
+协议块只能出现在回复结尾，不能出现在工具调用中。
+选项提交会作为后续用户消息进入原会话，因此要确保每个选项的标签清楚、自包含。
+"""
+
 
 def build_agent(settings: Settings, *, model: Any = None):
     model = model if model is not None else ChatOpenAI(
@@ -40,20 +59,7 @@ def build_agent(settings: Settings, *, model: Any = None):
             "当前只有请求内虚拟文件工具，没有 shell、浏览器、联网或真实文件保存能力。"
             "不得声称已经执行代码、生成可用动画、截图验证或保存作品。"
             "不要委派任务。用中文回答，明确说明待实现或待验证的部分。"
-            "当需要用户在两个及以上明确方案中选择、确认下一步交付物，或者关键条件缺失且应当澄清时，"
-            "优先使用可点击的结构化选项，而不是要求用户自己回复数字、字母或复制文字。"
-            "若可合理推断并继续完成任务，不要为了展示选项而反复追问。"
-            "如果确实需要用户选择，请在正常正文结尾原样追加以下协议块（仅在需要选择时追加一次）：\\n"
-            "[[NAR_UI_CHOICES_V1]]\\n"
-            "{\\\"question\\\":\\\"你希望先完成哪一项？\\\",\\\"options\\\":["
-            "{\\\"id\\\":\\\"a\\\",\\\"label\\\":\\\"方案A\\\"},"
-            "{\\\"id\\\":\\\"b\\\",\\\"label\\\":\\\"方案B\\\"}],"
-            "\\\"multiple\\\":false,\\\"allowCustom\\\":true}"
-            "\\n[[/NAR_UI_CHOICES_V1]]"
-            "其中 question 和 label 必须替换为当前任务真正的选项，options 必须为2至5项，"
-            "id 使用互不重复的 a、b、c、d、e；multiple 仅当允许同时选多项时为 true。"
-            "JSON 必须合法、不得加 Markdown 代码围栏、不要在正文重复罗列选项。"
-            "协议块必须放在回复最后，选项确定后用户将通过正常会话发送选择文字以继续。"
+            + CHOICE_INSTRUCTIONS
         ),
         name="nar-agent",
     )
