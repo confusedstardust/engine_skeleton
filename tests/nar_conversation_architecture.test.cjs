@@ -32,7 +32,7 @@ test("history routes reuse one practice shell, and URLs carry conversation ident
   assert.match(hook, /useNarConversation/);
   assert.match(nav, /getConversationQuery\(ownerId, "list"/);
   assert.match(nav, /conversationApi\.artifacts\(\)/);
-  assert.match(nav, /\/practice\/chat\//);
+  assert.match(read(practice + "practice-history-list.tsx"), /\/practice\/chat\//);
   assert.match(nav, /aria-selected=\{view === "conversations"\}/);
 });
 
@@ -69,4 +69,21 @@ test("work preview stays owner-scoped and server lists do not fetch HTML eagerly
   assert.match(projection, /forgeApi\.blob/);
   assert.match(hook, /conversationApi\.associateWork/);
   assert.match(hook, /crypto\.getRandomValues/);
+});
+
+test("unified composer optimistically paints sent messages and uses automatic execution routing", () => {
+  const chat = read(practice + "practice-chat.tsx");
+  const hook = read(practice + "use-nar-conversation.ts");
+  const workspace = read(practice + "use-practice-workspace.ts");
+  const history = read(practice + "practice-history-list.tsx");
+  assert.match(hook, /setMessages\(current => current\.some/);
+  assert.match(hook, /await conversationApi\.turn/);
+  assert.match(workspace, /server\.send\(prompt, "auto", parent\)/);
+  for (const label of ["制作动画", "生成 HTML", "修改当前作品"]) {
+    assert.ok(!chat.includes(">" + label + "<"), "legacy mode buttons should be removed");
+  }
+  assert.match(history, /onContextMenu=/);
+  assert.match(history, /编辑标题/);
+  assert.match(history, /取消置顶/);
+  assert.match(history, /删除会话/);
 });

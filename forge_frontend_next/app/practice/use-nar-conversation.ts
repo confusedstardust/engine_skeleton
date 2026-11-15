@@ -7,6 +7,7 @@ import { workApi } from "../../lib/work-api";
 import {
   CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery,
   setConversationQuery, upsertConversationSummary, invalidateConversationQuery,
+  subscribeConversationQuery,
 } from "../../lib/conversation-query-cache";
 import { previewConversationArtifact, messagesFromConversation } from "./practice-conversation";
 import type { PracticeMessage } from "./practice-types";
@@ -63,7 +64,8 @@ export function useNarConversation({
   const [olderCursor, setOlderCursor] = useState<number | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [conversationTitle, setConversationTitle] = useState("");
-  const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string } | null>(null);
+  const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string; parentArtifact?: string } | null>(null);
+  const posting = useRef(false);
   const alive = useRef(true);
   const previewRequest = useRef(0);
   const previousConversation = useRef<string | undefined>(conversationId);
@@ -88,7 +90,7 @@ export function useNarConversation({
       if (active) {
         setReady(false);
         setError(error instanceof Error ? error.message :
-          "会话数据库不可用，请先执行 002_nar_conversation_history.sql");
+          "会话数据库不可用，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql");
       }
     }).finally(() => { if (active) setChecked(true); });
     return () => { active = false; };
@@ -111,6 +113,15 @@ export function useNarConversation({
       setCurrentArtifactId, setActiveTask, setError, setDraft, setBusy,
       setProgress, setSessionReady]);
 
+  // Rename and pin updates from the sidebar should update the open conversation header.
+  useEffect(() => {
+    if (!ownerId || !conversationId) return;
+    return subscribeConversationQuery(ownerId, "detail:" + conversationId, () => {
+      const detail = peekConversationQuery<ConversationDetail>(ownerId, "detail:" + conversationId);
+      if (detail && alive.current) setConversationTitle(detail.conversation.title);
+    });
+  }, [ownerId, conversationId]);
+
   const applyDetail = useCallback((detail: ConversationDetail) => {
     if (!alive.current) return;
     setMessages(messagesFromConversation(detail));
@@ -124,7 +135,7 @@ export function useNarConversation({
     if (!conversationId || !authReady || !checked) return;
     if (!loggedIn || !ready) {
       setSessionReady(true);
-      if (loggedIn) setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql");
+      if (loggedIn) setError("会话数据库尚未准备好，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql");
       return;
     }
     if (!ownerId) return;
@@ -276,15 +287,21 @@ export function useNarConversation({
   }, [conversationId, ready, ownerId, activeTurnId, activeTurnStatus, applyDetail,
       setBusy, setActiveTask, setError, conversationTitle]);
 
-  async function send(prompt: string, mode: "chat" | "html" | "animation" | "edit",
+  async function send(prompt: string, mode: "auto" | "chat" | "html" | "animation" | "edit",
                       parentArtifact?: string): Promise<boolean> {
-    if (!ready || !checked || !loggedIn) return false;
+    if (!ready || !checked || !loggedIn || posting.current) return false;
+    posting.current = true;
     const last = inFlight.current;
-    const targetId = last?.prompt === prompt && last.mode === mode ? last.cid : conversationId || uuid();
-    const requestId = last?.prompt === prompt && last.mode === mode ? last.requestId : uuid();
-    inFlight.current = { cid: targetId, requestId, prompt, mode };
+    const retry = last?.prompt === prompt && last.mode === mode && last.parentArtifact === parentArtifact;
+    const targetId = retry ? last.cid : conversationId || uuid();
+    const requestId = retry ? last.requestId : uuid();
+    inFlight.current = { cid: targetId, requestId, prompt, mode, parentArtifact };
     setBusy(true); setError("");
-    setProgress(mode === "chat" ? "正在回复…" : "正在生成学习作品…");
+    setProgress(mode === "auto" ? "正在理解学习需求…" : mode === "chat" ? "正在回复…" : "正在生成学习作品…");
+    // Optimistic paint must happen before the HTTP request (chat dispatch can take minutes).
+    // Reconciliation replaces this temporary ID with server-owned message IDs.
+    setMessages(current => current.some(message => message.id === requestId)
+      ? current : [...current, { id: requestId, role: "user", content: prompt }]);
     setDraft("");
     try {
       const result = conversationId
@@ -324,11 +341,13 @@ export function useNarConversation({
         setError(formatPracticeFailure(result.turn, result.task));
     } catch (e) {
       if (currentConversation.current !== conversationId) return true;
-      // Keep the same idempotency key if the POST may have reached the server.
+      // Revert a failed optimistic paint; retain the idempotency key for safe retry.
+      setMessages(current => current.filter(message => message.id !== requestId));
       setDraft(prompt);
       setError(e instanceof Error ? e.message : "提交失败，重试会复用相同的请求标识。");
       setBusy(false);
     } finally {
+      posting.current = false;
       setProgress("");
       input.current?.focus();
     }

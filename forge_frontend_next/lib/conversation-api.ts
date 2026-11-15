@@ -3,6 +3,7 @@ import { forgeApi } from "./api-client";
 export type ConversationSummary = {
   id: string;
   title: string;
+  pinned?: boolean;
   createdAt: string;
   activeAt: string;
 };
@@ -67,6 +68,13 @@ export const conversationApi = {
     forgeApi<{ items: ConversationSummary[]; nextCursor: string | null }>(
       base + "/conversations?limit=30" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")),
   get: (id: string) => forgeApi<ConversationDetail>(base + "/conversations/" + id),
+  update: (id: string, values: { title?: string; pinned?: boolean }) =>
+    forgeApi<ConversationSummary>(base + "/conversations/" + id, {
+      method: "PATCH", headers: mutationHeaders, body: JSON.stringify(values),
+    }),
+  remove: (id: string) => forgeApi<{ deleted: boolean }>(base + "/conversations/" + id, {
+    method: "DELETE", headers: mutationHeaders,
+  }),
   messages: (id: string, before: number) =>
     forgeApi<{ items: ServerMessage[]; nextBefore: number | null }>(
       base + "/conversations/" + id + "/messages?before=" + before + "&limit=30"),
@@ -74,7 +82,7 @@ export const conversationApi = {
     forgeApi<{ items: ConversationArtifact[]; nextCursor: string | null }>(
       base + "/artifact-history?limit=30" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")),
   create: (id: string, requestId: string, prompt: string,
-           mode: "chat" | "html" | "animation" | "edit",
+           mode: "auto" | "chat" | "html" | "animation" | "edit",
            parentArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations", {
       method: "POST", headers: mutationHeaders,
@@ -84,7 +92,7 @@ export const conversationApi = {
       }),
     }),
   turn: (id: string, requestId: string, prompt: string,
-         mode: "chat" | "html" | "animation" | "edit",
+         mode: "auto" | "chat" | "html" | "animation" | "edit",
          parentArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations/" + id + "/turns", {
       method: "POST", headers: mutationHeaders,

@@ -26,7 +26,7 @@ test("every new prompt uses the logged-in user's durable Forge conversation endp
   const client = file("forge_frontend_next/lib/conversation-api.ts");
   const server = file(base + "use-nar-conversation.ts");
   const chat = file(base + "practice-chat.tsx");
-  assert.match(hook, /await server\.send\(prompt, mode, parent\)/);
+  assert.match(hook, /await server\.send\(prompt, "auto", parent\)/);
   assert.doesNotMatch(hook, /\bforgeApi<ChatReply>|followBuildTask|nar-agent\/html|nar-agent\/chat|nar-agent\/animations/);
   assert.match(server, /conversationApi\.status\(\)/);
   assert.match(server, /conversationApi\.create\(targetId/);

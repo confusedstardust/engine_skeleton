@@ -20,6 +20,7 @@ from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.progress_stream import stream_progress
 from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
+from app.intent_router import classify_intent
 from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -56,6 +57,10 @@ class RunInput(BaseModel):
         if sum(len(m.content) for m in self.history) + len(self.prompt) > 36000:
             raise ValueError("Conversation too long")
         return self
+
+
+class IntentInput(RunInput):
+    has_editable_html: bool = False
 
 
 class HtmlInput(RunInput):
@@ -97,6 +102,28 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         if (settings.animation_enabled or settings.html_builder_enabled) and len(settings.execution_token.get_secret_value()) < 32:
             raise HTTPException(503, "Configure execution token")
         return {"status": "configured", "provider_connectivity": "not_checked"}
+
+    @app.post("/v1/intent")
+    async def route_intent(payload: IntentInput, user_id: str = Depends(principal)):
+        if not settings.ready:
+            raise HTTPException(503, "Model API key is not configured")
+        if app.state.active_runs >= settings.max_concurrent_runs:
+            raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
+        app.state.active_runs += 1
+        try:
+            async with asyncio.timeout(min(settings.timeout_seconds, 25)):
+                mode = await classify_intent(
+                    settings, payload.prompt, [message.model_dump() for message in payload.history],
+                    has_editable_html=payload.has_editable_html,
+                )
+            return {"user_id": user_id, "mode": mode}
+        except Exception:
+            # The router is not allowed to silently convert a creative request
+            # into a chat turn when its model has failed.
+            logger.warning("Intent classification failed")
+            raise HTTPException(502, "Intent classification unavailable") from None
+        finally:
+            app.state.active_runs -= 1
 
     @app.post("/v1/animations", status_code=202)
     async def create_animation(payload: RunInput, user_id: str = Depends(principal)):

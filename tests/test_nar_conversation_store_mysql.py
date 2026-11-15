@@ -26,9 +26,14 @@ def ledger():
                   charset="utf8mb4", autocommit=False, cursorclass=DictCursor)
     def connection():
         return pymysql.connect(**params)
-    migration = Path("webgal_backend/migrations/002_nar_conversation_history.sql").read_text()
-    statements = "\n".join(line for line in migration.splitlines()
-                           if not line.strip().startswith("--")).split(";")
+    migrations = [
+        Path("webgal_backend/migrations/002_nar_conversation_history.sql").read_text(),
+        Path("webgal_backend/migrations/003_nar_conversation_pins.sql").read_text(),
+    ]
+    statements = "\n".join(
+        line for migration in migrations for line in migration.splitlines()
+        if not line.strip().startswith("--")
+    ).split(";")
     with connection() as conn:
         with conn.cursor() as cursor:
             for statement in statements:
@@ -101,6 +106,26 @@ def test_keyset_pagination_and_owner_scope(ledger):
     assert second["items"][0]["id"] != first["items"][0]["id"]
     with pytest.raises(ValueError):
         ledger.list_conversations(owner, limit=1, cursor="malformed_cursor!")
+
+def test_conversation_management_is_persistent_and_owner_scoped(ledger):
+    owner, other = "ci-" + uuid.uuid4().hex, "ci-" + uuid.uuid4().hex
+    ids = [uuid.uuid4().hex for _ in range(2)]
+    for cid in ids:
+        turn, _ = ledger.start_turn(owner, cid, uuid.uuid4().hex, "测试历史菜单", "chat", create=True)
+        ledger.fail_turn(owner, cid, turn["id"], "TEST")
+    renamed = ledger.update_metadata(owner, ids[0], title="修改后的标题", pinned=True)
+    assert renamed["title"] == "修改后的标题" and renamed["pinned"] is True
+    assert ledger.list_conversations(owner)["items"][0]["id"] == ids[0]
+    assert ledger.find_request(owner, ids[0], "nonexistent") is None
+    with pytest.raises(ConversationMissing):
+        ledger.update_metadata(other, ids[0], title="越权更新")
+    with pytest.raises(ConversationMissing):
+        ledger.delete_conversation(other, ids[0])
+    assert ledger.delete_conversation(owner, ids[0]) == {"deleted": True}
+    with pytest.raises(ConversationMissing):
+        ledger.get_detail(owner, ids[0])
+    assert ledger.list_conversations(owner)["items"][0]["id"] == ids[1]
+
 
 def test_artifact_history_groups_multiple_sources(ledger):
     owner = "ci-" + uuid.uuid4().hex
