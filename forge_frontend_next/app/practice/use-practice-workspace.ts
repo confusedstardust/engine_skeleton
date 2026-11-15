@@ -126,7 +126,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     const prompt = draft.trim();
     if (!prompt || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
     if (!server.ready) {
-      setError("会话数据库尚未准备好，请先执行 002_nar_conversation_history.sql 迁移；消息不会保存在浏览器。");
+      setError("会话数据库尚未准备好，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql；消息不会保存在浏览器。");
       return;
     }
     const selected = currentArtifactId ? workPreviews[currentArtifactId] : undefined;
