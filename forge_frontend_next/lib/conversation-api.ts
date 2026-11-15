@@ -19,6 +19,7 @@ export type ServerMessage = {
     publicBrief?: string;
     learningPlan?: unknown;
     elapsedMs?: number;
+    choices?: import("../app/practice/agent-choice-protocol").AgentChoiceQuestion;
   } | null;
 };
 
