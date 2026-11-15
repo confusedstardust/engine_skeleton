@@ -131,8 +131,8 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     }
     const selected = currentArtifactId ? workPreviews[currentArtifactId] : undefined;
     // A previous editable HTML artifact remains available even when no preview is selected.
-    const parent = selected?.kind === "html" ? selected.artifactId :
-      server.artifacts.find(artifact => artifact.kind === "html")?.artifactId;
+    const parent = selected ? (selected.kind === "html" ? selected.artifactId : undefined)
+      : server.artifacts.find(artifact => artifact.kind === "html")?.artifactId;
     await server.send(prompt, "auto", parent);
   }
 
