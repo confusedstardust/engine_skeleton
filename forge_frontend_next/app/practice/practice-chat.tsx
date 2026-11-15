@@ -22,7 +22,7 @@ const examples = [
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
-    sessionReady, authReady, progress, activeTask, workPreviews, currentArtifactId,
+    sessionReady, authReady, progress, activeTask,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
     serverReady, serverChecked, conversationId, conversationTitle,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
@@ -132,10 +132,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
         <div>
           <small>Enter 发送 · Shift + Enter 换行</small>
           <span className={styles.actions}>
-            <Button onClick={() => { void send("animation"); }} disabled={!canSubmit}>制作动画</Button>
-            <Button onClick={() => { void send("html"); }} disabled={!canSubmit}>生成 HTML</Button>
-            {currentArtifactId && workPreviews[currentArtifactId]?.kind === "html" &&
-              <Button onClick={() => { void send("edit"); }} disabled={!canSubmit}>修改当前作品</Button>}
             <Button type="submit" variant="primary" disabled={!canSubmit} busy={busy}>
               {busy ? "处理中" : <>发送 <Send size={15} strokeWidth={1.7} aria-hidden="true" /></>}
             </Button>
