@@ -314,7 +314,7 @@
 /* Keep a readable, centered chat surface on wide desktop screens;
    split-view with the artifact inspector retains the resizable workbench width. */
 @media(min-width:1181px){
- .layout:not(.layoutWithInspector) .chat{width:min(calc(100% - 32px),1100px);justify-self:center}
+ .layout:not(.layoutWithInspector) .chat{width:100%;justify-self:stretch}
 }
 @media(max-width:760px){
  .layout:not(.layoutWithInspector) .chat{width:100%;justify-self:stretch}
