@@ -11,6 +11,7 @@ import type { WorkPreviewData } from "./work-inspector";
 import type { GeneratedWork } from "./generated-work-card";
 import type { BuildTask } from "./live-progress";
 import type { PracticeMessage } from "./practice-types";
+import type { ClarificationAnswerV2 } from "./agent-choice-protocol";
 
 /**
  * One authenticated conversation source of truth: Forge /nar-agent/conversations.
@@ -122,7 +123,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     return () => { active = false; };
   }, [authReady, server.checked, loggedIn, workspaceScope, conversationId]);
 
-  async function send(promptOverride?: string) {
+  async function send(promptOverride?: string, clarificationAnswer?: ClarificationAnswerV2) {
     const prompt = (promptOverride ?? draft).trim();
     if (!prompt || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
     if (!server.ready) {
@@ -133,7 +134,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     // Preserve the identity of the selected or latest work, including Anatomy animation.
     // The server decides whether the user requests a revision or a new work.
     const parent = selected?.artifactId ?? server.artifacts[0]?.artifactId;
-    await server.send(prompt, "auto", parent);
+    await server.send(prompt, "auto", parent, clarificationAnswer);
   }
 
   function savedCardWorkId(work: GeneratedWork): string | undefined {
