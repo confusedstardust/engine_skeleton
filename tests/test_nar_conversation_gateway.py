@@ -448,3 +448,197 @@ def test_cross_conversation_artifact_cannot_be_used_as_edit_parent(monkeypatch):
                         "prompt": "调成居中", "mode": "auto",
                         "parent_artifact_id": "d" * 32})
     assert res.status_code == 404
+
+
+
+class V2MemoryLedger(MemoryLedger):
+    """Stub only for the V2 live-gate contract. Production uses SQL CAS."""
+    pending = None
+
+    def artifact_candidates(self, owner, cid, selected_id=None, limit=5):
+        if self.owners.get(cid) != owner:
+            raise ConversationMissing("Not found")
+        items = getattr(self, "artifacts", {}).get(cid, [])
+        if selected_id and not any(item["artifactId"] == selected_id for item in items):
+            raise ConversationMissing("Selected artifact is not owner-scoped")
+        return items[:limit]
+
+    def get_pending_clarification(self, owner, cid, clarification_id=None):
+        if self.owners.get(cid) != owner:
+            raise ConversationMissing("Not found")
+        if self.pending and (not clarification_id
+                or self.pending["metadata"]["clarification_v2"]["clarification_id"] == clarification_id):
+            return self.pending
+        return None
+
+    def claim_clarification_answer(self, owner, cid, request_id, raw_answer):
+        from webgal_backend.nar_pending_v2 import (
+            ClarificationAnswer, validate_clarification_answer, mark_clarification_answered)
+        item = self.get_pending_clarification(owner, cid, raw_answer["clarification_id"])
+        validated = validate_clarification_answer(
+            item["metadata"], ClarificationAnswer.model_validate(raw_answer))
+        item["metadata"] = mark_clarification_answered(item["metadata"], validated, request_id)
+        return {"metadata": item["metadata"], "reused": False}
+
+    def supersede_pending_clarification(self, owner, cid):
+        item = self.get_pending_clarification(owner, cid)
+        if not item:
+            return False
+        for name in ("choices", "clarification_v2", "pending_task_v2"):
+            item["metadata"][name]["status"] = "superseded"
+        return True
+
+    def finish_turn(self, owner, cid, tid, *, output, **kwargs):
+        self.final_metadata = kwargs.get("public_metadata")
+        return super().finish_turn(owner, cid, tid, output=output, **kwargs)
+
+
+def _v2_result(action, relation, output, next_step, target=None, question=None):
+    return {"user_id": "teacher", "schema_version": "2.0", "decision": {
+        "schema_version": "2.0",
+        "tasks": [{"action": action, "target_relation": relation,
+                   "candidate_artifact_id": target, "desired_output": output,
+                   "goal": "把马达动画的画面居中" if action == "revise" else "新制作一次函数练习网页",
+                   "requirements": []}],
+        "next_step": next_step,
+        "uncertainty": "target" if question else "none",
+        "clarification": question}}
+
+
+def test_v2_live_independent_html_does_not_inherit_even_explicit_legacy_parent(monkeypatch):
+    monkeypatch.setenv("NAR_INTENT_V2_LIVE_PERCENT", "100")
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    artifact = "e" * 32
+    ledger.artifacts = {CID: [{"artifactId": artifact, "kind": "animation", "title": "马达动画"}]}
+    ledger.messages[CID] = [{"role": "assistant", "content": "旧动画已经做好", "id": ID_B, "seq": 1}]
+    calls = []
+
+    def agent(req):
+        data = json.loads(req.content)
+        calls.append((req.url.path, data))
+        if req.url.path == "/v1/intent":
+            assert data["schema_version"] == "2.0"
+            assert data["context_v2"]["workspace"]["selected_artifact_id"] == artifact
+            return httpx.Response(200, json=_v2_result(
+                "create", "new", "html", "execute"))
+        assert req.url.path == "/v1/html"
+        assert "parent_artifact_id" not in data
+        return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
+
+    c = make_client(monkeypatch, agent, ledger)
+    body = {"client_request_id": "f" * 32, "prompt": "这个完成了，现在做一个新的函数网页",
+            "mode": "auto", "parent_artifact_id": artifact,
+            "selected_artifact_id": artifact}
+    first = c.post("/nar-agent/conversations/" + CID + "/turns", headers=HEADERS, json=body)
+    assert first.status_code == 202, first.text
+    assert first.json()["turn"]["mode"] == "html"
+    assert first.json()["turn"]["parentArtifactId"] is None
+    second = c.post("/nar-agent/conversations/" + CID + "/turns", headers=HEADERS, json=body)
+    assert second.json()["reused"] is True
+    assert [x[0] for x in calls] == ["/v1/intent", "/v1/html"]
+
+
+def test_v2_live_animation_revision_keeps_parent_and_original_generator(monkeypatch):
+    monkeypatch.setenv("NAR_INTENT_V2_LIVE_PERCENT", "100")
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    parent = "e" * 32
+    ledger.artifacts = {CID: [{"artifactId": parent, "kind": "animation", "title": "马达动画"}]}
+    ledger.messages[CID] = [{"role": "assistant", "content": "马达动画已完成", "id": ID_B, "seq": 1}]
+    calls = []
+    from webgal_backend.work_store import WorkStore
+    monkeypatch.setattr(WorkStore, "find_by_artifact", lambda self, owner, artifact_id: None)
+
+    def agent(req):
+        data = json.loads(req.content)
+        calls.append(req.url.path)
+        if req.url.path == "/v1/intent":
+            return httpx.Response(200, json=_v2_result(
+                "revise", "referenced", "animation", "execute", target=parent))
+        assert req.url.path == "/v1/animations"
+        assert data["parent_artifact_id"] == parent
+        return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
+
+    c = make_client(monkeypatch, agent, ledger)
+    response = c.post("/nar-agent/conversations/" + CID + "/turns",
+        headers=HEADERS, json={"client_request_id": "f"*32,
+        "prompt": "把刚才马达动画的画面居中", "mode": "auto"})
+    assert response.status_code == 202, response.text
+    assert response.json()["turn"]["mode"] == "animation"
+    assert response.json()["turn"]["parentArtifactId"] == parent
+    assert calls == ["/v1/intent", "/v1/animations"]
+
+
+def test_v2_live_ambiguous_target_generates_persistent_card_without_dispatch(monkeypatch):
+    monkeypatch.setenv("NAR_INTENT_V2_LIVE_PERCENT", "100")
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    ledger.messages[CID] = [{"role": "assistant", "content": "两个作品已完成", "id": ID_B, "seq": 1}]
+    ledger.artifacts = {CID: [
+        {"artifactId": "e"*32, "kind": "animation", "title": "马达动画"},
+        {"artifactId": "f"*32, "kind": "html", "title": "函数网页"}]}
+    calls = []
+
+    def agent(req):
+        calls.append(req.url.path)
+        assert req.url.path == "/v1/intent"
+        return httpx.Response(200, json=_v2_result(
+            "revise", "ambiguous", "unspecified", "clarify", question={
+            "question": "你想修改哪一件作品？",
+            "options": ["马达动画", "函数网页"], "allow_custom": True}))
+
+    c = make_client(monkeypatch, agent, ledger)
+    response = c.post("/nar-agent/conversations/" + CID + "/turns",
+        headers=HEADERS, json={"client_request_id": "f"*32,
+                                 "prompt": "把那个居中", "mode": "auto"})
+    assert response.status_code == 202, response.text
+    assert response.json()["turn"]["status"] == "SUCCEEDED"
+    assert calls == ["/v1/intent"]
+    assert ledger.final_metadata["choices"]["schemaVersion"] == "2.0"
+    assert ledger.final_metadata["clarification_v2"]["status"] == "pending"
+    assert ledger.final_metadata["pending_task_v2"]["proposal"]["tasks"][0]["action"] == "revise"
+
+
+def test_v2_live_formal_choice_resumes_original_task(monkeypatch):
+    monkeypatch.setenv("NAR_INTENT_V2_LIVE_PERCENT", "0")
+    from webgal_backend.nar_pending_v2 import make_clarification_metadata
+    from webgal_backend.work_store import WorkStore
+    monkeypatch.setattr(WorkStore, "find_by_artifact", lambda self, owner, artifact_id: None)
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    artifact = "e" * 32
+    question = _v2_result("revise", "selected", "animation", "clarify", artifact, {
+        "question": "你想怎么调整？", "options": ["画面居中", "只移动按钮"],
+        "allow_custom": True})["decision"]
+    metadata = make_clarification_metadata(question, origin_turn_id=TID,
+        verified_target_artifact_id=artifact, clarification_id="9"*32)
+    ledger.pending = {"message_id": ID_B, "metadata": metadata}
+    ledger.messages[CID] = [{"role": "assistant", "content": "你想怎么调整？", "id": ID_B, "seq": 1}]
+    ledger.artifacts = {CID: [{"artifactId": artifact, "kind": "animation", "title": "马达动画"}]}
+    calls = []
+
+    def agent(req):
+        data = json.loads(req.content)
+        calls.append(req.url.path)
+        if req.url.path == "/v1/intent":
+            assert data["context_v2"]["conversation"]["pending_clarification"]["current_answer"]["selected_labels"] == ["画面居中"]
+            return httpx.Response(200, json=_v2_result(
+                "revise", "selected", "animation", "execute", target=artifact))
+        assert req.url.path == "/v1/animations"
+        assert "把马达动画的画面居中" in data["prompt"]
+        assert data["parent_artifact_id"] == artifact
+        return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
+
+    c = make_client(monkeypatch, agent, ledger)
+    response = c.post("/nar-agent/conversations/" + CID + "/turns",
+        headers=HEADERS, json={
+            "client_request_id": "f"*32, "mode": "auto", "prompt": "我选择：画面居中",
+            "selected_artifact_id": artifact,
+            "clarification_answer": {
+                "clarification_id": "9"*32, "selected_option_ids": ["o1"],
+                "custom_text": ""}})
+    assert response.status_code == 202, response.text
+    assert response.json()["turn"]["mode"] == "animation"
+    assert calls == ["/v1/intent", "/v1/animations"]
+    assert ledger.pending["metadata"]["choices"]["status"] == "answered"
