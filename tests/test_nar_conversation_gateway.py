@@ -638,7 +638,7 @@ def test_v2_live_formal_choice_resumes_original_task(monkeypatch):
 
     def agent(req):
         if req.url.path == "/v1/capabilities":
-            calls.append((req.url.path, {}))
+            calls.append(req.url.path)
             return httpx.Response(200, json={"schema_version": "2.0",
                 "capabilities": {"chat": ["answer", "discuss", "evaluate"],
                     "html": ["create", "revise"], "animation": ["create", "revise"],
