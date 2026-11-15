@@ -100,6 +100,8 @@ class NarConversationStore:
                 for name in ("nar_conversations", "nar_messages", "nar_turns",
                              "nar_turn_dispatches", "nar_conversation_artifacts"):
                     db.execute("SELECT 1 FROM " + name + " LIMIT 0")
+                # Pinning requires the additive 003 migration as well.
+                db.execute("SELECT is_pinned FROM nar_conversations LIMIT 0")
             return True
         except Exception:
             return False
