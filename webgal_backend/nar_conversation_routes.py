@@ -82,6 +82,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
     live_chat_jobs: set[asyncio.Task] = set()
+    live_shadow_jobs: set[asyncio.Task] = set()
     biller_type = billing_factory or NarTurnBilling
 
     async def reserve_turn(owner: str, tid: str, mode: str):
@@ -430,9 +431,11 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     # Original browser parent is an explicit selection hint only;
                     # legacy latest_artifact() fallback is NOT a V2 target.
                     selected_id = parent_artifact_id if parent_artifact_id else None
-                    asyncio.create_task(compare_v2_shadow(
+                    shadow_job = asyncio.create_task(compare_v2_shadow(
                         owner, cid, payload, history, choice,
                         selected_id, create=create))
+                    live_shadow_jobs.add(shadow_job)
+                    shadow_job.add_done_callback(live_shadow_jobs.discard)
                 if choice in ("edit", "edit_animation"):
                     expected = "html" if choice == "edit" else "animation"
                     if selected and selected["kind"] == expected:
