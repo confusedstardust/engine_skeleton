@@ -36,7 +36,7 @@ def animation_prompt() -> str:
     )
 
 
-def animation_state(prompt: str, history: list[dict]) -> dict:
+def animation_state(prompt: str, history: list[dict], *, parent_source: str | None = None) -> dict:
     files = {}
     for path in (SKILLS / "anatomy").rglob("*"):
         if path.is_file() and path.suffix in {".md", ".mjs", ".ts", ".tsx", ".css", ".json"} and path.stat().st_size < 800000:
