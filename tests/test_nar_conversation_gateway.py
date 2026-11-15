@@ -303,7 +303,7 @@ def test_real_chat_sse_chunks_are_persisted_and_not_redispatched(monkeypatch):
     assert response.status_code == 200
     assert "event: accepted" in response.text
     assert '"text": "这"' in response.text
-    assert '"text": "这是答案"' in response.text
+    assert '"text": "是答案"' in response.text
     assert "event: result" in response.text
     detail = client.get("/nar-agent/conversations/" + CID).json()
     assert [m["content"] for m in detail["messages"]] == ["解释串联电路", "这是答案"]
