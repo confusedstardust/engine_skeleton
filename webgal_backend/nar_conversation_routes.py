@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import httpx
@@ -385,7 +386,15 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if turn["status"] != "RUNNING" or not turn["runId"]:
             return {"turn": turn}
         if turn["mode"] == "chat" and turn["runId"].startswith("stream-"):
-            # The Forge-owned stream task, not a NarAgent /runs/{id}, owns this job.
+            # A process restart can orphan an in-process stream pump. Do not
+            # re-dispatch automatically; eventually mark its status uncertain.
+            created = datetime.fromisoformat(turn["createdAt"].replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - created > timedelta(minutes=15):
+                unknown = await transaction(ledger.fail_turn, owner, cid, tid,
+                                            "STREAM_NOT_RECOVERABLE", uncertain=True)
+                return {"turn": unknown}
             return {"turn": turn}
         try:
             task = await agent_request(owner, turn["mode"], {}, run_id=turn["runId"])
