@@ -135,6 +135,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 )
         except httpx.HTTPError:
             raise HTTPException(503, "需求识别暂时不可用，请稍后重试") from None
+        if response.status_code == 429:
+            raise HTTPException(429, "当前请求较多，请稍后重试")
         if response.status_code != 200:
             raise HTTPException(503, "需求识别暂时不可用，请稍后重试")
         try:
