@@ -130,9 +130,9 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       return;
     }
     const selected = currentArtifactId ? workPreviews[currentArtifactId] : undefined;
-    // A previous editable HTML artifact remains available even when no preview is selected.
-    const parent = selected ? (selected.kind === "html" ? selected.artifactId : undefined)
-      : server.artifacts.find(artifact => artifact.kind === "html")?.artifactId;
+    // Preserve the identity of the selected or latest work, including Anatomy animation.
+    // The server decides whether the user requests a revision or a new work.
+    const parent = selected?.artifactId ?? server.artifacts[0]?.artifactId;
     await server.send(prompt, "auto", parent);
   }
 

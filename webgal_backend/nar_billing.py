@@ -1,13 +1,12 @@
 """Bounded, provider-reported NarAgent usage and existing credit-ledger integration.
 
-The feature is explicitly opt-in. Zero/unreported tokens are never estimated
+Every authenticated turn is billable. Zero/unreported tokens are never estimated
 from text length. Reservations have stable job/operation keys and settlement
 is idempotent. Unknown dispatch status must NOT release a reservation.
 """
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import asdict
 from typing import Any, Mapping
 
@@ -16,10 +15,6 @@ from credit_system.billing import Pricing, UsageTotals, credits_for_usage
 
 logger = logging.getLogger(__name__)
 _OPERATION = "nar-agent-turn-v1"
-
-
-def enabled() -> bool:
-    return os.getenv("NAR_AGENT_CREDITS_ENABLED", "false").lower() in ("1", "true", "yes")
 
 
 def usage_totals(raw: Any) -> UsageTotals | None:

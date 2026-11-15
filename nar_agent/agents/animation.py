@@ -36,15 +36,25 @@ def animation_prompt() -> str:
     )
 
 
-def animation_state(prompt: str, history: list[dict]) -> dict:
+def animation_state(prompt: str, history: list[dict], *, parent_source: str | None = None) -> dict:
     files = {}
     for path in (SKILLS / "anatomy").rglob("*"):
         if path.is_file() and path.suffix in {".md", ".mjs", ".ts", ".tsx", ".css", ".json"} and path.stat().st_size < 800000:
             files["/skills/" + path.relative_to(SKILLS).as_posix()] = create_file_data(path.read_text(encoding="utf-8"))
+    if parent_source is not None:
+        files["/reference/current-animation/build.mjs"] = create_file_data(parent_source)
+        prompt = (
+            "这是修改已经完成的动画，不是创建新网页或新动画主题。"
+            "原有可运行的完整构建脚本保存在 /reference/current-animation/build.mjs。"
+            "请先读它，仅修改用户要求的地方，保持原本交互、知识和视觉元素，"
+            "调用 build_animation 验证并保存新版本，不要只给用户改法。"
+            "如果用户只说继续、直接给我东西，应结合历史里尚未执行的修改意见。\n\n"
+            + prompt
+        )
     return {"messages": [*history, {"role": "user", "content": prompt}], "files": files}
 
 
-def build_animation_agent(settings: Settings, owner: str, progress: dict, store: ArtifactStore, *, model=None):
+def build_animation_agent(settings: Settings, owner: str, progress: dict, store: ArtifactStore, *, model=None, parent_id: str | None = None):
     attempts = 0
 
     def record_animation_plan(learning_goal: str, interaction_method: str, key_concepts: list[str]) -> str:
@@ -79,7 +89,7 @@ def build_animation_agent(settings: Settings, owner: str, progress: dict, store:
             enter_phase(progress, "CHECKING")
             progress["last_report"] = report
             if report.get("passed"):
-                identifier = store.save(owner, result, source)
+                identifier = store.save(owner, result, source, kind="animation", parent_id=parent_id)
                 enter_phase(progress, "FINALIZING")
                 progress["artifact_id"] = identifier
                 return json.dumps({"artifact_id": identifier, "report": report}, ensure_ascii=False)

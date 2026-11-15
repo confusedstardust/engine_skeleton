@@ -23,20 +23,21 @@ function duration(ms: number) {
   return minutes ? minutes + "分" + String(seconds % 60).padStart(2, "0") + "秒" : seconds + "秒";
 }
 
-export default function TaskReceipt({ value }: { value: TaskUsageReceipt }) {
+export default function TaskReceipt({ value, compact = false }: { value: TaskUsageReceipt; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const settled = value.billingStatus === "captured";
   const title = settled ? "本次消耗 " + (value.chargedCredits ?? 0) + " 积分" :
     value.billingStatus === "unmetered_released" ? "模型未返回用量 · 未扣积分" :
-    value.billingStatus === "released" ? "任务失败 · 已退还冻结积分" : "积分计费尚未开启";
-  return <Collapsible.Root open={open} onOpenChange={setOpen} className={styles.root}>
+    value.billingStatus === "released" ? "任务失败 · 已退还冻结积分" : "历史记录未结算";
+  return <Collapsible.Root open={open} onOpenChange={setOpen} className={compact ? `${styles.root} ${styles.compact}` : styles.root}>
     <Collapsible.Trigger type="button" className={styles.trigger} aria-label="查看本次任务的用量详情">
-      <span className={styles.time}><CheckCircle2 size={15} aria-hidden="true" />
-        <Clock3 size={14} aria-hidden="true" /> 用时 {duration(value.durationMs)}</span>
+      {!compact && <span className={styles.time}><CheckCircle2 size={15} aria-hidden="true" />
+        <Clock3 size={14} aria-hidden="true" /> 用时 {duration(value.durationMs)}</span>}
       <span className={styles.cost}><Coins size={15} aria-hidden="true" />{title}
         {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
     </Collapsible.Trigger>
     <Collapsible.Content className={styles.details}>
+      {compact && <span><Clock3 size={14} aria-hidden="true" /> 用时 {duration(value.durationMs)}</span>}
       <span><Gauge size={14} aria-hidden="true" /> 输入 Token：{value.inputTokens?.toLocaleString("zh-CN") ?? "暂无数据"}</span>
       <span>输出 Token：{value.outputTokens?.toLocaleString("zh-CN") ?? "暂无数据"}</span>
       <span>缓存输入：{value.cachedInputTokens?.toLocaleString("zh-CN") ?? "暂无数据"}</span>

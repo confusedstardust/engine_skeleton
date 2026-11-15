@@ -213,6 +213,21 @@ class NarConversationStore:
         return {"items": [_message(r) for r in reversed(rows)],
                 "nextBefore": rows[-1]["seq"] if rows and more else None}
 
+    def latest_artifact(self, owner: str, cid: str, selected_id: str | None = None) -> dict | None:
+        """Fetch an artifact in this owner's conversation; selection wins over recency."""
+        with self._transaction() as db:
+            self._own(db, owner, cid)
+            query = ("SELECT artifact_id, kind FROM nar_conversation_artifacts "
+                     "WHERE conversation_id=%s")
+            params = (cid,)
+            if selected_id:
+                query += " AND artifact_id=%s"
+                params = (cid, selected_id)
+            query += " ORDER BY created_at DESC, artifact_id DESC LIMIT 1"
+            db.execute(query, params)
+            row = db.fetchone()
+            return {"artifactId": row["artifact_id"], "kind": row["kind"]} if row else None
+
     def get_detail(self, owner: str, cid: str) -> dict:
         with self._transaction() as db:
             current = self._own(db, owner, cid)
