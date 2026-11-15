@@ -33,7 +33,7 @@ class TurnRequest(BaseModel):
     model_config = {"extra": "forbid"}
     client_request_id: str = Field(pattern=ID)
     prompt: str = Field(min_length=1, max_length=12000, pattern=r"\S")
-    mode: Literal["chat", "html", "animation", "edit"] = "chat"
+    mode: Literal["auto", "chat", "html", "animation", "edit"] = "chat"
     parent_artifact_id: str | None = Field(default=None, pattern=ID)
 
 
@@ -116,6 +116,37 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         except (TypeError, ValueError, KeyError):
             raise HTTPException(502, "执行服务的用户归属或响应内容无效") from None
 
+    async def resolve_intent(owner: str, prompt: str, history: list[dict],
+                             has_editable_html: bool) -> str:
+        """Classify on NarAgent using the existing model credentials and owner boundary."""
+        token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
+        if len(token) < 32:
+            raise HTTPException(503, "NarAgent 服务尚未配置")
+        base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
+        try:
+            async with httpx.AsyncClient(
+                timeout=30, transport=transport, trust_env=False, follow_redirects=False
+            ) as client:
+                response = await client.post(
+                    base + "/v1/intent",
+                    json={"prompt": prompt, "history": history[-8:],
+                          "has_editable_html": has_editable_html},
+                    headers={"Authorization": "Bearer " + token, "X-User-ID": owner},
+                )
+        except httpx.HTTPError:
+            raise HTTPException(503, "需求识别暂时不可用，请稍后重试") from None
+        if response.status_code != 200:
+            raise HTTPException(503, "需求识别暂时不可用，请稍后重试")
+        try:
+            data = response.json()
+            if str(data["user_id"]) != owner or data["mode"] not in (
+                "chat", "html", "animation", "edit"
+            ):
+                raise ValueError
+            return data["mode"]
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(502, "需求识别结果无效") from None
+
     @router.get("/conversations/status")
     async def availability(request: Request):
         # The endpoint is authenticated, NOT a feature flag. A missing migration
@@ -168,21 +199,39 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         return await transaction(ledger.get_messages, owner, cid, before, limit)
 
     async def submit_turn(owner: str, cid: str, payload: TurnRequest, *, create=False):
+        mode = payload.mode
+        parent_artifact_id = payload.parent_artifact_id
+        if mode == "auto":
+            # Persist only a concrete mode. On ambiguous HTTP retries, reuse
+            # the originally accepted mode instead of spending another LLM call.
+            previous = await transaction(ledger.find_request, owner, cid,
+                                         payload.client_request_id)
+            if previous:
+                mode = previous["mode"]
+            else:
+                recent = [] if create else (await transaction(
+                    ledger.get_messages, owner, cid, None, 10))["items"]
+                history = [{"role": row["role"], "content": row["content"]}
+                           for row in recent][-8:]
+                mode = await resolve_intent(owner, payload.prompt, history,
+                                            bool(parent_artifact_id))
+            if mode != "edit":
+                parent_artifact_id = None
         turn, new = await transaction(ledger.start_turn, owner, cid,
-             payload.client_request_id, payload.prompt, payload.mode,
-             payload.parent_artifact_id, create=create)
+             payload.client_request_id, payload.prompt, mode,
+             parent_artifact_id, create=create)
         if not new:
             # Idempotent reads must never re-dispatch a previously submitted turn.
             return {"conversationId": cid, "turn": turn, "reused": True}
         history = await transaction(ledger.model_history, owner, cid, turn["id"])
         request_body = {"prompt": payload.prompt, "history": history}
-        if payload.mode == "edit":
-            if not payload.parent_artifact_id:
+        if mode == "edit":
+            if not parent_artifact_id:
                 await transaction(ledger.fail_turn, owner, cid, turn["id"], "MISSING_PARENT")
                 return {"conversationId": cid, "turn": {**turn, "status": "FAILED", "errorCode": "MISSING_PARENT"}}
-            request_body["parent_artifact_id"] = payload.parent_artifact_id
+            request_body["parent_artifact_id"] = parent_artifact_id
         try:
-            task = await agent_request(owner, payload.mode, request_body)
+            task = await agent_request(owner, mode, request_body)
         except HTTPException as exc:
             # A 4xx means a known refusal. Network/5xx is ambiguous: provider
             # may have accepted it. Never automatically create another run.
@@ -191,7 +240,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                  "DISPATCH_UNCERTAIN" if uncertain else "DISPATCH_REJECTED", uncertain=uncertain)
             return {"conversationId": cid, "turn": failed}
         await transaction(ledger.mark_running, owner, cid, turn["id"], task["id"])
-        if payload.mode == "chat":
+        if mode == "chat":
             finished = await transaction(ledger.finish_turn, owner, cid, turn["id"],
                  output=task.get("output", ""), run_id=task["id"])
             return {"conversationId": cid, "turn": finished}
