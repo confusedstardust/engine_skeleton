@@ -23,7 +23,8 @@ test("compact composer reuses Radix primitives, avoids stale disclaimer and badg
   const css = read(app + "practice.module.css");
   assert.match(chat, /from "@radix-ui\/react-scroll-area"/);
   assert.match(chat, /<ScrollArea\.Root/);
-  assert.match(chat, /<TaskReceipt value=\{latestReceipt\}/);
+  assert.match(chat, /message\.billing && <TaskReceipt value=\{message\.billing\} compact/);
+  assert.doesNotMatch(chat, /latestReceipt/);
   assert.match(chat, /rows=\{2\}/);
   assert.doesNotMatch(chat, /AI 生成内容使用前请核对知识准确性与交互流程/);
   assert.doesNotMatch(chat, /<span className=\{styles\.badge\}>智能助手/);
@@ -41,4 +42,18 @@ test("usage receipt displays only actual settlement status, not an invented cost
   assert.match(receipt, /未返回用量时不推算扣费/);
   assert.match(projection, /billing: message\.metadata\?\.billing/);
   assert.match(api, /billing\?:/);
+});
+
+
+test("wide conversation and compact composer keep independent sizing", () => {
+  const css = read(app + "practice.module.css");
+  const chat = read(app + "practice-chat.tsx");
+  const workspace = read(app + "use-practice-workspace.ts");
+  const receiptCss = read(app + "task-receipt.module.css");
+  assert.match(css, /layout:not\(\.layoutWithInspector\) \.chat\{width:100%/);
+  assert.match(css, /\.composer:hover:not\(:focus-within\)/);
+  assert.match(css, /\.composer:focus-within::before/);
+  assert.match(receiptCss, /\.compact \.trigger/);
+  assert.match(workspace, /server\.artifacts\[0\]\?\.artifactId/);
+  assert.doesNotMatch(chat, /!busy && latestReceipt/);
 });
