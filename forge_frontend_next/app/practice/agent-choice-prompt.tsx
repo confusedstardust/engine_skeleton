@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Check, PenLine } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { formatAgentChoiceAnswer, type AgentChoiceQuestion } from "./agent-choice-protocol";
@@ -14,6 +14,7 @@ type Props = {
 
 /** End-of-turn choice cards; never executes an option without user input. */
 export default function AgentChoicePrompt({ choice, disabled, onAnswer }: Props) {
+  const customId = useId();
   const [selected, setSelected] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
   const [custom, setCustom] = useState("");
@@ -53,8 +54,8 @@ export default function AgentChoicePrompt({ choice, disabled, onAnswer }: Props)
         </Button>}
     </div>
     {showCustom && choice.allowCustom && <div className={styles.custom}>
-      <label htmlFor="nar-choice-custom">补充你的选择或要求</label>
-      <textarea id="nar-choice-custom" value={custom} rows={2} maxLength={2000}
+      <label htmlFor={customId}>补充你的选择或要求</label>
+      <textarea id={customId} value={custom} rows={2} maxLength={2000}
         disabled={disabled} placeholder="也可以直接描述你希望怎么做…"
         onChange={event => setCustom(event.target.value)}
         onKeyDown={event => {
