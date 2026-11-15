@@ -121,6 +121,23 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             raise HTTPException(503, "Configure execution token")
         return {"status": "configured", "provider_connectivity": "not_checked"}
 
+    @app.get("/v1/capabilities")
+    async def intent_capabilities(user_id: str = Depends(principal)):
+        """Authenticated executor readiness; Forge must not invent capabilities."""
+        ready = settings.ready
+        executable = ready and len(settings.execution_token.get_secret_value()) >= 32
+        return {
+            "schema_version": "2.0",
+            "capabilities": {
+                "chat": ["answer", "discuss", "evaluate"] if ready else [],
+                "html": ["create", "revise"]
+                    if executable and settings.html_builder_enabled else [],
+                "animation": ["create", "revise"]
+                    if executable and settings.animation_enabled else [],
+                "hybrid": ["plan_only"],
+            },
+        }
+
     @app.post("/v1/intent")
     async def route_intent(payload: IntentInput, user_id: str = Depends(principal)):
         if not settings.ready:

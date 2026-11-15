@@ -6,7 +6,16 @@
  *
  * Never parse arbitrary numbered lists into executable actions.
  */
+export type ClarificationAnswerV2 = {
+  clarification_id: string;
+  selected_option_ids: string[];
+  custom_text: string;
+};
+
 export type AgentChoiceQuestion = {
+  schemaVersion?: "2.0";
+  clarificationId?: string;
+  status?: "pending" | "answered" | "superseded" | "cancelled";
   question: string;
   options: { id: string; label: string; description?: string }[];
   multiple: boolean;
