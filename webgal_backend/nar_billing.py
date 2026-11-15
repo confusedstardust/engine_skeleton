@@ -82,6 +82,10 @@ class NarTurnBilling:
                               "hold_units": hold, "pricing": asdict(Pricing.from_env())},
         )
 
+    def find(self, owner: str, tid: str):
+        return self._service.find_reservation(user_id=owner, job_id=tid,
+                                              operation_key=_OPERATION)
+
     def settle(self, reservation, usage: Mapping[str, Any] | None, *, definite_success: bool,
                duration_ms: int = 0) -> dict:
         if not definite_success:
