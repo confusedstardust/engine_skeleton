@@ -134,7 +134,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     // Preserve the identity of the selected or latest work, including Anatomy animation.
     // The server decides whether the user requests a revision or a new work.
     const parent = selected?.artifactId ?? server.artifacts[0]?.artifactId;
-    await server.send(prompt, "auto", parent, clarificationAnswer);
+    await server.send(prompt, "auto", parent, clarificationAnswer, selectedArtifactId ?? undefined);
   }
 
   function savedCardWorkId(work: GeneratedWork): string | undefined {
