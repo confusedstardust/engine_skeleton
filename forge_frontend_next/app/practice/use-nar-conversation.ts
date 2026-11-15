@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject
 import { useRouter, useSearchParams } from "next/navigation";
 import { conversationApi, type ConversationArtifact, type ServerTurn, type ConversationDetail } from "../../lib/conversation-api";
 import { workApi } from "../../lib/work-api";
+import { getLiveReply, setLiveReply, clearLiveReply, subscribeLiveReply } from "../../lib/conversation-live-reply";
 import {
   CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery,
   setConversationQuery, upsertConversationSummary, invalidateConversationQuery,
@@ -64,6 +65,7 @@ export function useNarConversation({
   const [olderCursor, setOlderCursor] = useState<number | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [conversationTitle, setConversationTitle] = useState("");
+  const [streamText, setStreamText] = useState("");
   const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string; parentArtifact?: string } | null>(null);
   const posting = useRef(false);
   const alive = useRef(true);
@@ -120,6 +122,13 @@ export function useNarConversation({
       const detail = peekConversationQuery<ConversationDetail>(ownerId, "detail:" + conversationId);
       if (detail && alive.current) setConversationTitle(detail.conversation.title);
     });
+  }, [ownerId, conversationId]);
+
+  useEffect(() => {
+    if (!ownerId || !conversationId) { setStreamText(""); return; }
+    const sync = () => setStreamText(getLiveReply(ownerId, conversationId));
+    sync();
+    return subscribeLiveReply(ownerId, conversationId, sync);
   }, [ownerId, conversationId]);
 
   const applyDetail = useCallback((detail: ConversationDetail) => {
@@ -266,6 +275,7 @@ export function useNarConversation({
               () => conversationApi.get(conversationId), { force: true });
             if (!cancelled) {
               applyDetail(detail);
+              clearLiveReply(ownerId, conversationId);
               upsertConversationSummary(ownerId, detail.conversation);
               if (turn.status === "SUCCEEDED") invalidateConversationQuery(ownerId, "artifacts");
             }
@@ -304,36 +314,40 @@ export function useNarConversation({
       ? current : [...current, { id: requestId, role: "user", content: prompt }]);
     setDraft("");
     try {
-      const result = conversationId
-        ? await conversationApi.turn(targetId, requestId, prompt, mode, parentArtifact)
-        : await conversationApi.create(targetId, requestId, prompt, mode, parentArtifact);
-      inFlight.current = null;
-      // Server request may complete after user clicked another conversation.
-      // Keep its DB changes, but never navigate/apply obsolete UI state.
-      if (currentConversation.current !== conversationId) return true;
-      if (!conversationId) {
-        // Prepare a minimal server-accepted snapshot for instant navigation.
-        // The new route revalidates only this conversation in the background.
-        if (ownerId) {
-          const now = new Date().toISOString();
-          setConversationQuery<ConversationDetail>(ownerId, "detail:" + targetId, {
-            conversation: { id: targetId, title: prompt.slice(0, 160),
-              createdAt: now, activeAt: now },
-            messages: [{ id: requestId, seq: 1, role: "user",
-              content: prompt, createdAt: now }],
-            nextBefore: null,
-            activeTurn: result.turn.status === "RUNNING" || result.turn.status === "QUEUED"
-              || result.turn.status === "UNKNOWN" ? result.turn : null,
-            artifacts: [],
-          });
-          invalidateConversationQuery(ownerId, "detail:" + targetId);
-          upsertConversationSummary(ownerId, { id: targetId, title: prompt.slice(0, 160) });
-        }
+      let navigated = false;
+      const accepted = (response: import("../../lib/conversation-api").SubmitResult) => {
+        if (conversationId || navigated || !ownerId
+          || currentConversation.current !== conversationId) return;
+        navigated = true;
+        const now = new Date().toISOString();
+        setConversationQuery<ConversationDetail>(ownerId, "detail:" + targetId, {
+          conversation: { id: targetId, title: prompt.slice(0, 160),
+            createdAt: now, activeAt: now },
+          messages: [{ id: requestId, seq: 1, role: "user",
+            content: prompt, createdAt: now }],
+          nextBefore: null,
+          activeTurn: response.turn.status === "RUNNING" || response.turn.status === "QUEUED"
+            || response.turn.status === "UNKNOWN" ? response.turn : null,
+          artifacts: [],
+        });
+        invalidateConversationQuery(ownerId, "detail:" + targetId);
+        upsertConversationSummary(ownerId, { id: targetId, title: prompt.slice(0, 160) });
         router.push("/practice/chat/" + targetId);
-      } else {
+      };
+      const result = await conversationApi.stream(
+        targetId, requestId, prompt, mode, parentArtifact, !conversationId, {
+          onAccepted: accepted,
+          onText: text => { if (ownerId) setLiveReply(ownerId, targetId, text); },
+        });
+      inFlight.current = null;
+      if (!conversationId && !navigated) accepted(result);
+      // The destination conversation subscribes to the stream independently.
+      if (currentConversation.current !== conversationId) return true;
+      if (conversationId) {
         const detail = await getConversationQuery(ownerId!, "detail:" + targetId, 0,
           () => conversationApi.get(targetId), { force: true });
         applyDetail(detail);
+        clearLiveReply(ownerId!, targetId);
         upsertConversationSummary(ownerId!, detail.conversation);
         if (!detail.activeTurn) setBusy(false);
       }
@@ -393,7 +407,7 @@ export function useNarConversation({
   }
 
   return {
-    ready, checked, conversationId, conversationTitle, artifacts,
+    ready, checked, conversationId, conversationTitle, artifacts, streamText,
     activeTurn, olderCursor, loadingOlder, loadOlder, chatScroll, skipScroll,
     openArtifact, send, refresh: async () => {
       if (!conversationId || !ready) return;
