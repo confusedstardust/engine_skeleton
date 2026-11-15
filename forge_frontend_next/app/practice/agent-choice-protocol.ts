@@ -59,7 +59,7 @@ export function parseAgentChoiceMessage(content: string): {
     const options: AgentChoiceQuestion["options"] = [];
     for (const item of data.options) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return { body: content, choice: null };
+        return { body, choice: null };
       }
       const o = item as Record<string, unknown>;
       if (typeof o.id !== "string" || !/^[a-zA-Z0-9_-]{1,16}$/.test(o.id)
@@ -67,7 +67,7 @@ export function parseAgentChoiceMessage(content: string): {
         || !o.label.trim() || o.label.length > 240
         || (o.description !== undefined && (typeof o.description !== "string"
           || o.description.length > 240))) {
-        return { body: content, choice: null };
+        return { body, choice: null };
       }
       ids.add(o.id);
       options.push({
