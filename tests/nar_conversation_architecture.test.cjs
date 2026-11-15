@@ -32,7 +32,7 @@ test("history routes reuse one practice shell, and URLs carry conversation ident
   assert.match(hook, /useNarConversation/);
   assert.match(nav, /getConversationQuery\(ownerId, "list"/);
   assert.match(nav, /conversationApi\.artifacts\(\)/);
-  assert.match(nav, /\/practice\/chat\//);
+  assert.match(read(practice + "practice-history-list.tsx"), /\/practice\/chat\//);
   assert.match(nav, /aria-selected=\{view === "conversations"\}/);
 });
 
