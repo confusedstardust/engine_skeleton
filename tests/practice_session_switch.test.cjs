@@ -29,8 +29,9 @@ test("every new prompt uses the logged-in user's durable Forge conversation endp
   assert.match(hook, /await server\.send\(prompt, "auto", parent\)/);
   assert.doesNotMatch(hook, /\bforgeApi<ChatReply>|followBuildTask|nar-agent\/html|nar-agent\/chat|nar-agent\/animations/);
   assert.match(server, /conversationApi\.status\(\)/);
-  assert.match(server, /conversationApi\.create\(targetId/);
-  assert.match(server, /conversationApi\.turn\(targetId/);
+  assert.match(server, /conversationApi\.stream\(/);
+  assert.match(server, /setLiveReply\(ownerId, targetId, text\)/);
+  assert.match(client, /text\/event-stream/);
   assert.match(server, /conversationApi\.get\(conversationId\)/);
   assert.match(client, /\/conversations\/status/);
   assert.match(client, /\/conversations/);
