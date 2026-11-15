@@ -1,4 +1,5 @@
 import { forgeApi } from "./api-client";
+import type { ClarificationAnswerV2 } from "../app/practice/agent-choice-protocol";
 
 export type ConversationSummary = {
   id: string;
@@ -112,6 +113,7 @@ export const conversationApi = {
       onAccepted?: (result: SubmitResult) => void;
       onText?: (text: string) => void;
     } = {},
+    clarificationAnswer?: ClarificationAnswerV2,
   ): Promise<SubmitResult> => {
     const path = base + "/conversations/" +
       (isNew ? "stream" : id + "/turns/stream");
@@ -122,6 +124,7 @@ export const conversationApi = {
         ...(isNew ? { conversation_id: id } : {}),
         client_request_id: requestId, prompt, mode,
         ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
+        ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
       }),
     });
     if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
