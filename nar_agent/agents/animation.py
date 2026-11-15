@@ -89,7 +89,7 @@ def build_animation_agent(settings: Settings, owner: str, progress: dict, store:
             enter_phase(progress, "CHECKING")
             progress["last_report"] = report
             if report.get("passed"):
-                identifier = store.save(owner, result, source)
+                identifier = store.save(owner, result, source, kind="animation", parent_id=parent_id)
                 enter_phase(progress, "FINALIZING")
                 progress["artifact_id"] = identifier
                 return json.dumps({"artifact_id": identifier, "report": report}, ensure_ascii=False)
