@@ -228,6 +228,39 @@ class NarConversationStore:
             row = db.fetchone()
             return {"artifactId": row["artifact_id"], "kind": row["kind"]} if row else None
 
+    def artifact_candidates(self, owner: str, cid: str,
+                            selected_id: str | None = None, limit: int = 5) -> list[dict]:
+        """Owner + conversation scoped candidates; never choose recency as edit target.
+
+        An explicit old selection remains in the candidate set so references
+        can be resolved without widening the model's available artifact IDs.
+        """
+        if not 1 <= limit <= 5:
+            raise ValueError("Invalid artifact candidate limit")
+        with self._transaction() as db:
+            self._own(db, owner, cid)
+            chosen = None
+            if selected_id:
+                db.execute("SELECT artifact_id, kind, title FROM nar_conversation_artifacts "
+                           "WHERE conversation_id=%s AND artifact_id=%s",
+                           (cid, selected_id))
+                chosen = db.fetchone()
+                if not chosen:
+                    raise ConversationMissing("Selected artifact is not in this conversation")
+            db.execute("SELECT artifact_id, kind, title FROM nar_conversation_artifacts "
+                       "WHERE conversation_id=%s ORDER BY created_at DESC, artifact_id DESC LIMIT %s",
+                       (cid, limit))
+            recent = list(db.fetchall())
+        rows = ([chosen] if chosen else []) + recent
+        unique = []
+        seen = set()
+        for row in rows:
+            if row["artifact_id"] not in seen and len(unique) < limit:
+                seen.add(row["artifact_id"])
+                unique.append({"artifactId": row["artifact_id"], "kind": row["kind"],
+                               "title": row["title"]})
+        return unique
+
     def get_detail(self, owner: str, cid: str) -> dict:
         with self._transaction() as db:
             current = self._own(db, owner, cid)
