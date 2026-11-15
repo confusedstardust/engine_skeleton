@@ -24,7 +24,7 @@ from .nar_conversation_store import (
 )
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
-from .nar_billing import NarTurnBilling, enabled as nar_billing_enabled, safe_usage_metadata
+from .nar_billing import NarTurnBilling, safe_usage_metadata
 from credit_system import InsufficientCreditsError
 
 ID = r"^[0-9a-f]{32}$"
@@ -55,17 +55,16 @@ class WorkAssociation(BaseModel):
 
 
 def create_router(*, user_for_request, store: NarConversationStore | None = None,
-                  works: WorkStore | None = None, transport=None):
+                  works: WorkStore | None = None, transport=None, billing_factory=None):
     router = APIRouter(prefix="/nar-agent", tags=["NarAgent conversation history"])
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
     live_chat_jobs: set[asyncio.Task] = set()
+    biller_type = billing_factory or NarTurnBilling
 
     async def reserve_turn(owner: str, tid: str, mode: str):
-        if not nar_billing_enabled():
-            return None
         try:
-            return await run_in_threadpool(NarTurnBilling().reserve, owner, tid, mode)
+            return await run_in_threadpool(biller_type().reserve, owner, tid, mode)
         except InsufficientCreditsError as exc:
             raise HTTPException(402, "积分不足，本次任务未执行，请充值后重试") from exc
         except Exception:
@@ -73,9 +72,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
 
     async def finish_billing(owner: str, tid: str, usage: dict | None, *,
                              success: bool, duration_ms: int = 0) -> dict:
-        if not nar_billing_enabled():
-            return safe_usage_metadata(usage, duration_ms=duration_ms)
-        biller = NarTurnBilling()
+        biller = biller_type()
         try:
             reservation = await run_in_threadpool(biller.find, owner, tid)
             if not reservation:
