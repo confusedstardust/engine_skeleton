@@ -122,7 +122,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     return () => { active = false; };
   }, [authReady, server.checked, loggedIn, workspaceScope, conversationId]);
 
-  async function send(mode: "chat" | "animation" | "html" | "edit" = "chat") {
+  async function send() {
     const prompt = draft.trim();
     if (!prompt || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
     if (!server.ready) {
@@ -130,8 +130,10 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
       return;
     }
     const selected = currentArtifactId ? workPreviews[currentArtifactId] : undefined;
-    const parent = mode === "edit" && selected?.kind === "html" ? selected.artifactId : undefined;
-    await server.send(prompt, mode, parent);
+    // A previous editable HTML artifact remains available even when no preview is selected.
+    const parent = selected?.kind === "html" ? selected.artifactId :
+      server.artifacts.find(artifact => artifact.kind === "html")?.artifactId;
+    await server.send(prompt, "auto", parent);
   }
 
   function savedCardWorkId(work: GeneratedWork): string | undefined {
