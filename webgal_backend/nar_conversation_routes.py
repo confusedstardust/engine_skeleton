@@ -6,12 +6,15 @@ is NOT automatically repeated while NarAgent lacks durable idempotency support.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import re
 from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +22,7 @@ from .nar_conversation_store import (
     ConversationConflict, ConversationMissing, NarConversationStore,
 )
 from .work_store import WorkStore
+from .nar_choice_protocol import visible_stream_prefix
 
 ID = r"^[0-9a-f]{32}$"
 
@@ -52,6 +56,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     router = APIRouter(prefix="/nar-agent", tags=["NarAgent conversation history"])
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
+    live_chat_jobs: set[asyncio.Task] = set()
 
     async def owner_for(request: Request) -> str:
         user = await run_in_threadpool(user_for_request, request)
@@ -200,7 +205,98 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             raise HTTPException(422, "会话或分页参数错误")
         return await transaction(ledger.get_messages, owner, cid, before, limit)
 
-    async def submit_turn(owner: str, cid: str, payload: TurnRequest, *, create=False):
+
+    async def stream_chat_turn(owner: str, cid: str, turn: dict, payload: dict):
+        """Stream public chunks while a server-owned task persists the full reply.
+
+        The detached pump continues after browser disconnect; only a provider
+        interruption is marked UNKNOWN. Browser never retries upstream blindly.
+        """
+        run_id = "stream-" + turn["id"]
+        active = await transaction(ledger.mark_running, owner, cid, turn["id"], run_id)
+        queue: asyncio.Queue[tuple[str, dict]] = asyncio.Queue()
+
+        def sse(kind: str, data: dict) -> bytes:
+            return ("event: " + kind + "\ndata: " + json.dumps(data, ensure_ascii=False)
+                    + "\n\n").encode("utf-8")
+
+        async def pump():
+            token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
+            base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
+            raw, displayed = "", ""
+            try:
+                if len(token) < 32:
+                    raise ValueError("Service token not configured")
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(150, connect=12), transport=transport,
+                    trust_env=False, follow_redirects=False,
+                ) as client:
+                    async with client.stream(
+                        "POST", base + "/v1/runs/stream", json=payload,
+                        headers={"Authorization": "Bearer " + token, "X-User-ID": owner,
+                                 "Accept": "text/event-stream"},
+                    ) as response:
+                        if response.status_code != 200:
+                            raise ValueError("Streaming agent unavailable")
+                        event_type, value = "", ""
+                        async for line in response.aiter_lines():
+                            if line.startswith("event: "):
+                                event_type = line[7:].strip()
+                            elif line.startswith("data: "):
+                                value += line[6:]
+                            elif line == "" and event_type:
+                                data = json.loads(value)
+                                if event_type == "delta":
+                                    token_text = data.get("text", "")
+                                    if not isinstance(token_text, str):
+                                        raise ValueError("Invalid delta")
+                                    raw += token_text
+                                    if len(raw) > 16000:
+                                        raise ValueError("Output exceeds bounds")
+                                    safe = visible_stream_prefix(raw)
+                                    if safe != displayed:
+                                        # Explicit replacement avoids duplicated fragments
+                                        # if the model revises an early partial answer.
+                                        await queue.put(("text", {"text": safe}))
+                                        displayed = safe
+                                elif event_type == "done":
+                                    if str(data.get("user_id")) != owner or not isinstance(data.get("output"), str):
+                                        raise ValueError("Invalid output owner")
+                                    finished = await transaction(ledger.finish_turn, owner, cid, turn["id"],
+                                                                 output=data["output"], run_id=run_id)
+                                    await queue.put(("result", {"conversationId": cid, "turn": finished}))
+                                    return
+                                elif event_type == "error":
+                                    raise ValueError("Agent streaming error")
+                                event_type, value = "", ""
+                raise ValueError("Streaming agent disconnected before final output")
+            except Exception:
+                failed = await transaction(
+                    ledger.fail_turn, owner, cid, turn["id"], "STREAM_INTERRUPTED",
+                    uncertain=True, public_error="本次对话连接中断，结果未确认，请刷新会话查看。",
+                )
+                await queue.put(("result", {"conversationId": cid, "turn": failed}))
+            finally:
+                await queue.put(("end", {}))
+
+        job = asyncio.create_task(pump())
+        live_chat_jobs.add(job)
+        job.add_done_callback(live_chat_jobs.discard)
+
+        async def chunks():
+            yield sse("accepted", {"conversationId": cid, "turn": active})
+            while True:
+                kind, data = await queue.get()
+                if kind == "end":
+                    break
+                yield sse(kind, data)
+
+        return StreamingResponse(chunks(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache, no-transform",
+                                          "X-Accel-Buffering": "no",
+                                          "X-Content-Type-Options": "nosniff"})
+
+    async def submit_turn(owner: str, cid: str, payload: TurnRequest, *, create=False, streaming=False):
         mode = payload.mode
         parent_artifact_id = payload.parent_artifact_id
         if mode == "auto":
@@ -232,6 +328,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 await transaction(ledger.fail_turn, owner, cid, turn["id"], "MISSING_PARENT")
                 return {"conversationId": cid, "turn": {**turn, "status": "FAILED", "errorCode": "MISSING_PARENT"}}
             request_body["parent_artifact_id"] = parent_artifact_id
+        if streaming and mode == "chat":
+            return await stream_chat_turn(owner, cid, turn, request_body)
         try:
             task = await agent_request(owner, mode, request_body)
         except HTTPException as exc:
@@ -263,6 +361,21 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             raise HTTPException(404, "会话不存在")
         return await submit_turn(owner, cid, payload)
 
+    @router.post("/conversations/stream")
+    async def create_conversation_stream(payload: FirstTurnRequest, request: Request):
+        mutate(request)
+        owner = await owner_for(request)
+        return await submit_turn(owner, payload.conversation_id, payload,
+                                 create=True, streaming=True)
+
+    @router.post("/conversations/{cid}/turns/stream")
+    async def post_turn_stream(cid: str, payload: TurnRequest, request: Request):
+        mutate(request)
+        owner = await owner_for(request)
+        if not re.fullmatch(ID, cid):
+            raise HTTPException(404, "会话不存在")
+        return await submit_turn(owner, cid, payload, streaming=True)
+
     @router.get("/conversations/{cid}/turns/{tid}")
     async def poll_turn(cid: str, tid: str, request: Request):
         owner = await owner_for(request)
@@ -270,6 +383,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             raise HTTPException(404, "轮次不存在")
         turn = await transaction(ledger.get_turn, owner, cid, tid)
         if turn["status"] != "RUNNING" or not turn["runId"]:
+            return {"turn": turn}
+        if turn["mode"] == "chat" and turn["runId"].startswith("stream-"):
+            # The Forge-owned stream task, not a NarAgent /runs/{id}, owns this job.
             return {"turn": turn}
         try:
             task = await agent_request(owner, turn["mode"], {}, run_id=turn["runId"])
