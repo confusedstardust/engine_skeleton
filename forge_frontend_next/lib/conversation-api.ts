@@ -82,7 +82,7 @@ export const conversationApi = {
     forgeApi<{ items: ConversationArtifact[]; nextCursor: string | null }>(
       base + "/artifact-history?limit=30" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")),
   create: (id: string, requestId: string, prompt: string,
-           mode: "chat" | "html" | "animation" | "edit",
+           mode: "auto" | "chat" | "html" | "animation" | "edit",
            parentArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations", {
       method: "POST", headers: mutationHeaders,
@@ -92,7 +92,7 @@ export const conversationApi = {
       }),
     }),
   turn: (id: string, requestId: string, prompt: string,
-         mode: "chat" | "html" | "animation" | "edit",
+         mode: "auto" | "chat" | "html" | "animation" | "edit",
          parentArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations/" + id + "/turns", {
       method: "POST", headers: mutationHeaders,
