@@ -2,8 +2,9 @@
 import pytest
 from pydantic import ValidationError
 
+from webgal_backend.nar_pending_schema_v2 import ClarificationAnswer
 from webgal_backend.nar_pending_v2 import (
-    ClarificationAnswer, make_clarification_metadata,
+    make_clarification_metadata,
     mark_clarification_answered, validate_clarification_answer,
 )
 
