@@ -258,6 +258,41 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             # Shadow failure must not fail, retry, charge or re-route the live turn.
             logger.warning("nar_v2_shadow failed; live V1 dispatch unchanged")
 
+    async def fetch_v2_capabilities(owner: str) -> dict[str, list[str]]:
+        """Fetch authenticated service truth; never trust browser capability flags."""
+        token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
+        if len(token) < 32:
+            raise HTTPException(503, "无法验证当前创作能力，本次未执行")
+        base = os.getenv("NAR_AGENT_URL", "http://127.0.0.1:8020").rstrip("/")
+        try:
+            async with httpx.AsyncClient(
+                timeout=10, transport=transport, trust_env=False, follow_redirects=False
+            ) as client:
+                response = await client.get(base + "/v1/capabilities",
+                    headers={"Authorization": "Bearer " + token, "X-User-ID": owner})
+            if response.status_code != 200:
+                raise ValueError("Capability endpoint unavailable")
+            data = response.json()
+            caps = data.get("capabilities")
+            allowed = {
+                "chat": {"answer", "discuss", "evaluate"},
+                "html": {"create", "revise"},
+                "animation": {"create", "revise"},
+                "hybrid": {"plan_only"},
+            }
+            if data.get("schema_version") != "2.0" or not isinstance(caps, dict):
+                raise ValueError("Invalid capability schema")
+            if set(caps) != set(allowed):
+                raise ValueError("Incomplete capabilities")
+            for name, values in caps.items():
+                if not isinstance(values, list) or any(
+                    not isinstance(item, str) or item not in allowed[name]
+                    for item in values):
+                    raise ValueError("Invalid capability value")
+            return caps
+        except (httpx.HTTPError, ValueError, TypeError):
+            raise HTTPException(503, "执行能力检查暂不可用，本次没有开始创作") from None
+
     async def resolve_v2_live(owner: str, cid: str, payload: TurnRequest,
                               *, create: bool) -> dict:
         """Evaluate V2 without mutating state or reserving credits."""
@@ -290,9 +325,11 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if answer_data:
             pending_question = {**(pending_question or {}),
                                 "current_answer": answer_data}
+        service_caps = await fetch_v2_capabilities(owner)
         packet = build_context_packet(
             payload.prompt, cid, history, candidates, selected_id,
             pending_task=task, pending_clarification=pending_question,
+            capabilities=service_caps,
         )
         try:
             proposal = await resolve_intent_v2(owner, payload.prompt, packet)
