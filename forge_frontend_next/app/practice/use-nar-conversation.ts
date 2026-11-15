@@ -236,7 +236,7 @@ export function useNarConversation({
             if (typeof artId === "string" && /^[a-f0-9]{32}$/.test(artId)) {
               try {
                 let savedWorkId: string | undefined;
-                if (turn.mode === "edit" && turn.parentArtifactId) {
+                if (turn.parentArtifactId && (turn.mode === "edit" || turn.mode === "animation")) {
                   const { works } = await workApi.list();
                   const alreadySaved = works.find(work =>
                     work.versions.some(version => version.artifact_id === artId));
