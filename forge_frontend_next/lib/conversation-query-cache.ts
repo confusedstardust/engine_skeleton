@@ -90,9 +90,9 @@ export function invalidateConversationQuery(owner: string, key: string): void {
 
 /** Update the visible sidebar immediately after a successful server mutation. */
 export function upsertConversationSummary(
-  owner: string, conversation: { id: string; title: string; createdAt?: string; activeAt?: string },
+  owner: string, conversation: { id: string; title: string; pinned?: boolean; createdAt?: string; activeAt?: string },
 ): void {
-  type Summary = { id: string; title: string; createdAt: string; activeAt: string };
+  type Summary = { id: string; title: string; pinned?: boolean; createdAt: string; activeAt: string };
   const cache = peekConversationQuery<{ items: Summary[]; nextCursor: string | null }>(owner, "list");
   if (!cache) return;
   const now = new Date().toISOString();
@@ -100,11 +100,14 @@ export function upsertConversationSummary(
   const item: Summary = {
     id: conversation.id,
     title: conversation.title || original?.title || "新的学习对话",
+    pinned: conversation.pinned ?? original?.pinned ?? false,
     createdAt: conversation.createdAt || original?.createdAt || now,
     activeAt: conversation.activeAt || now,
   };
   setConversationQuery(owner, "list", {
-    ...cache, items: [item, ...cache.items.filter(row => row.id !== item.id)].slice(0, 30),
+    ...cache, items: [item, ...cache.items.filter(row => row.id !== item.id)]
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+        || b.activeAt.localeCompare(a.activeAt) || b.id.localeCompare(a.id)).slice(0, 30),
   });
 }
 
