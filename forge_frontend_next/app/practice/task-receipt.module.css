@@ -9,3 +9,11 @@
 .details small{flex-basis:100%;font-size:11px;color:#8a847a;line-height:1.5}
 @media(max-width:720px){.root{width:calc(100% - 20px)}.trigger{flex-wrap:wrap;padding:9px 10px}.details{gap:10px}}
 @media(prefers-reduced-motion:reduce){.trigger{transition:none}}
+/* A disclosure belongs to ONE assistant turn, never a global conversation sum. */
+.compact{width:fit-content;max-width:100%;margin:0 0 9px;display:block;font-size:11px}
+.compact .trigger{width:auto;display:inline-flex;gap:6px;padding:5px 9px;border-radius:9px;
+  background:linear-gradient(120deg,#fffdf5,#f8edd7);border-color:#eddfbf;box-shadow:none}
+.compact .cost{font-weight:600;color:#8b6838;font-size:11px}
+.compact .details{margin-top:5px;max-width:100%;border:1px solid #eee2cd;border-radius:9px;
+  padding:9px 11px;background:#fffdf8;gap:8px 13px}
+.compact .details small{max-width:430px}
