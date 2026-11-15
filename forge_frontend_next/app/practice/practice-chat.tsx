@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Send, Sparkles } from "lucide-react";
+import { ArrowUpRight, Send, Sparkles, WandSparkles } from "lucide-react";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import TaskReceipt from "./task-receipt";
 import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
@@ -24,7 +26,7 @@ const examples = [
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
-    sessionReady, authReady,
+    sessionReady, authReady, progress, activeTask,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
     serverReady, serverChecked, conversationId, conversationTitle, streamText,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
@@ -32,6 +34,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   } = workspace;
   const canAnswer = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn);
   const canSubmit = Boolean(canAnswer && draft.trim());
+  const latestReceipt = [...messages].reverse().find(m => m.role === "assistant" && m.billing)?.billing;
   const [burstKeys, setBurstKeys] = useState<string[]>([]);
   const seen = useRef<{ conversationId?: string; lastKey?: string; initialized: boolean }>({ initialized: false });
 
@@ -58,9 +61,10 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   return <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
     <div className={styles.chatHeader}>
       <div><strong>{conversationTitle || "互动学习创作"}</strong><span>用自然语言制作可操作、可修改的学习体验。</span></div>
-      <span className={styles.badge}>智能助手</span>
     </div>
-    <div className={styles.conversation} ref={chatScroll}>
+    {!busy && latestReceipt ? <TaskReceipt value={latestReceipt} /> : null}
+    <ScrollArea.Root className={styles.scrollRoot} type="scroll">
+      <ScrollArea.Viewport className={styles.conversation} ref={chatScroll}>
       {conversationId && olderCursor !== null && <div className={styles.olderHistory}>
         <Button variant="ghost" size="sm" onClick={() => { void loadOlder(); }}
           disabled={loadingOlder}>{loadingOlder ? "加载中…" : "查看更早的消息"}</Button>
@@ -114,8 +118,24 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
         <PracticeMessageAvatar role="assistant" />
         <div className={styles.messagePaper}><MessageMarkdown content={visibleAgentChoicePrefix(streamText)} /></div>
       </article>}
+      {busy && <div className={styles.statusDock} role="status" aria-live="polite">
+        {activeTask?.timeline?.length
+          ? <CreationTimeline timeline={activeTask.timeline}
+              elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
+              publicBrief={activeTask.public_brief}
+              briefStreaming={activeTask.public_brief_state === "STREAMING"} active />
+          : !streamText ? <div className={styles.statusHint}>
+              <WandSparkles className={styles.statusSparkle} size={18} aria-hidden="true" />
+              <span>{progress || "正在判断需求并准备执行…"}</span>
+              <span className={styles.statusDots} aria-hidden="true"><i /><i /><i /></span>
+            </div> : null}
+      </div>}
       <div ref={end} />
-    </div>
+      </ScrollArea.Viewport>
+      <ScrollArea.Scrollbar className={styles.chatScrollbar} orientation="vertical">
+        <ScrollArea.Thumb className={styles.chatScrollThumb}/>
+      </ScrollArea.Scrollbar>
+    </ScrollArea.Root>
     <div className={styles.composerArea}>
       {loginRequired && <p role="status" className={styles.notice}>
         请通过左侧栏的账号入口登录 NarrativeOS，再使用创作助手。
@@ -124,7 +144,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       <form className={styles.composer} onSubmit={event => { event.preventDefault(); void send(); }}>
         <label htmlFor="teaching-prompt" className="sr-only">输入学习问题</label>
         <textarea id="teaching-prompt" ref={input} value={draft} onChange={event => setDraft(event.target.value)}
-          maxLength={12000} rows={3} placeholder="例如：用串联电路讲解电流，学生可以点击开关…"
+          maxLength={12000} rows={2} placeholder="发送消息，描述你想学习或制作的互动体验…"
           disabled={busy} onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault(); void send();
@@ -139,7 +159,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </span>
         </div>
       </form>
-      <p className={styles.disclaimer}>AI 生成内容使用前请核对知识准确性与交互流程。</p>
     </div>
   </section>;
 }
