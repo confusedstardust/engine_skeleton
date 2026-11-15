@@ -62,6 +62,11 @@ class RunInput(BaseModel):
 
 class IntentInput(RunInput):
     has_editable_html: bool = False
+    current_artifact_kind: str | None = Field(default=None, pattern=r"^(html|animation)$")
+
+
+class AnimationInput(RunInput):
+    parent_artifact_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class HtmlInput(RunInput):
@@ -116,6 +121,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 mode = await classify_intent(
                     settings, payload.prompt, [message.model_dump() for message in payload.history],
                     has_editable_html=payload.has_editable_html,
+                    current_artifact_kind=payload.current_artifact_kind,
                 )
             return {"user_id": user_id, "mode": mode}
         except Exception:
@@ -127,17 +133,26 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             app.state.active_runs -= 1
 
     @app.post("/v1/animations", status_code=202)
-    async def create_animation(payload: RunInput, user_id: str = Depends(principal)):
+    async def create_animation(payload: AnimationInput, user_id: str = Depends(principal)):
         if not settings.ready or not settings.animation_enabled or len(settings.execution_token.get_secret_value()) < 32:
             raise HTTPException(503, "Animation execution is not configured")
         if app.state.animation_active or app.state.html_active:
             raise HTTPException(429, "An execution task is already active")
+        store = ArtifactStore(settings.artifact_dir)
+        parent_source = None
+        if payload.parent_artifact_id:
+            try:
+                parent_source = store.source(user_id, payload.parent_artifact_id, kind="animation")
+            except (FileNotFoundError, ValueError):
+                raise HTTPException(404, "Previous animation version not found") from None
         if len(app.state.animations) >= 100:
             finished = [key for key, item in app.state.animations.items() if item["status"] != "RUNNING"]
             for key in finished[:50]:
                 del app.state.animations[key]
         identifier = uuid4().hex
-        state = {"id": identifier, "user_id": user_id, "status": "RUNNING", "phase": "DESIGNING", "attempts": 0, "artifact_generated": False}
+        state = {"id": identifier, "user_id": user_id, "status": "RUNNING",
+                 "phase": "DESIGNING", "attempts": 0, "artifact_generated": False,
+                 "parent_artifact_id": payload.parent_artifact_id}
         enter_phase(state, "DESIGNING", detail="正在理解这次学习创作需求：" + payload.prompt.strip()[:110])
         app.state.animations[identifier] = state
         app.state.animation_active = True
@@ -146,7 +161,6 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             usage = UsageMetadataCallbackHandler()
             try:
                 async with asyncio.timeout(settings.animation_timeout_seconds):
-                    store = ArtifactStore(settings.artifact_dir)
                     brief = ""
                     if settings.public_brief_enabled:
                         try:
@@ -158,8 +172,15 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                         "\n\n[已向用户呈现的初步教学需求理解，若不准确应以用户原话为准]\n" + brief
                         if brief else ""
                     )
-                    graph = animation_factory(settings, user_id, state, store)
-                    result = await graph.ainvoke(animation_state(effective_prompt, [m.model_dump() for m in payload.history]), config={"callbacks": [usage], "recursion_limit": 80, "metadata": {"nar_run_id": identifier, "owner_user_id": user_id}})
+                    graph = (animation_factory(settings, user_id, state, store,
+                                               parent_id=payload.parent_artifact_id)
+                             if payload.parent_artifact_id
+                             else animation_factory(settings, user_id, state, store))
+                    result = await graph.ainvoke(
+                        animation_state(effective_prompt, [m.model_dump() for m in payload.history],
+                                        parent_source=parent_source),
+                        config={"callbacks": [usage], "recursion_limit": 80,
+                                "metadata": {"nar_run_id": identifier, "owner_user_id": user_id}})
                     content = result["messages"][-1].content
                     state["output"] = content if isinstance(content, str) else "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
                     state["artifact_generated"] = bool(state.get("artifact_id"))
