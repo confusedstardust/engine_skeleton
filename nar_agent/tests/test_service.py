@@ -125,3 +125,16 @@ def test_streaming_chat_emits_real_chunks_and_final_answer():
     assert "event: done" in response.text
     assert '"output": "这是回答"' in response.text
     assert app.state.active_runs == 0
+
+
+
+def test_real_deepagents_stream_path_emits_public_model_text():
+    # Unlike the pure FakeStream contract, this exercises the actual SDK graph
+    # and verifies that our langgraph_node filter does not swallow all chunks.
+    client = TestClient(create_app(settings(), agent_factory=factory))
+    response = client.post("/v1/runs/stream",
+                           json={"prompt": "设计串联电路演示"}, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert "event: done" in response.text
+    assert "event: delta" in response.text
+    assert "教学方案已准备" in response.text
