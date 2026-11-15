@@ -483,6 +483,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
 
     async def submit_turn(owner: str, cid: str, payload: TurnRequest, *, create=False, streaming=False):
         mode = payload.mode
+        v2_live = None
+        if payload.clarification_answer and mode != "auto":
+            raise HTTPException(422, "澄清答复必须通过自动路由提交")
         parent_artifact_id = payload.parent_artifact_id
         if mode == "auto":
             # Idempotent retries retain the original mode AND parent; never
@@ -493,47 +496,93 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 mode = previous["mode"]
                 parent_artifact_id = previous.get("parentArtifactId")
             else:
-                recent = [] if create else (await transaction(
-                    ledger.get_messages, owner, cid, None, 10))["items"]
-                history = [{"role": row["role"], "content": row["content"]}
-                           for row in recent][-10:]
-                selected = None
-                if not create:
-                    selected = await transaction(ledger.latest_artifact, owner, cid,
-                                                 parent_artifact_id)
-                    if parent_artifact_id and not selected:
-                        # Do not edit a deleted, different-user or different-conversation work.
-                        raise HTTPException(404, "所选作品在当前对话中不存在，请重新打开作品")
-                    if not selected:
-                        selected = await transaction(ledger.latest_artifact, owner, cid)
-                current_kind = selected["kind"] if selected else None
-                choice = await resolve_intent(owner, payload.prompt, history, current_kind)
-                if _shadow_v2_enabled(owner, cid, payload.client_request_id):
-                    # Original browser parent is an explicit selection hint only;
-                    # legacy latest_artifact() fallback is NOT a V2 target.
-                    selected_id = parent_artifact_id if parent_artifact_id else None
-                    shadow_job = asyncio.create_task(compare_v2_shadow(
-                        owner, cid, payload, history, choice,
-                        selected_id, create=create))
-                    live_shadow_jobs.add(shadow_job)
-                    shadow_job.add_done_callback(live_shadow_jobs.discard)
-                if choice in ("edit", "edit_animation"):
-                    expected = "html" if choice == "edit" else "animation"
-                    if selected and selected["kind"] == expected:
-                        mode = "edit" if expected == "html" else "animation"
-                        parent_artifact_id = selected["artifactId"]
-                    else:
-                        # No matching artifact: ask an accessible question in chat
-                        # rather than start a new builder of the wrong kind.
-                        mode, parent_artifact_id = "chat", None
+                if (payload.clarification_answer is not None
+                        or _live_v2_enabled(owner, cid, payload.client_request_id)):
+                    v2_live = await resolve_v2_live(owner, cid, payload, create=create)
+                    plan = v2_live["plan"]
+                    mode = plan["mode"] or "chat"
+                    parent_artifact_id = plan["parent_artifact_id"]
                 else:
-                    mode, parent_artifact_id = choice, None
+                    recent = [] if create else (await transaction(
+                        ledger.get_messages, owner, cid, None, 10))["items"]
+                    history = [{"role": row["role"], "content": row["content"]}
+                               for row in recent][-10:]
+                    selected = None
+                    if not create:
+                        selected = await transaction(ledger.latest_artifact, owner, cid,
+                                                     parent_artifact_id)
+                        if parent_artifact_id and not selected:
+                            # Do not edit a deleted, different-user or different-conversation work.
+                            raise HTTPException(404, "所选作品在当前对话中不存在，请重新打开作品")
+                        if not selected:
+                            selected = await transaction(ledger.latest_artifact, owner, cid)
+                    current_kind = selected["kind"] if selected else None
+                    choice = await resolve_intent(owner, payload.prompt, history, current_kind)
+                    if _shadow_v2_enabled(owner, cid, payload.client_request_id):
+                        # Original browser parent is an explicit selection hint only;
+                        # legacy latest_artifact() fallback is NOT a V2 target.
+                        selected_id = parent_artifact_id if parent_artifact_id else None
+                        shadow_job = asyncio.create_task(compare_v2_shadow(
+                            owner, cid, payload, history, choice,
+                            selected_id, create=create))
+                        live_shadow_jobs.add(shadow_job)
+                        shadow_job.add_done_callback(live_shadow_jobs.discard)
+                    if choice in ("edit", "edit_animation"):
+                        expected = "html" if choice == "edit" else "animation"
+                        if selected and selected["kind"] == expected:
+                            mode = "edit" if expected == "html" else "animation"
+                            parent_artifact_id = selected["artifactId"]
+                        else:
+                            # No matching artifact: ask an accessible question in chat
+                            # rather than start a new builder of the wrong kind.
+                            mode, parent_artifact_id = "chat", None
+                    else:
+                        mode, parent_artifact_id = choice, None
         turn, new = await transaction(ledger.start_turn, owner, cid,
              payload.client_request_id, payload.prompt, mode,
              parent_artifact_id, create=create)
         if not new:
             # Idempotent reads must never re-dispatch a previously submitted turn.
             return {"conversationId": cid, "turn": turn, "reused": True}
+        if v2_live:
+            plan = v2_live["plan"]
+            if v2_live["answer"]:
+                # The answer is consumed with owner-scoped CAS; only this request
+                # can resume the original task. No work is dispatched before CAS.
+                try:
+                    await transaction(ledger.claim_clarification_answer, owner, cid,
+                                      payload.client_request_id,
+                                      payload.clarification_answer.model_dump())
+                except HTTPException:
+                    await transaction(ledger.fail_turn, owner, cid, turn["id"],
+                                      "CLARIFICATION_CONFLICT")
+                    raise
+            proposal = v2_live["proposal"]
+            if plan["next_step"] in ("clarify", "capability_review"):
+                if plan["next_step"] == "clarify":
+                    proposal = v2_clarification_proposal(proposal, v2_live["packet"])
+                    metadata = make_clarification_metadata(
+                        proposal, origin_turn_id=turn["id"],
+                        verified_target_artifact_id=plan["parent_artifact_id"])
+                    response_text = metadata["choices"]["question"]
+                else:
+                    metadata = {"intent_v2": {"schema_version": "2.0",
+                                             "next_step": "capability_review"}}
+                    response_text = (
+                        "这项需求涉及转换作品格式、组合多个产物或当前暂不支持的操作。"
+                        "我不会未经你同意改用另一种工具重新制作。"
+                        "你可以单独提出制作网页、制作动画，或先让我讨论实现方案。")
+                finished = await transaction(
+                    ledger.finish_turn, owner, cid, turn["id"],
+                    output=response_text, public_metadata=metadata)
+                return {"conversationId": cid, "turn": finished}
+            # Independent new work replaces an unfinished clarification only
+            # after our new turn has successfully claimed its idempotency key.
+            first = proposal.get("tasks", [{}])[0]
+            if (not v2_live["answer"] and first.get("action") == "create"
+                    and first.get("target_relation") == "new"
+                    and v2_live["pending"]):
+                await transaction(ledger.supersede_pending_clarification, owner, cid)
         # Reserve on a NEW turn only. The original request idempotency key
         # prevents a duplicate charge on browser retries.
         try:
@@ -546,6 +595,18 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "errorCode": "CREDITS_INSUFFICIENT" if exc.status_code == 402 else "BILLING_UNAVAILABLE"}}
         history = await transaction(ledger.model_history, owner, cid, turn["id"])
         request_body = {"prompt": payload.prompt, "history": history}
+        if v2_live and v2_live["answer"] and v2_live["pending"]:
+            previous = v2_live["pending"]["metadata"]["pending_task_v2"]["proposal"]
+            task = previous["tasks"][0]
+            goal = str(task["goal"])
+            requirements = "；".join(task.get("requirements") or [])
+            request_body["prompt"] = (
+                f"继续完成之前尚未交付的任务：{goal}\n"
+                f"原任务要求：{requirements}\n"
+                f"用户已确认的选择：{', '.join(v2_live['answer']['selected_labels'])}\n"
+                f"用户补充：{v2_live['answer']['custom_text']}\n"
+                f"最新用户消息：{payload.prompt}"
+            )[:12000]
         if mode == "edit" or (mode == "animation" and parent_artifact_id):
             if not parent_artifact_id:
                 await finish_billing(owner, turn["id"], None, success=False)
