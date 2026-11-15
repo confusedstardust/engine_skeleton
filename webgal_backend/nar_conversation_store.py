@@ -320,7 +320,7 @@ class NarConversationStore:
             db.execute("INSERT INTO nar_messages "
                        "(id,conversation_id,seq,role,content,turn_id,public_metadata) "
                        "VALUES (%s,%s,%s,'assistant',%s,%s,%s)",
-                       (mid, cid, seq, body[:12000] or "作品已生成，可以查看预览。", tid, metadata))
+                       (mid, cid, seq, body[:12000] or ("请选择下一步操作。" if not artifact_id else "作品已生成，可以查看预览。"), tid, metadata))
             if artifact_id:
                 db.execute("INSERT INTO nar_conversation_artifacts "
                            "(conversation_id,artifact_id,origin_message_id,title,kind) "
