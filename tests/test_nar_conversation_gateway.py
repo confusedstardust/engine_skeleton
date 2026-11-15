@@ -280,3 +280,35 @@ def test_failed_html_returns_specific_public_message_and_persists_it(monkeypatch
     detail = c.get("/nar-agent/conversations/" + CID).json()
     assert "模型服务认证" in detail["messages"][-1]["content"]
     assert detail["messages"][-1]["metadata"]["phase"] == "DESIGNING"
+
+
+
+def test_real_chat_sse_chunks_are_persisted_and_not_redispatched(monkeypatch):
+    ledger = MemoryLedger()
+    calls = []
+    def streaming_agent(request):
+        calls.append(request.url.path)
+        assert request.url.path == "/v1/runs/stream"
+        content = (
+            'event: delta\ndata: {"text":"这"}\n\n'
+            'event: delta\ndata: {"text":"是答案"}\n\n'
+            'event: done\ndata: {"id":"model-run","user_id":"teacher","output":"这是答案"}\n\n'
+        )
+        return httpx.Response(200, content=content,
+                              headers={"content-type": "text/event-stream"})
+    client = make_client(monkeypatch, streaming_agent, ledger)
+    body = {"conversation_id": CID, "client_request_id": ID_A,
+            "mode": "chat", "prompt": "解释串联电路"}
+    response = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=body)
+    assert response.status_code == 200
+    assert "event: accepted" in response.text
+    assert '"text": "这"' in response.text
+    assert '"text": "这是答案"' in response.text
+    assert "event: result" in response.text
+    detail = client.get("/nar-agent/conversations/" + CID).json()
+    assert [m["content"] for m in detail["messages"]] == ["解释串联电路", "这是答案"]
+    again = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=body)
+    assert again.status_code == 200
+    assert again.json()["reused"] is True
+    assert calls == ["/v1/runs/stream"]
+
