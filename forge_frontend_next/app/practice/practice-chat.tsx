@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Send, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { LoadingState, Spinner } from "../../components/ui/state";
+import { LoadingState } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
 import AgentChoicePrompt from "./agent-choice-prompt";
 import { parseAgentChoiceMessage, visibleAgentChoicePrefix } from "./agent-choice-protocol";
@@ -24,7 +24,7 @@ const examples = [
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
-    sessionReady, authReady, progress, activeTask,
+    sessionReady, authReady,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
     serverReady, serverChecked, conversationId, conversationTitle, streamText,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
@@ -114,19 +114,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
         <PracticeMessageAvatar role="assistant" />
         <div className={styles.messagePaper}><MessageMarkdown content={visibleAgentChoicePrefix(streamText)} /></div>
       </article>}
-      {false && busy && <div className={styles.runningRow}>
-        <PracticeMessageAvatar role="assistant" />
-        <div className={styles.runningBlock}>
-          <div role="status" aria-live="polite" className={styles.thinking}>
-          <Spinner size="sm" tone="accent" />
-          <span>{progress || (activeTask ? "正在制作你的学习作品…" : "正在理解学习需求…")}</span>
-          </div>
-          {activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline}
-          elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
-          publicBrief={activeTask.public_brief}
-            briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
-        </div>
-      </div>}
       <div ref={end} />
     </div>
     <div className={styles.composerArea}>
