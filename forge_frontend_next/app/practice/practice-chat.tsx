@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { LoadingState, Spinner } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
 import AgentChoicePrompt from "./agent-choice-prompt";
-import { parseAgentChoiceMessage } from "./agent-choice-protocol";
+import { parseAgentChoiceMessage, visibleAgentChoicePrefix } from "./agent-choice-protocol";
 import GeneratedWorkCard from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import PracticeMessageAvatar from "./practice-message-avatar";
@@ -26,7 +26,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
     sessionReady, authReady, progress, activeTask,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
-    serverReady, serverChecked, conversationId, conversationTitle,
+    serverReady, serverChecked, conversationId, conversationTitle, streamText,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
     userAvatarUrl, userInitial,
   } = workspace;
@@ -109,7 +109,12 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </div>
         </article>;
       })}
-      {busy && <div className={styles.runningRow}>
+      {streamText && <article className={`${styles.message} ${styles.assistant}`}
+        aria-label="助手正在流式回复">
+        <PracticeMessageAvatar role="assistant" />
+        <div className={styles.messagePaper}><MessageMarkdown content={visibleAgentChoicePrefix(streamText)} /></div>
+      </article>}
+      {false && busy && <div className={styles.runningRow}>
         <PracticeMessageAvatar role="assistant" />
         <div className={styles.runningBlock}>
           <div role="status" aria-live="polite" className={styles.thinking}>
