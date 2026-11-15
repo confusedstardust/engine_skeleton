@@ -101,6 +101,25 @@ class MemoryLedger:
         if self.owners.get(cid) != owner:
             raise ConversationMissing("Not found")
 
+    def find_request(self, owner, cid, req):
+        if self.owners.get(cid) != owner:
+            return None
+        turn = self.requests.get((cid, req))
+        return {**turn, "prompt": self.messages[cid][0]["content"]} if turn else None
+
+    def update_metadata(self, owner, cid, *, title=None, pinned=None):
+        if self.owners.get(cid) != owner:
+            raise ConversationMissing("Not found")
+        return {"id": cid, "title": title or "测试会话",
+                "pinned": bool(pinned), "createdAt": TODAY.isoformat(),
+                "activeAt": TODAY.isoformat()}
+
+    def delete_conversation(self, owner, cid):
+        if self.owners.get(cid) != owner:
+            raise ConversationMissing("Not found")
+        del self.owners[cid]
+        return {"deleted": True}
+
 
 def make_client(monkeypatch, handler, store=None, user="teacher"):
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", "testing-" + "s" * 40)
@@ -112,6 +131,41 @@ def make_client(monkeypatch, handler, store=None, user="teacher"):
 
 
 HEADERS = {"X-NarAgent-Action": "chat"}
+
+
+def test_auto_route_runs_classifier_once_and_preserves_idempotent_mode(monkeypatch):
+    ledger = MemoryLedger()
+    calls = []
+    def agent(req):
+        calls.append(req.url.path)
+        if req.url.path == "/v1/intent":
+            assert json.loads(req.content)["has_editable_html"] is False
+            return httpx.Response(200, json={"user_id": "teacher", "mode": "html"})
+        assert req.url.path == "/v1/html"
+        return httpx.Response(202, json={"id": TID, "user_id": "teacher", "status": "RUNNING"})
+    client = make_client(monkeypatch, agent, ledger)
+    body = {"conversation_id": CID, "client_request_id": ID_A,
+            "mode": "auto", "prompt": "把赤壁赋做成互动网页"}
+    first = client.post("/nar-agent/conversations", json=body, headers=HEADERS)
+    assert first.status_code == 202
+    assert first.json()["turn"]["mode"] == "html"
+    second = client.post("/nar-agent/conversations", json=body, headers=HEADERS)
+    assert second.status_code == 202 and second.json()["reused"] is True
+    assert calls == ["/v1/intent", "/v1/html"]
+
+
+def test_history_mutations_require_auth_and_owner(monkeypatch):
+    ledger = MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    ledger.messages[CID] = []
+    allowed = make_client(monkeypatch, lambda req: httpx.Response(200), ledger)
+    denied = make_client(monkeypatch, lambda req: httpx.Response(200), ledger, user="other")
+    assert allowed.patch("/nar-agent/conversations/" + CID,
+                         json={"title": "新标题", "pinned": True}, headers=HEADERS).status_code == 200
+    assert denied.patch("/nar-agent/conversations/" + CID,
+                        json={"title": "越权"}, headers=HEADERS).status_code == 404
+    assert denied.delete("/nar-agent/conversations/" + CID, headers=HEADERS).status_code == 404
+    assert allowed.delete("/nar-agent/conversations/" + CID, headers=HEADERS).json() == {"deleted": True}
 
 
 def test_chat_creates_durable_message_and_duplicate_request_is_not_redispatched(monkeypatch):
