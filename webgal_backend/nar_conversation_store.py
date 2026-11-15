@@ -335,7 +335,8 @@ class NarConversationStore:
             return {**_turn(turn), "status": "SUCCEEDED", "runId": run_id or turn.get("agent_run_id")}
 
     def fail_turn(self, owner: str, cid: str, tid: str, code: str, *, uncertain: bool = False,
-                  public_error: str | None = None, phase: str | None = None) -> dict:
+                  public_error: str | None = None, phase: str | None = None,
+                  public_metadata: dict | None = None) -> dict:
         """Persist a safe public failure reply in the SAME transaction as the turn.
 
         No schema changes: metadata uses existing nar_messages.public_metadata.
@@ -364,7 +365,8 @@ class NarConversationStore:
                 if turn.get("agent_run_id"):
                     detail.append("任务编号：" + str(turn["agent_run_id"])[:80])
                 message += "（" + " · ".join(detail) + "）"
-                info = json.dumps({"errorCode": safe_code, "phase": safe_phase},
+                info = json.dumps({"errorCode": safe_code, "phase": safe_phase,
+                                   **(public_metadata or {})},
                                   ensure_ascii=False)
                 db.execute("INSERT INTO nar_messages "
                            "(id,conversation_id,seq,role,content,turn_id,public_metadata) "

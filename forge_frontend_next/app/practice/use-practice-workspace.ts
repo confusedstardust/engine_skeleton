@@ -84,7 +84,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     if (!server.skipScroll.current && (messages.length || busy)) {
       end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [messages, busy, server.skipScroll]);
+  }, [messages, busy, server.streamText, activeTask, server.skipScroll]);
 
   useEffect(() => {
     if (previousScope.current === workspaceScope) return;

@@ -441,7 +441,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     block.get("text", "") for block in content if isinstance(block, dict)
                 )
                 yield event("done", {"id": run_id, "user_id": user_id, "output": output,
-                                     "duration_ms": round((monotonic() - started) * 1000)})
+                                     "duration_ms": round((monotonic() - started) * 1000),
+                                     "usage": usage.usage_metadata,
+                                     "usage_status": "reported" if usage.usage_metadata else "unknown"})
             except Exception as exc:
                 # Log only the exception class; provider messages can contain credentials.
                 logger.warning("Streaming agent failed id=%s class=%s", run_id, type(exc).__name__)

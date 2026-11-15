@@ -455,6 +455,21 @@ class MySQLCreditStore:
                 remaining -= allocated
             return CreditReservation(reservation_id, user_id, job_id, operation_key, units, "RESERVED", True)
 
+    def find_reservation(self, *, user_id: str, job_id: str,
+                         operation_key: str) -> CreditReservation | None:
+        """Owner-scoped read for idempotent external task settlement."""
+        user_id = _validate_user_id(user_id)
+        job_id = _validate_job_id(job_id)
+        operation_key = _validate_operation_key(operation_key)
+        with self._transaction() as cursor:
+            cursor.execute(
+                "SELECT * FROM credit_reservations "
+                "WHERE user_id=%s AND job_id=%s AND operation_key=%s",
+                (user_id, job_id, operation_key),
+            )
+            row = cursor.fetchone()
+        return self._reservation_model(row, created=False) if row else None
+
     def capture(
         self,
         reservation_id: str,

@@ -24,6 +24,8 @@ from .nar_conversation_store import (
 )
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
+from .nar_billing import NarTurnBilling, enabled as nar_billing_enabled, safe_usage_metadata
+from credit_system import InsufficientCreditsError
 
 ID = r"^[0-9a-f]{32}$"
 
@@ -58,6 +60,32 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
     live_chat_jobs: set[asyncio.Task] = set()
+
+    async def reserve_turn(owner: str, tid: str, mode: str):
+        if not nar_billing_enabled():
+            return None
+        try:
+            return await run_in_threadpool(NarTurnBilling().reserve, owner, tid, mode)
+        except InsufficientCreditsError as exc:
+            raise HTTPException(402, "积分不足，本次任务未执行，请充值后重试") from exc
+        except Exception:
+            raise HTTPException(503, "积分服务暂时不可用，本次任务未执行") from None
+
+    async def finish_billing(owner: str, tid: str, usage: dict | None, *,
+                             success: bool, duration_ms: int = 0) -> dict:
+        if not nar_billing_enabled():
+            return safe_usage_metadata(usage, duration_ms=duration_ms)
+        biller = NarTurnBilling()
+        try:
+            reservation = await run_in_threadpool(biller.find, owner, tid)
+            if not reservation:
+                return safe_usage_metadata(usage, duration_ms=duration_ms)
+            return await run_in_threadpool(biller.settle, reservation, usage,
+                                           definite_success=success, duration_ms=duration_ms)
+        except Exception:
+            # A provider response can have completed even if billing is down.
+            # Don't invent a credit receipt or refund an uncertain reservation.
+            raise HTTPException(503, "积分结算暂时无法确认，请勿重复发起任务") from None
 
     async def owner_for(request: Request) -> str:
         user = await run_in_threadpool(user_for_request, request)
@@ -117,7 +145,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             return {key: data[key] for key in (
                 "id", "status", "phase", "output", "error", "error_code", "artifact_id",
                 "parent_artifact_id", "timeline", "elapsed_ms", "learning_plan",
-                "public_brief", "public_brief_state", "duration_ms"
+                "public_brief", "public_brief_state", "duration_ms", "usage", "usage_status"
             ) if key in data}
         except (TypeError, ValueError, KeyError):
             raise HTTPException(502, "执行服务的用户归属或响应内容无效") from None
@@ -266,8 +294,13 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                                 elif event_type == "done":
                                     if str(data.get("user_id")) != owner or not isinstance(data.get("output"), str):
                                         raise ValueError("Invalid output owner")
+                                    usage = data.get("usage")
+                                    receipt = await finish_billing(
+                                        owner, turn["id"], usage if isinstance(usage, dict) else None,
+                                        success=True, duration_ms=int(data.get("duration_ms") or 0))
                                     finished = await transaction(ledger.finish_turn, owner, cid, turn["id"],
-                                                                 output=data["output"], run_id=run_id)
+                                        output=data["output"], run_id=run_id,
+                                        public_metadata={"billing": receipt, "elapsedMs": receipt["durationMs"]})
                                     await queue.put(("result", {"conversationId": cid, "turn": finished}))
                                     return
                                 elif event_type == "error":
@@ -325,10 +358,21 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if not new:
             # Idempotent reads must never re-dispatch a previously submitted turn.
             return {"conversationId": cid, "turn": turn, "reused": True}
+        # Reserve on a NEW turn only. The original request idempotency key
+        # prevents a duplicate charge on browser retries.
+        try:
+            await reserve_turn(owner, turn["id"], mode)
+        except HTTPException as exc:
+            await transaction(ledger.fail_turn, owner, cid, turn["id"],
+                              "CREDITS_INSUFFICIENT" if exc.status_code == 402 else "BILLING_UNAVAILABLE",
+                              public_error=str(exc.detail))
+            return {"conversationId": cid, "turn": {**turn, "status": "FAILED",
+                "errorCode": "CREDITS_INSUFFICIENT" if exc.status_code == 402 else "BILLING_UNAVAILABLE"}}
         history = await transaction(ledger.model_history, owner, cid, turn["id"])
         request_body = {"prompt": payload.prompt, "history": history}
         if mode == "edit":
             if not parent_artifact_id:
+                await finish_billing(owner, turn["id"], None, success=False)
                 await transaction(ledger.fail_turn, owner, cid, turn["id"], "MISSING_PARENT")
                 return {"conversationId": cid, "turn": {**turn, "status": "FAILED", "errorCode": "MISSING_PARENT"}}
             request_body["parent_artifact_id"] = parent_artifact_id
@@ -340,13 +384,18 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             # A 4xx means a known refusal. Network/5xx is ambiguous: provider
             # may have accepted it. Never automatically create another run.
             uncertain = exc.status_code not in (404, 422, 429)
+            if not uncertain:
+                await finish_billing(owner, turn["id"], None, success=False)
             failed = await transaction(ledger.fail_turn, owner, cid, turn["id"],
                  "DISPATCH_UNCERTAIN" if uncertain else "DISPATCH_REJECTED", uncertain=uncertain)
             return {"conversationId": cid, "turn": failed}
         await transaction(ledger.mark_running, owner, cid, turn["id"], task["id"])
         if mode == "chat":
+            receipt = await finish_billing(owner, turn["id"], task.get("usage"),
+                                           success=True, duration_ms=task.get("duration_ms", 0))
             finished = await transaction(ledger.finish_turn, owner, cid, turn["id"],
-                 output=task.get("output", ""), run_id=task["id"])
+                 output=task.get("output", ""), run_id=task["id"],
+                 public_metadata={"billing": receipt, "elapsedMs": receipt["durationMs"]})
             return {"conversationId": cid, "turn": finished}
         return {"conversationId": cid, "turn": {**turn, "status": "RUNNING", "runId": task["id"]},
                 "task": task}
@@ -413,8 +462,12 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             if task["status"] == "SUCCEEDED" and not (
                 isinstance(aid, str) and re.fullmatch(ID, aid)
             ):
+                await finish_billing(owner, tid, task.get("usage"), success=False)
                 failed = await transaction(ledger.fail_turn, owner, cid, tid, "ARTIFACT_MISSING")
                 return {"turn": failed, "task": task}
+            receipt = await finish_billing(owner, tid, task.get("usage"),
+                                           success=task["status"] == "SUCCEEDED",
+                                           duration_ms=task.get("elapsed_ms", 0))
             if task["status"] == "SUCCEEDED":
                 work_kind = "animation" if turn["mode"] == "animation" else "html"
                 result = await transaction(ledger.finish_turn, owner, cid, tid,
@@ -424,7 +477,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     kind=work_kind, run_id=turn["runId"],
                     public_metadata={"timeline": task.get("timeline"), "publicBrief": task.get("public_brief"),
                                      "learningPlan": task.get("learning_plan"),
-                                     "elapsedMs": task.get("elapsed_ms")})
+                                     "elapsedMs": task.get("elapsed_ms"), "billing": receipt})
             else:
                 safe_error = task.get("error")
                 if not isinstance(safe_error, str) or not safe_error.strip():
@@ -434,7 +487,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 safe_phase = safe_phase if isinstance(safe_phase, str) else None
                 result = await transaction(ledger.fail_turn, owner, cid, tid,
                     safe_code, public_error=safe_error,
-                    phase=safe_phase)
+                    phase=safe_phase, public_metadata={"billing": receipt})
             return {"turn": result, "task": task}
         return {"turn": turn, "task": task}
 

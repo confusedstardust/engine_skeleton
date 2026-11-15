@@ -61,7 +61,7 @@ class MemoryLedger:
         turn.update(status="SUCCEEDED")
         return turn
 
-    def fail_turn(self, owner, cid, tid, code, uncertain=False, public_error=None, phase=None):
+    def fail_turn(self, owner, cid, tid, code, uncertain=False, public_error=None, phase=None, public_metadata=None):
         turn = next(t for (key_cid, _), t in self.requests.items() if key_cid == cid)
         if turn["status"] not in ("FAILED", "SUCCEEDED") and public_error:
             self.messages[cid].append({"id": ID_B, "seq": len(self.messages[cid]) + 1,
@@ -312,3 +312,49 @@ def test_real_chat_sse_chunks_are_persisted_and_not_redispatched(monkeypatch):
     assert again.json()["reused"] is True
     assert calls == ["/v1/runs/stream"]
 
+
+
+def test_opted_in_billing_reserves_once_and_captures_reported_stream_tokens(monkeypatch):
+    import webgal_backend.nar_conversation_routes as routes
+    monkeypatch.setenv("NAR_AGENT_CREDITS_ENABLED", "true")
+    events = []
+
+    class Metering:
+        def reserve(self, owner, tid, mode):
+            events.append(("reserve", owner, tid, mode))
+            return object()
+
+        def find(self, owner, tid):
+            events.append(("find", owner, tid))
+            return object()
+
+        def settle(self, reservation, usage, definite_success, duration_ms=0):
+            events.append(("settle", definite_success, usage, duration_ms))
+            return {"inputTokens": 120, "outputTokens": 45, "cachedInputTokens": 0,
+                    "usageStatus": "reported", "billingStatus": "captured",
+                    "chargedCredits": 1, "reservedCredits": 20,
+                    "durationMs": duration_ms}
+
+    monkeypatch.setattr(routes, "NarTurnBilling", Metering)
+
+    def provider(request):
+        assert request.url.path == "/v1/runs/stream"
+        data = ('event: delta\n'
+                'data: {"text":"正在讲解"}\n\n'
+                'event: done\n'
+                'data: {"user_id":"teacher","output":"正在讲解","duration_ms":880,'
+                '"usage":{"m":{"input_tokens":120,"output_tokens":45}}}\n\n')
+        return httpx.Response(200, text=data, headers={"content-type":"text/event-stream"})
+
+    ledger = MemoryLedger()
+    client = make_client(monkeypatch, provider, ledger)
+    payload = {"conversation_id": CID, "client_request_id": ID_A,
+               "prompt": "解释串联电路", "mode": "chat"}
+    result = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=payload)
+    assert result.status_code == 200
+    assert 'event: result' in result.text
+    assert [event[0] for event in events] == ["reserve", "find", "settle"]
+    assert events[2] == ("settle", True, {"m": {"input_tokens": 120, "output_tokens": 45}}, 880)
+    reused = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=payload)
+    assert reused.json()["reused"] is True
+    assert len(events) == 3

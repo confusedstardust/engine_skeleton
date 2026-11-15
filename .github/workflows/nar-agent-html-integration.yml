@@ -9,6 +9,10 @@ on:
       - 'webgal_backend/nar_agent_routes.py'
       - 'webgal_backend/nar_conversation_*.py'
       - 'webgal_backend/nar_choice_protocol.py'
+      - 'webgal_backend/nar_billing.py'
+      - 'credit_system/**'
+      - 'tests/test_nar_billing.py'
+      - 'tests/practice_nar_usage_ui.test.cjs'
       - 'webgal_backend/site_visits.py'
       - 'tests/test_site_visits_bots.py'
       - 'tests/test_nar_choice_normalization.py'
@@ -55,7 +59,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30' 'qrcode>=8' 'Pillow>=10'
-      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py
   frontend:
     name: Practice UI TypeScript
     runs-on: ubuntu-latest
@@ -80,6 +84,7 @@ jobs:
       - run: node ../tests/nar_conversation_architecture.test.cjs
       - run: node ../tests/practice_paper_chat.test.cjs
       - run: node ../tests/practice_choice_prompt.test.cjs
+      - run: node ../tests/practice_nar_usage_ui.test.cjs
       - run: node ../tests/nar_execution_deployment.test.cjs
       - run: npm run build
         env:
