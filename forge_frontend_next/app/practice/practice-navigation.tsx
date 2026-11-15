@@ -130,7 +130,7 @@ export default function PracticeNavigation({
         </div>
         {view === "conversations" ?
           <PracticeHistoryList items={conversations} ownerId={ownerId}
-            activeConversationId={activeConversationId} /> : artifacts.map(item =>
+            activeConversationId={activeConversationId} activeBusy={busy} /> : artifacts.map(item =>
           <Link key={item.conversationId + ":" + item.artifactId}
             href={"/practice/chat/" + item.conversationId + "?artifact=" + item.artifactId}
             className={navStyles.navRecentItem} title={item.title}>
