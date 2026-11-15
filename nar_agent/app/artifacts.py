@@ -41,6 +41,18 @@ class ArtifactStore:
             shutil.rmtree(pending)
             raise
 
+    def source(self, owner: str, identifier: str, *, kind: str) -> str:
+        """Read only an owner's versioned build source, not arbitrary artifact paths."""
+        if kind not in ("html", "animation") or self.metadata(owner, identifier).get("kind") != kind:
+            raise FileNotFoundError
+        path = self.root / identifier / ("source.html" if kind == "html" else "build.mjs")
+        try:
+            if path.stat().st_size > 800000:
+                raise ValueError("Source too large to edit safely")
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            raise FileNotFoundError from None
+
     def read(self, owner: str, identifier: str, filename: str) -> bytes:
         if not re.fullmatch(r"[0-9a-f]{32}", identifier) or filename not in {"index.html", "preview.png", "mobile.png"}:
             raise FileNotFoundError
