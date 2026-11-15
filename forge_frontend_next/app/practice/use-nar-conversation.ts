@@ -138,7 +138,8 @@ export function useNarConversation({
     setConversationTitle(detail.conversation.title);
     setOlderCursor(detail.nextBefore);
     setActiveTurn(detail.activeTurn);
-  }, [setMessages]);
+    if (!detail.activeTurn && ownerId && conversationId) clearLiveReply(ownerId, conversationId);
+  }, [setMessages, ownerId, conversationId]);
 
   useEffect(() => {
     if (!conversationId || !authReady || !checked) return;
