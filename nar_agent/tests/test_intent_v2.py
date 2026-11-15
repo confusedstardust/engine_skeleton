@@ -125,3 +125,22 @@ def test_v2_endpoint_opt_in_preserves_legacy_response(monkeypatch):
         "schema_version": "2.0", "prompt": "新任务",
     })
     assert missing.status_code == 422
+
+
+
+def test_v2_capabilities_are_authenticated_and_follow_real_feature_flags():
+    import app.main as api
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    token = "v2-capability-test-" + "z" * 40
+    config = Settings(_env_file=None, service_token=token, api_key="test-only",
+                      animation_enabled=False, html_builder_enabled=False)
+    client = TestClient(api.create_app(config))
+    headers = {"Authorization": f"Bearer {token}", "X-User-ID": "teacher"}
+    assert client.get("/v1/capabilities").status_code == 401
+    r = client.get("/v1/capabilities", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["schema_version"] == "2.0"
+    assert r.json()["capabilities"]["html"] == []
+    assert r.json()["capabilities"]["animation"] == []
+    assert set(r.json()["capabilities"]["chat"]) == {"answer", "discuss", "evaluate"}
