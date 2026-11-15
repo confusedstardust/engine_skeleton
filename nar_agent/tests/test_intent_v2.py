@@ -87,3 +87,41 @@ def test_model_called_once_without_keyword_shortcuts(monkeypatch):
     result = asyncio.run(interpret_intent_v2(settings, context()))
     assert result.tasks[0].action == "create"
     assert len(calls) == 1
+
+
+def test_v2_endpoint_opt_in_preserves_legacy_response(monkeypatch):
+    import app.main as api
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+
+    token = "v2-test-" + "x" * 40
+    config = Settings(_env_file=None, service_token=token, api_key="test-only")
+    async def fake_v2(settings, context):
+        assert context.current_message == "再做一个新的函数练习网页"
+        return IntentDecision.model_validate(proposal())
+    async def fake_v1(settings, prompt, history, **kwargs):
+        return "chat"
+    monkeypatch.setattr(api, "interpret_intent_v2", fake_v2)
+    monkeypatch.setattr(api, "classify_intent", fake_v1)
+    client = TestClient(api.create_app(config))
+    headers = {"Authorization": f"Bearer {token}", "X-User-ID": "teacher"}
+    v1 = client.post("/v1/intent", headers=headers, json={"prompt": "解释函数"})
+    assert v1.status_code == 200 and v1.json() == {"user_id": "teacher", "mode": "chat"}
+
+    v2 = client.post("/v1/intent", headers=headers, json={
+        "schema_version": "2.0", "prompt": "再做一个新的函数练习网页",
+        "context_v2": context().model_dump(),
+    })
+    assert v2.status_code == 200, v2.text
+    assert v2.json()["decision"]["tasks"][0]["action"] == "create"
+    assert "mode" not in v2.json()
+
+    mismatched = client.post("/v1/intent", headers=headers, json={
+        "schema_version": "2.0", "prompt": "不一致",
+        "context_v2": context().model_dump(),
+    })
+    assert mismatched.status_code == 422
+    missing = client.post("/v1/intent", headers=headers, json={
+        "schema_version": "2.0", "prompt": "新任务",
+    })
+    assert missing.status_code == 422
