@@ -516,6 +516,12 @@ def test_v2_live_independent_html_does_not_inherit_even_explicit_legacy_parent(m
     calls = []
 
     def agent(req):
+        if req.url.path == "/v1/capabilities":
+            calls.append((req.url.path, {}))
+            return httpx.Response(200, json={"schema_version": "2.0",
+                "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                    "html": ["create", "revise"], "animation": ["create", "revise"],
+                    "hybrid": ["plan_only"]}})
         data = json.loads(req.content)
         calls.append((req.url.path, data))
         if req.url.path == "/v1/intent":
@@ -537,7 +543,7 @@ def test_v2_live_independent_html_does_not_inherit_even_explicit_legacy_parent(m
     assert first.json()["turn"]["parentArtifactId"] is None
     second = c.post("/nar-agent/conversations/" + CID + "/turns", headers=HEADERS, json=body)
     assert second.json()["reused"] is True
-    assert [x[0] for x in calls] == ["/v1/intent", "/v1/html"]
+    assert [x[0] for x in calls] == ["/v1/capabilities", "/v1/intent", "/v1/html"]
 
 
 def test_v2_live_animation_revision_keeps_parent_and_original_generator(monkeypatch):
@@ -552,6 +558,12 @@ def test_v2_live_animation_revision_keeps_parent_and_original_generator(monkeypa
     monkeypatch.setattr(WorkStore, "find_by_artifact", lambda self, owner, artifact_id: None)
 
     def agent(req):
+        if req.url.path == "/v1/capabilities":
+            calls.append(req.url.path)
+            return httpx.Response(200, json={"schema_version": "2.0",
+                "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                    "html": ["create", "revise"], "animation": ["create", "revise"],
+                    "hybrid": ["plan_only"]}})
         data = json.loads(req.content)
         calls.append(req.url.path)
         if req.url.path == "/v1/intent":
@@ -568,7 +580,7 @@ def test_v2_live_animation_revision_keeps_parent_and_original_generator(monkeypa
     assert response.status_code == 202, response.text
     assert response.json()["turn"]["mode"] == "animation"
     assert response.json()["turn"]["parentArtifactId"] == parent
-    assert calls == ["/v1/intent", "/v1/animations"]
+    assert calls == ["/v1/capabilities", "/v1/intent", "/v1/animations"]
 
 
 def test_v2_live_ambiguous_target_generates_persistent_card_without_dispatch(monkeypatch):
@@ -583,6 +595,11 @@ def test_v2_live_ambiguous_target_generates_persistent_card_without_dispatch(mon
 
     def agent(req):
         calls.append(req.url.path)
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={"schema_version": "2.0",
+                "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                    "html": ["create", "revise"], "animation": ["create", "revise"],
+                    "hybrid": ["plan_only"]}})
         assert req.url.path == "/v1/intent"
         return httpx.Response(200, json=_v2_result(
             "revise", "ambiguous", "unspecified", "clarify", question={
@@ -595,7 +612,7 @@ def test_v2_live_ambiguous_target_generates_persistent_card_without_dispatch(mon
                                  "prompt": "把那个居中", "mode": "auto"})
     assert response.status_code == 202, response.text
     assert response.json()["turn"]["status"] == "SUCCEEDED"
-    assert calls == ["/v1/intent"]
+    assert calls == ["/v1/capabilities", "/v1/intent"]
     assert ledger.final_metadata["choices"]["schemaVersion"] == "2.0"
     assert ledger.final_metadata["clarification_v2"]["status"] == "pending"
     assert ledger.final_metadata["pending_task_v2"]["proposal"]["tasks"][0]["action"] == "revise"
@@ -620,6 +637,12 @@ def test_v2_live_formal_choice_resumes_original_task(monkeypatch):
     calls = []
 
     def agent(req):
+        if req.url.path == "/v1/capabilities":
+            calls.append((req.url.path, {}))
+            return httpx.Response(200, json={"schema_version": "2.0",
+                "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                    "html": ["create", "revise"], "animation": ["create", "revise"],
+                    "hybrid": ["plan_only"]}})
         data = json.loads(req.content)
         calls.append(req.url.path)
         if req.url.path == "/v1/intent":
@@ -641,5 +664,5 @@ def test_v2_live_formal_choice_resumes_original_task(monkeypatch):
                 "custom_text": ""}})
     assert response.status_code == 202, response.text
     assert response.json()["turn"]["mode"] == "animation"
-    assert calls == ["/v1/intent", "/v1/animations"]
+    assert calls == ["/v1/capabilities", "/v1/intent", "/v1/animations"]
     assert ledger.pending["metadata"]["choices"]["status"] == "answered"
