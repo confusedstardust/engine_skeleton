@@ -107,6 +107,9 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
     async def route_intent(payload: IntentInput, user_id: str = Depends(principal)):
         if not settings.ready:
             raise HTTPException(503, "Model API key is not configured")
+        if app.state.active_runs >= settings.max_concurrent_runs:
+            raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
+        app.state.active_runs += 1
         try:
             async with asyncio.timeout(min(settings.timeout_seconds, 25)):
                 mode = await classify_intent(
@@ -119,6 +122,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             # into a chat turn when its model has failed.
             logger.warning("Intent classification failed")
             raise HTTPException(502, "Intent classification unavailable") from None
+        finally:
+            app.state.active_runs -= 1
 
     @app.post("/v1/animations", status_code=202)
     async def create_animation(payload: RunInput, user_id: str = Depends(principal)):
