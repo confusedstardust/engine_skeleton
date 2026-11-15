@@ -77,7 +77,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         except Exception:
             # Missing tables, DB outage and untrusted driver errors must not
             # leak credentials/queries in response bodies.
-            raise HTTPException(503, "会话数据库不可用或尚未迁移，请先执行 002_nar_conversation_history.sql") from None
+            raise HTTPException(503, "会话数据库不可用或尚未迁移，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql") from None
 
     async def agent_request(owner: str, mode: str, payload: dict, *,
                             run_id: str | None = None) -> dict:
@@ -156,7 +156,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         await owner_for(request)
         if not await run_in_threadpool(ledger.ready):
             raise HTTPException(
-                503, "会话数据库未完成迁移或暂时不可用，请先执行 002_nar_conversation_history.sql"
+                503, "会话数据库未完成迁移或暂时不可用，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql"
             )
         return {"ready": True}
 
