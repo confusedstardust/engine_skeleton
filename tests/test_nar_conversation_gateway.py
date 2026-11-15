@@ -42,6 +42,14 @@ class MemoryLedger:
             "id": ID_A, "createdAt": TODAY.isoformat(), "seq": 1, "metadata": None})
         return turn, True
 
+    def latest_artifact(self, owner, cid, selected_id=None):
+        if self.owners.get(cid) != owner:
+            raise ConversationMissing("Not found")
+        items = getattr(self, "artifacts", {}).get(cid, [])
+        if selected_id:
+            return next((item for item in items if item["artifactId"] == selected_id), None)
+        return items[0] if items else None
+
     def model_history(self, owner, cid, tid):
         assert self.owners[cid] == owner
         return []
@@ -121,12 +129,25 @@ class MemoryLedger:
         return {"deleted": True}
 
 
-def make_client(monkeypatch, handler, store=None, user="teacher"):
+class FakeBilling:
+    def reserve(self, owner, tid, mode):
+        return object()
+
+    def find(self, owner, tid):
+        return object()
+
+    def settle(self, reservation, usage, definite_success, duration_ms=0):
+        return {"inputTokens": None, "outputTokens": None, "cachedInputTokens": None,
+                "usageStatus": "unavailable", "billingStatus": "unmetered_released",
+                "chargedCredits": 0, "reservedCredits": 20, "durationMs": duration_ms}
+
+
+def make_client(monkeypatch, handler, store=None, user="teacher", billing_factory=FakeBilling):
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", "testing-" + "s" * 40)
     app = FastAPI()
     app.include_router(create_router(user_for_request=lambda _: {"id": user, "auth_type": "sso"},
                                    store=store or MemoryLedger(),
-                                   transport=httpx.MockTransport(handler)))
+                                   transport=httpx.MockTransport(handler), billing_factory=billing_factory))
     return TestClient(app)
 
 
@@ -316,7 +337,6 @@ def test_real_chat_sse_chunks_are_persisted_and_not_redispatched(monkeypatch):
 
 def test_opted_in_billing_reserves_once_and_captures_reported_stream_tokens(monkeypatch):
     import webgal_backend.nar_conversation_routes as routes
-    monkeypatch.setenv("NAR_AGENT_CREDITS_ENABLED", "true")
     events = []
 
     class Metering:
@@ -347,7 +367,7 @@ def test_opted_in_billing_reserves_once_and_captures_reported_stream_tokens(monk
         return httpx.Response(200, text=data, headers={"content-type":"text/event-stream"})
 
     ledger = MemoryLedger()
-    client = make_client(monkeypatch, provider, ledger)
+    client = make_client(monkeypatch, provider, ledger, billing_factory=Metering)
     payload = {"conversation_id": CID, "client_request_id": ID_A,
                "prompt": "解释串联电路", "mode": "chat"}
     result = client.post("/nar-agent/conversations/stream", headers=HEADERS, json=payload)
