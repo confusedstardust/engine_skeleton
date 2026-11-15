@@ -267,7 +267,15 @@ export function useNarConversation({
                 await conversationApi.associateWork(conversationId, artId, savedWorkId);
                 // Subsequent "move it a little more" requests must target the
                 // newly generated version, not the original source ID.
-                if (!cancelled) setCurrentArtifactId(artId);
+                if (!cancelled) {
+                  setCurrentArtifactId(artId);
+                  // Follow the new version only when the user was viewing
+                  // the version just revised; never override a later selection.
+                  if (turn.parentArtifactId) {
+                    setSelectedArtifactId(current =>
+                      current === turn.parentArtifactId ? artId : current);
+                  }
+                }
               } catch {
                 // Never turn a successfully completed run into a failed turn.
                 // The generated artifact link may remain ephemeral until saved.
