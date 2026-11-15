@@ -7,6 +7,7 @@ import { workApi } from "../../lib/work-api";
 import {
   CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery,
   setConversationQuery, upsertConversationSummary, invalidateConversationQuery,
+  subscribeConversationQuery,
 } from "../../lib/conversation-query-cache";
 import { previewConversationArtifact, messagesFromConversation } from "./practice-conversation";
 import type { PracticeMessage } from "./practice-types";
@@ -111,6 +112,15 @@ export function useNarConversation({
   }, [conversationId, setMessages, setWorkPreviews, setSelectedArtifactId,
       setCurrentArtifactId, setActiveTask, setError, setDraft, setBusy,
       setProgress, setSessionReady]);
+
+  // Rename and pin updates from the sidebar should update the open conversation header.
+  useEffect(() => {
+    if (!ownerId || !conversationId) return;
+    return subscribeConversationQuery(ownerId, "detail:" + conversationId, () => {
+      const detail = peekConversationQuery<ConversationDetail>(ownerId, "detail:" + conversationId);
+      if (detail && alive.current) setConversationTitle(detail.conversation.title);
+    });
+  }, [ownerId, conversationId]);
 
   const applyDetail = useCallback((detail: ConversationDetail) => {
     if (!alive.current) return;
