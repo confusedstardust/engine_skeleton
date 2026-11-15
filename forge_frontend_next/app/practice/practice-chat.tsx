@@ -55,7 +55,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   return <section className={styles.chat} aria-label="NarrativeOS 互动学习创作助手">
     <div className={styles.chatHeader}>
       <div><strong>{conversationTitle || "互动学习创作"}</strong><span>用自然语言制作可操作、可修改的学习体验。</span></div>
-      <span className={styles.badge}>方案对话</span>
+      <span className={styles.badge}>智能助手</span>
     </div>
     <div className={styles.conversation} ref={chatScroll}>
       {conversationId && olderCursor !== null && <div className={styles.olderHistory}>
@@ -66,9 +66,9 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {sessionReady && messages.length === 0 && <div className={styles.empty}>
         <span className={styles.spark} aria-hidden="true"><Sparkles size={33} strokeWidth={1.5} /></span>
         <p className={styles.eyebrow}>从一个学习问题开始</p>
-        <h2>{workspaceScope === "general" ? "你想制作什么互动学习体验？" : "继续这次学习创作"}</h2>
+        <h2>{workspaceScope === "general" ? "今天想学习或创造什么？" : "继续这次学习创作"}</h2>
         <p>{workspaceScope === "general"
-          ? "描述学科、年级、玩法或参考模板。可以生成练习卡、实验模拟与互动学习网页。"
+          ? "直接提问，或描述你想生成的练习、互动实验和学习网页；也可以继续修改已有作品。"
           : conversationId ? "这个会话还没有消息，你可以开始创作。" : "这是以前保存的作品，原对话若未曾上传服务器则无法恢复；你可以开启一段新的云端会话继续创作。"}</p>
         <div className={styles.examples}>
           {examples.map((example, i) => <Button key={example} variant="unstyled" onClick={() => {
