@@ -167,6 +167,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     beginNewConversation, savedCardWorkId,
     serverReady: server.ready, serverChecked: server.checked, conversationId,
     conversationTitle: server.conversationTitle,
+    streamText: server.streamText,
     conversationArtifacts: server.artifacts, olderCursor: server.olderCursor,
     loadOlder: server.loadOlder, loadingOlder: server.loadingOlder,
     chatScroll: server.chatScroll, openArtifact: server.openArtifact,
