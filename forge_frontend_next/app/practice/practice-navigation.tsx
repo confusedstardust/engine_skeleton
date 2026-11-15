@@ -128,6 +128,11 @@ export default function PracticeNavigation({
           <Button variant="unstyled" role="tab" aria-selected={view === "artifacts"}
             onClick={() => setView("artifacts")}>产物</Button>
         </div>
+        {view === "conversations" && busy && !activeConversationId &&
+          <div className={navStyles.navRecentItem} role="status" aria-live="polite">
+            <span className={navStyles.navBookWorking}><BookOpen size={17} strokeWidth={1.65} aria-hidden="true" /></span>
+            <span>正在理解需求…</span>
+          </div>}
         {view === "conversations" ?
           <PracticeHistoryList items={conversations} ownerId={ownerId}
             activeConversationId={activeConversationId} activeBusy={busy} /> : artifacts.map(item =>
