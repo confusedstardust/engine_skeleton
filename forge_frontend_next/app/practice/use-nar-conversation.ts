@@ -67,7 +67,7 @@ export function useNarConversation({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [conversationTitle, setConversationTitle] = useState("");
   const [streamText, setStreamText] = useState("");
-  const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string; parentArtifact?: string; clarificationAnswer?: ClarificationAnswerV2 } | null>(null);
+  const inFlight = useRef<{ cid: string; requestId: string; prompt: string; mode: string; parentArtifact?: string; selectedArtifact?: string; clarificationAnswer?: ClarificationAnswerV2 } | null>(null);
   const posting = useRef(false);
   const alive = useRef(true);
   const previewRequest = useRef(0);
@@ -303,15 +303,15 @@ export function useNarConversation({
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "auto" | "chat" | "html" | "animation" | "edit",
-                      parentArtifact?: string, clarificationAnswer?: ClarificationAnswerV2): Promise<boolean> {
+                      parentArtifact?: string, clarificationAnswer?: ClarificationAnswerV2, selectedArtifact?: string): Promise<boolean> {
     if (!ready || !checked || !loggedIn || posting.current) return false;
     posting.current = true;
     const last = inFlight.current;
-    const retry = last?.prompt === prompt && last.mode === mode && last.parentArtifact === parentArtifact
+    const retry = last?.prompt === prompt && last.mode === mode && last.parentArtifact === parentArtifact && last.selectedArtifact === selectedArtifact
       && JSON.stringify(last.clarificationAnswer) === JSON.stringify(clarificationAnswer);
     const targetId = retry ? last.cid : conversationId || uuid();
     const requestId = retry ? last.requestId : uuid();
-    inFlight.current = { cid: targetId, requestId, prompt, mode, parentArtifact, clarificationAnswer };
+    inFlight.current = { cid: targetId, requestId, prompt, mode, parentArtifact, clarificationAnswer, selectedArtifact };
     setBusy(true); setError("");
     setProgress(mode === "auto" ? "正在理解学习需求…" : mode === "chat" ? "正在回复…" : "正在生成学习作品…");
     // Optimistic paint must happen before the HTTP request (chat dispatch can take minutes).
@@ -344,7 +344,7 @@ export function useNarConversation({
         targetId, requestId, prompt, mode, parentArtifact, !conversationId, {
           onAccepted: accepted,
           onText: text => { if (ownerId) setLiveReply(ownerId, targetId, text); },
-        }, clarificationAnswer);
+        }, clarificationAnswer, selectedArtifact);
       inFlight.current = null;
       if (!conversationId && !navigated) accepted(result);
       // The destination conversation subscribes to the stream independently.
