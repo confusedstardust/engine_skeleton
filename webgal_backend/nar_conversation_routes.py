@@ -35,13 +35,10 @@ ID = r"^[0-9a-f]{32}$"
 logger = logging.getLogger(__name__)
 
 
-def _shadow_v2_enabled(owner: str, cid: str, request_id: str) -> bool:
-    """Stable request-level sample; completely disabled by default.
-
-    Config is optional and server-owned. Shadow NEVER authorizes execution.
-    """
+def _stable_v2_sample(owner: str, cid: str, request_id: str, environment_key: str) -> bool:
+    """Deterministic request sampling. Unset, zero or invalid => disabled."""
     try:
-        percent = float(os.getenv("NAR_INTENT_V2_SHADOW_PERCENT", "0"))
+        percent = float(os.getenv(environment_key, "0"))
     except ValueError:
         return False
     if not 0 < percent <= 100:
@@ -50,6 +47,13 @@ def _shadow_v2_enabled(owner: str, cid: str, request_id: str) -> bool:
         f"{owner}:{cid}:{request_id}".encode("utf-8")).digest()[:8], "big")
     return value / (2 ** 64) < percent / 100
 
+
+def _live_v2_enabled(owner: str, cid: str, request_id: str) -> bool:
+    return _stable_v2_sample(owner, cid, request_id, "NAR_INTENT_V2_LIVE_PERCENT")
+
+
+def _shadow_v2_enabled(owner: str, cid: str, request_id: str) -> bool:
+    return _stable_v2_sample(owner, cid, request_id, "NAR_INTENT_V2_SHADOW_PERCENT")
 
 
 
@@ -252,6 +256,80 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         except Exception:
             # Shadow failure must not fail, retry, charge or re-route the live turn.
             logger.warning("nar_v2_shadow failed; live V1 dispatch unchanged")
+
+    async def resolve_v2_live(owner: str, cid: str, payload: TurnRequest,
+                              *, create: bool) -> dict:
+        """Evaluate V2 without mutating state or reserving credits."""
+        selected_id = payload.selected_artifact_id
+        if create and selected_id is not None:
+            raise HTTPException(422, "新会话不能引用其他会话的作品")
+        recent = [] if create else (await transaction(
+            ledger.get_messages, owner, cid, None, 12))["items"]
+        history = [{"role": row["role"], "content": row["content"]}
+                   for row in recent][-12:]
+        candidates = [] if create else await transaction(
+            ledger.artifact_candidates, owner, cid, selected_id)
+        pending = None
+        answer_data = None
+        if not create:
+            pending = await transaction(ledger.get_pending_clarification,
+                                        owner, cid,
+                                        payload.clarification_answer.clarification_id
+                                        if payload.clarification_answer else None)
+        if payload.clarification_answer:
+            if not pending:
+                raise HTTPException(404, "原来的选择问题已不存在，请重新描述需求")
+            try:
+                answer_data = validate_clarification_answer(
+                    pending["metadata"], payload.clarification_answer)
+            except ValueError:
+                raise HTTPException(409, "这个选择已经失效，请刷新对话后再操作") from None
+        task = pending["metadata"].get("pending_task_v2") if pending else None
+        pending_question = pending["metadata"].get("clarification_v2") if pending else None
+        if answer_data:
+            pending_question = {**(pending_question or {}),
+                                "current_answer": answer_data}
+        packet = build_context_packet(
+            payload.prompt, cid, history, candidates, selected_id,
+            pending_task=task, pending_clarification=pending_question,
+        )
+        try:
+            proposal = await resolve_intent_v2(owner, payload.prompt, packet)
+        except Exception:
+            raise HTTPException(503, "需求识别暂时不可用，本次未执行任何创作") from None
+        plan = plan_v2(proposal, packet)
+        if plan["mode"] in ("edit", "animation") and plan["parent_artifact_id"]:
+            parent_id = plan["parent_artifact_id"]
+            saved = await run_in_threadpool(work_store.find_by_artifact, owner, parent_id)
+            if saved:
+                current = next((v for v in saved.get("versions", [])
+                                if v.get("id") == saved.get("current_version_id")), None)
+                if not current or current.get("artifact_id") != parent_id:
+                    raise HTTPException(409, "作品版本已更新，请重新打开最新版本")
+        return {"proposal": proposal, "plan": plan, "packet": packet,
+                "pending": pending, "answer": answer_data}
+
+    def v2_clarification_proposal(proposal: dict, packet: dict) -> dict:
+        """Supply one accessible question if the model omitted crucial detail."""
+        if (proposal.get("next_step") == "clarify"
+                and isinstance(proposal.get("clarification"), dict)):
+            return proposal
+        candidates = packet["workspace"]["recent_artifacts"]
+        task = proposal["tasks"][0]
+        if task.get("action") == "revise" and len(candidates) > 1:
+            labels = [item["title"] or ("作品 " + item["id"][:6])
+                      for item in candidates[:4]]
+            question = "你想修改哪一件作品？"
+        elif task.get("desired_output") == "unspecified":
+            labels = ["做成可以操作的互动网页", "做成教学动画"]
+            question = "你希望最终得到哪一种作品？"
+        else:
+            labels = ["继续修改现有作品", "新建一份独立作品"]
+            question = "你希望我接下来怎么做？"
+        if len(set(labels)) != len(labels):
+            labels = [f"作品 {i+1}：" + name for i, name in enumerate(labels)]
+        return {**proposal, "next_step": "clarify", "clarification": {
+            "question": question, "options": labels, "allow_custom": True}}
 
     @router.get("/conversations/status")
     async def availability(request: Request):
