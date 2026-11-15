@@ -258,7 +258,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                                     if safe != displayed:
                                         # Explicit replacement avoids duplicated fragments
                                         # if the model revises an early partial answer.
-                                        await queue.put(("text", {"text": safe}))
+                                        if safe.startswith(displayed):
+                                            await queue.put(("delta", {"text": safe[len(displayed):]}))
+                                        else:
+                                            await queue.put(("replace", {"text": safe}))
                                         displayed = safe
                                 elif event_type == "done":
                                     if str(data.get("user_id")) != owner or not isinstance(data.get("output"), str):
