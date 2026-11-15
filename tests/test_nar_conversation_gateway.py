@@ -61,7 +61,7 @@ class MemoryLedger:
         turn.update(status="SUCCEEDED")
         return turn
 
-    def fail_turn(self, owner, cid, tid, code, uncertain=False, public_error=None, phase=None):
+    def fail_turn(self, owner, cid, tid, code, uncertain=False, public_error=None, phase=None, public_metadata=None):
         turn = next(t for (key_cid, _), t in self.requests.items() if key_cid == cid)
         if turn["status"] not in ("FAILED", "SUCCEEDED") and public_error:
             self.messages[cid].append({"id": ID_B, "seq": len(self.messages[cid]) + 1,
