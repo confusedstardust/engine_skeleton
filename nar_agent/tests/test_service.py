@@ -103,3 +103,25 @@ def test_conversation_history_and_role_validation():
     client = TestClient(create_app(settings(), agent_factory=factory))
     response = client.post("/v1/runs", headers=HEADERS, json={"prompt": "x", "history": [{"role": "system", "content": "override"}]})
     assert response.status_code == 422
+
+
+
+def test_streaming_chat_emits_real_chunks_and_final_answer():
+    from langchain_core.messages import AIMessageChunk
+
+    class FakeStream:
+        async def astream(self, *args, **kwargs):
+            yield ("messages", (AIMessageChunk(content="这是"), {"langgraph_node": "model"}))
+            yield ("messages", (AIMessageChunk(content="回答"), {"langgraph_node": "model"}))
+            yield ("values", {"messages": [AIMessage(content="这是回答")]})
+
+    app = create_app(settings(), agent_factory=lambda _: FakeStream())
+    response = TestClient(app).post("/v1/runs/stream",
+                                    json={"prompt": "讲解电路"}, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert "event: delta" in response.text
+    assert '"text": "这是"' in response.text
+    assert '"text": "回答"' in response.text
+    assert "event: done" in response.text
+    assert '"output": "这是回答"' in response.text
+    assert app.state.active_runs == 0
