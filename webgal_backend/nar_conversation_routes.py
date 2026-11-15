@@ -23,6 +23,12 @@ from .work_store import WorkStore
 ID = r"^[0-9a-f]{32}$"
 
 
+class ConversationUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    title: str | None = Field(default=None, max_length=160)
+    pinned: bool | None = None
+
+
 class TurnRequest(BaseModel):
     model_config = {"extra": "forbid"}
     client_request_id: str = Field(pattern=ID)
@@ -134,6 +140,25 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if not re.fullmatch(ID, cid):
             raise HTTPException(404, "会话不存在")
         return await transaction(ledger.get_detail, owner, cid)
+
+    @router.patch("/conversations/{cid}")
+    async def update_conversation(cid: str, payload: ConversationUpdate, request: Request):
+        mutate(request)
+        owner = await owner_for(request)
+        if not re.fullmatch(ID, cid):
+            raise HTTPException(404, "会话不存在")
+        if payload.title is None and payload.pinned is None:
+            raise HTTPException(422, "请提供新的标题或置顶状态")
+        return await transaction(ledger.update_metadata, owner, cid,
+                                 title=payload.title, pinned=payload.pinned)
+
+    @router.delete("/conversations/{cid}")
+    async def delete_conversation(cid: str, request: Request):
+        mutate(request)
+        owner = await owner_for(request)
+        if not re.fullmatch(ID, cid):
+            raise HTTPException(404, "会话不存在")
+        return await transaction(ledger.delete_conversation, owner, cid)
 
     @router.get("/conversations/{cid}/messages")
     async def messages(cid: str, request: Request, before: int | None = None, limit: int = 30):
