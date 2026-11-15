@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from .database import database_transaction
+from .nar_choice_protocol import normalize_agent_choice
 
 
 ACTIVE = ("QUEUED", "RUNNING", "UNKNOWN")
@@ -70,9 +71,15 @@ def _message(row: dict) -> dict:
             raw = json.loads(raw)
         except ValueError:
             raw = None
+    metadata = dict(raw) if isinstance(raw, dict) else {}
+    content = row["content"]
+    if row["role"] == "assistant":
+        content, choice = normalize_agent_choice(content)
+        if choice and "choices" not in metadata:
+            metadata["choices"] = choice
     return {"id": row["id"], "seq": row["seq"], "role": row["role"],
-            "content": row["content"], "createdAt": _time(row["created_at"]),
-            "metadata": raw if isinstance(raw, dict) else None}
+            "content": content, "createdAt": _time(row["created_at"]),
+            "metadata": metadata or None}
 
 
 def _turn(row: dict) -> dict:
@@ -303,11 +310,17 @@ class NarConversationStore:
             db.execute("SELECT COALESCE(MAX(seq),0) AS last_seq FROM nar_messages WHERE conversation_id=%s",
                        (cid,))
             seq = int(db.fetchone()["last_seq"]) + 1
-            metadata = json.dumps(public_metadata, ensure_ascii=False) if public_metadata else None
+            body = output
+            metadata_values = dict(public_metadata or {})
+            if not artifact_id:
+                body, choice = normalize_agent_choice(output)
+                if choice:
+                    metadata_values["choices"] = choice
+            metadata = json.dumps(metadata_values, ensure_ascii=False) if metadata_values else None
             db.execute("INSERT INTO nar_messages "
                        "(id,conversation_id,seq,role,content,turn_id,public_metadata) "
                        "VALUES (%s,%s,%s,'assistant',%s,%s,%s)",
-                       (mid, cid, seq, output[:12000] or "作品已生成，可以查看预览。", tid, metadata))
+                       (mid, cid, seq, body[:12000] or ("请选择下一步操作。" if not artifact_id else "作品已生成，可以查看预览。"), tid, metadata))
             if artifact_id:
                 db.execute("INSERT INTO nar_conversation_artifacts "
                            "(conversation_id,artifact_id,origin_message_id,title,kind) "

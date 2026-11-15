@@ -77,7 +77,7 @@ test("unified composer optimistically paints sent messages and uses automatic ex
   const workspace = read(practice + "use-practice-workspace.ts");
   const history = read(practice + "practice-history-list.tsx");
   assert.match(hook, /setMessages\(current => current\.some/);
-  assert.match(hook, /await conversationApi\.turn/);
+  assert.match(hook, /await conversationApi\.stream/);
   assert.match(workspace, /server\.send\(prompt, "auto", parent\)/);
   for (const label of ["制作动画", "生成 HTML", "修改当前作品"]) {
     assert.ok(!chat.includes(">" + label + "<"), "legacy mode buttons should be removed");

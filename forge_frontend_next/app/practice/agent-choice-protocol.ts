@@ -16,43 +16,58 @@ export type AgentChoiceQuestion = {
 const START = "[[NAR_UI_CHOICES_V1]]";
 const END = "[[/NAR_UI_CHOICES_V1]]";
 
+
+/** Hide half-received control markers without hiding ordinary Markdown. */
+export function visibleAgentChoicePrefix(text: string): string {
+  const start = text.indexOf(START);
+  if (start >= 0) return text.slice(0, start).trimEnd();
+  for (let i = Math.min(START.length - 1, text.length); i > 0; i--) {
+    if (text.slice(-i).toLowerCase() === START.slice(0, i).toLowerCase()) return text.slice(0, -i);
+  }
+  return text;
+}
+
 export function parseAgentChoiceMessage(content: string): {
   body: string;
   choice: AgentChoiceQuestion | null;
 } {
   const start = content.lastIndexOf(START);
-  if (start < 0) return { body: content, choice: null };
+  if (start < 0) return { body: visibleAgentChoicePrefix(content), choice: null };
+  const body = content.slice(0, start).trimEnd();
   const stop = content.indexOf(END, start + START.length);
-  if (stop < 0 || content.slice(stop + END.length).trim()) return { body: content, choice: null };
+  // Always hide protocol-like output even if the model fails to close JSON,
+  // exceeds length limits, or appends explanatory text after the marker.
+  if (stop < 0 || content.slice(stop + END.length).trim())
+    return { body: body || "请说明你希望下一步怎么做。", choice: null };
 
   const raw = content.slice(start + START.length, stop).trim();
-  if (raw.length > 3000) return { body: content, choice: null };
+  if (raw.length > 7000) return { body, choice: null };
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { body: content, choice: null };
+      return { body, choice: null };
     }
     const data = parsed as Record<string, unknown>;
     if (typeof data.question !== "string" || !data.question.trim()
       || data.question.length > 300 || !Array.isArray(data.options)
-      || data.options.length < 2 || data.options.length > 5
+      || data.options.length < 2 || data.options.length > 6
       || typeof data.multiple !== "boolean"
       || typeof data.allowCustom !== "boolean") {
-      return { body: content, choice: null };
+      return { body, choice: null };
     }
     const ids = new Set<string>();
     const options: AgentChoiceQuestion["options"] = [];
     for (const item of data.options) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return { body: content, choice: null };
+        return { body, choice: null };
       }
       const o = item as Record<string, unknown>;
       if (typeof o.id !== "string" || !/^[a-zA-Z0-9_-]{1,16}$/.test(o.id)
         || ids.has(o.id) || typeof o.label !== "string"
-        || !o.label.trim() || o.label.length > 100
+        || !o.label.trim() || o.label.length > 240
         || (o.description !== undefined && (typeof o.description !== "string"
           || o.description.length > 240))) {
-        return { body: content, choice: null };
+        return { body, choice: null };
       }
       ids.add(o.id);
       options.push({
@@ -62,7 +77,7 @@ export function parseAgentChoiceMessage(content: string): {
       });
     }
     return {
-      body: content.slice(0, start).trimEnd(),
+      body,
       choice: {
         question: data.question.trim(),
         options,
@@ -71,7 +86,7 @@ export function parseAgentChoiceMessage(content: string): {
       },
     };
   } catch {
-    return { body: content, choice: null };
+    return { body, choice: null };
   }
 }
 

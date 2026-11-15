@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Send, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { LoadingState, Spinner } from "../../components/ui/state";
+import { LoadingState } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
 import AgentChoicePrompt from "./agent-choice-prompt";
-import { parseAgentChoiceMessage } from "./agent-choice-protocol";
+import { parseAgentChoiceMessage, visibleAgentChoicePrefix } from "./agent-choice-protocol";
 import GeneratedWorkCard from "./generated-work-card";
 import MessageMarkdown from "./message-markdown";
 import PracticeMessageAvatar from "./practice-message-avatar";
@@ -24,9 +24,9 @@ const examples = [
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
-    sessionReady, authReady, progress, activeTask,
+    sessionReady, authReady,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
-    serverReady, serverChecked, conversationId, conversationTitle,
+    serverReady, serverChecked, conversationId, conversationTitle, streamText,
     olderCursor, loadOlder, loadingOlder, chatScroll, openArtifact,
     userAvatarUrl, userInitial,
   } = workspace;
@@ -85,6 +85,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {sessionReady && messages.map((message, i) => {
         const key = message.id ?? `message-${message.seq ?? i}-${message.role}`;
         const parsed = message.role === "assistant" ? parseAgentChoiceMessage(message.content) : null;
+        const choice = message.choices ?? parsed?.choice;
         return <article key={key}
           className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}
           aria-label={message.role === "user" ? "用户消息" : "助手消息"}>
@@ -96,7 +97,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
               publicBrief={message.publicBrief} /> : null}
             {message.role === "assistant" ? <>
               {parsed?.body ? <MessageMarkdown content={parsed.body} /> : null}
-              {parsed?.choice && <AgentChoicePrompt choice={parsed.choice} disabled={!canAnswer || i !== messages.length - 1}
+              {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}
                 onAnswer={answer => { void send(answer); }} />}
             </> : message.content}
             {message.work && <GeneratedWorkCard work={message.work}
@@ -108,19 +109,11 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </div>
         </article>;
       })}
-      {busy && <div className={styles.runningRow}>
+      {streamText && <article className={`${styles.message} ${styles.assistant}`}
+        aria-label="助手正在流式回复">
         <PracticeMessageAvatar role="assistant" />
-        <div className={styles.runningBlock}>
-          <div role="status" aria-live="polite" className={styles.thinking}>
-          <Spinner size="sm" tone="accent" />
-          <span>{progress || (activeTask ? "正在制作你的学习作品…" : "正在理解学习需求…")}</span>
-          </div>
-          {activeTask?.timeline?.length ? <CreationTimeline timeline={activeTask.timeline}
-          elapsedMs={activeTask.elapsed_ms} learningPlan={activeTask.learning_plan}
-          publicBrief={activeTask.public_brief}
-            briefStreaming={activeTask.public_brief_state === "STREAMING"} active /> : null}
-        </div>
-      </div>}
+        <div className={styles.messagePaper}><MessageMarkdown content={visibleAgentChoicePrefix(streamText)} /></div>
+      </article>}
       <div ref={end} />
     </div>
     <div className={styles.composerArea}>

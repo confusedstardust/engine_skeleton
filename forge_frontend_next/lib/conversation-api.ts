@@ -19,6 +19,7 @@ export type ServerMessage = {
     publicBrief?: string;
     learningPlan?: unknown;
     elapsedMs?: number;
+    choices?: import("../app/practice/agent-choice-protocol").AgentChoiceQuestion;
   } | null;
 };
 
@@ -101,6 +102,74 @@ export const conversationApi = {
         ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
       }),
     }),
+  /** Optional real SSE for chat. HTML/animation retain the existing JSON job contract. */
+  stream: async (
+    id: string, requestId: string, prompt: string,
+    mode: "auto" | "chat" | "html" | "animation" | "edit",
+    parentArtifactId: string | undefined, isNew: boolean,
+    handlers: {
+      onAccepted?: (result: SubmitResult) => void;
+      onText?: (text: string) => void;
+    } = {},
+  ): Promise<SubmitResult> => {
+    const path = base + "/conversations/" +
+      (isNew ? "stream" : id + "/turns/stream");
+    const response = await forgeApi.response(path, {
+      method: "POST",
+      headers: { ...mutationHeaders, Accept: "text/event-stream" },
+      body: JSON.stringify({
+        ...(isNew ? { conversation_id: id } : {}),
+        client_request_id: requestId, prompt, mode,
+        ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
+      }),
+    });
+    if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+      return await response.json() as SubmitResult;
+    }
+    if (!response.body) throw new Error("服务器未返回流式响应内容");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: SubmitResult | undefined;
+    let streamedText = "";
+    const consume = (frame: string) => {
+      let event = "";
+      const data: string[] = [];
+      for (const line of frame.split(/\r?\n/)) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (!event || !data.length) return;
+      const value = JSON.parse(data.join("\n")) as Record<string, unknown>;
+      if (event === "accepted") {
+        handlers.onAccepted?.(value as SubmitResult);
+      } else if (event === "delta" && typeof value.text === "string") {
+        streamedText += value.text;
+        handlers.onText?.(streamedText);
+      } else if (event === "replace" && typeof value.text === "string") {
+        streamedText = value.text;
+        handlers.onText?.(streamedText);
+      } else if (event === "result") {
+        result = value as SubmitResult;
+      }
+    };
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const normalized = buffer.replace(/\r\n/g, "\n");
+        buffer = normalized;
+        let cut: number;
+        while ((cut = buffer.indexOf("\n\n")) >= 0) {
+          consume(buffer.slice(0, cut));
+          buffer = buffer.slice(cut + 2);
+        }
+        if (done) break;
+      }
+    } finally { reader.releaseLock(); }
+    if (!result) throw new Error("流式连接中断，请刷新会话确认执行结果，勿重复提交");
+    return result;
+  },
   turnStatus: (id: string, turnId: string) =>
     forgeApi<{ turn: ServerTurn; task?: Record<string, unknown> }>(
       base + "/conversations/" + id + "/turns/" + turnId),

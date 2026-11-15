@@ -72,6 +72,7 @@ test("choice cards route only user-confirmed answers through the same send path"
   const component = read("forge_frontend_next/app/practice/agent-choice-prompt.tsx");
   const teaching = read("nar_agent/agents/teaching.py");
   assert.match(chat, /parseAgentChoiceMessage\(message\.content\)/);
+  assert.match(chat, /message\.choices \?\? parsed\?\.choice/);
   assert.match(chat, /i !== messages\.length - 1/);
   assert.match(chat, /onAnswer=\{answer => \{ void send\(answer\); \}\}/);
   assert.match(work, /async function send\(promptOverride\?: string\)/);

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import secrets
 import traceback
@@ -9,7 +10,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from pydantic import BaseModel, Field, model_validator
 
@@ -378,6 +379,81 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
             "Content-Security-Policy": "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'",
         })
+
+
+    @app.post("/v1/runs/stream")
+    async def stream_run(payload: RunInput, user_id: str = Depends(principal)):
+        """Real model chunks, limited to the root agent's public text.
+
+        This is opt-in. Existing /v1/runs remains compatible with old clients.
+        Forge owns the durable message and stays connected until the done event.
+        """
+        if not settings.ready:
+            raise HTTPException(503, "Model API key is not configured")
+        if app.state.active_runs >= settings.max_concurrent_runs:
+            raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
+        app.state.active_runs += 1
+        run_id = uuid4().hex
+
+        def event(kind: str, data: dict) -> bytes:
+            return ("event: " + kind + "\ndata: " +
+                    json.dumps(data, ensure_ascii=False) + "\n\n").encode("utf-8")
+
+        async def chunks():
+            started = monotonic()
+            usage = UsageMetadataCallbackHandler()
+            final_state = None
+            try:
+                agent = agent_factory(settings)
+                async with asyncio.timeout(settings.timeout_seconds):
+                    async for item in agent.astream(
+                        initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
+                        config={
+                            "callbacks": [usage],
+                            "recursion_limit": settings.recursion_limit,
+                            "metadata": {"nar_run_id": run_id, "owner_user_id": user_id},
+                        },
+                        stream_mode=["messages", "values"],
+                    ):
+                        mode, data = item
+                        if mode == "values" and isinstance(data, dict) and data.get("messages"):
+                            final_state = data
+                        elif mode == "messages":
+                            part, metadata = data
+                            # Ignore tools/subagents and tool-call arguments. Do not
+                            # stream hidden intermediate tool results to the UI.
+                            if (not isinstance(part, AIMessageChunk)
+                                or metadata.get("langgraph_node") != "model"
+                                or part.tool_call_chunks):
+                                continue
+                            content = part.content
+                            text = content if isinstance(content, str) else "".join(
+                                block.get("text", "") for block in content
+                                if isinstance(block, dict) and block.get("type") == "text"
+                            )
+                            if text:
+                                yield event("delta", {"text": text})
+                if not final_state:
+                    raise ValueError("No final agent state")
+                message = final_state["messages"][-1]
+                content = message.content
+                output = content if isinstance(content, str) else "\n".join(
+                    block.get("text", "") for block in content if isinstance(block, dict)
+                )
+                yield event("done", {"id": run_id, "user_id": user_id, "output": output,
+                                     "duration_ms": round((monotonic() - started) * 1000)})
+            except Exception as exc:
+                # Log only the exception class; provider messages can contain credentials.
+                logger.warning("Streaming agent failed id=%s class=%s", run_id, type(exc).__name__)
+                yield event("error", {"code": "AGENT_ERROR",
+                                      "message": "教学对话执行失败，请稍后重试。"})
+            finally:
+                app.state.active_runs -= 1
+
+        return StreamingResponse(chunks(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache, no-transform",
+                                          "X-Accel-Buffering": "no",
+                                          "X-Content-Type-Options": "nosniff"})
 
     @app.post("/v1/runs")
     async def run(payload: RunInput, user_id: str = Depends(principal)):

@@ -31,3 +31,12 @@
 .historyMenu button:disabled{opacity:.5;cursor:not-allowed}
 .historyMenu .historyMenuDanger{color:#aa3742}
 .historyMenu .historyMenuDanger:hover{background:#f9e0dc}
+
+/* The active conversation's book is the only in-progress indicator.
+   No fake assistant message is inserted while the model is thinking. */
+.navBookIdle,.navBookWorking{position:relative;display:inline-flex;flex:0 0 17px;align-items:center;justify-content:center}
+.navBookWorking svg{color:#a26035;transform-origin:center;animation:narBookWorking 1.25s ease-in-out infinite}
+.navBookWorking::after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:#b27f36;right:-4px;top:-3px;animation:narBookDot .9s ease-in-out infinite}
+@keyframes narBookWorking{0%,100%{transform:rotate(-7deg) scale(.96)}50%{transform:rotate(7deg) scale(1.08)}}
+@keyframes narBookDot{0%,100%{opacity:.3}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.navBookWorking svg,.navBookWorking::after{animation:none}}

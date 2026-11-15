@@ -29,8 +29,9 @@ test("every new prompt uses the logged-in user's durable Forge conversation endp
   assert.match(hook, /await server\.send\(prompt, "auto", parent\)/);
   assert.doesNotMatch(hook, /\bforgeApi<ChatReply>|followBuildTask|nar-agent\/html|nar-agent\/chat|nar-agent\/animations/);
   assert.match(server, /conversationApi\.status\(\)/);
-  assert.match(server, /conversationApi\.create\(targetId/);
-  assert.match(server, /conversationApi\.turn\(targetId/);
+  assert.match(server, /conversationApi\.stream\(/);
+  assert.match(server, /setLiveReply\(ownerId, targetId, text\)/);
+  assert.match(client, /text\/event-stream/);
   assert.match(server, /conversationApi\.get\(conversationId\)/);
   assert.match(client, /\/conversations\/status/);
   assert.match(client, /\/conversations/);
@@ -55,8 +56,11 @@ test("loading icon and plaza-style full viewport sidebar reuse shared controls",
   const chat = file(base + "practice-chat.tsx");
   const side = file("forge_frontend_next/components/ui/workspace-sidebar.module.css");
   const studio = file(base + "practice.module.css");
-  assert.match(chat, /import \{ LoadingState, Spinner \} from "\.\.\/\.\.\/components\/ui\/state"/);
-  assert.match(chat, /<Spinner size="sm"/);
+  assert.match(chat, /import \{ LoadingState \} from "\.\.\/\.\.\/components\/ui\/state"/);
+  assert.doesNotMatch(chat, /className=\{styles\.runningRow\}/);
+  assert.match(chat, /streamText && <article/);
+  const history = file(base + "practice-history-list.tsx");
+  assert.match(history, /navBookWorking/);
   assert.match(side, /border-right:1px solid/);
   assert.match(side, /border-radius:0/);
   assert.match(studio, /\.layout \.sidebar\{position:fixed!important;inset:0 auto 0 0;z-index:120/);

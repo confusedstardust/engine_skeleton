@@ -16,9 +16,10 @@ type Props = {
   items: ConversationSummary[];
   activeConversationId: string | null;
   ownerId: string | null;
+  activeBusy: boolean;
 };
 
-export default function PracticeHistoryList({ items, activeConversationId, ownerId }: Props) {
+export default function PracticeHistoryList({ items, activeConversationId, ownerId, activeBusy }: Props) {
   const router = useRouter();
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -123,7 +124,10 @@ export default function PracticeHistoryList({ items, activeConversationId, owner
             openMenu(item.id, rect.right, rect.top);
           }
         }}>
-        <BookOpen size={17} strokeWidth={1.65} aria-hidden="true" />
+        <span className={activeBusy && activeConversationId === item.id ? styles.navBookWorking : styles.navBookIdle}
+          aria-label={activeBusy && activeConversationId === item.id ? "Agent 正在回复" : undefined}>
+          <BookOpen size={17} strokeWidth={1.65} aria-hidden="true" />
+        </span>
         <span>{item.title}</span>
         {item.pinned && <Pin className={styles.pinnedIcon} size={13} aria-label="已置顶" />}
       </Link>,
