@@ -487,7 +487,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 safe_phase = safe_phase if isinstance(safe_phase, str) else None
                 result = await transaction(ledger.fail_turn, owner, cid, tid,
                     safe_code, public_error=safe_error,
-                    phase=safe_phase)
+                    phase=safe_phase, public_metadata={"billing": receipt})
             return {"turn": result, "task": task}
         return {"turn": turn, "task": task}
 
