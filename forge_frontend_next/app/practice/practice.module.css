@@ -319,3 +319,19 @@
 @media(max-width:760px){
  .layout:not(.layoutWithInspector) .chat{width:100%;justify-self:stretch}
 }
+
+/* The whole conversation stays wide. Only the composer remains compact;
+   hover/focus are tactile without shifting layout or obscuring the prompt. */
+.composer{position:relative;isolation:isolate;overflow:hidden}
+.composer::before{content:"";position:absolute;top:0;left:14%;right:14%;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,transparent,#b9caa8,#e3c48e,transparent);
+  transform:scaleX(0);opacity:0;transition:transform .26s ease,opacity .26s ease;pointer-events:none}
+.composer:hover:not(:focus-within){border-color:#c9bc9e;
+  box-shadow:0 7px 25px #765d3221,0 0 0 1px #f9f0df inset}
+.composer:focus-within{border-color:#99ae85;transform:translateY(-1px);
+  box-shadow:0 10px 34px #685a3530,0 0 0 3px #91b18526,0 0 0 1px #e3f0d8 inset}
+.composer:focus-within::before{transform:scaleX(1);opacity:1}
+@media(prefers-reduced-motion:reduce){
+ .composer::before{transition:none}
+ .composer:focus-within{transform:none}
+}
