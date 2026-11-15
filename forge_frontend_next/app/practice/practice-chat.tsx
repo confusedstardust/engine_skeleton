@@ -85,6 +85,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {sessionReady && messages.map((message, i) => {
         const key = message.id ?? `message-${message.seq ?? i}-${message.role}`;
         const parsed = message.role === "assistant" ? parseAgentChoiceMessage(message.content) : null;
+        const choice = message.choices ?? parsed?.choice;
         return <article key={key}
           className={`${styles.message} ${message.role === "user" ? styles.user : styles.assistant}`}
           aria-label={message.role === "user" ? "用户消息" : "助手消息"}>
@@ -96,7 +97,7 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
               publicBrief={message.publicBrief} /> : null}
             {message.role === "assistant" ? <>
               {parsed?.body ? <MessageMarkdown content={parsed.body} /> : null}
-              {parsed?.choice && <AgentChoicePrompt choice={parsed.choice} disabled={!canAnswer || i !== messages.length - 1}
+              {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}
                 onAnswer={answer => { void send(answer); }} />}
             </> : message.content}
             {message.work && <GeneratedWorkCard work={message.work}
