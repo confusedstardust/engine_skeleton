@@ -122,8 +122,8 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     return () => { active = false; };
   }, [authReady, server.checked, loggedIn, workspaceScope, conversationId]);
 
-  async function send() {
-    const prompt = draft.trim();
+  async function send(promptOverride?: string) {
+    const prompt = (promptOverride ?? draft).trim();
     if (!prompt || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
     if (!server.ready) {
       setError("会话数据库尚未准备好，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql；消息不会保存在浏览器。");
