@@ -74,7 +74,7 @@ test("choice cards route only user-confirmed answers through the same send path"
   assert.match(chat, /parseAgentChoiceMessage\(message\.content\)/);
   assert.match(chat, /message\.choices \?\? parsed\?\.choice/);
   assert.match(chat, /i !== messages\.length - 1/);
-  assert.match(chat, /onAnswer=\{answer => \{ void send\(answer\); \}\}/);
+  assert.match(chat, /onAnswer=\{\(answer, structured\) => \{ void send\(answer, structured\); \}\}/);
   assert.match(work, /async function send\(promptOverride\?: string\)/);
   assert.match(component, /其他（自己填写）/);
   assert.match(component, /choice\.multiple/);
