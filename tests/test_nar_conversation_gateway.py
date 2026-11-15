@@ -472,8 +472,9 @@ class V2MemoryLedger(MemoryLedger):
         return None
 
     def claim_clarification_answer(self, owner, cid, request_id, raw_answer):
+        from webgal_backend.nar_pending_schema_v2 import ClarificationAnswer
         from webgal_backend.nar_pending_v2 import (
-            ClarificationAnswer, validate_clarification_answer, mark_clarification_answered)
+            validate_clarification_answer, mark_clarification_answered)
         item = self.get_pending_clarification(owner, cid, raw_answer["clarification_id"])
         validated = validate_clarification_answer(
             item["metadata"], ClarificationAnswer.model_validate(raw_answer))
