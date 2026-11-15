@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, Grid2X2, PenLine, Plus, Sparkles, Star } from "lucide-react";
+import { Grid2X2, PenLine, Plus, Sparkles, Star, BookOpen } from "lucide-react";
 import BrandLogo from "../../components/brand-logo";
+import PracticeHistoryList from "./practice-history-list";
 import { useEffect, useState } from "react";
 import { CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery, setConversationQuery, subscribeConversationQuery } from "../../lib/conversation-query-cache";
 import { AccountMenu } from "../../components/account-menu";
@@ -127,14 +128,9 @@ export default function PracticeNavigation({
           <Button variant="unstyled" role="tab" aria-selected={view === "artifacts"}
             onClick={() => setView("artifacts")}>产物</Button>
         </div>
-        {view === "conversations" ? conversations.map(item =>
-          <Link key={item.id} href={"/practice/chat/" + item.id} title={item.title}
-            className={navStyles.navRecentItem}
-            aria-current={activeConversationId === item.id ? "page" : undefined}>
-            <BookOpen size={17} strokeWidth={1.65} aria-hidden="true" />
-            <span>{item.title}</span>
-          </Link>
-        ) : artifacts.map(item =>
+        {view === "conversations" ?
+          <PracticeHistoryList items={conversations} ownerId={ownerId}
+            activeConversationId={activeConversationId} /> : artifacts.map(item =>
           <Link key={item.conversationId + ":" + item.artifactId}
             href={"/practice/chat/" + item.conversationId + "?artifact=" + item.artifactId}
             className={navStyles.navRecentItem} title={item.title}>
