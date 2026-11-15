@@ -86,22 +86,24 @@ export const conversationApi = {
       base + "/artifact-history?limit=30" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")),
   create: (id: string, requestId: string, prompt: string,
            mode: "auto" | "chat" | "html" | "animation" | "edit",
-           parentArtifactId?: string) =>
+           parentArtifactId?: string, selectedArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations", {
       method: "POST", headers: mutationHeaders,
       body: JSON.stringify({
         conversation_id: id, client_request_id: requestId, prompt, mode,
         ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
+        ...(selectedArtifactId ? { selected_artifact_id: selectedArtifactId } : {}),
       }),
     }),
   turn: (id: string, requestId: string, prompt: string,
          mode: "auto" | "chat" | "html" | "animation" | "edit",
-         parentArtifactId?: string) =>
+         parentArtifactId?: string, selectedArtifactId?: string) =>
     forgeApi<SubmitResult>(base + "/conversations/" + id + "/turns", {
       method: "POST", headers: mutationHeaders,
       body: JSON.stringify({
         client_request_id: requestId, prompt, mode,
         ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
+        ...(selectedArtifactId ? { selected_artifact_id: selectedArtifactId } : {}),
       }),
     }),
   /** Optional real SSE for chat. HTML/animation retain the existing JSON job contract. */
@@ -114,6 +116,7 @@ export const conversationApi = {
       onText?: (text: string) => void;
     } = {},
     clarificationAnswer?: ClarificationAnswerV2,
+    selectedArtifactId?: string,
   ): Promise<SubmitResult> => {
     const path = base + "/conversations/" +
       (isNew ? "stream" : id + "/turns/stream");
@@ -124,6 +127,7 @@ export const conversationApi = {
         ...(isNew ? { conversation_id: id } : {}),
         client_request_id: requestId, prompt, mode,
         ...(parentArtifactId ? { parent_artifact_id: parentArtifactId } : {}),
+        ...(selectedArtifactId ? { selected_artifact_id: selectedArtifactId } : {}),
         ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
       }),
     });
