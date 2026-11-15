@@ -372,6 +372,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         request_body = {"prompt": payload.prompt, "history": history}
         if mode == "edit":
             if not parent_artifact_id:
+                await finish_billing(owner, turn["id"], None, success=False)
                 await transaction(ledger.fail_turn, owner, cid, turn["id"], "MISSING_PARENT")
                 return {"conversationId": cid, "turn": {**turn, "status": "FAILED", "errorCode": "MISSING_PARENT"}}
             request_body["parent_artifact_id"] = parent_artifact_id
