@@ -59,7 +59,7 @@ def _decode_cursor(token: str | None, count: int) -> list[str] | None:
 
 
 def _conversation(row: dict) -> dict:
-    return {"id": row["id"], "title": row["title"],
+    return {"id": row["id"], "title": row["title"], "pinned": bool(row.get("is_pinned", 0)),
             "createdAt": _time(row["created_at"]), "activeAt": _time(row["active_at"])}
 
 
@@ -123,21 +123,65 @@ class NarConversationStore:
         return row
 
     def list_conversations(self, owner: str, limit: int = 30, cursor: str | None = None) -> dict:
-        position = _decode_cursor(cursor, 2)
+        position = _decode_cursor(cursor, 3)
         with self._transaction() as db:
             params: list[Any] = [owner]
             q = "SELECT * FROM nar_conversations WHERE owner_id=%s"
             if position:
-                q += " AND (active_at,id)<(%s,%s)"
+                q += " AND (is_pinned,active_at,id)<(%s,%s,%s)"
                 params.extend(position)
-            q += " ORDER BY active_at DESC,id DESC LIMIT %s"
+            q += " ORDER BY is_pinned DESC,active_at DESC,id DESC LIMIT %s"
             params.append(limit + 1)
             db.execute(q, tuple(params))
             rows = list(db.fetchall())
         has_more = len(rows) > limit
         rows = rows[:limit]
         return {"items": [_conversation(r) for r in rows],
-                "nextCursor": _encode_cursor(rows[-1], "active_at", "id") if rows and has_more else None}
+                "nextCursor": _encode_cursor(rows[-1], "is_pinned", "active_at", "id")
+                if rows and has_more else None}
+
+    def update_metadata(self, owner: str, cid: str, *, title: str | None = None,
+                        pinned: bool | None = None) -> dict:
+        if title is None and pinned is None:
+            raise ValueError("No updates provided")
+        updates, params = [], []
+        if title is not None:
+            title = title.strip()
+            if not title or len(title) > 160:
+                raise ValueError("Invalid title")
+            updates.append("title=%s")
+            params.append(title)
+        if pinned is not None:
+            updates.append("is_pinned=%s")
+            params.append(bool(pinned))
+        with self._transaction() as db:
+            self._own(db, owner, cid, lock=True)
+            db.execute("UPDATE nar_conversations SET " + ",".join(updates)
+                       + " WHERE id=%s AND owner_id=%s", tuple([*params, cid, owner]))
+            return _conversation(self._own(db, owner, cid))
+
+    def delete_conversation(self, owner: str, cid: str) -> dict:
+        with self._transaction() as db:
+            self._own(db, owner, cid, lock=True)
+            db.execute("SELECT id FROM nar_turns WHERE conversation_id=%s AND status IN "
+                       "('QUEUED','RUNNING','UNKNOWN') LIMIT 1", (cid,))
+            if db.fetchone():
+                raise ConversationConflict("Cannot delete an active conversation")
+            # CASCADE removes conversation messages and artifact associations,
+            # never independent saved work-library items.
+            db.execute("DELETE FROM nar_conversations WHERE id=%s AND owner_id=%s", (cid, owner))
+        return {"deleted": True}
+
+    def find_request(self, owner: str, cid: str, request_id: str) -> dict | None:
+        """Resolve the original concrete execution mode before retrying an auto-routed turn."""
+        with self._transaction() as db:
+            db.execute("SELECT t.*,m.content AS stored_prompt FROM nar_turns t "
+                       "JOIN nar_messages m ON m.id=t.prompt_message_id "
+                       "JOIN nar_conversations c ON c.id=t.conversation_id "
+                       "WHERE t.conversation_id=%s AND t.client_request_id=%s AND c.owner_id=%s",
+                       (cid, request_id, owner))
+            row = db.fetchone()
+        return {**_turn(row), "prompt": row["stored_prompt"]} if row else None
 
     def get_messages(self, owner: str, cid: str, before: int | None = None, limit: int = 30) -> dict:
         with self._transaction() as db:
