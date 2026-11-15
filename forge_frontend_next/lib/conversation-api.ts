@@ -131,6 +131,7 @@ export const conversationApi = {
     const decoder = new TextDecoder();
     let buffer = "";
     let result: SubmitResult | undefined;
+    let streamedText = "";
     const consume = (frame: string) => {
       let event = "";
       const data: string[] = [];
@@ -142,8 +143,12 @@ export const conversationApi = {
       const value = JSON.parse(data.join("\n")) as Record<string, unknown>;
       if (event === "accepted") {
         handlers.onAccepted?.(value as SubmitResult);
-      } else if (event === "text" && typeof value.text === "string") {
-        handlers.onText?.(value.text);
+      } else if (event === "delta" && typeof value.text === "string") {
+        streamedText += value.text;
+        handlers.onText?.(streamedText);
+      } else if (event === "replace" && typeof value.text === "string") {
+        streamedText = value.text;
+        handlers.onText?.(streamedText);
       } else if (event === "result") {
         result = value as SubmitResult;
       }
