@@ -14,7 +14,7 @@ from typing import Any
 
 from .database import database_transaction
 from .nar_choice_protocol import normalize_agent_choice
-from .nar_pending_v2 import (ClarificationAnswer, validate_clarification_answer,
+from .nar_pending_v2 import (validate_clarification_answer,
                              mark_clarification_answered)
 
 
@@ -297,6 +297,7 @@ class NarConversationStore:
         A separate submit_turn path must use the SAME request_id for dispatch;
         this method never runs an agent or reserves credits.
         """
+        from .nar_pending_schema_v2 import ClarificationAnswer
         answer = ClarificationAnswer.model_validate(raw_answer)
         with self._transaction() as db:
             self._own(db, owner, cid, lock=True)
