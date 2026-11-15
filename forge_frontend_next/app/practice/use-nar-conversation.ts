@@ -382,6 +382,7 @@ export function useNarConversation({
       const older = page.items.map(item => ({
         id: item.id, seq: item.seq, role: item.role, content: item.content,
         choices: item.metadata?.choices,
+        billing: item.metadata?.billing,
         publicBrief: item.metadata?.publicBrief,
         timeline: item.metadata?.timeline as PracticeMessage["timeline"],
         learningPlan: item.metadata?.learningPlan as PracticeMessage["learningPlan"],
