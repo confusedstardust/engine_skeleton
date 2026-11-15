@@ -14,6 +14,8 @@ from typing import Any
 
 from .database import database_transaction
 from .nar_choice_protocol import normalize_agent_choice
+from .nar_pending_v2 import (ClarificationAnswer, validate_clarification_answer,
+                             mark_clarification_answered)
 
 
 ACTIVE = ("QUEUED", "RUNNING", "UNKNOWN")
@@ -260,6 +262,103 @@ class NarConversationStore:
                 unique.append({"artifactId": row["artifact_id"], "kind": row["kind"],
                                "title": row["title"]})
         return unique
+
+    def get_pending_clarification(self, owner: str, cid: str,
+                                  clarification_id: str | None = None) -> dict | None:
+        """Owner-scoped pending metadata, including the original task proposal."""
+        if clarification_id is not None and (len(clarification_id) != 32
+               or any(c not in "0123456789abcdef" for c in clarification_id)):
+            raise ValueError("Invalid clarification ID")
+        with self._transaction() as db:
+            self._own(db, owner, cid)
+            where = ("JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                     "'$.clarification_v2.clarification_id'))=%s"
+                     if clarification_id else
+                     "JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                     "'$.clarification_v2.status'))='pending'")
+            args = (cid, clarification_id) if clarification_id else (cid,)
+            db.execute("SELECT id, public_metadata FROM nar_messages "
+                       "WHERE conversation_id=%s AND role='assistant' AND " + where +
+                       " ORDER BY seq DESC LIMIT 1", args)
+            row = db.fetchone()
+        if not row:
+            return None
+        metadata = row["public_metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        if not isinstance(metadata, dict):
+            return None
+        return {"message_id": row["id"], "metadata": metadata}
+
+    def claim_clarification_answer(self, owner: str, cid: str, request_id: str,
+                                   raw_answer: dict) -> dict:
+        """Atomically bind a user answer to the originating pending task.
+
+        A separate submit_turn path must use the SAME request_id for dispatch;
+        this method never runs an agent or reserves credits.
+        """
+        answer = ClarificationAnswer.model_validate(raw_answer)
+        with self._transaction() as db:
+            self._own(db, owner, cid, lock=True)
+            db.execute("SELECT id, public_metadata FROM nar_messages "
+                       "WHERE conversation_id=%s AND role='assistant' AND "
+                       "JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                       "'$.clarification_v2.clarification_id'))=%s "
+                       "ORDER BY seq DESC LIMIT 1 FOR UPDATE",
+                       (cid, answer.clarification_id))
+            row = db.fetchone()
+            if not row:
+                raise ConversationMissing("Clarification does not belong to conversation")
+            metadata = row["public_metadata"]
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            if not isinstance(metadata, dict):
+                raise ValueError("Invalid clarification state")
+            info = metadata.get("clarification_v2") or {}
+            if info.get("status") == "answered":
+                if info.get("answered_request_id") == request_id:
+                    return {"metadata": metadata, "reused": True}
+                raise ConversationConflict("Clarification was already answered")
+            validated = validate_clarification_answer(metadata, answer)
+            updated = mark_clarification_answered(metadata, validated, request_id)
+            db.execute("UPDATE nar_messages SET public_metadata=%s WHERE id=%s "
+                       "AND conversation_id=%s AND "
+                       "JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                       "'$.clarification_v2.status'))='pending'",
+                       (json.dumps(updated, ensure_ascii=False), row["id"], cid))
+            if db.rowcount != 1:
+                raise ConversationConflict("Clarification changed while answering")
+            return {"metadata": updated, "reused": False}
+
+    def supersede_pending_clarification(self, owner: str, cid: str) -> bool:
+        """An explicit unrelated new task may supersede the latest pending one."""
+        with self._transaction() as db:
+            self._own(db, owner, cid, lock=True)
+            db.execute("SELECT id, public_metadata FROM nar_messages "
+                       "WHERE conversation_id=%s AND role='assistant' AND "
+                       "JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                       "'$.clarification_v2.status'))='pending' "
+                       "ORDER BY seq DESC LIMIT 1 FOR UPDATE", (cid,))
+            row = db.fetchone()
+            if not row:
+                return False
+            metadata = row["public_metadata"]
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            if not isinstance(metadata, dict):
+                raise ValueError("Invalid clarification state")
+            for key in ("choices", "clarification_v2", "pending_task_v2"):
+                if not isinstance(metadata.get(key), dict):
+                    raise ValueError("Invalid pending task metadata")
+                metadata[key]["status"] = "superseded"
+            db.execute("UPDATE nar_messages SET public_metadata=%s WHERE id=%s "
+                       "AND conversation_id=%s AND "
+                       "JSON_UNQUOTE(JSON_EXTRACT(public_metadata,"
+                       "'$.clarification_v2.status'))='pending'",
+                       (json.dumps(metadata, ensure_ascii=False), row["id"], cid))
+            if db.rowcount != 1:
+                raise ConversationConflict("Pending clarification changed")
+            return True
 
     def get_detail(self, owner: str, cid: str) -> dict:
         with self._transaction() as db:
