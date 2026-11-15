@@ -366,6 +366,7 @@ export function useNarConversation({
       // Do not duplicate messages whose sequence range overlaps a refresh.
       const older = page.items.map(item => ({
         id: item.id, seq: item.seq, role: item.role, content: item.content,
+        choices: item.metadata?.choices,
         publicBrief: item.metadata?.publicBrief,
         timeline: item.metadata?.timeline as PracticeMessage["timeline"],
         learningPlan: item.metadata?.learningPlan as PracticeMessage["learningPlan"],
