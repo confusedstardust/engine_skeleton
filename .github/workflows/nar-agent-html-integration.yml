@@ -12,6 +12,7 @@ on:
       - 'webgal_backend/nar_billing.py'
       - 'credit_system/**'
       - 'tests/test_nar_billing.py'
+      - 'tests/practice_nar_usage_ui.test.cjs'
       - 'webgal_backend/site_visits.py'
       - 'tests/test_site_visits_bots.py'
       - 'tests/test_nar_choice_normalization.py'
@@ -83,6 +84,7 @@ jobs:
       - run: node ../tests/nar_conversation_architecture.test.cjs
       - run: node ../tests/practice_paper_chat.test.cjs
       - run: node ../tests/practice_choice_prompt.test.cjs
+      - run: node ../tests/practice_nar_usage_ui.test.cjs
       - run: node ../tests/nar_execution_deployment.test.cjs
       - run: npm run build
         env:
