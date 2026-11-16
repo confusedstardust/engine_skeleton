@@ -70,11 +70,21 @@ class NarTurnBilling:
             user_id=owner, job_id=tid, source_material="NarAgent task",
             options={"classroom_topic": "NarAgent", "nar_agent_mode": mode},
         )
-        hold = max(1, Pricing.from_env().text_hold)
+        pricing = Pricing.from_env()
+        hold = max(1, pricing.text_hold)
         return self._service.reserve_for_game(
             user_id=owner, job_id=tid, operation_key=_OPERATION, units=hold,
             pricing_snapshot={"schema_version": 2, "plan": "nar_agent_metered_v1",
-                              "hold_units": hold, "pricing": asdict(Pricing.from_env())},
+                              "hold_units": hold, "pricing": asdict(pricing)},
+        )
+
+    def extend(self, owner: str, reservation, *, delta_units: int,
+               sequence_no: int, authorized_total: int):
+        """Only after trusted budget approval, and before an expensive call."""
+        return self._service.extend_reservation(
+            user_id=owner, reservation_id=reservation.reservation_id,
+            delta_units=delta_units, sequence_no=sequence_no,
+            authorized_total=authorized_total,
         )
 
     def find(self, owner: str, tid: str):
@@ -90,7 +100,20 @@ class NarTurnBilling:
         if totals is None:
             self._service.release(reservation.reservation_id)
             return task_usage_metadata(usage, duration_ms=duration_ms, billing="unmetered_released", charged=0)
-        units, settlement = credits_for_usage(totals)
+        # Use the original task's immutable price snapshot, not today's .env.
+        snapshot = (reservation.pricing_snapshot or {}).get("pricing")
+        if isinstance(snapshot, dict):
+            known = asdict(Pricing())
+            if not all(k in snapshot and isinstance(snapshot[k], int)
+                       and not isinstance(snapshot[k], bool) and snapshot[k] >= 0
+                       for k in known):
+                raise ValueError("Invalid historical pricing snapshot")
+            pricing = Pricing(**{key: snapshot[key] for key in known})
+        else:
+            pricing = Pricing.from_env()  # Compatibility for pre-snapshot legacy tests.
+        units, settlement = credits_for_usage(totals, pricing)
+        # V1 compatibility: never over-capture existing reservations. Billing
+        # V2 requires an authorized extension BEFORE any additional provider call.
         charged = min(units, reservation.units)
         self._service.capture(reservation.reservation_id, units=charged, settlement={
             **settlement, "mode": "nar_agent", "measured_units": units,
