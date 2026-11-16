@@ -9,6 +9,62 @@ export type ConversationSummary = {
   activeAt: string;
 };
 
+export type RpgMessageMetadata = {
+  schema_version: number;
+  state: "PREPARED" | "CANCELLED" | "CLAIMED" | "JOB_CREATED" | "STARTING" | "STARTED" | "START_REJECTED" | "NEEDS_REVIEW";
+  spec_version: number;
+  spec: {
+    topic: string;
+    source_ref: { type: string };
+    duration_minutes: number;
+    generate_images: boolean;
+    enable_voice: boolean;
+  };
+  job_id: string | null;
+  confirmed_options?: { durationMinutes: number; generateImages: boolean; enableVoice: boolean } | null;
+  last_error_code?: string | null;
+};
+
+export type RpgCardStatus = {
+  messageId: string;
+  state: RpgMessageMetadata["state"];
+  specVersion: number;
+  spec: {
+    topic: string;
+    sourceSummary: string;
+    durationMinutes: number;
+    generateImages: boolean;
+    enableVoice: boolean;
+  };
+  jobId: string | null;
+  canConfirm: boolean;
+  confirmedOptions: { durationMinutes: number; generateImages: boolean; enableVoice: boolean } | null;
+  lastErrorCode: string | null;
+};
+
+export type RpgSelections = {
+  specVersion: number;
+  durationMinutes: number;
+  generateImages: boolean;
+  enableVoice: boolean;
+};
+
+export type RpgQuote = {
+  holdCredits: number;
+  optionsValid: boolean;
+  sufficientBalance: boolean;
+  description: string;
+};
+
+export type RpgJobStatus = {
+  id: string;
+  status: string;
+  phase: string | null;
+  build_state?: string;
+  has_published_build?: boolean;
+  error?: string | null;
+};
+
 export type ServerMessage = {
   id: string;
   seq: number;
@@ -22,6 +78,9 @@ export type ServerMessage = {
     elapsedMs?: number;
     choices?: import("../app/practice/agent-choice-protocol").AgentChoiceQuestion;
     billing?: import("../app/practice/task-usage").TaskUsageReceipt;
+    card_type?: "rpg";
+    rpg?: RpgMessageMetadata;
+    rpg_edit_link?: { job_id: string };
   } | null;
 };
 
@@ -181,6 +240,22 @@ export const conversationApi = {
   turnStatus: (id: string, turnId: string) =>
     forgeApi<{ turn: ServerTurn; task?: Record<string, unknown> }>(
       base + "/conversations/" + id + "/turns/" + turnId),
+  rpgStatus: (id: string, messageId: string) =>
+    forgeApi<RpgCardStatus>(base + "/conversations/" + id + "/messages/" + messageId + "/rpg"),
+  rpgQuote: (id: string, messageId: string, selections: RpgSelections) =>
+    forgeApi<RpgQuote>(base + "/conversations/" + id + "/messages/" + messageId + "/rpg/quote", {
+      method: "POST", headers: mutationHeaders, body: JSON.stringify(selections),
+    }),
+  rpgConfirm: (id: string, messageId: string, selections: RpgSelections, acceptedHoldCredits: number) =>
+    forgeApi<RpgCardStatus>(base + "/conversations/" + id + "/messages/" + messageId + "/rpg/confirm", {
+      method: "POST", headers: mutationHeaders,
+      body: JSON.stringify({ ...selections, acceptedHoldCredits }),
+    }),
+  rpgCancel: (id: string, messageId: string) =>
+    forgeApi<RpgCardStatus>(base + "/conversations/" + id + "/messages/" + messageId + "/rpg/cancel", {
+      method: "POST", headers: mutationHeaders,
+    }),
+  rpgJob: (jobId: string) => forgeApi<RpgJobStatus>("/jobs/" + jobId),
   associateWork: (id: string, artifactId: string, workId: string) =>
     forgeApi<{ linked: boolean }>(base + "/conversations/" + id + "/artifacts", {
       method: "POST", headers: mutationHeaders,

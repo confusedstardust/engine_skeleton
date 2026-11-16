@@ -8,6 +8,10 @@ on:
       - 'tests/nar_execution_deployment.test.cjs'
       - 'webgal_backend/nar_agent_routes.py'
       - 'webgal_backend/nar_conversation_*.py'
+      - 'webgal_backend/nar_rpg_options.py'
+      - 'webgal_backend/nar_intent_v2.py'
+      - 'tests/test_nar_rpg_integration_unit.py'
+      - 'tests/test_nar_rpg_gateway.py'
       - 'webgal_backend/nar_choice_protocol.py'
       - 'webgal_backend/nar_billing.py'
       - 'webgal_backend/nar_reconcile_v2.py'
@@ -72,7 +76,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30' 'qrcode>=8' 'Pillow>=10'
-      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_links_backfill.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py tests/test_nar_metering_v2.py tests/test_nar_budget_v2.py tests/test_nar_reconcile_v2.py
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_links_backfill.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py tests/test_nar_metering_v2.py tests/test_nar_budget_v2.py tests/test_nar_reconcile_v2.py tests/test_nar_rpg_integration_unit.py tests/test_nar_rpg_gateway.py
   frontend:
     name: Practice UI TypeScript
     runs-on: ubuntu-latest

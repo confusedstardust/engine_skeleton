@@ -1,0 +1,41 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  margin-top: 12px;
+  border: 1px solid var(--border, #e4e6eb);
+  border-radius: 14px;
+  background: var(--card, rgba(255,255,255,.96));
+  color: inherit;
+  max-width: 500px;
+}
+.header { display: flex; align-items: center; gap: 10px; }
+.header > svg { flex: 0 0 auto; color: #7976aa; }
+.header div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.header strong { font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.header small { font-size: 12px; opacity: .68; }
+.description { margin: 0; font-size: 13px; line-height: 1.65; opacity: .82; }
+.description svg { display: inline-block; vertical-align: middle; }
+.setting { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+.setting input[type="checkbox"] { width: 17px; height: 17px; accent-color: #7772b1; }
+.number { display: inline-flex; align-items: center; gap: 5px; }
+.number input { width: 64px; min-height: 32px; padding: 4px 7px; color: inherit; background: transparent; border: 1px solid #c7c5d6; border-radius: 6px; text-align: center; }
+.quote { display: flex; flex-direction: column; gap: 5px; font-size: 13px; background: rgba(139,132,185,.07); padding: 12px; border-radius: 9px; }
+.quote strong { font-weight: 680; }
+.quote small { font-size: 12px; opacity: .67; line-height: 1.5; }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border-radius: 8px; border: 1px solid #c9c8d9; text-decoration: none; color: inherit; font-weight: 560; font-size: 13px; }
+.link:hover { border-color: #8581b4; background: rgba(139,132,185,.07); }
+.phases { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.phases li { display: flex; align-items: center; gap: 9px; font-size: 13px; opacity: .5; }
+.phases li.active { opacity: 1; font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #bfc0c6; flex: 0 0 auto; }
+.active .dot { background: #8280b3; animation: pulse 1.5s ease-in-out infinite; }
+.error { margin: 0; font-size: 12px; line-height: 1.5; color: #bb4c55; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes pulse { 50% { transform: scale(1.4); opacity: .35; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .active .dot, .spin { animation: none; }
+}

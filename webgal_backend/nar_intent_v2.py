@@ -23,6 +23,7 @@ def build_context_packet(
     owner_scoped_artifacts: list[dict], selected_artifact_id: str | None = None,
     pending_task: dict | None = None, pending_clarification: dict | None = None,
     capabilities: dict[str, list[str]] | None = None,
+    owner_scoped_games: list[dict] | None = None,
 ) -> dict:
     """Never translate recency to selection; no client-supplied owner or kind."""
     candidates = []
@@ -40,6 +41,10 @@ def build_context_packet(
         # Explicit selection may be older than the last five; caller must
         # re-fetch it by owner/conversation and include it in candidates.
         raise ValueError("Selected artifact is not owner-scoped")
+    games = [{"id": row["id"], "title": str(row.get("title") or "")[:200],
+              "status": str(row.get("status") or "created")[:32]}
+             for row in (owner_scoped_games or [])[:5]
+             if isinstance(row.get("id"), str) and len(row["id"]) == 32]
     dialogue = [
         {"role": row["role"], "content": str(row["content"])[:1800]}
         for row in recent_dialogue[-12:]
@@ -57,6 +62,7 @@ def build_context_packet(
         "workspace": {
             "selected_artifact_id": selected_artifact_id,
             "recent_artifacts": candidates,
+            **({"recent_games": games} if games or "game" in (capabilities or {}) else {}),
         },
         "capabilities": capabilities or DEFAULT_CAPABILITIES,
     }
@@ -89,12 +95,16 @@ def plan_v2(proposal: dict, context: dict) -> dict:
     artifacts = {item["id"]: item for item in context.get("workspace", {}).get("recent_artifacts", [])}
     selected = context.get("workspace", {}).get("selected_artifact_id")
     candidate = task.get("candidate_artifact_id")
+    game_candidate = task.get("candidate_game_job_id")
     if action in ("answer", "discuss", "evaluate") and output in ("text", "unspecified"):
         return {"next_step": "respond", "mode": "chat", "parent_artifact_id": None,
                 "reason": "non_creative_request"}
     if action == "create":
-        if relation not in ("none", "new") or candidate:
+        if relation not in ("none", "new") or candidate or game_candidate:
             return {**outcome, "reason": "create_must_not_inherit_parent"}
+        if output == "game" and "create" in context["capabilities"].get("game", []):
+            return {"next_step": "execute", "mode": "rpg.prepare",
+                    "parent_artifact_id": None, "reason": "new_game"}
         if output == "html" and "create" in context["capabilities"].get("html", []):
             return {"next_step": "execute", "mode": "html",
                     "parent_artifact_id": None, "reason": "new_html"}
@@ -107,6 +117,17 @@ def plan_v2(proposal: dict, context: dict) -> dict:
         return {**outcome, "next_step": "clarify" if output == "unspecified" else "capability_review",
                 "reason": "output_not_executable"}
     if action == "revise":
+        if output == "game":
+            games = {item["id"]: item for item in context.get("workspace", {}).get("recent_games", [])}
+            if relation != "referenced" or not game_candidate or game_candidate not in games:
+                return {**outcome, "next_step": "clarify", "reason": "game_target_not_identified"}
+            if candidate or "edit_link" not in context["capabilities"].get("game", []):
+                return {**outcome, "reason": "game_edit_link_unavailable"}
+            return {"next_step": "execute", "mode": "rpg.edit_link",
+                    "parent_artifact_id": None, "game_job_id": game_candidate,
+                    "reason": "verified_game_edit_link_candidate"}
+        if game_candidate:
+            return {**outcome, "reason": "game_reference_for_non_game"}
         if relation == "selected":
             if not selected or candidate not in (None, selected):
                 return {**outcome, "next_step": "clarify", "reason": "selected_target_mismatch"}

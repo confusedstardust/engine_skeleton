@@ -19,6 +19,7 @@
 - [飞书知识库首页](https://my.feishu.cn/wiki/PoQgw5HWTiImkxkuyYrck6iInsh) / [飞书协作与文档迁移](refactor/lark-workflow.md)：应用绑定、用户授权、私有知识库创建和首页读写已验证；完整消息任务往返及专题批量迁移尚待完成。[文档迁移登记](refactor/lark-document-map.csv)。
 - [课堂答题生产表补建记录](refactor/classroom-quiz-production-schema.md)：2026-11-01 已补建并验证7张生产表，线上完整答题流程待验证。
 
+- [NarAgent → WebGAL RPG Auto 接入](refactor/nar-agent-webgal-rpg-auto-integration.md)：游戏意图、确认卡、现有 WebGAL Auto 调用、独立积分与灰度验收；**待测试与发布，非已部署**。
 - [NarAgent 与临场动画方案](refactor/nar-agent-architecture.md)：产品方向、服务边界与实施状态；开发骨架已建立，动画尚未接入。
 - [NarAgent 启动与验证](nar_agent/README.md) / [后续实施清单](refactor/nar-agent-implementation-backlog.md)：Deep Agents SDK 独立服务，以及计量、持久化、成本、积分与产物存储的验收任务。
 - [anatomy 接入与部署](refactor/nar-agent-deployment.md)：固定版本、临时执行容器、预览、CI 发布检查和服务器首次启用步骤；真实 Docker 与生产验收尚待完成。
