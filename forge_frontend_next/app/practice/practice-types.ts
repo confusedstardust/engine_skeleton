@@ -1,6 +1,6 @@
 import type { TimelineEvent } from "./creation-timeline";
 import type { AgentChoiceQuestion } from "./agent-choice-protocol";
-import type { TaskUsageReceipt } from "./task-receipt";
+import type { TaskUsageReceipt } from "./task-usage";
 import type { LearningPlan } from "./live-progress";
 import type { GeneratedWork } from "./generated-work-card";
 

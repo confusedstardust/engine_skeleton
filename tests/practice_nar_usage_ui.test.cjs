@@ -23,7 +23,11 @@ test("compact composer reuses Radix primitives, avoids stale disclaimer and badg
   const css = read(app + "practice.module.css");
   assert.match(chat, /from "@radix-ui\/react-scroll-area"/);
   assert.match(chat, /<ScrollArea\.Root/);
-  assert.match(chat, /message\.billing && <TaskReceipt value=\{message\.billing\} compact/);
+  assert.match(chat, /message\.timeline\?\.length \|\| message\.billing/);
+  assert.match(chat, /billing=\{message\.billing\}/);
+  assert.match(chat, /timeline=\{message\.timeline \?\? \[\]\}/);
+  assert.match(chat, /message\.durationMs \?\? message\.billing\?\.durationMs/);
+  assert.doesNotMatch(chat, /<TaskReceipt/);
   assert.doesNotMatch(chat, /latestReceipt/);
   assert.match(chat, /rows=\{2\}/);
   assert.doesNotMatch(chat, /AI 生成内容使用前请核对知识准确性与交互流程/);
@@ -32,28 +36,42 @@ test("compact composer reuses Radix primitives, avoids stale disclaimer and badg
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
 });
 
-test("usage receipt displays only actual settlement status, not an invented cost", () => {
-  const receipt = read(app + "task-receipt.tsx");
+test("gold timeline header merges settled credits, elapsed time and creation stages", () => {
+  const usage = read(app + "task-usage.ts");
+  const timeline = read(app + "creation-timeline.tsx");
+  const css = read(app + "creation-timeline.module.css");
   const projection = read(app + "practice-conversation.ts");
   const api = read("forge_frontend_next/lib/conversation-api.ts");
-  assert.match(receipt, /@radix-ui\/react-collapsible/);
-  assert.match(receipt, /billingStatus === "captured"/);
-  assert.match(receipt, /usageStatus/);
-  assert.match(receipt, /未返回用量时不推算扣费/);
+  assert.match(usage, /billingStatus === "captured"/);
+  assert.match(usage, /chargedCredits != null/);
+  assert.match(usage, /模型未返回用量 · 未扣积分/);
+  assert.match(timeline, /getTaskUsageTitle\(billing\)/);
+  assert.match(timeline, /Clock3 size=\{14\}/);
+  assert.match(timeline, /用时 \{elapsed\}/);
+  assert.match(timeline, /aria-expanded=\{visible\}/);
+  assert.match(timeline, /timeline\.length > 0 && <ol/);
+  assert.doesNotMatch(timeline, /创作过程<|输入 Token|输出 Token|缓存输入|统计仅包含|<Gauge/);
+  assert.match(css, /linear-gradient\(115deg,#fffaf0,#fff1d9\)/);
+  assert.match(css, /@media\(max-width:360px\)/);
   assert.match(projection, /billing: message\.metadata\?\.billing/);
   assert.match(api, /billing\?:/);
 });
 
+test("HTML preview offers fullscreen, without a download webpage button", () => {
+  const preview = read(app + "animation-preview.tsx");
+  assert.match(preview, /requestFullscreen/);
+  assert.doesNotMatch(preview, /下载 HTML|link\.download|createObjectURL|revokeObjectURL/);
+});
 
 test("wide conversation and compact composer keep independent sizing", () => {
   const css = read(app + "practice.module.css");
   const chat = read(app + "practice-chat.tsx");
   const workspace = read(app + "use-practice-workspace.ts");
-  const receiptCss = read(app + "task-receipt.module.css");
+  const timelineCss = read(app + "creation-timeline.module.css");
   assert.match(css, /layout:not\(\.layoutWithInspector\) \.chat\{width:100%/);
   assert.match(css, /\.composer:hover:not\(:focus-within\)/);
   assert.match(css, /\.composer:focus-within::before/);
-  assert.match(receiptCss, /\.compact \.trigger/);
+  assert.match(timelineCss, /\.timelineToggle\{/);
   assert.match(workspace, /server\.artifacts\[0\]\?\.artifactId/);
   assert.doesNotMatch(chat, /!busy && latestReceipt/);
 });
