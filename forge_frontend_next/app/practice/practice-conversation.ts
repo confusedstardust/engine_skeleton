@@ -16,6 +16,7 @@ export function messagesFromConversation(detail: ConversationDetail): PracticeMe
       content: message.content,
       choices: message.metadata?.choices,
       billing: message.metadata?.billing,
+      rpg: message.metadata?.card_type === "rpg" ? message.metadata.rpg : undefined,
       id: message.id,
       seq: message.seq,
       timeline: message.metadata?.timeline as PracticeMessage["timeline"],
