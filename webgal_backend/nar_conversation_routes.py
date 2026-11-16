@@ -531,6 +531,20 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             await run_in_threadpool(rpg_get, owner, job_id)
         return public_rpg_card(card)
 
+    async def rpg_price_and_balance(owner: str, options: dict) -> tuple[int, int]:
+        """Use the existing RPG price and balance; never leak credit-store exceptions."""
+        try:
+            hold, balance = await asyncio.gather(
+                run_in_threadpool(rpg_quote, options),
+                run_in_threadpool(rpg_balance, owner))
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(503, "RPG 报价或积分系统暂时不可用，请稍后再试") from None
+        if type(hold) is not int or hold < 1 or type(balance) is not int:
+            raise HTTPException(503, "RPG 报价或积分返回值无效")
+        return hold, balance
+
     @router.post("/conversations/{cid}/messages/{mid}/rpg/quote")
     async def quote_rpg(cid: str, mid: str, payload: RpgOptionsRequest, request: Request):
         mutate(request)
@@ -540,8 +554,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if card["rpg"].get("state") != "PREPARED":
             raise HTTPException(409, "ALREADY_CONFIRMED_OR_CANCELLED")
         request_body = compile_confirmed(card, payload)
-        hold = await run_in_threadpool(rpg_quote, request_body["options"])
-        balance = await run_in_threadpool(rpg_balance, owner)
+        hold, balance = await rpg_price_and_balance(owner, request_body["options"])
         return {"holdCredits": hold, "optionsValid": True,
                 "sufficientBalance": balance >= hold,
                 "description": "预计预冻结积分，最终按 WebGAL 原有规则结算"}
@@ -561,10 +574,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 return public_rpg_card(card)
             raise HTTPException(409, "ALREADY_CONFIRMED")
         request_body = compile_confirmed(card, payload)
-        hold = await run_in_threadpool(rpg_quote, request_body["options"])
+        hold, balance = await rpg_price_and_balance(owner, request_body["options"])
         if payload.acceptedHoldCredits != hold:
             raise HTTPException(409, "PRICE_CHANGED")
-        balance = await run_in_threadpool(rpg_balance, owner)
         if balance < hold:
             raise HTTPException(402, "积分不足，请充值后重新确认")
         won = await transaction(ledger.claim_rpg_message, owner, cid, mid,
