@@ -44,17 +44,17 @@ export default function PublicWorkPage() {
     setError("");
     setPlayer(null);
     let active = true;
-    let privateBlobUrl: string | null = null;
 
     async function loadPrivate() {
       const { work } = await workApi.get(workId);
       const version = work.versions.find(item => item.id === work.current_version_id);
       if (!version) throw new Error("Saved work has no current version");
-      const html = await workApi.html(workId, version.id);
       if (!active) return;
-      privateBlobUrl = URL.createObjectURL(html);
       setPlayer({
-        isPrivate: true, src: privateBlobUrl,
+        isPrivate: true,
+        // Use the authenticated private asset URL directly so its server-side
+        // CSP and sandbox headers protect the user. Never blob-wrap untrusted HTML.
+        src: withBasePath(`/api/forge/works/${workId}/assets/${version.id}/index.html`),
         work: {
           id: work.id, title: work.title, summary: work.summary, kind: work.kind,
           subject: work.subject, grade: work.grade, tags: work.tags,
@@ -91,10 +91,7 @@ export default function PublicWorkPage() {
       }
     }
     void load();
-    return () => {
-      active = false;
-      if (privateBlobUrl) URL.revokeObjectURL(privateBlobUrl);
-    };
+    return () => { active = false; };
   }, [workId]);
 
   return <main className={styles.page}>
