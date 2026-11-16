@@ -21,6 +21,7 @@ export type RpgMessageMetadata = {
     enable_voice: boolean;
   };
   job_id: string | null;
+  confirmed_options?: { durationMinutes: number; generateImages: boolean; enableVoice: boolean } | null;
   last_error_code?: string | null;
 };
 
@@ -37,6 +38,7 @@ export type RpgCardStatus = {
   };
   jobId: string | null;
   canConfirm: boolean;
+  confirmedOptions: { durationMinutes: number; generateImages: boolean; enableVoice: boolean } | null;
   lastErrorCode: string | null;
 };
 
