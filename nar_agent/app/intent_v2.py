@@ -19,7 +19,7 @@ from app.metering import record_direct_intent_response
 
 Action = Literal["answer", "discuss", "create", "revise", "convert", "evaluate", "continue"]
 Relation = Literal["none", "new", "selected", "referenced", "ambiguous"]
-Output = Literal["text", "html", "animation", "hybrid", "unspecified"]
+Output = Literal["text", "html", "animation", "game", "hybrid", "unspecified"]
 NextStep = Literal["respond", "execute", "clarify", "capability_review"]
 Uncertainty = Literal["none", "target", "goal", "output", "capability"]
 
@@ -30,6 +30,7 @@ class TaskIntent(BaseModel):
     target_relation: Relation
     candidate_artifact_id: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{32}$")
+    candidate_game_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     desired_output: Output
     goal: str = Field(min_length=1, max_length=500)
     requirements: list[str] = Field(default_factory=list, max_length=12)
@@ -97,10 +98,18 @@ class ContextConversation(BaseModel):
         return self
 
 
+class ContextGame(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    title: str = Field(default="", max_length=200)
+    status: str = Field(default="created", max_length=32)
+
+
 class ContextWorkspace(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selected_artifact_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     recent_artifacts: list[ContextArtifact] = Field(default_factory=list, max_length=5)
+    recent_games: list[ContextGame] = Field(default_factory=list, max_length=5)
 
 
 class IntentContext(BaseModel):
@@ -126,7 +135,7 @@ class IntentContext(BaseModel):
         return self
 
 
-PROMPT_VERSION = "intent_v2@1.0.0"
+PROMPT_VERSION = "intent_v2@1.1.0"
 PROMPT_FILE = Path(__file__).with_name("prompts") / "intent_v2.md"
 
 
@@ -137,13 +146,22 @@ def validate_proposal(raw: str, context: IntentContext) -> IntentDecision:
     except (ValidationError, ValueError) as exc:
         raise ValueError("Invalid IntentDecision V2 JSON") from exc
     candidates = {a.id for a in context.workspace.recent_artifacts}
+    game_ids = {game.id for game in context.workspace.recent_games}
     if context.workspace.selected_artifact_id:
         candidates.add(context.workspace.selected_artifact_id)
     for task in proposal.tasks:
         if task.candidate_artifact_id and task.candidate_artifact_id not in candidates:
             raise ValueError("Proposed artifact ID not in the owner-scoped candidates")
-        if task.target_relation in ("none", "new") and task.candidate_artifact_id:
-            raise ValueError("New or target-free request cannot bind an existing artifact")
+        if task.candidate_game_job_id and task.candidate_game_job_id not in game_ids:
+            raise ValueError("Proposed game ID not in the owner-scoped candidates")
+        if task.candidate_game_job_id and task.candidate_artifact_id:
+            raise ValueError("Game and artifact references are mutually exclusive")
+        if task.target_relation in ("none", "new") and (
+            task.candidate_artifact_id or task.candidate_game_job_id
+        ):
+            raise ValueError("New or target-free request cannot bind an existing artifact or game")
+        if task.candidate_game_job_id and task.desired_output != "game":
+            raise ValueError("Game job references require game output")
     return proposal
 
 
