@@ -71,7 +71,7 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
     if (statusTerminal) return;
     // Rejected / unknown jobs must not trigger infinite background polling.
     if (state === "START_REJECTED" || state === "NEEDS_REVIEW") {
-      if (jobId && !job) {
+      if (jobId) {
         void conversationApi.rpgJob(jobId).then(setJob).catch(() => {});
       }
       return;
@@ -98,7 +98,9 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
       void refresh();
     }, 3000);
     return () => { alive = false; window.clearInterval(timer); };
-  }, [conversationId, messageId, state, jobId, statusTerminal, job]);
+  // Do not depend on the whole job object: every GET produces a new object and
+  // would otherwise cause an unbounded immediate-fetch loop.
+  }, [conversationId, messageId, state, jobId, statusTerminal]);
 
   const selections = (): RpgSelections => ({
     specVersion: version, durationMinutes: duration,
@@ -180,7 +182,7 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
             <span className={styles.dot} />{item.title}
           </li>)}
         </ol>}
-        {jobId && job && <div className={styles.actions}>
+        {jobId && card && <div className={styles.actions}>
           {playable && <a className={styles.link} href={withBasePath("/play/" + jobId + "/")}
             target="_blank" rel="noopener noreferrer">打开游戏 <ExternalLink size={14} /></a>}
           <a className={styles.link} href={withBasePath("/jobs/" + jobId)}
