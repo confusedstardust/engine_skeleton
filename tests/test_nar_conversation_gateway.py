@@ -758,10 +758,10 @@ def test_selected_interactive_story_resumes_original_game_without_feature_flags(
             assert packet["capabilities"]["game"] == ["create", "edit_link"]
             assert packet["conversation"]["pending_clarification"]["current_answer"]["selected_labels"] == [
                 original["clarification"]["options"][0]]
-            # The model can incorrectly interpret a format choice as a
-            # continuation/conversion. Forge must restore create/new safely.
+            # The model can incorrectly interpret a confirmed format choice
+            # as continuation. Forge must resume create/new when executable.
             return httpx.Response(200, json=_v2_result(
-                "continue", "none", "game", "capability_review"))
+                "continue", "none", "game", "execute"))
         raise AssertionError("A game must not dispatch or reserve before its confirmation card")
 
     def not_yet_called(*args, **kwargs):
