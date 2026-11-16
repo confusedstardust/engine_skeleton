@@ -23,6 +23,7 @@ from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from app.intent_router import classify_intent
 from app.intent_v2 import IntentContext, interpret_intent_v2
+from app.metering import ModelCallRecorder, active_intent_meter, provider_from_url
 from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -53,6 +54,8 @@ class RunInput(BaseModel):
     model_config = {"extra": "forbid"}
     prompt: str = Field(min_length=1, max_length=12000, pattern=r"\S")
     history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
+    # Internal Forge requests opt in; legacy API responses remain unchanged.
+    metering_enabled: bool = False
 
     @model_validator(mode="after")
     def bounded_context(self):
@@ -63,6 +66,7 @@ class RunInput(BaseModel):
 
 class IntentInput(RunInput):
     schema_version: Literal["1.0", "2.0"] = "1.0"
+    metering_role: Literal["live", "shadow"] = "live"
     context_v2: IntentContext | None = None
     has_editable_html: bool = False
     current_artifact_kind: str | None = Field(default=None, pattern=r"^(html|animation)$")
@@ -145,24 +149,37 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         if app.state.active_runs >= settings.max_concurrent_runs:
             raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
         app.state.active_runs += 1
+        stage = "intent_shadow" if payload.metering_role == "shadow" else (
+            "intent_v2" if payload.schema_version == "2.0" else "intent_v1"
+        )
+        recorder = ModelCallRecorder(
+            stage=stage, provider=provider_from_url(settings.base_url),
+            requested_model=settings.model,
+        ) if payload.metering_enabled else None
+        context_token = active_intent_meter.set(recorder)
         try:
             async with asyncio.timeout(min(settings.timeout_seconds, 25)):
                 if payload.schema_version == "2.0":
                     decision = await interpret_intent_v2(settings, payload.context_v2)
-                    return {"user_id": user_id, "schema_version": "2.0",
-                            "decision": decision.model_dump()}
-                mode = await classify_intent(
-                    settings, payload.prompt, [message.model_dump() for message in payload.history],
-                    has_editable_html=payload.has_editable_html,
-                    current_artifact_kind=payload.current_artifact_kind,
-                )
-            return {"user_id": user_id, "mode": mode}
+                    result = {"user_id": user_id, "schema_version": "2.0",
+                              "decision": decision.model_dump()}
+                else:
+                    mode = await classify_intent(
+                        settings, payload.prompt, [message.model_dump() for message in payload.history],
+                        has_editable_html=payload.has_editable_html,
+                        current_artifact_kind=payload.current_artifact_kind,
+                    )
+                    result = {"user_id": user_id, "mode": mode}
+            if recorder is not None:
+                result["usage_events"] = recorder.events
+            return result
         except Exception:
             # The router is not allowed to silently convert a creative request
             # into a chat turn when its model has failed.
             logger.warning("Intent classification failed")
             raise HTTPException(502, "Intent classification unavailable") from None
         finally:
+            active_intent_meter.reset(context_token)
             app.state.active_runs -= 1
 
     @app.post("/v1/animations", status_code=202)
@@ -192,12 +209,17 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
 
         async def work():
             usage = UsageMetadataCallbackHandler()
+            meter = ModelCallRecorder(
+                stage="animation", provider=provider_from_url(settings.base_url),
+                requested_model=settings.model,
+            ) if payload.metering_enabled else None
+            callbacks = [usage, meter] if meter else [usage]
             try:
                 async with asyncio.timeout(settings.animation_timeout_seconds):
                     brief = ""
                     if settings.public_brief_enabled:
                         try:
-                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state, recorder=meter), timeout=16)
                         except Exception as exc:
                             state["public_brief_state"] = "UNAVAILABLE"
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
@@ -212,7 +234,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     result = await graph.ainvoke(
                         animation_state(effective_prompt, [m.model_dump() for m in payload.history],
                                         parent_source=parent_source),
-                        config={"callbacks": [usage], "recursion_limit": 80,
+                        config={"callbacks": callbacks, "recursion_limit": 80,
                                 "metadata": {"nar_run_id": identifier, "owner_user_id": user_id}})
                     content = result["messages"][-1].content
                     state["output"] = content if isinstance(content, str) else "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
@@ -233,6 +255,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 state.update(status="FAILED", error="动画制作失败，请检查执行服务或稍后重试。")
             finally:
                 state.update(usage=usage.usage_metadata, usage_status="reported" if usage.usage_metadata else "unknown")
+                if meter is not None:
+                    state["usage_events"] = meter.events
                 close_phase(state, failed=state.get("status") != "SUCCEEDED")
                 app.state.animation_active = False
 
@@ -287,8 +311,13 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
 
         async def work():
             usage = UsageMetadataCallbackHandler()
+            meter = ModelCallRecorder(
+                stage="builder", provider=provider_from_url(settings.base_url),
+                requested_model=settings.model,
+            ) if payload.metering_enabled else None
+            callbacks = [usage, meter] if meter else [usage]
             config = {
-                "callbacks": [usage], "recursion_limit": 80,
+                "callbacks": callbacks, "recursion_limit": 80,
                 "metadata": {"nar_run_id": identifier, "owner_user_id": user_id},
             }
             try:
@@ -296,7 +325,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     brief = ""
                     if settings.public_brief_enabled:
                         try:
-                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state), timeout=16)
+                            brief = await asyncio.wait_for(stream_public_brief(settings, payload.prompt, state, recorder=meter), timeout=16)
                         except Exception as exc:
                             state["public_brief_state"] = "UNAVAILABLE"
                             logger.info("Optional public learning brief unavailable: %s", type(exc).__name__)
@@ -329,6 +358,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                             **result,
                             "messages": [*prior_messages, HumanMessage(content=NO_BUILD_RECOVERY_INSTRUCTION)],
                         }
+                        if meter is not None:
+                            meter.stage = "repair"
                         result = await graph.ainvoke(retry_state, config=config)
                         state["model_trace"] = summarize_html_run(result.get("messages", []))
 
@@ -386,6 +417,8 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     usage=usage.usage_metadata,
                     usage_status="reported" if usage.usage_metadata else "unknown",
                 )
+                if meter is not None:
+                    state["usage_events"] = meter.events
                 close_phase(state, failed=state.get("status") != "SUCCEEDED")
                 app.state.html_active = False
 
@@ -456,6 +489,11 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         async def chunks():
             started = monotonic()
             usage = UsageMetadataCallbackHandler()
+            meter = ModelCallRecorder(
+                stage="chat", provider=provider_from_url(settings.base_url),
+                requested_model=settings.model,
+            ) if payload.metering_enabled else None
+            callbacks = [usage, meter] if meter else [usage]
             final_state = None
             try:
                 agent = agent_factory(settings)
@@ -463,7 +501,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                     async for item in agent.astream(
                         initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
                         config={
-                            "callbacks": [usage],
+                            "callbacks": callbacks,
                             "recursion_limit": settings.recursion_limit,
                             "metadata": {"nar_run_id": run_id, "owner_user_id": user_id},
                         },
@@ -494,10 +532,13 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 output = content if isinstance(content, str) else "\n".join(
                     block.get("text", "") for block in content if isinstance(block, dict)
                 )
-                yield event("done", {"id": run_id, "user_id": user_id, "output": output,
-                                     "duration_ms": round((monotonic() - started) * 1000),
-                                     "usage": usage.usage_metadata,
-                                     "usage_status": "reported" if usage.usage_metadata else "unknown"})
+                result = {"id": run_id, "user_id": user_id, "output": output,
+                          "duration_ms": round((monotonic() - started) * 1000),
+                          "usage": usage.usage_metadata,
+                          "usage_status": "reported" if usage.usage_metadata else "unknown"}
+                if meter is not None:
+                    result["usage_events"] = meter.events
+                yield event("done", result)
             except Exception as exc:
                 # Log only the exception class; provider messages can contain credentials.
                 logger.warning("Streaming agent failed id=%s class=%s", run_id, type(exc).__name__)
@@ -522,13 +563,18 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         run_id = uuid4().hex
         started = monotonic()
         usage = UsageMetadataCallbackHandler()
+        meter = ModelCallRecorder(
+            stage="chat", provider=provider_from_url(settings.base_url),
+            requested_model=settings.model,
+        ) if payload.metering_enabled else None
+        callbacks = [usage, meter] if meter else [usage]
         try:
             async with asyncio.timeout(settings.timeout_seconds):
                 agent = agent_factory(settings)
                 result = await agent.ainvoke(
                     initial_state(payload.prompt, [m.model_dump() for m in payload.history]),
                     config={
-                        "callbacks": [usage],
+                        "callbacks": callbacks,
                         "recursion_limit": settings.recursion_limit,
                         "metadata": {"nar_run_id": run_id, "owner_user_id": user_id},
                     },
@@ -543,6 +589,7 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
                 "output": output, "duration_ms": round((monotonic() - started) * 1000),
                 "usage": usage.usage_metadata,
                 "usage_status": "reported" if usage.usage_metadata else "unknown",
+                **({"usage_events": meter.events} if meter is not None else {}),
                 "persisted": False, "artifact_generated": False,
             }
         except TimeoutError:

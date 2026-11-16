@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.config import Settings
+from app.metering import record_direct_intent_response
 
 Action = Literal["answer", "discuss", "create", "revise", "convert", "evaluate", "continue"]
 Relation = Literal["none", "new", "selected", "referenced", "ambiguous"]
@@ -163,6 +164,7 @@ async def interpret_intent_v2(settings: Settings, context: IntentContext) -> Int
         SystemMessage(content=prompt),
         HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
     ])
+    record_direct_intent_response(response)
     if not isinstance(response.content, str):
         raise ValueError("Intent V2 did not produce text JSON")
     return validate_proposal(response.content, context)
