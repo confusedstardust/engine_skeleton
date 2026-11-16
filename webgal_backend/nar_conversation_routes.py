@@ -380,8 +380,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     not isinstance(item, str) or item not in allowed[name]
                     for item in values):
                     raise ValueError("Invalid capability value")
-            if os.getenv("NAR_RPG_ENABLED", "").lower() in ("1", "true", "yes"):
-                # Forge owns WebGAL; never require NarAgent to advertise this tool.
+            # RPG is a first-party Forge/WebGAL capability, not an optional
+            # feature flag. Advertise it whenever the real integration is wired.
+            if rpg_ready():
                 return {**caps, "game": ["create", "edit_link"]}
             return caps
         except (httpx.HTTPError, ValueError, TypeError):
@@ -480,10 +481,16 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         return {**proposal, "next_step": "clarify", "clarification": {
             "question": question, "options": labels, "allow_custom": True}}
 
-    def ensure_rpg_enabled() -> None:
-        if os.getenv("NAR_RPG_ENABLED", "").lower() not in ("1", "true", "yes"):
-            raise HTTPException(503, "RPG 制作功能暂未开放")
-        if not all(callable(fn) for fn in (rpg_create, rpg_get, rpg_run, rpg_quote, rpg_balance)):
+    def rpg_ready() -> bool:
+        """Game creation uses Forge's existing WebGAL service callbacks."""
+        return all(callable(fn) for fn in (
+            rpg_create, rpg_get, rpg_run, rpg_quote, rpg_balance
+        ))
+
+    def ensure_rpg_available() -> None:
+        # Fail closed only if WebGAL is genuinely not wired, never because
+        # somebody forgot to set an unrelated environment variable.
+        if not rpg_ready():
             raise HTTPException(503, "RPG 工作台服务尚未配置")
 
     def public_rpg_card(card: dict) -> dict:
@@ -558,7 +565,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.post("/conversations/{cid}/messages/{mid}/rpg/quote")
     async def quote_rpg(cid: str, mid: str, payload: RpgOptionsRequest, request: Request):
         mutate(request)
-        ensure_rpg_enabled()
+        ensure_rpg_available()
         owner = await owner_for(request)
         card = await owned_rpg_card(owner, cid, mid)
         if card["rpg"].get("state") != "PREPARED":
@@ -573,7 +580,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     async def confirm_rpg(cid: str, mid: str, payload: RpgConfirmRequest,
                           request: Request, background_tasks: BackgroundTasks):
         mutate(request)
-        ensure_rpg_enabled()
+        ensure_rpg_available()
         owner = await owner_for(request)
         card = await owned_rpg_card(owner, cid, mid)
         choices = confirmed_choices(payload)
@@ -653,7 +660,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     @router.post("/conversations/{cid}/messages/{mid}/rpg/cancel")
     async def cancel_rpg(cid: str, mid: str, request: Request):
         mutate(request)
-        ensure_rpg_enabled()
+        ensure_rpg_available()
         owner = await owner_for(request)
         await owned_rpg_card(owner, cid, mid)
         await transaction(ledger.cancel_rpg_message, owner, cid, mid)
@@ -840,7 +847,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 mode = plan["mode"] or "chat"
                 parent_artifact_id = plan["parent_artifact_id"]
         if mode in ("rpg.prepare", "rpg.edit_link"):
-            ensure_rpg_enabled()
+            ensure_rpg_available()
             if mode == "rpg.edit_link":
                 game_id = v2_live["plan"].get("game_job_id") if v2_live else None
                 if not game_id:
