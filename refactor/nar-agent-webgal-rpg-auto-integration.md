@@ -16,9 +16,9 @@
 ## 部署开关及顺序
 
 1. **先锁步部署 Forge 后端与 NarAgent V2**：Intent schema 保持 2.0，增加可选 game 输出、可选 `candidate_game_job_id`、`workspace.recent_games`。不要把新 context 发给未升级的旧 NarAgent V2 解析器。
-2. **2026-11-16 起：自动意图识别统一使用 V2，不再读取 `NAR_INTENT_V2_LIVE_PERCENT` 做流量抽样，也不执行 V1 shadow/legacy fallback。** `NAR_RPG_ENABLED` 仍独立默认关闭；需先验证真实 WebGAL 生成、计费与权限再打开。
+2. **2026-11-17 修复：自动意图识别只用 V2；WebGAL RPG 无需任何新增 feature flag。** Forge 已接入 WebGAL 创建、查询、执行、报价、余额等真实回调时，V2 自动获得 `game.create` / `game.edit_link` 能力；未接入时明确返回服务不可用，不会错误生成 HTML。
 3. 在同一个 Forge 进程中注入真实 `JobStore`/`run_job`/`estimate_hold`/`CreditService` 回调；不要绕过现有 SSO、另建钱包或要求 NarAgent 上报 WebGAL capability。
-4. 升级前端后验证确认卡与游戏链接，最后开 `NAR_RPG_ENABLED=1`。关闭开关能阻止**新** RPG 创建与确认，但不会停止已经启动的 WebGAL Job；既有消息和 Job 仍保留。
+4. 锁步升级 Forge、NarAgent 和前端后，直接验证 RPG 确认卡、游戏链接和真实生成/计费。**无需额外配置或开启 RPG 环境变量。** 旧版本的 `NAR_RPG_ENABLED` 不再参与代码执行，不能作为关闭游戏能力的开关；真正缺少回调时会阻止操作。
 5. **无需数据库迁移**。但是生产 MySQL 8 仍需单独实测 JSON null 匹配、`JSON_SET`、行级 CAS 与同消息并发提交。
 
 ## V2-only 切换（2026-11-16）
@@ -26,9 +26,17 @@
 - Forge 的 `mode=auto` 强制使用 `resolve_v2_live` → `plan_v2`；不再通过 `request_id` 灰度抽样或执行 V1 `resolve_intent`。V2 不可用时返回明确错误，不回退 HTML 或旧意图识别。
 - NarAgent 保留对内路径 `POST /v1/intent`（**路径名称与意图 Schema 版本不同**）；实际只支持 `schema_version=2.0` + `context_v2`。显式请求 `1.0` 返回 410；未显式传 Schema 但没有 V2 上下文的调用在数据校验阶段拒绝。
 - V1 的 `intent_router.py` 保留为已停用源码参考，`main.py` 已注释掉其 import；正式执行路径不再调用它。要回滚须专门还原 Git commit、重新跑兼容测试；不能通过设置环境变量静默启用。
-- 必须先锁步发布兼容的新 NarAgent/Forge，旧 V1 调用方需升级。部署检查：将 `NAR_INTENT_V2_LIVE_PERCENT=0` 或不设置，`auto` 仍应调用 V2；单轮请求的路径应为 `/v1/capabilities` → `/v1/intent`（payload Schema 2.0），不可再出现 Schema 1.0。`NAR_RPG_ENABLED` 是独立的 WebGAL 产品开关。
+- 必须先锁步发布兼容的新 NarAgent/Forge，旧 V1 调用方需升级。部署检查：将 `NAR_INTENT_V2_LIVE_PERCENT=0` 或不设置，`auto` 仍应调用 V2；单轮请求的路径应为 `/v1/capabilities` → `/v1/intent`（payload Schema 2.0），不可再出现 Schema 1.0。WebGAL RPG 的可用性由现有服务回调决定，不再依赖 `NAR_RPG_ENABLED`。
 - 此次仅统一意图识别路由，不改变用户手动选择明确 `chat/html/animation/edit` 模式，也不修改 WebGAL Job、积分或播放权限。
 - 保持已创建作品和已有会话可继续使用 V2；仍需进行真实模型的含糊请求分类测试，尤其“我想做个《春江花月夜》的互动游戏”应先澄清体验类型，不宜擅自生成 HTML。
+
+## 澄清后 RPG 继续执行（2026-11-17）
+
+- 已修正「制作《春江花月夜》互动游戏 → 选择互动剧情游戏 → 返回格式转换/能力复核」：Forge 的 `plan_v2` 会在**服务端已验证的单选答案**、原任务为 `create/new/unspecified`、无额外自由文本且模型已明确可执行产物时，将误标的 `continue`/`convert` 恢复成原来的新建动作。最终仍需通过现有服务能力和权限检查。
+- `game` 能力由 Forge 内已有 WebGAL 回调决定（无需配置新功能开关），`rpg.prepare` 只创建可持久化确认卡，不调用游戏生成接口、冻结或扣除 RPG 生成积分。
+- 安全约束：没有正式澄清答案、存在额外自由文本、新旧任务关系不匹配，或 WebGAL 回调不可用时不自动启动；原作品版本、用户归属、确认/扣费与 CAS 约束不变。
+- 回归用例覆盖：真实 Forge 入口的《春江花月夜》选项流程、`continue`/`convert` 恢复为 `rpg.prepare`、HTML 形式选择、未接入 WebGAL 的拒绝行为、原有 WebGAL 报价与确认不重复创建 Job。
+- 以上是网关与纯函数的模拟测试，不代表已在部署服务器验证真实模型和 WebGAL Job 流水线；发布后还须走一次真实账户的无配音/配图端到端验收。
 
 ## 本轮审查修订
 
