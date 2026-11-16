@@ -508,8 +508,13 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if card["rpg"].get("spec_version") != payload.specVersion:
             raise HTTPException(409, "SPEC_VERSION_CHANGED")
         try:
+            origin = card["original_prompt"]
+            resume = card["rpg"].get("continued_requirements")
+            if isinstance(resume, str) and resume.strip():
+                origin = ("用户在前轮对话中的原始创作要求和选择：\n"
+                          + resume[:3000] + "\n本轮回复：\n" + origin)
             return compile_webgal_request(
-                card["rpg"]["spec"], original_prompt=card["original_prompt"],
+                card["rpg"]["spec"], original_prompt=origin,
                 duration_minutes=payload.durationMinutes,
                 generate_images=payload.generateImages, enable_voice=payload.enableVoice)
         except (KeyError, ValueError) as exc:
@@ -910,6 +915,17 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     "spec": spec, "job_id": None, "confirmed_options": None,
                     "confirmed_hold_credits": None, "last_error_code": None,
                 }}
+                if v2_live["answer"] and v2_live["pending"]:
+                    original = (v2_live["pending"]["metadata"]
+                                .get("pending_task_v2") or {}).get("proposal") or {}
+                    previous = (original.get("tasks") or [{}])[0]
+                    goal = str(previous.get("goal") or "")[:500]
+                    requirements = "；".join(
+                        str(item)[:200] for item in (previous.get("requirements") or [])[:12])
+                    selected = "、".join(v2_live["answer"].get("selected_labels") or [])
+                    metadata["rpg"]["continued_requirements"] = (
+                        f"目标：{goal}\n原要求：{requirements}\n已确认选项：{selected}"
+                    )[:3000]
                 finished = await transaction(
                     ledger.finish_turn, owner, cid, turn["id"],
                     output="已整理好互动剧情游戏配置，请确认选项和积分后开始制作。",
