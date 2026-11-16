@@ -50,7 +50,7 @@ test("owner and public work viewers share the player while maintaining auth boun
   assert.match(player, /const ownerView = new URLSearchParams/);
   assert.match(player, /forgeApi<PlayerWork>\(/);
   assert.match(player, /await workApi\.get\(workId\)/);
-  assert.match(player, /api\\/forge\\/works\\/\\$\\{workId\\}\\/assets/);
+  assert.ok(player.includes('/api/forge/works/${workId}/assets/'));
   assert.doesNotMatch(player, /createObjectURL|URL\\.revokeObjectURL/);
   assert.match(player, /sandbox="allow-scripts"/);
   assert.match(service, /loadSavedWork/);
