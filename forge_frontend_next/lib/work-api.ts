@@ -66,6 +66,10 @@ export const workApi = {
     forgeApi<{ work: SavedWork }>(`/works/${id}`, {
       method: "PATCH", headers: mutationHeaders, body: JSON.stringify(fields),
     }),
+  remove: (id: string) =>
+    forgeApi<{ deleted: boolean }>(`/works/${id}`, {
+      method: "DELETE", headers: mutationHeaders,
+    }),
   html: (id: string, versionId: string) =>
     forgeApi.blob(`/works/${id}/assets/${versionId}/index.html`),
   publication: (id: string) => forgeApi<PublicationResult>(`/works/${id}/publication`),

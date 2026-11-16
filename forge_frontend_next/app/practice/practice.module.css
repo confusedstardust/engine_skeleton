@@ -335,3 +335,15 @@
  .composer::before{transition:none}
  .composer:focus-within{transform:none}
 }
+
+/* Integrated, tactile work actions. Shared geometry for links and buttons. */
+.inspectorActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0 12px;align-items:stretch}
+.inspectorActions .inspectorAction{box-sizing:border-box;display:inline-flex;justify-content:center;align-items:center;gap:9px;min-height:46px;padding:12px 14px;border-radius:12px;border:1px solid #e2d5bf;background:linear-gradient(160deg,#fffdf8 4%,#f5efe3 100%);box-shadow:0 3px 9px #705b3412,0 1px 0 #ffffff inset;color:#574d3c;font:inherit;font-size:13px;font-weight:650;line-height:1.4;text-align:center;text-decoration:none;white-space:normal;cursor:pointer;transition:transform .16s,box-shadow .16s,border-color .16s}
+.inspectorActions .inspectorAction svg{color:#967449;flex:none}
+.inspectorActions .inspectorAction:hover:not(:disabled),.inspectorActions .inspectorAction:focus-visible{border-color:#c3ab80;box-shadow:0 6px 15px #705b3426;transform:translateY(-1px);outline-offset:2px}
+.inspectorActions .inspectorAction:disabled{opacity:.55;cursor:not-allowed}
+.inspectorActions .inspectorActionPrimary{background:linear-gradient(140deg,#90aa80,#698960);color:#fff;border-color:#75966b;box-shadow:0 4px 12px #57794e2a,0 1px 0 #ffffff24 inset}
+.inspectorActions .inspectorActionPrimary svg{color:#fff}
+.inspectorActions .inspectorActionPrimary:hover:not(:disabled),.inspectorActions .inspectorActionPrimary:focus-visible{border-color:#507348;box-shadow:0 7px 15px #57794e38}
+@media(max-width:350px){.inspectorActions{grid-template-columns:1fr}.inspectorActions .inspectorAction{min-height:42px}}
+@media(prefers-reduced-motion:reduce){.inspectorActions .inspectorAction{transition:none}.inspectorActions .inspectorAction:hover:not(:disabled){transform:none}}

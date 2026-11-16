@@ -6,6 +6,7 @@ HTTP Host header: the configured WEBGAL_FRONTEND_URL is authoritative.
 """
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,9 +20,16 @@ def _base(frontend_url: str) -> str:
         raise ValueError("Public workbench URL is invalid")
     if parts.query or parts.fragment:
         raise ValueError("Public workbench URL must not include a query or fragment")
-    # Avoid duplicating the Next basePath if a config accidentally points at
-    # the practice page instead of the workbench root.
+    # WEBGAL_FRONTEND_URL often contains only the origin in development; public
+    # links must still target the actual Next.js mount, normally /narrativeos.
+    # An explicitly configured path takes precedence and must not be duplicated.
     path = parts.path.rstrip("/")
+    if path.endswith("/practice"):
+        path = path[:-len("/practice")]
+    if not path:
+        path = os.getenv("WEBGAL_PUBLIC_BASE_PATH", "/narrativeos").strip().rstrip("/")
+    if path and not re.fullmatch(r"/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", path):
+        raise ValueError("Public workbench base path is invalid")
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 

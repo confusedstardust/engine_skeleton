@@ -7,6 +7,7 @@ before a work enters the user's long-term library. Files are immutable by versio
 from __future__ import annotations
 
 import fcntl
+import logging
 import re
 import shutil
 import tempfile
@@ -17,6 +18,7 @@ from pathlib import Path
 from .config import settings
 from .storage import read_json, utc_now, write_json
 
+logger = logging.getLogger(__name__)
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 ASSET_LIMITS = {"index.html": 2_000_000, "preview.png": 3_000_000, "mobile.png": 3_000_000}
 
@@ -153,6 +155,27 @@ class WorkStore:
                 raise
             return work
 
+    def delete(self, owner: str, work_id: str) -> None:
+        """Owner-only deletion. Public work must first be revoked and de-indexed.
+
+        Rename the work directory under the cross-worker lock so all private
+        and public reads become unavailable atomically. File cleanup follows
+        outside the lock; failed cleanup leaves only a hidden tombstone.
+        """
+        with self.locked():
+            work = self.get(owner, work_id)
+            if work.get("publication_status") in {"published", "publishing", "unpublish_pending"}:
+                raise WorkConflictError("Withdraw public publication before deleting")
+            tombstone = self.root / (".deleted-" + uuid.uuid4().hex)
+            self.path(work_id).rename(tombstone)
+        try:
+            shutil.rmtree(tombstone)
+        except OSError:
+            # The work has already been atomically hidden from all readers.
+            # Keep its hidden tombstone for operator cleanup rather than
+            # reporting a false failure after a successful logical delete.
+            logger.warning("Saved-work tombstone cleanup failed, work_id=%s", work_id)
+
     def update(self, owner: str, work_id: str, **fields) -> dict:
         with self.locked():
             work = self.get(owner, work_id)
@@ -189,8 +212,8 @@ class WorkStore:
         """Mark pending; never switch the public version until remote publication succeeds."""
         with self.locked():
             work = self.get(owner, work_id)
-            if work["kind"] != "html":
-                raise WorkConflictError("Only verified interactive HTML works can be published.")
+            if work["kind"] not in {"html", "animation"}:
+                raise WorkConflictError("Only verified interactive works can be published.")
             if work.get("publication_status") in {"publishing", "unpublish_pending"}:
                 raise WorkConflictError("Publication or revocation is already in progress")
             work["publication_status"] = "publishing"
