@@ -21,7 +21,7 @@ def draft_game_spec(original_prompt: str, intent_task: dict[str, Any]) -> dict[s
     goal = str(intent_task.get("goal") or "").strip()
     title_match = re.search(r"《([^》]{1,100})》", original_prompt)
     topic = title_match.group(1) if title_match else goal[:160] or original_prompt.strip()[:160]
-    minutes = re.search(r"(?<!\d)(\d{1,3})\s*(?:分钟|分鐘|minutes?)(?!\w)",
+    minutes = re.search(r"(?<!\d)(\d{1,3})\s*(?:分钟|分鐘|minutes?)",
                         original_prompt, flags=re.IGNORECASE)
     duration = int(minutes.group(1)) if minutes else DEFAULT_DURATION_MINUTES
     # Preserve the user's actual requested duration; invalid values must not be
