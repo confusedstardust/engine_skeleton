@@ -17,7 +17,7 @@ export function PracticeShell({ workspaceScope, conversationId }: { workspaceSco
   const {
     loggedIn, busy, sessionUserId, selectedWork, publishWork, metadataWork,
     serverReady, serverChecked,
-    setSelectedArtifactId, setCurrentArtifactId, input, beginNewConversation,
+    setSelectedArtifactId, beginNewConversation,
     savingArtifactId, setPublishArtifactId, setMetadataArtifactId, metadataBusy, metadataError, setMetadataError,
     setRevokeArtifactId, publicationBusy, publicationError, setPublicationError,
     revokeArtifactId, revokeError, setRevokeError, shareData, setShareData,
