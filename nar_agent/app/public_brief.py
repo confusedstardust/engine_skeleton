@@ -11,6 +11,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from app.metering import ModelCallRecorder
 
 MAX_BRIEF_CHARS = 700
 
@@ -33,7 +34,7 @@ def chunk_text(chunk: Any) -> str:
     return ""
 
 
-async def stream_public_brief(settings, prompt: str, state: dict, *, model=None) -> str:
+async def stream_public_brief(settings, prompt: str, state: dict, *, model=None, recorder: ModelCallRecorder | None = None) -> str:
     """Write real provider token deltas into state while the model is streaming.
 
     The existing SSE task feed observes state every 300ms, so users see
@@ -45,20 +46,26 @@ async def stream_public_brief(settings, prompt: str, state: dict, *, model=None)
         model = ChatOpenAI(
             model=settings.model, api_key=settings.api_key.get_secret_value(),
             base_url=settings.base_url, max_tokens=240, timeout=20, max_retries=0,
-            streaming=True,
+            streaming=True, stream_usage=True,
         )
     state["public_brief"] = ""
     state["public_brief_state"] = "STREAMING"
+    final_usage = None
     async for piece in model.astream([
         SystemMessage(content=BRIEF_SYSTEM_PROMPT),
         HumanMessage(content=prompt[:12000]),
     ]):
+        # Stream usage may arrive in the FINAL chunk without text. Drain the
+        # provider stream even after public text hits its display limit.
+        usage = getattr(piece, "usage_metadata", None)
+        if usage is not None:
+            final_usage = usage
         delta = chunk_text(piece)
-        if not delta:
-            continue
-        previous = state["public_brief"]
-        if len(previous) >= MAX_BRIEF_CHARS:
-            break
-        state["public_brief"] = previous + delta[:MAX_BRIEF_CHARS - len(previous)]
+        if delta:
+            previous = state["public_brief"]
+            if len(previous) < MAX_BRIEF_CHARS:
+                state["public_brief"] = previous + delta[:MAX_BRIEF_CHARS - len(previous)]
+    if recorder is not None:
+        recorder.record_usage(final_usage, stage="public_brief")
     state["public_brief_state"] = "COMPLETE"
     return state["public_brief"].strip()

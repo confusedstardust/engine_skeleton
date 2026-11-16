@@ -23,6 +23,7 @@ from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
 from app.intent_router import classify_intent
 from app.intent_v2 import IntentContext, interpret_intent_v2
+from app.metering import ModelCallRecorder, active_intent_meter, provider_from_url
 from app.failure_classification import classify_html_exception
 from agents.animation import animation_state, build_animation_agent
 from agents.html_builder import build_html_agent, html_initial_state
@@ -53,6 +54,8 @@ class RunInput(BaseModel):
     model_config = {"extra": "forbid"}
     prompt: str = Field(min_length=1, max_length=12000, pattern=r"\S")
     history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
+    # Internal Forge requests opt in; legacy API responses remain unchanged.
+    metering_enabled: bool = False
 
     @model_validator(mode="after")
     def bounded_context(self):
@@ -63,6 +66,7 @@ class RunInput(BaseModel):
 
 class IntentInput(RunInput):
     schema_version: Literal["1.0", "2.0"] = "1.0"
+    metering_role: Literal["live", "shadow"] = "live"
     context_v2: IntentContext | None = None
     has_editable_html: bool = False
     current_artifact_kind: str | None = Field(default=None, pattern=r"^(html|animation)$")
@@ -145,24 +149,37 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         if app.state.active_runs >= settings.max_concurrent_runs:
             raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
         app.state.active_runs += 1
+        stage = "intent_shadow" if payload.metering_role == "shadow" else (
+            "intent_v2" if payload.schema_version == "2.0" else "intent_v1"
+        )
+        recorder = ModelCallRecorder(
+            stage=stage, provider=provider_from_url(settings.base_url),
+            requested_model=settings.model,
+        ) if payload.metering_enabled else None
+        context_token = active_intent_meter.set(recorder)
         try:
             async with asyncio.timeout(min(settings.timeout_seconds, 25)):
                 if payload.schema_version == "2.0":
                     decision = await interpret_intent_v2(settings, payload.context_v2)
-                    return {"user_id": user_id, "schema_version": "2.0",
-                            "decision": decision.model_dump()}
-                mode = await classify_intent(
-                    settings, payload.prompt, [message.model_dump() for message in payload.history],
-                    has_editable_html=payload.has_editable_html,
-                    current_artifact_kind=payload.current_artifact_kind,
-                )
-            return {"user_id": user_id, "mode": mode}
+                    result = {"user_id": user_id, "schema_version": "2.0",
+                              "decision": decision.model_dump()}
+                else:
+                    mode = await classify_intent(
+                        settings, payload.prompt, [message.model_dump() for message in payload.history],
+                        has_editable_html=payload.has_editable_html,
+                        current_artifact_kind=payload.current_artifact_kind,
+                    )
+                    result = {"user_id": user_id, "mode": mode}
+            if recorder is not None:
+                result["usage_events"] = recorder.events
+            return result
         except Exception:
             # The router is not allowed to silently convert a creative request
             # into a chat turn when its model has failed.
             logger.warning("Intent classification failed")
             raise HTTPException(502, "Intent classification unavailable") from None
         finally:
+            active_intent_meter.reset(context_token)
             app.state.active_runs -= 1
 
     @app.post("/v1/animations", status_code=202)

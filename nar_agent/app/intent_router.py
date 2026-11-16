@@ -7,6 +7,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from app.config import Settings
+from app.metering import record_direct_intent_response
 
 MODES = frozenset({"chat", "html", "animation", "edit", "edit_animation"})
 
@@ -101,6 +102,7 @@ async def classify_intent(settings: Settings, prompt: str, history: list[dict],
         SystemMessage(content=ROUTER_PROMPT),
         HumanMessage(content=task),
     ])
+    record_direct_intent_response(answer)
     if not isinstance(answer.content, str):
         raise ValueError("Invalid route response")
     mode = _parse_mode(answer.content, has_editable_html=has_editable_html,
