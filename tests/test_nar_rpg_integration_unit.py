@@ -268,7 +268,7 @@ class ConfirmedFormatResumptionTests(unittest.TestCase):
 
     def test_no_game_callback_capability_never_prepares_game(self):
         unavailable = {**self.context, "capabilities": {
-            key: value for key, value in CAPS.items() if key != "game",
+            key: value for key, value in CAPS.items() if key != "game"
         }}
         plan = plan_v2(self.proposal(), unavailable)
         self.assertEqual(plan["next_step"], "capability_review")
