@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, CircleAlert, Clock3, Coins, LoaderCircle, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import styles from "./creation-timeline.module.css";
 import type { LearningPlan } from "./live-progress";
+import { getTaskUsageTitle, type TaskUsageReceipt } from "./task-usage";
 
 export type TimelineEvent = {
   id: string;
@@ -25,11 +26,12 @@ function formatDuration(ms: number) {
 
 /** Observable server stages, not a transcript of hidden model reasoning. */
 export default function CreationTimeline({
-  timeline, elapsedMs = 0, active = false, learningPlan, publicBrief, briefStreaming = false,
+  timeline, elapsedMs = 0, active = false, learningPlan, publicBrief, briefStreaming = false, billing,
 }: {
   timeline: TimelineEvent[];
   elapsedMs?: number;
   active?: boolean;
+  billing?: TaskUsageReceipt;
   learningPlan?: LearningPlan;
   publicBrief?: string;
   briefStreaming?: boolean;
@@ -45,16 +47,26 @@ export default function CreationTimeline({
   }, [active]);
   const displayedMs = elapsedMs + (active ? Math.max(0, Date.now() - start) : 0);
   const elapsed = formatDuration(displayedMs);
-  const complete = timeline.length > 0 && timeline.every(event => event.status === "completed");
+  const hasDetails = timeline.length > 0 || Boolean(learningPlan || publicBrief);
+  const title = active ? "正在创作" : billing ? getTaskUsageTitle(billing) : "本次积分消耗待确认";
+  const heading = <>
+    <span className={styles.timelineHeading}>
+      {active ? <Sparkles size={17} aria-hidden="true" /> : <Coins size={17} aria-hidden="true" />}
+      <span>{title}</span>
+    </span>
+    <span className={styles.timelineElapsed}><Clock3 size={14} aria-hidden="true" /> 用时 {elapsed}</span>
+    {hasDetails && <span className={styles.timelineChevron} aria-hidden="true">
+      {visible ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+    </span>}
+  </>;
 
   // Suppress unused tick lint warnings while reading real time from Date.now().
   void tick;
-  return <section className={styles.timeline} aria-label="创作过程">
-    <Button variant="unstyled" className={styles.timelineToggle} aria-expanded={visible} onClick={() => setVisible(!visible)}>
-      <span className={styles.timelineHeading}>{active ? <><Sparkles size={15} aria-hidden="true" /> 正在创作</> : complete ? <><Check size={15} aria-hidden="true" /> 创作过程</> : "创作过程"}</span>
-      <span className={styles.timelineElapsed}>用时 {elapsed}</span>
-      <span aria-hidden="true">{visible ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
-    </Button>
+  return <section className={styles.timeline} aria-label="本次创作摘要与过程">
+    {hasDetails
+      ? <Button variant="unstyled" className={styles.timelineToggle} aria-expanded={visible}
+          onClick={() => setVisible(!visible)}>{heading}</Button>
+      : <div className={`${styles.timelineToggle} ${styles.staticSummary}`}>{heading}</div>}
     {visible && publicBrief && <div className={styles.publicBrief} aria-label="实时需求理解摘要">
       <strong>我对学习任务的理解 {briefStreaming ? "· 实时生成中" : ""}</strong>
       <p>{publicBrief}{briefStreaming && <span className={styles.publicBriefCaret} aria-hidden="true" />}</p>
@@ -65,7 +77,7 @@ export default function CreationTimeline({
       <p><b>互动方式</b>{learningPlan.interaction_method}</p>
       {learningPlan.key_concepts.length > 0 && <p><b>关键知识</b>{learningPlan.key_concepts.join(" · ")}</p>}
     </div>}
-    {visible && <ol className={styles.timelineList}>
+    {visible && timeline.length > 0 && <ol className={styles.timelineList}>
       {timeline.map(event => <li key={event.id} className={styles.timelineItem}>
         <span aria-label={event.status === "completed" ? "已完成" : event.status === "failed" ? "已失败" : "进行中"} className={styles.timelineMarker}>
           {event.status === "completed" ? <Check size={13} /> : event.status === "failed" ? <CircleAlert size={13} /> : <LoaderCircle size={13} />}

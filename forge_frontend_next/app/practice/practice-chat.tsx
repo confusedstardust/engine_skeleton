@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Send, Sparkles, WandSparkles } from "lucide-react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import TaskReceipt from "./task-receipt";
 import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
 import CreationTimeline from "./creation-timeline";
@@ -94,10 +93,11 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           <PracticeMessageAvatar role={message.role} userAvatarUrl={userAvatarUrl}
             userInitial={userInitial} burst={burstKeys.includes(key)} />
           <div className={styles.messagePaper}>
-            {message.role === "assistant" && message.billing && <TaskReceipt value={message.billing} compact />}
-            {message.timeline?.length ? <CreationTimeline timeline={message.timeline}
-              elapsedMs={message.durationMs} learningPlan={message.learningPlan}
-              publicBrief={message.publicBrief} /> : null}
+            {message.role === "assistant" && (message.timeline?.length || message.billing) ? (
+              <CreationTimeline timeline={message.timeline ?? []} billing={message.billing}
+                elapsedMs={message.durationMs ?? message.billing?.durationMs}
+                learningPlan={message.learningPlan} publicBrief={message.publicBrief} />
+            ) : null}
             {message.role === "assistant" ? <>
               {parsed?.body ? <MessageMarkdown content={parsed.body} /> : null}
               {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}

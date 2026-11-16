@@ -21,7 +21,7 @@ export type ServerMessage = {
     learningPlan?: unknown;
     elapsedMs?: number;
     choices?: import("../app/practice/agent-choice-protocol").AgentChoiceQuestion;
-    billing?: import("../app/practice/task-receipt").TaskUsageReceipt;
+    billing?: import("../app/practice/task-usage").TaskUsageReceipt;
   } | null;
 };
 
