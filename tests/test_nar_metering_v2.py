@@ -63,7 +63,7 @@ def test_missing_or_invalid_usage_never_becomes_free_usage():
         assert not data.complete
         with pytest.raises(ValueError, match="Incomplete"):
             task_credit_charge([(data, True)], UserPriceSnapshot())
-    with pytest.raises(ValueError, match="Invalid"):
+    with pytest.raises(ValueError, match="Reasoning token count"):
         NormalizedUsage(0, 0, 0, 1, reasoning_output=2)
 
 
