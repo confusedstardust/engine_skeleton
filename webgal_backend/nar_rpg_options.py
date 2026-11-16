@@ -59,6 +59,15 @@ def compile_webgal_request(
     if not topic:
         raise ValueError("缺少游戏主题")
     derived = derived or {}
+    # Honor explicit learner age/grade and difficulty, rather than labelling
+    # every auto-generated game as a generic classroom exercise.
+    grade_match = re.search(
+        r"(小学[一二三四五六1-6]年级|初中[一二三1-3]年级|高中[一二三1-3]年级|"
+        r"[一二三四五六七八九1-9]年级|大学生|研究生|成人学习者|成年人|成人)", original_prompt)
+    grade = derived.get("grade") or (grade_match.group(1) if grade_match else "适用学习者")
+    difficulty_match = re.search(r"(入门|初级|基础|中等|进阶|高级|高难度)", original_prompt)
+    difficulty = derived.get("difficulty") or (
+        difficulty_match.group(1) if difficulty_match else "基础至中等")
     # The last line resolves conflicting historic voice/image instructions:
     # server-confirmed switches are authoritative, not earlier prompt text.
     source = "\n".join((
@@ -69,8 +78,8 @@ def compile_webgal_request(
     ))
     options = {
         "classroom_topic": topic,
-        "grade": derived.get("grade") or "适用学习者",
-        "difficulty": derived.get("difficulty") or "基础至中等",
+        "grade": grade,
+        "difficulty": difficulty,
         "teacher_goal": derived.get("teacher_goal") or f"围绕{topic}构建可探索的互动学习体验。",
         "student_goal": derived.get("student_goal") or f"通过互动选择理解{topic}的主要内容。",
         "duration": f"{duration_minutes}分钟",
