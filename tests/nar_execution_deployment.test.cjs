@@ -81,7 +81,7 @@ test("DEV deployment probes SSH network before attempting remote mutations", () 
   const prepareAt = deploy.indexOf("name: Prepare development deployment directory");
   assert.ok(probeAt >= 0 && prepareAt > probeAt,
     "network preflight must occur before starting SSH/SCP");
-  assert.match(deploy, /socket\\.create_connection\\(\\(host, 22\\), timeout=10\\)/);
-  assert.match(deploy, /host TCP\\/22 unreachable/);
+  assert.ok(deploy.includes("socket.create_connection((host, 22), timeout=10)"));
+  assert.ok(deploy.includes("host TCP/22 unreachable"));
   assert.match(deploy, /timeout: 60s/);
 });
