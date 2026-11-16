@@ -830,51 +830,15 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 mode = previous["mode"]
                 parent_artifact_id = previous.get("parentArtifactId")
             else:
-                if (payload.clarification_answer is not None
-                        or _live_v2_enabled(owner, cid, payload.client_request_id)):
-                    v2_live = await resolve_v2_live(owner, cid, payload, create=create)
-                    intent_usage_events.extend(v2_live.get("usage_events") or [])
-                    plan = v2_live["plan"]
-                    mode = plan["mode"] or "chat"
-                    parent_artifact_id = plan["parent_artifact_id"]
-                else:
-                    recent = [] if create else (await transaction(
-                        ledger.get_messages, owner, cid, None, 10))["items"]
-                    history = [{"role": row["role"], "content": row["content"]}
-                               for row in recent][-10:]
-                    selected = None
-                    if not create:
-                        selected = await transaction(ledger.latest_artifact, owner, cid,
-                                                     parent_artifact_id)
-                        if parent_artifact_id and not selected:
-                            # Do not edit a deleted, different-user or different-conversation work.
-                            raise HTTPException(404, "所选作品在当前对话中不存在，请重新打开作品")
-                        if not selected:
-                            selected = await transaction(ledger.latest_artifact, owner, cid)
-                    current_kind = selected["kind"] if selected else None
-                    choice = await resolve_intent(
-                        owner, payload.prompt, history, current_kind,
-                        metering_enabled=metering_enabled, usage_sink=intent_usage_events)
-                    if _shadow_v2_enabled(owner, cid, payload.client_request_id):
-                        # Original browser parent is an explicit selection hint only;
-                        # legacy latest_artifact() fallback is NOT a V2 target.
-                        selected_id = parent_artifact_id if parent_artifact_id else None
-                        shadow_job = asyncio.create_task(compare_v2_shadow(
-                            owner, cid, payload, history, choice,
-                            selected_id, create=create))
-                        live_shadow_jobs.add(shadow_job)
-                        shadow_job.add_done_callback(live_shadow_jobs.discard)
-                    if choice in ("edit", "edit_animation"):
-                        expected = "html" if choice == "edit" else "animation"
-                        if selected and selected["kind"] == expected:
-                            mode = "edit" if expected == "html" else "animation"
-                            parent_artifact_id = selected["artifactId"]
-                        else:
-                            # No matching artifact: ask an accessible question in chat
-                            # rather than start a new builder of the wrong kind.
-                            mode, parent_artifact_id = "chat", None
-                    else:
-                        mode, parent_artifact_id = choice, None
+                # V2 is the ONLY official auto-intent route. Never sample per
+                # request, dispatch to V1, or silently downgrade on V2 errors.
+                # Legacy V1 dispatch (resolve_intent -> html/animation/edit)
+                # is intentionally disabled; see git history for rollback.
+                v2_live = await resolve_v2_live(owner, cid, payload, create=create)
+                intent_usage_events.extend(v2_live.get("usage_events") or [])
+                plan = v2_live["plan"]
+                mode = plan["mode"] or "chat"
+                parent_artifact_id = plan["parent_artifact_id"]
         if mode in ("rpg.prepare", "rpg.edit_link"):
             ensure_rpg_enabled()
             if mode == "rpg.edit_link":
