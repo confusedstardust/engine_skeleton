@@ -501,6 +501,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "enableVoice": spec.get("enable_voice", False),
             },
             "jobId": rpg.get("job_id"), "canConfirm": rpg.get("state") == "PREPARED",
+            "confirmedOptions": rpg.get("confirmed_options"),
             "lastErrorCode": rpg.get("last_error_code"),
         }
 
