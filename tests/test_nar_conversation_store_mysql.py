@@ -277,3 +277,50 @@ def test_rpg_job_binding_rejects_missing_json_null_path(ledger):
     with pytest.raises(ConversationConflict):
         ledger.attach_rpg_job(owner, cid, mid, uuid.uuid4().hex)
     assert ledger.get_owned_rpg_message(owner, cid, mid)["rpg"].get("job_id") is None
+
+
+def test_rpg_clarification_preserves_exact_original_prompt_and_owner(ledger):
+    owner, cid = "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    original = "《琵琶行》原文段落：\\nAAA BBB CCC。玩家必须扮演琵琶女，有三个结局。"
+    first, _ = ledger.start_turn(
+        owner, cid, uuid.uuid4().hex, original, "chat", create=True)
+    ledger.finish_turn(owner, cid, first["id"], output="做哪种游戏？")
+    second, _ = ledger.start_turn(
+        owner, cid, uuid.uuid4().hex, "选择互动剧情游戏，不要配音", "chat")
+    ledger.finish_turn(owner, cid, second["id"], output="请确认游戏",
+                       public_metadata={"card_type": "rpg", "rpg": {
+                           "state": "PREPARED", "spec_version": 1,
+                           "spec": {"topic": "琵琶行", "duration_minutes": 20,
+                                    "generate_images": True, "enable_voice": False},
+                           "job_id": None, "source_turn_id": first["id"]}})
+    mid = ledger.get_detail(owner, cid)["messages"][-1]["id"]
+    card = ledger.get_owned_rpg_message(owner, cid, mid)
+    assert original in card["original_prompt"]
+    assert "选择互动剧情游戏" in card["original_prompt"]
+    assert ledger.get_turn_original_prompt(owner, cid, first["id"]) == original
+    with pytest.raises(ConversationMissing):
+        ledger.get_turn_original_prompt("ci-another-user", cid, first["id"])
+    with pytest.raises(ConversationMissing):
+        ledger.get_turn_original_prompt(owner, cid, "f" * 32)
+    with pytest.raises(ConversationMissing):
+        ledger.get_owned_rpg_message("ci-another-user", cid, mid)
+
+
+def test_rpg_edit_references_ignore_newer_unconfirmed_cards(ledger):
+    owner, cid = "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    created, _ = ledger.start_turn(owner, cid, uuid.uuid4().hex, "成品剧情游戏", "chat", create=True)
+    job_id = uuid.uuid4().hex
+    ledger.finish_turn(owner, cid, created["id"], output="已开始",
+                       public_metadata={"card_type": "rpg", "rpg": {
+                           "state": "STARTED", "spec_version": 1,
+                           "spec": {"topic": "已完成旧游戏"}, "job_id": job_id}})
+    for i in range(7):
+        pending, _ = ledger.start_turn(owner, cid, uuid.uuid4().hex,
+                                       f"未确认游戏 {i}", "chat")
+        ledger.finish_turn(owner, cid, pending["id"], output="待确认",
+                           public_metadata={"card_type": "rpg", "rpg": {
+                               "state": "PREPARED", "spec_version": 1,
+                               "spec": {"topic": f"未确认 {i}"}, "job_id": None}})
+    games = ledger.recent_rpg_games(owner, cid, limit=5)
+    assert len(games) == 1 and games[0]["id"] == job_id
+    assert games[0]["title"] == "已完成旧游戏"
