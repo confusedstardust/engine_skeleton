@@ -57,6 +57,12 @@ test("DEV backend build is decoupled from bounded, retryable ACR image push", ()
   assert.match(build, /push: false/);
   assert.match(build, /load: true/);
   assert.match(build, /cache-from: type=gha/);
+  const concurrencyAt = backend.indexOf("max-concurrent-uploads");
+  const setupBuildxAt = backend.indexOf("name: Set up Buildx");
+  assert.ok(concurrencyAt >= 0 && setupBuildxAt > concurrencyAt,
+    "limit Docker daemon upload concurrency before Buildx setup");
+  assert.match(backend, /config\["max-concurrent-uploads"\] = 2/);
+  assert.match(backend, /sudo systemctl restart docker/);
   assert.match(backend.slice(pushAt), /timeout --signal=TERM --kill-after=15s 18m docker image push "\$IMAGE"/);
   assert.match(backend.slice(pushAt), /for attempt in 1 2; do/);
   assert.match(backend.slice(pushAt), /refusing to deploy an unpublished image/);
