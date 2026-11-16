@@ -448,6 +448,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "pending": pending, "answer": answer_data,
                 "usage_events": usage_events}
 
+    def first_is_independent_game(proposal: dict) -> bool:
+        first = (proposal.get("tasks") or [{}])[0]
+        return first.get("action") == "create" and first.get("target_relation") == "new"
+
     def v2_clarification_proposal(proposal: dict, packet: dict) -> dict:
         """Supply one accessible question if the model omitted crucial detail."""
         if (proposal.get("next_step") == "clarify"
@@ -909,12 +913,24 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             # RPG only prepares a short, durable Assistant message. It does not
             # reserve NarAgent chat credits or create a WebGAL Job.
             if plan["mode"] == "rpg.prepare":
-                spec = draft_game_spec(payload.prompt, proposal["tasks"][0])
+                spec_source = payload.prompt
+                source_turn_id = None
+                if v2_live["answer"] and v2_live["pending"]:
+                    pending_task = v2_live["pending"]["metadata"].get("pending_task_v2") or {}
+                    source_turn_id = pending_task.get("origin_turn_id")
+                    # Preserve original pasted material, not just a compressed
+                    # model goal, when the user replies "choose first option".
+                    previous = await transaction(
+                        ledger.get_turn_original_prompt, owner, cid, source_turn_id)
+                    spec_source = previous + "\n" + payload.prompt
+                spec = draft_game_spec(spec_source, proposal["tasks"][0])
                 metadata = {"card_type": "rpg", "rpg": {
                     "schema_version": 1, "state": "PREPARED", "spec_version": 1,
                     "spec": spec, "job_id": None, "confirmed_options": None,
                     "confirmed_hold_credits": None, "last_error_code": None,
                 }}
+                if source_turn_id:
+                    metadata["rpg"]["source_turn_id"] = source_turn_id
                 if v2_live["answer"] and v2_live["pending"]:
                     original = (v2_live["pending"]["metadata"]
                                 .get("pending_task_v2") or {}).get("proposal") or {}
@@ -923,13 +939,17 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     requirements = "；".join(
                         str(item)[:200] for item in (previous.get("requirements") or [])[:12])
                     selected = "、".join(v2_live["answer"].get("selected_labels") or [])
+                    custom = str(v2_live["answer"].get("custom_text") or "")[:2000]
                     metadata["rpg"]["continued_requirements"] = (
-                        f"目标：{goal}\n原要求：{requirements}\n已确认选项：{selected}"
+                        f"目标：{goal}\n原要求：{requirements}\n已确认选项：{selected}\n用户补充：{custom}"
                     )[:3000]
                 finished = await transaction(
                     ledger.finish_turn, owner, cid, turn["id"],
                     output="已整理好互动剧情游戏配置，请确认选项和积分后开始制作。",
                     public_metadata=metadata)
+                if (not v2_live["answer"] and first_is_independent_game(proposal)
+                        and v2_live["pending"]):
+                    await transaction(ledger.supersede_pending_clarification, owner, cid)
                 return {"conversationId": cid, "turn": finished}
             if plan["mode"] == "rpg.edit_link":
                 job_id = plan["game_job_id"]
