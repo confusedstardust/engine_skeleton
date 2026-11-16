@@ -19,6 +19,7 @@ OPTIONS = {"specVersion": 1, "durationMinutes": 20, "generateImages": True, "ena
 
 class FakeRpgLedger:
     def __init__(self):
+        self.reject_next_start_transition = False
         self.rpg = {
             "schema_version": 1, "state": "PREPARED", "spec_version": 1,
             "spec": {"topic": "琵琶行", "source_ref": {"type": "origin_user_message"},
@@ -49,6 +50,9 @@ class FakeRpgLedger:
 
     def transition_rpg_message(self, owner, cid, message_id, expected_state, state, error_code=None):
         self.get_owned_rpg_message(owner, cid, message_id)
+        if expected_state == "JOB_CREATED" and self.reject_next_start_transition:
+            self.reject_next_start_transition = False
+            raise ConversationConflict("Simulated transition failure")
         if self.rpg["state"] != expected_state:
             raise ConversationConflict("State changed")
         self.rpg.update(state=state, last_error_code=error_code)
@@ -175,3 +179,21 @@ def test_disabled_feature_never_issues_side_effect():
         assert result.status_code == 503
         assert events == []
         assert ledger.rpg["state"] == "PREPARED"
+
+
+def test_job_bound_then_transition_fails_is_manual_review_without_duplicate():
+    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
+        client, ledger, events = setup()
+        ledger.reject_next_start_transition = True
+        payload = {**OPTIONS, "acceptedHoldCredits": 70}
+        res = client.post(path("/confirm"), json=payload,
+                          headers={"X-NarAgent-Action": "chat"})
+        assert res.status_code == 202
+        assert res.json()["state"] == "NEEDS_REVIEW"
+        assert res.json()["jobId"] == JOB
+        assert events == ["create"]  # No run accepted; no replacement job.
+        repeat = client.post(path("/confirm"), json=payload,
+                             headers={"X-NarAgent-Action": "chat"})
+        assert repeat.status_code == 202
+        assert repeat.json()["jobId"] == JOB
+        assert events == ["create"]
