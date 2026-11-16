@@ -10,6 +10,11 @@ on:
       - 'webgal_backend/nar_conversation_*.py'
       - 'webgal_backend/nar_choice_protocol.py'
       - 'webgal_backend/nar_billing.py'
+      - 'webgal_backend/nar_metering_v2.py'
+      - 'webgal_backend/nar_usage_store_v2.py'
+      - 'tests/test_nar_metering_v2.py'
+      - 'tests/test_nar_usage_store_v2.py'
+      - 'tests/test_nar_billing_v2_mysql.py'
       - 'credit_system/**'
       - 'tests/test_nar_billing.py'
       - 'tests/practice_nar_usage_ui.test.cjs'
@@ -59,7 +64,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30' 'qrcode>=8' 'Pillow>=10'
-      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py tests/test_nar_metering_v2.py
   frontend:
     name: Practice UI TypeScript
     runs-on: ubuntu-latest
@@ -121,4 +126,4 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install 'pytest>=9' 'PyMySQL>=1.1'
-      - run: python -m pytest -q tests/test_nar_conversation_store_mysql.py
+      - run: python -m pytest -q tests/test_nar_conversation_store_mysql.py tests/test_nar_usage_store_v2.py tests/test_nar_billing_v2_mysql.py
