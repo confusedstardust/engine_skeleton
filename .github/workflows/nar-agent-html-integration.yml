@@ -46,6 +46,7 @@ on:
       - 'forge_frontend_next/package-lock.json'
       - 'tests/practice_shared_navigation.test.cjs'
       - 'tests/practice_ui_architecture.test.cjs'
+      - 'tests/work_ui_actions.test.cjs'
       - 'tests/practice_session_switch.test.cjs'
       - 'tests/practice_conversation_cache.test.cjs'
       - 'webgal_backend/work_urls.py'
@@ -88,6 +89,7 @@ jobs:
       - run: node ../tests/test_practice_work_rewrites.cjs
       - run: node ../tests/practice_shared_navigation.test.cjs
       - run: node ../tests/practice_ui_architecture.test.cjs
+      - run: node ../tests/work_ui_actions.test.cjs
       - run: node ../tests/practice_session_switch.test.cjs
       - run: node ../tests/practice_conversation_cache.test.cjs
       - run: node ../tests/nar_conversation_architecture.test.cjs

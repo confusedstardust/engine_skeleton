@@ -123,3 +123,36 @@ def test_api_rejects_unverified_html_and_owner_mismatch(tmp_path, monkeypatch):
     with TestClient(app) as c:
         result = c.post("/works", headers=ACTION, json={"artifact_id": ARTIFACT_A, "kind": "html", "title": "测试"})
         assert result.status_code == 422
+
+
+def test_delete_saved_work_is_owner_only_and_requires_unpublication(tmp_path):
+    store = WorkStore(tmp_path)
+    data = store.create("teacher-a", ARTIFACT_A, "html", "待删作品", "", ASSETS)
+    work_id = data["id"]
+    app = FastAPI()
+    app.include_router(create_router(
+        user_for_request=lambda request: {"id": request.headers.get("X-Test-Owner", "teacher-a"), "auth_type": "sso"},
+        store=store,
+    ))
+    with TestClient(app) as client:
+        url = f"/works/{work_id}"
+        assert client.delete(url).status_code == 403
+        assert client.delete(url, headers={**ACTION, "X-Test-Owner": "teacher-b"}).status_code == 404
+        assert store.get("teacher-a", work_id)["id"] == work_id
+        pending = store.start_publication("teacher-a", work_id)
+        store.finish_publication("teacher-a", work_id, pending["pending_version_id"],
+                                 "https://example.com/narrativeos/practice/works/" + work_id + "/",
+                                 {"title": "待删作品", "summary": "", "subject": None,
+                                  "grade": None, "tags": []})
+        assert client.delete(url, headers=ACTION).status_code == 409
+        assert store.public(work_id)["id"] == work_id
+        store.start_unpublish("teacher-a", work_id)
+        assert client.delete(url, headers=ACTION).status_code == 409
+        store.finish_unpublish("teacher-a", work_id)
+        response = client.delete(url, headers=ACTION)
+        assert response.status_code == 200 and response.json() == {"deleted": True}
+        assert client.get(url).status_code == 404
+        assert client.delete(url, headers=ACTION).status_code == 404
+        with pytest.raises(FileNotFoundError):
+            store.asset("teacher-a", work_id, data["current_version_id"], "index.html")
+        assert store.list_for("teacher-a") == []
