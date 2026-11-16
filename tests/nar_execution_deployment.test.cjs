@@ -71,3 +71,17 @@ test("DEV backend build is decoupled from bounded, retryable ACR image push", ()
   assert.ok(deploy?.includes("needs.build-backend.result == 'success'"),
     "deployment must remain gated on successful ACR publication");
 });
+
+
+test("DEV deployment probes SSH network before attempting remote mutations", () => {
+  const workflow = read(".github/workflows/docker-publish-deploy-dev.yml");
+  const deploy = workflow.split("\n  deploy:\n")[1]?.split("\n  portal-inspect:\n")[0];
+  assert.ok(deploy, "DEV deploy job must exist");
+  const probeAt = deploy.indexOf("name: Verify DEV SSH TCP reachability");
+  const prepareAt = deploy.indexOf("name: Prepare development deployment directory");
+  assert.ok(probeAt >= 0 && prepareAt > probeAt,
+    "network preflight must occur before starting SSH/SCP");
+  assert.match(deploy, /socket\\.create_connection\\(\\(host, 22\\), timeout=10\\)/);
+  assert.match(deploy, /host TCP\\/22 unreachable/);
+  assert.match(deploy, /timeout: 60s/);
+});
