@@ -10,6 +10,7 @@ import AgentChoicePrompt from "./agent-choice-prompt";
 import { parseAgentChoiceMessage, visibleAgentChoicePrefix } from "./agent-choice-protocol";
 import GeneratedWorkCard from "./generated-work-card";
 import RpgTaskCard from "./rpg-task-card";
+import { withBasePath } from "../base-path";
 import MessageMarkdown from "./message-markdown";
 import PracticeMessageAvatar from "./practice-message-avatar";
 import type { usePracticeWorkspace } from "./use-practice-workspace";
@@ -104,6 +105,12 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
               {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}
                 onAnswer={(answer, structured) => { void send(answer, structured); }} />}
             </> : message.content}
+            {message.rpgEditJobId && /^[0-9a-f]{32}$/.test(message.rpgEditJobId) && <p>
+              <a href={withBasePath("/jobs/" + message.rpgEditJobId)}
+                target="_blank" rel="noopener noreferrer">
+                打开 WebGAL 游戏编辑工作台 <ArrowUpRight size={14} aria-hidden="true" />
+              </a>
+            </p>}
             {message.rpg && message.id && conversationId && <RpgTaskCard
               key={message.id} conversationId={conversationId} messageId={message.id}
               initial={message.rpg} />}
