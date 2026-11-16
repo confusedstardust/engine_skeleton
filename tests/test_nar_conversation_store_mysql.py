@@ -5,6 +5,7 @@ The product does NOT execute migration SQL on startup or during normal requests.
 """
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pymysql
@@ -197,3 +198,82 @@ def test_v2_pending_clarification_json_is_owner_scoped_and_cas_superseded(ledger
     archived = ledger.get_pending_clarification(owner, cid, clarification_id)
     assert archived["metadata"]["clarification_v2"]["status"] == "superseded"
     assert archived["metadata"]["choices"]["status"] == "superseded"
+
+
+def test_rpg_message_cas_is_owner_scoped_and_atomic_under_10_threads(ledger):
+    """Real MySQL 8 CAS; only one concurrent confirmation can claim one card."""
+    owner, cid = "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    turn, _ = ledger.start_turn(
+        owner, cid, uuid.uuid4().hex,
+        "《琵琶行》角色扮演三结局，不需要配音", "chat", create=True)
+    initial = {"card_type": "rpg", "choices": {"question": "保持原有 metadata"},
+               "timeline": [{"phase": "done"}], "billing": {"units": 1},
+               "rpg": {"schema_version": 1, "state": "PREPARED", "spec_version": 1,
+                       "spec": {"topic": "琵琶行", "source_ref": {"type": "origin_user_message"},
+                                "duration_minutes": 20, "generate_images": True, "enable_voice": False},
+                       "job_id": None, "confirmed_options": None,
+                       "confirmed_hold_credits": None, "last_error_code": None}}
+    ledger.finish_turn(owner, cid, turn["id"], output="已准备 RPG", public_metadata=initial)
+    mid = ledger.get_detail(owner, cid)["messages"][-1]["id"]
+    assert ledger.get_owned_rpg_message(owner, cid, mid)["original_prompt"].startswith("《琵琶行》")
+    with pytest.raises(ConversationMissing):
+        ledger.get_owned_rpg_message("ci-other-user", cid, mid)
+    with pytest.raises(ConversationMissing):
+        ledger.get_owned_rpg_message(owner, uuid.uuid4().hex, mid)
+    selections = {"durationMinutes": 20, "generateImages": True, "enableVoice": False}
+
+    def claim(_):
+        return ledger.claim_rpg_message(owner, cid, mid, version=1,
+                                        confirmed_options=selections, hold=70)
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(claim, range(10)))
+    assert sum(results) == 1
+    assert ledger.claim_rpg_message(owner, cid, mid, version=1,
+                                    confirmed_options=selections, hold=70) is False
+    card = ledger.get_owned_rpg_message(owner, cid, mid)["rpg"]
+    assert card["state"] == "CLAIMED"
+    assert card["confirmed_options"] == selections
+    assert card["confirmed_hold_credits"] == 70
+    job_id = uuid.uuid4().hex
+    ledger.attach_rpg_job(owner, cid, mid, job_id)
+    assert ledger.get_owned_rpg_message(owner, cid, mid)["rpg"]["job_id"] == job_id
+    with pytest.raises(ConversationConflict):
+        ledger.attach_rpg_job(owner, cid, mid, uuid.uuid4().hex)
+    ledger.transition_rpg_message(owner, cid, mid, "JOB_CREATED", "STARTING")
+    ledger.transition_rpg_message(owner, cid, mid, "STARTING", "STARTED")
+    with pytest.raises(ConversationConflict):
+        ledger.transition_rpg_message(owner, cid, mid, "JOB_CREATED", "STARTING")
+    assert ledger.cancel_rpg_message(owner, cid, mid) is False
+    metadata = ledger.get_detail(owner, cid)["messages"][-1]["metadata"]
+    assert metadata["choices"] == initial["choices"]
+    assert metadata["timeline"] == initial["timeline"]
+    assert metadata["billing"] == initial["billing"]
+    assert metadata["rpg"]["state"] == "STARTED"
+    assert ledger.recent_rpg_games(owner, cid)[0]["id"] == job_id
+    with pytest.raises(ConversationMissing):
+        ledger.recent_rpg_games("ci-other-user", cid)
+
+
+def test_rpg_job_binding_rejects_missing_json_null_path(ledger):
+    """Existing job binding is immutable; missing JSON path is not treated as null."""
+    owner, cid = "ci-" + uuid.uuid4().hex, uuid.uuid4().hex
+    turn, _ = ledger.start_turn(
+        owner, cid, uuid.uuid4().hex, "新 RPG", "chat", create=True)
+    ledger.finish_turn(owner, cid, turn["id"], output="RPG",
+                       public_metadata={"card_type": "rpg", "rpg": {
+                           "state": "PREPARED", "spec_version": 1,
+                           "spec": {"topic": "新 RPG"}, "job_id": None}})
+    mid = ledger.get_detail(owner, cid)["messages"][-1]["id"]
+    assert ledger.claim_rpg_message(
+        owner, cid, mid, version=1,
+        confirmed_options={"durationMinutes": 20, "generateImages": True, "enableVoice": False},
+        hold=70)
+    # The application always initializes JSON job_id=null. Simulate a broken
+    # old row: it must fail closed instead of binding a second Job.
+    with ledger._transaction() as db:
+        db.execute("UPDATE nar_messages SET public_metadata = JSON_REMOVE("
+                   "public_metadata, '$.rpg.job_id') WHERE id=%s", (mid,))
+    with pytest.raises(ConversationConflict):
+        ledger.attach_rpg_job(owner, cid, mid, uuid.uuid4().hex)
+    assert ledger.get_owned_rpg_message(owner, cid, mid)["rpg"].get("job_id") is None
