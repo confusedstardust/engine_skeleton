@@ -173,7 +173,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             return {key: data[key] for key in (
                 "id", "status", "phase", "output", "error", "error_code", "artifact_id",
                 "parent_artifact_id", "timeline", "elapsed_ms", "learning_plan",
-                "public_brief", "public_brief_state", "duration_ms", "usage", "usage_status"
+                "public_brief", "public_brief_state", "duration_ms", "usage", "usage_status",
+                "usage_events"
             ) if key in data}
         except (TypeError, ValueError, KeyError):
             raise HTTPException(502, "执行服务的用户归属或响应内容无效") from None
@@ -193,12 +194,14 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
 
     async def persist_metering_events(owner: str, cid: str, request_id: str,
                                       events: list | None, *, turn_id: str | None = None,
-                                      shadow: bool = False) -> None:
+                                      shadow: bool = False, sampled: bool | None = None) -> None:
         """Append company telemetry only. No charges and no V1 settlement changes.
 
         Migration 006 must be installed before enabling this opt-in feature.
         """
-        if not isinstance(events, list) or not metering_sample(owner, cid, request_id):
+        if not isinstance(events, list) or not (
+            sampled if sampled is not None else metering_sample(owner, cid, request_id)
+        ):
             return
         try:
             from credit_system.config import CreditDatabaseConfig
@@ -559,6 +562,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                                     if str(data.get("user_id")) != owner or not isinstance(data.get("output"), str):
                                         raise ValueError("Invalid output owner")
                                     usage = data.get("usage")
+                                    if isinstance(data.get("usage_events"), list):
+                                        await persist_metering_events(
+                                            owner, cid, turn["id"], data["usage_events"],
+                                            turn_id=turn["id"], sampled=True)
                                     receipt = await finish_billing(
                                         owner, turn["id"], usage if isinstance(usage, dict) else None,
                                         success=True, duration_ms=int(data.get("duration_ms") or 0))
@@ -600,6 +607,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
     async def submit_turn(owner: str, cid: str, payload: TurnRequest, *, create=False, streaming=False):
         mode = payload.mode
         v2_live = None
+        intent_usage_events = []
+        metering_enabled = metering_sample(owner, cid, payload.client_request_id)
         if payload.clarification_answer and mode != "auto":
             raise HTTPException(422, "澄清答复必须通过自动路由提交")
         parent_artifact_id = payload.parent_artifact_id
@@ -615,6 +624,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 if (payload.clarification_answer is not None
                         or _live_v2_enabled(owner, cid, payload.client_request_id)):
                     v2_live = await resolve_v2_live(owner, cid, payload, create=create)
+                    intent_usage_events.extend(v2_live.get("usage_events") or [])
                     plan = v2_live["plan"]
                     mode = plan["mode"] or "chat"
                     parent_artifact_id = plan["parent_artifact_id"]
@@ -633,7 +643,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                         if not selected:
                             selected = await transaction(ledger.latest_artifact, owner, cid)
                     current_kind = selected["kind"] if selected else None
-                    choice = await resolve_intent(owner, payload.prompt, history, current_kind)
+                    choice = await resolve_intent(
+                        owner, payload.prompt, history, current_kind,
+                        metering_enabled=metering_enabled, usage_sink=intent_usage_events)
                     if _shadow_v2_enabled(owner, cid, payload.client_request_id):
                         # Original browser parent is an explicit selection hint only;
                         # legacy latest_artifact() fallback is NOT a V2 target.
@@ -660,6 +672,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if not new:
             # Idempotent reads must never re-dispatch a previously submitted turn.
             return {"conversationId": cid, "turn": turn, "reused": True}
+        if metering_enabled and intent_usage_events:
+            await persist_metering_events(owner, cid, payload.client_request_id,
+                                          intent_usage_events, turn_id=turn["id"])
         if v2_live:
             plan = v2_live["plan"]
             if v2_live["answer"]:
@@ -711,6 +726,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "errorCode": "CREDITS_INSUFFICIENT" if exc.status_code == 402 else "BILLING_UNAVAILABLE"}}
         history = await transaction(ledger.model_history, owner, cid, turn["id"])
         request_body = {"prompt": payload.prompt, "history": history}
+        if metering_enabled:
+            request_body["metering_enabled"] = True
         if v2_live and v2_live["answer"] and v2_live["pending"]:
             previous = v2_live["pending"]["metadata"]["pending_task_v2"]["proposal"]
             task = previous["tasks"][0]
@@ -744,6 +761,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             return {"conversationId": cid, "turn": failed}
         await transaction(ledger.mark_running, owner, cid, turn["id"], task["id"])
         if mode == "chat":
+            if isinstance(task.get("usage_events"), list):
+                await persist_metering_events(
+                    owner, cid, turn["id"], task["usage_events"],
+                    turn_id=turn["id"], sampled=True)
             receipt = await finish_billing(owner, turn["id"], task.get("usage"),
                                            success=True, duration_ms=task.get("duration_ms", 0))
             finished = await transaction(ledger.finish_turn, owner, cid, turn["id"],
@@ -818,6 +839,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 await finish_billing(owner, tid, task.get("usage"), success=False)
                 failed = await transaction(ledger.fail_turn, owner, cid, tid, "ARTIFACT_MISSING")
                 return {"turn": failed, "task": task}
+            if isinstance(task.get("usage_events"), list):
+                await persist_metering_events(
+                    owner, cid, tid, task["usage_events"],
+                    turn_id=tid, sampled=True)
             receipt = await finish_billing(owner, tid, task.get("usage"),
                                            success=task["status"] == "SUCCEEDED",
                                            duration_ms=task.get("elapsed_ms", 0))
