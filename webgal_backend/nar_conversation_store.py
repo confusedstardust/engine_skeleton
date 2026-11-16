@@ -397,6 +397,95 @@ class NarConversationStore:
                 break
         return games
 
+    def get_owned_rpg_message(self, owner: str, cid: str, message_id: str) -> dict:
+        """Return owner-verified card and origin prompt; never expose origin via public API."""
+        with self._transaction() as db:
+            db.execute(
+                "SELECT m.public_metadata, m.turn_id, origin.content AS origin_prompt "
+                "FROM nar_messages m "
+                "JOIN nar_conversations c ON c.id=m.conversation_id "
+                "JOIN nar_turns t ON t.id=m.turn_id AND t.conversation_id=c.id "
+                "JOIN nar_messages origin ON origin.id=t.prompt_message_id "
+                "WHERE c.owner_id=%s AND c.id=%s AND m.id=%s "
+                "AND m.role='assistant' AND "
+                "JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.card_type'))='rpg'",
+                (owner, cid, message_id))
+            row = db.fetchone()
+        if not row:
+            raise ConversationMissing("RPG card does not belong to this owner and conversation")
+        metadata = row["public_metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("rpg"), dict):
+            raise ConversationMissing("Malformed RPG card")
+        return {"message_id": message_id, "turn_id": row["turn_id"],
+                "rpg": metadata["rpg"], "original_prompt": row["origin_prompt"]}
+
+    def claim_rpg_message(self, owner: str, cid: str, message_id: str, *,
+                          version: int, confirmed_options: dict, hold: int) -> bool:
+        """Single MySQL compare-and-swap; ONLY winner may call WebGAL create/run."""
+        options_json = json.dumps(confirmed_options, ensure_ascii=False)
+        with self._transaction() as db:
+            db.execute(
+                "UPDATE nar_messages m JOIN nar_conversations c ON c.id=m.conversation_id "
+                "SET m.public_metadata=JSON_SET(m.public_metadata,"
+                "'$.rpg.state','CLAIMED',"
+                "'$.rpg.confirmed_options',CAST(%s AS JSON),"
+                "'$.rpg.confirmed_hold_credits',%s) "
+                "WHERE m.id=%s AND m.conversation_id=%s AND m.role='assistant' "
+                "AND c.owner_id=%s "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.card_type'))='rpg' "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.rpg.state'))='PREPARED' "
+                "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,"
+                "'$.rpg.spec_version')) AS UNSIGNED)=%s",
+                (options_json, hold, message_id, cid, owner, version))
+            return db.rowcount == 1
+
+    def attach_rpg_job(self, owner: str, cid: str, message_id: str, job_id: str) -> None:
+        """Persist actual Job ID BEFORE calling run, never overwrite an existing ID."""
+        with self._transaction() as db:
+            db.execute(
+                "UPDATE nar_messages m JOIN nar_conversations c ON c.id=m.conversation_id "
+                "SET m.public_metadata=JSON_SET(m.public_metadata,"
+                "'$.rpg.job_id',%s,'$.rpg.state','JOB_CREATED') "
+                "WHERE m.id=%s AND m.conversation_id=%s AND m.role='assistant' "
+                "AND c.owner_id=%s "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.card_type'))='rpg' "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.rpg.state'))='CLAIMED' "
+                "AND JSON_TYPE(JSON_EXTRACT(m.public_metadata,'$.rpg.job_id'))='NULL'",
+                (job_id, message_id, cid, owner))
+            if db.rowcount != 1:
+                raise ConversationConflict("RPG job binding is not in CLAIMED state")
+
+    def transition_rpg_message(self, owner: str, cid: str, message_id: str,
+                               expected_state: str, state: str, error_code: str | None = None) -> None:
+        """Update only RPG JSON paths, preserving choices/billing/timeline."""
+        with self._transaction() as db:
+            db.execute(
+                "UPDATE nar_messages m JOIN nar_conversations c ON c.id=m.conversation_id "
+                "SET m.public_metadata=JSON_SET(m.public_metadata,"
+                "'$.rpg.state',%s,'$.rpg.last_error_code',%s) "
+                "WHERE m.id=%s AND m.conversation_id=%s AND m.role='assistant' "
+                "AND c.owner_id=%s "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.card_type'))='rpg' "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.rpg.state'))=%s",
+                (state, error_code, message_id, cid, owner, expected_state))
+            if db.rowcount != 1:
+                raise ConversationConflict("RPG card state changed")
+
+    def cancel_rpg_message(self, owner: str, cid: str, message_id: str) -> bool:
+        """Cancel only PREPARED cards; never pretend to cancel a running WebGAL Job."""
+        with self._transaction() as db:
+            db.execute(
+                "UPDATE nar_messages m JOIN nar_conversations c ON c.id=m.conversation_id "
+                "SET m.public_metadata=JSON_SET(m.public_metadata,'$.rpg.state','CANCELLED') "
+                "WHERE m.id=%s AND m.conversation_id=%s AND m.role='assistant' "
+                "AND c.owner_id=%s "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.card_type'))='rpg' "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(m.public_metadata,'$.rpg.state'))='PREPARED'",
+                (message_id, cid, owner))
+            return db.rowcount == 1
+
     def get_detail(self, owner: str, cid: str) -> dict:
         with self._transaction() as db:
             current = self._own(db, owner, cid)
