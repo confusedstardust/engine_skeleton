@@ -65,6 +65,13 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
   useEffect(() => {
     if (!inProgress(state) && !jobId) return;
     if (statusTerminal) return;
+    // Rejected / unknown jobs must not trigger infinite background polling.
+    if (state === "START_REJECTED" || state === "NEEDS_REVIEW") {
+      if (jobId && !job) {
+        void conversationApi.rpgJob(jobId).then(setJob).catch(() => {});
+      }
+      return;
+    }
     let alive = true;
     let count = 0;
     const refresh = async () => {
@@ -87,7 +94,7 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
       void refresh();
     }, 3000);
     return () => { alive = false; window.clearInterval(timer); };
-  }, [conversationId, messageId, state, jobId, statusTerminal]);
+  }, [conversationId, messageId, state, jobId, statusTerminal, job]);
 
   const selections = (): RpgSelections => ({
     specVersion: version, durationMinutes: duration,
@@ -159,6 +166,7 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
       : <>
         {playable ? <p className={styles.description}>游戏制作完成，可以打开体验或进入工作台编辑。</p>
           : failed ? <p className={styles.description}>游戏制作遇到问题，原任务已保留。可进入工作台检查。</p>
+          : job?.status === "DONE" ? <p className={styles.description}>生成已完成，但尚未检测到可播放构建。请进入工作台检查并发布可用版本。</p>
           : state === "START_REJECTED" ? <p className={styles.description}>任务未能启动。已保留原游戏 Job，请在工作台处理。</p>
           : state === "NEEDS_REVIEW" ? <p className={styles.description}>启动结果暂时无法确认，为避免重复扣费不会自动重试。请检查工作台。</p>
           : <p className={styles.description}><LoaderCircle size={15} className={styles.spin} aria-hidden="true" /> {job?.status === "QUEUED" ? "任务已排队，等待开始" : "正在制作游戏…"}</p>}
