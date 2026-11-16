@@ -24,7 +24,8 @@ def draft_game_spec(original_prompt: str, intent_task: dict[str, Any]) -> dict[s
     minutes = re.search(r"(?<!\d)(\d{1,2})\s*(?:分钟|分鐘|minutes?)(?!\w)",
                         original_prompt, flags=re.IGNORECASE)
     duration = int(minutes.group(1)) if minutes else DEFAULT_DURATION_MINUTES
-    duration = max(MIN_DURATION_MINUTES, min(MAX_DURATION_MINUTES, duration))
+    # Preserve the user's actual requested duration; invalid values must not be
+    # silently clamped. The confirmation card asks for a valid 5-60 minute value.
     no_images = re.search(r"(?:不|无|免|无需|不要|不需要|不用|关闭).{0,3}(?:配图|图片|插画|生图|绘图)", original_prompt)
     no_voice = re.search(r"(?:不|无|免|无需|不要|不需要|不用|关闭).{0,3}(?:配音|语音|朗读|旁白|TTS)", original_prompt, flags=re.IGNORECASE)
     wants_voice = re.search(r"(?:配音|语音|朗读|旁白|TTS)", original_prompt, flags=re.IGNORECASE)
