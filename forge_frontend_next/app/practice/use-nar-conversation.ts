@@ -396,6 +396,7 @@ export function useNarConversation({
         id: item.id, seq: item.seq, role: item.role, content: item.content,
         choices: item.metadata?.choices,
         billing: item.metadata?.billing,
+        rpg: item.metadata?.card_type === "rpg" ? item.metadata.rpg : undefined,
         publicBrief: item.metadata?.publicBrief,
         timeline: item.metadata?.timeline as PracticeMessage["timeline"],
         rpg: item.metadata?.card_type === "rpg" ? item.metadata.rpg : undefined,
