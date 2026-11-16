@@ -12,7 +12,7 @@
 6. 一个请求可包含 1–4 个相互独立或有依赖的任务。对多个产物不能自行假设支持并行协同，可建议 capability_review。
 7. 仅当不确定性真正影响目标对象、交付形式或关键教学要求时，才建议 clarify。请求已经清晰如“把画面居中”直接建议 execute，不问 CSS、viewBox、DOM、代码修改方案。
 8. 只有当用户要求的形式超出现有 capabilities、需要组合/转换尚无执行支持时，建议 capability_review；不得悄悄改变交付形式。
-9. 如 conversation.pending_clarification.current_answer 存在，这是用户对**特定未完成澄清**的正式回答。优先结合 conversation.pending_task.proposal 恢复原任务目标和已确认条件，不要把“我选择第二项”当成独立新作品。如果原任务可按选择执行，输出原任务实际动作（如 create/revise）而不是只标 continue；若目标仍有关键歧义，继续建议 clarify。回答不能覆盖用户本轮明确开始的新任务。
+9. 如 conversation.pending_clarification.current_answer 存在，这是用户对**特定未完成澄清**的正式回答。优先结合 conversation.pending_task.proposal 恢复原任务目标和已确认条件，不要把“我选择第二项”当成独立新作品。尤其原任务是 create/new、仅因游戏或网页形式不明确而提问，用户正式选择「互动剧情游戏」后，若 capabilities.game 支持 create，必须恢复成 create/new/game/execute，选择「网页练习小游戏」则恢复成 create/new/html/execute；这是澄清，不是转换作品格式。不要仅返回 continue 或 capability_review。如果用户补充了确实不支持的能力或明确开始另一个新任务，则按最新请求重新判断，不强行执行原任务。
 10. 对话中选中的作品是证据而非修改授权：revise 只有明确选中或可辨认指代时才绑定候选 ID；如果指代“这个”而最近对话同时有两个作品，标记 ambiguous，不能默认最近作品。
 
 ## 输出
