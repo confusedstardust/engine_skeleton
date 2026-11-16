@@ -599,6 +599,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 return public_rpg_card(refreshed)
             raise HTTPException(409, "SPEC_VERSION_CHANGED_OR_ALREADY_CONFIRMED")
         # Only the successful CAS winner is allowed to create and start a Job.
+        job_id = None
         try:
             job = await run_in_threadpool(rpg_create, owner, request_body)
             job_id = str(job["id"])
@@ -607,23 +608,38 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             await transaction(ledger.attach_rpg_job, owner, cid, mid, job_id)
             await transaction(ledger.transition_rpg_message, owner, cid, mid,
                               "JOB_CREATED", "STARTING")
-        except Exception:
+        except Exception as exc:
             # May have created a Job before the response/metadata failed.
-            # Never recreate automatically; preserve a manual-review state.
+            # Do not log the source text, credentials or credit details.
+            logger.error(
+                "nar_rpg_create_or_bind_uncertain cid=%s mid=%s job_id=%s error_type=%s",
+                cid, mid, job_id, type(exc).__name__,
+            )
             try:
-                await transaction(ledger.transition_rpg_message, owner, cid, mid,
-                                  "CLAIMED", "NEEDS_REVIEW", "CREATE_RESULT_UNCERTAIN")
+                latest = await owned_rpg_card(owner, cid, mid)
+                latest_state = latest["rpg"].get("state")
+                if latest_state in ("CLAIMED", "JOB_CREATED"):
+                    await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                                      latest_state, "NEEDS_REVIEW", "CREATE_RESULT_UNCERTAIN")
             except HTTPException:
-                pass
+                # The conversation may have been deleted. Never create again.
+                logger.warning("nar_rpg_manual_review cid=%s mid=%s job_id=%s",
+                               cid, mid, job_id)
             return public_rpg_card(await owned_rpg_card(owner, cid, mid))
         try:
             await run_in_threadpool(rpg_run, job_id, request, background_tasks)
         except HTTPException as exc:
             state = "START_REJECTED" if exc.status_code in (402, 404, 409, 422) else "NEEDS_REVIEW"
+            logger.warning(
+                "nar_rpg_run_rejected cid=%s mid=%s job_id=%s http_status=%s state=%s",
+                cid, mid, job_id, exc.status_code, state,
+            )
             await transaction(ledger.transition_rpg_message, owner, cid, mid,
                               "STARTING", state, "RUN_REJECTED" if state == "START_REJECTED"
                               else "RUN_RESULT_UNKNOWN")
-        except Exception:
+        except Exception as exc:
+            logger.error("nar_rpg_run_uncertain cid=%s mid=%s job_id=%s error_type=%s",
+                         cid, mid, job_id, type(exc).__name__)
             await transaction(ledger.transition_rpg_message, owner, cid, mid,
                               "STARTING", "NEEDS_REVIEW", "RUN_RESULT_UNKNOWN")
         else:
