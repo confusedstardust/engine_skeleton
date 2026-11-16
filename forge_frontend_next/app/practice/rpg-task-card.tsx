@@ -12,12 +12,16 @@ import styles from "./rpg-task-card.module.css";
 
 type Props = { conversationId: string; messageId: string; initial: RpgMessageMetadata };
 
+// Matched to WebGALPipeline.RUN_ALL_PHASE_ORDER and actual store.transition phase strings.
 const PHASES = [
   { title: "构思故事", codes: ["NARRATIVE_PLANNING"] },
   { title: "设计剧情与人物", codes: ["GAME_DESIGN", "GAME_DESIGN_COMPLETION"] },
-  { title: "处理游戏素材", codes: ["ASSET_PLANNING", "ASSET_GENERATION"] },
-  { title: "编写场景与对话", codes: ["SCRIPT_REWRITE", "SCENE_WRITING"] },
-  { title: "检查场景与连接", codes: ["VALIDATING", "SCENE_CONNECTION_CHECK"] },
+  { title: "规划游戏素材", codes: ["ASSET_PLANNING"] },
+  { title: "编排脚本与对话", codes: ["SCRIPT_REWRITE"] },
+  { title: "处理音效与配音", codes: ["SOUND_EFFECT_PLANNING", "TTS_GENERATION", "TTS_PREVIEW_GENERATION"] },
+  { title: "制作游戏素材", codes: ["ASSET_GENERATION"] },
+  { title: "编写游戏场景", codes: ["SCENE_WRITING"] },
+  { title: "校验内容与连接", codes: ["VALIDATING", "SCENE_CONNECTION_CHECK"] },
 ];
 
 const inProgress = (state: string) =>
