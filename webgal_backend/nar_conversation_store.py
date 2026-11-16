@@ -369,6 +369,7 @@ class NarConversationStore:
                 "SELECT public_metadata FROM nar_messages "
                 "WHERE conversation_id=%s AND role='assistant' "
                 "AND JSON_UNQUOTE(JSON_EXTRACT(public_metadata,'$.card_type'))='rpg' "
+                "AND JSON_TYPE(JSON_EXTRACT(public_metadata,'$.rpg.job_id'))='STRING' "
                 "ORDER BY seq DESC LIMIT %s", (cid, min(max(limit, 1), 20)))
             rows = list(db.fetchall())
         games = []
