@@ -212,5 +212,85 @@ class PlannerRouteContractTests(unittest.TestCase):
                 self.assertEqual(plan["mode"], expected[output])
 
 
+class ConfirmedFormatResumptionTests(unittest.TestCase):
+    def setUp(self):
+        self.original = {
+            "schema_version": "2.0",
+            "tasks": [{
+                "action": "create", "target_relation": "new",
+                "desired_output": "unspecified",
+            }],
+            "next_step": "clarify", "uncertainty": "output",
+        }
+        self.context = build_context_packet(
+            "我选择：互动剧情游戏", "c" * 32, [], [],
+            pending_task={"status": "pending", "proposal": self.original},
+            pending_clarification={"current_answer": {
+                "selected_option_ids": ["o1"], "selected_labels": ["互动剧情游戏"],
+                "custom_text": ""
+            }},
+            capabilities=CAPS,
+        )
+
+    def proposal(self, *, action="continue", output="game", step="execute"):
+        return {"schema_version": "2.0", "tasks": [{
+            "action": action, "target_relation": "none",
+            "candidate_artifact_id": None, "candidate_game_job_id": None,
+            "desired_output": output, "goal": "继续制作互动游戏",
+            "requirements": [],
+        }], "next_step": step}
+
+    def test_formal_game_choice_restores_create_even_if_model_calls_conversion(self):
+        for action in ("continue", "convert"):
+            with self.subTest(action=action):
+                plan = plan_v2(self.proposal(action=action), self.context)
+                self.assertEqual(plan["mode"], "rpg.prepare")
+                self.assertEqual(plan["reason"], "new_game")
+
+    def test_formal_html_choice_restores_html_builder(self):
+        plan = plan_v2(self.proposal(output="html"), self.context)
+        self.assertEqual(plan["mode"], "html")
+
+    def test_no_answer_or_free_text_never_invents_a_creative_execution(self):
+        for edit in (
+            {"conversation": {**self.context["conversation"],
+                              "pending_clarification": {"current_answer": {}}}},
+            {"conversation": {**self.context["conversation"],
+                              "pending_clarification": {"current_answer": {
+                                  "selected_option_ids": ["o1"],
+                                  "custom_text": "先不要做，谈一下3D玩法"
+                              }}}},
+        ):
+            with self.subTest(edit=edit):
+                plan = plan_v2(self.proposal(), {**self.context, **edit})
+                self.assertEqual(plan["next_step"], "capability_review")
+                self.assertIsNone(plan["mode"])
+
+    def test_explicit_capability_review_is_never_overridden(self):
+        # Choosing a generic RPG format does not mean a 3D free-roaming
+        # request can be fulfilled by the WebGAL narrative engine.
+        plan = plan_v2(self.proposal(step="capability_review"), self.context)
+        self.assertEqual(plan["next_step"], "capability_review")
+        self.assertIsNone(plan["mode"])
+
+    def test_only_output_ambiguity_may_be_resumed(self):
+        pending = dict(self.context["conversation"]["pending_task"])
+        pending["proposal"] = {**self.original, "uncertainty": "capability"}
+        context = {**self.context, "conversation": {
+            **self.context["conversation"], "pending_task": pending,
+        }}
+        plan = plan_v2(self.proposal(), context)
+        self.assertEqual(plan["next_step"], "capability_review")
+        self.assertIsNone(plan["mode"])
+
+    def test_no_game_callback_capability_never_prepares_game(self):
+        unavailable = {**self.context, "capabilities": {
+            key: value for key, value in CAPS.items() if key != "game"
+        }}
+        plan = plan_v2(self.proposal(), unavailable)
+        self.assertEqual(plan["next_step"], "capability_review")
+        self.assertIsNone(plan["mode"])
+
+
 if __name__ == "__main__":
     unittest.main()

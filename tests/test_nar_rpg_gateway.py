@@ -1,9 +1,6 @@
 """In-process Forge RPG API contract. Side effects are stubs, no DB/LLM required."""
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
-
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -104,110 +101,110 @@ def path(suffix=""):
 
 
 def test_quote_is_side_effect_free_and_confirm_is_at_most_once():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
-        client, ledger, events = setup()
-        assert client.get(path()).json()["state"] == "PREPARED"
-        quote = client.post(path("/quote"), json=OPTIONS,
-                            headers={"X-NarAgent-Action": "chat"})
-        assert quote.status_code == 200
-        hold = quote.json()["holdCredits"]
-        assert hold == 70
-        assert events == []
-        payload = {**OPTIONS, "acceptedHoldCredits": hold}
-        first = client.post(path("/confirm"), json=payload,
-                            headers={"X-NarAgent-Action": "chat"})
-        assert first.status_code == 202
-        assert first.json()["state"] == "STARTED"
-        assert first.json()["jobId"] == JOB
-        repeated = client.post(path("/confirm"), json=payload,
-                               headers={"X-NarAgent-Action": "chat"})
-        assert repeated.status_code == 202
-        assert repeated.json()["jobId"] == JOB
-        assert events == ["create", "run"]
-        changed = client.post(path("/confirm"), json={**payload, "enableVoice": True},
-                              headers={"X-NarAgent-Action": "chat"})
-        assert changed.status_code == 409
-        assert events == ["create", "run"]
-        assert client.post(path("/cancel"),
-                           headers={"X-NarAgent-Action": "chat"}).json()["state"] == "STARTED"
-        assert ledger.rpg["state"] == "STARTED"
+    client, ledger, events = setup()
+    assert client.get(path()).json()["state"] == "PREPARED"
+    quote = client.post(path("/quote"), json=OPTIONS,
+                        headers={"X-NarAgent-Action": "chat"})
+    assert quote.status_code == 200
+    hold = quote.json()["holdCredits"]
+    assert hold == 70
+    assert events == []
+    payload = {**OPTIONS, "acceptedHoldCredits": hold}
+    first = client.post(path("/confirm"), json=payload,
+                        headers={"X-NarAgent-Action": "chat"})
+    assert first.status_code == 202
+    assert first.json()["state"] == "STARTED"
+    assert first.json()["jobId"] == JOB
+    repeated = client.post(path("/confirm"), json=payload,
+                           headers={"X-NarAgent-Action": "chat"})
+    assert repeated.status_code == 202
+    assert repeated.json()["jobId"] == JOB
+    assert events == ["create", "run"]
+    changed = client.post(path("/confirm"), json={**payload, "enableVoice": True},
+                          headers={"X-NarAgent-Action": "chat"})
+    assert changed.status_code == 409
+    assert events == ["create", "run"]
+    assert client.post(path("/cancel"),
+                       headers={"X-NarAgent-Action": "chat"}).json()["state"] == "STARTED"
+    assert ledger.rpg["state"] == "STARTED"
 
 
 def test_price_changed_and_insufficient_balance_never_create_job():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
-        client, ledger, events = setup()
-        bad_price = client.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 1},
-            headers={"X-NarAgent-Action": "chat"})
-        assert bad_price.status_code == 409
-        assert ledger.rpg["state"] == "PREPARED"
-        assert events == []
-        low, low_ledger, low_events = setup(balance=0)
-        result = low.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 70},
-            headers={"X-NarAgent-Action": "chat"})
-        assert result.status_code == 402
-        assert low_ledger.rpg["state"] == "PREPARED"
-        assert low_events == []
+    client, ledger, events = setup()
+    bad_price = client.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 1},
+        headers={"X-NarAgent-Action": "chat"})
+    assert bad_price.status_code == 409
+    assert ledger.rpg["state"] == "PREPARED"
+    assert events == []
+    low, low_ledger, low_events = setup(balance=0)
+    result = low.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 70},
+        headers={"X-NarAgent-Action": "chat"})
+    assert result.status_code == 402
+    assert low_ledger.rpg["state"] == "PREPARED"
+    assert low_events == []
 
 
 def test_run_refusal_preserves_job_and_cross_owner_is_denied():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
-        client, ledger, events = setup(fail_run=True)
-        denied = client.get(path(), headers={"x-test-owner": "other"})
-        assert denied.status_code == 404
-        assert client.post(path("/quote"), json=OPTIONS,
-            headers={"x-test-owner": "other", "X-NarAgent-Action": "chat"}).status_code == 404
-        result = client.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 70},
-            headers={"X-NarAgent-Action": "chat"})
-        assert result.status_code == 202
-        assert result.json()["state"] == "START_REJECTED"
-        assert result.json()["jobId"] == JOB
-        assert events == ["create", "run"]
-        repeat = client.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 70},
-            headers={"X-NarAgent-Action": "chat"})
-        assert repeat.status_code == 202
-        assert events == ["create", "run"]
+    client, ledger, events = setup(fail_run=True)
+    denied = client.get(path(), headers={"x-test-owner": "other"})
+    assert denied.status_code == 404
+    assert client.post(path("/quote"), json=OPTIONS,
+        headers={"x-test-owner": "other", "X-NarAgent-Action": "chat"}).status_code == 404
+    result = client.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 70},
+        headers={"X-NarAgent-Action": "chat"})
+    assert result.status_code == 202
+    assert result.json()["state"] == "START_REJECTED"
+    assert result.json()["jobId"] == JOB
+    assert events == ["create", "run"]
+    repeat = client.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 70},
+        headers={"X-NarAgent-Action": "chat"})
+    assert repeat.status_code == 202
+    assert events == ["create", "run"]
 
 
-def test_disabled_feature_never_issues_side_effect():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "0"}):
-        client, ledger, events = setup()
-        result = client.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 70},
-            headers={"X-NarAgent-Action": "chat"})
-        assert result.status_code == 503
-        assert events == []
-        assert ledger.rpg["state"] == "PREPARED"
+def test_unwired_webgal_callbacks_fail_closed_without_creating_jobs():
+    ledger = FakeRpgLedger()
+    app = FastAPI()
+    app.include_router(create_router(
+        user_for_request=lambda req: {"id": OWNER, "auth_type": "sso"},
+        store=ledger, works=object(),
+    ))
+    client = TestClient(app)
+    result = client.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 70},
+        headers={"X-NarAgent-Action": "chat"})
+    assert result.status_code == 503
+    assert "尚未配置" in result.text
+    assert ledger.rpg["state"] == "PREPARED"
 
 
 def test_job_bound_then_transition_fails_is_manual_review_without_duplicate():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
-        client, ledger, events = setup()
-        ledger.reject_next_start_transition = True
-        payload = {**OPTIONS, "acceptedHoldCredits": 70}
-        res = client.post(path("/confirm"), json=payload,
-                          headers={"X-NarAgent-Action": "chat"})
-        assert res.status_code == 202
-        assert res.json()["state"] == "NEEDS_REVIEW"
-        assert res.json()["jobId"] == JOB
-        assert events == ["create"]  # No run accepted; no replacement job.
-        repeat = client.post(path("/confirm"), json=payload,
-                             headers={"X-NarAgent-Action": "chat"})
-        assert repeat.status_code == 202
-        assert repeat.json()["jobId"] == JOB
-        assert events == ["create"]
+    client, ledger, events = setup()
+    ledger.reject_next_start_transition = True
+    payload = {**OPTIONS, "acceptedHoldCredits": 70}
+    res = client.post(path("/confirm"), json=payload,
+                      headers={"X-NarAgent-Action": "chat"})
+    assert res.status_code == 202
+    assert res.json()["state"] == "NEEDS_REVIEW"
+    assert res.json()["jobId"] == JOB
+    assert events == ["create"]  # No run accepted; no replacement job.
+    repeat = client.post(path("/confirm"), json=payload,
+                         headers={"X-NarAgent-Action": "chat"})
+    assert repeat.status_code == 202
+    assert repeat.json()["jobId"] == JOB
+    assert events == ["create"]
 
 
 def test_run_409_already_running_is_not_misrepresented_as_definite_rejection():
-    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
-        client, ledger, events = setup(fail_run_status=409)
-        result = client.post(path("/confirm"),
-            json={**OPTIONS, "acceptedHoldCredits": 70},
-            headers={"X-NarAgent-Action": "chat"})
-        assert result.status_code == 202
-        assert result.json()["state"] == "NEEDS_REVIEW"
-        assert result.json()["jobId"] == JOB
-        assert events == ["create", "run"]
+    client, ledger, events = setup(fail_run_status=409)
+    result = client.post(path("/confirm"),
+        json={**OPTIONS, "acceptedHoldCredits": 70},
+        headers={"X-NarAgent-Action": "chat"})
+    assert result.status_code == 202
+    assert result.json()["state"] == "NEEDS_REVIEW"
+    assert result.json()["jobId"] == JOB
+    assert events == ["create", "run"]

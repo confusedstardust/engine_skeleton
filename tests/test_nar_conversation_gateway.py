@@ -143,12 +143,14 @@ class FakeBilling:
                 "chargedCredits": 0, "reservedCredits": 20, "durationMs": duration_ms}
 
 
-def make_client(monkeypatch, handler, store=None, user="teacher", billing_factory=FakeBilling):
+def make_client(monkeypatch, handler, store=None, user="teacher", billing_factory=FakeBilling,
+                rpg_callbacks=None):
     monkeypatch.setenv("NAR_AGENT_SERVICE_TOKEN", "testing-" + "s" * 40)
     app = FastAPI()
     app.include_router(create_router(user_for_request=lambda _: {"id": user, "auth_type": "sso"},
                                    store=store or MemoryLedger(),
-                                   transport=httpx.MockTransport(handler), billing_factory=billing_factory))
+                                   transport=httpx.MockTransport(handler), billing_factory=billing_factory,
+                                   **(rpg_callbacks or {})))
     return TestClient(app)
 
 
@@ -505,6 +507,14 @@ class V2MemoryLedger(MemoryLedger):
         item["metadata"] = mark_clarification_answered(item["metadata"], validated, request_id)
         return {"metadata": item["metadata"], "reused": False}
 
+    def recent_rpg_games(self, owner, cid, limit=5):
+        assert owner == "teacher" and cid == CID
+        return []
+
+    def get_turn_original_prompt(self, owner, cid, source_turn_id):
+        assert owner == "teacher" and cid == CID and source_turn_id == TID
+        return "我想做个春江花月夜的互动游戏"
+
     def supersede_pending_clarification(self, owner, cid):
         item = self.get_pending_clarification(owner, cid)
         if not item:
@@ -707,3 +717,73 @@ def test_v2_unavailable_fails_closed_without_legacy_intent_or_html(monkeypatch):
     assert resp.status_code == 503
     assert requests == ["/v1/capabilities"]
     assert not ledger.requests
+
+def test_selected_interactive_story_resumes_original_game_without_feature_flags(monkeypatch):
+    """Regression: choosing the RPG option must yield PREPARED, not capability_review."""
+    from webgal_backend.nar_pending_v2 import make_clarification_metadata
+
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+    original = {"schema_version": "2.0", "tasks": [{
+        "action": "create", "target_relation": "new", "candidate_artifact_id": None,
+        "candidate_game_job_id": None, "desired_output": "unspecified",
+        "goal": "制作《春江花月夜》互动游戏", "requirements": []
+    }], "next_step": "clarify", "uncertainty": "output", "clarification": {
+        "question": "你想要的《春江花月夜》互动游戏更接近哪一种形式？",
+        "options": [
+            "互动剧情游戏：通过角色选择和对话分支推动剧情，可有多个结局",
+            "网页练习小游戏：通过答题、拖拽、排序等方式完成闯关",
+            "其他形式"
+        ],
+        "allow_custom": True,
+    }}
+    metadata = make_clarification_metadata(original, origin_turn_id=TID,
+        verified_target_artifact_id=None, clarification_id="9" * 32)
+    ledger.pending = {"message_id": ID_B, "metadata": metadata}
+    ledger.messages[CID] = [{
+        "id": ID_B, "seq": 1, "role": "assistant", "content": original["clarification"]["question"]
+    }]
+    paths = []
+    def agent(req):
+        paths.append(req.url.path)
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={
+                "schema_version": "2.0", "capabilities": {
+                    "chat": ["answer", "discuss", "evaluate"],
+                    "html": ["create", "revise"],
+                    "animation": ["create", "revise"], "hybrid": ["plan_only"]
+                }})
+        if req.url.path == "/v1/intent":
+            packet = json.loads(req.content)["context_v2"]
+            assert packet["capabilities"]["game"] == ["create", "edit_link"]
+            assert packet["conversation"]["pending_clarification"]["current_answer"]["selected_labels"] == [
+                original["clarification"]["options"][0]]
+            # The model can incorrectly interpret a confirmed format choice
+            # as continuation. Forge must resume create/new when executable.
+            return httpx.Response(200, json=_v2_result(
+                "continue", "none", "game", "execute"))
+        raise AssertionError("A game must not dispatch or reserve before its confirmation card")
+
+    def not_yet_called(*args, **kwargs):
+        raise AssertionError("RPG job/quote must wait for explicit confirmation")
+    c = make_client(monkeypatch, agent, ledger, rpg_callbacks={
+        "rpg_create": not_yet_called, "rpg_get": not_yet_called,
+        "rpg_run": not_yet_called, "rpg_quote": not_yet_called,
+        "rpg_balance": not_yet_called,
+    })
+    response = c.post("/nar-agent/conversations/" + CID + "/turns", json={
+        "client_request_id": "f" * 32, "mode": "auto",
+        "prompt": "我选择：互动剧情游戏：通过角色选择和对话分支推动剧情，可有多个结局",
+        "clarification_answer": {
+            "clarification_id": "9" * 32, "selected_option_ids": ["o1"],
+            "custom_text": "",
+        },
+    }, headers=HEADERS)
+    assert response.status_code == 202, response.text
+    assert response.json()["turn"]["status"] == "SUCCEEDED"
+    assert ledger.final_metadata["card_type"] == "rpg"
+    assert ledger.final_metadata["rpg"]["state"] == "PREPARED"
+    assert ledger.final_metadata["rpg"]["source_turn_id"] == TID
+    assert "春江花月夜" in ledger.final_metadata["rpg"]["continued_requirements"]
+    assert ledger.pending["metadata"]["choices"]["status"] == "answered"
+    assert paths == ["/v1/capabilities", "/v1/intent"]
