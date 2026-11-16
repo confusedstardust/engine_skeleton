@@ -630,7 +630,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         try:
             await run_in_threadpool(rpg_run, job_id, request, background_tasks)
         except HTTPException as exc:
-            state = "START_REJECTED" if exc.status_code in (402, 404, 409, 422) else "NEEDS_REVIEW"
+            # 409 may mean another worker/manual workbench started the SAME Job:
+            # check its authoritative state, never label it a definite failure.
+            state = "START_REJECTED" if exc.status_code in (402, 404, 422) else "NEEDS_REVIEW"
             logger.warning(
                 "nar_rpg_run_rejected cid=%s mid=%s job_id=%s http_status=%s state=%s",
                 cid, mid, job_id, exc.status_code, state,
