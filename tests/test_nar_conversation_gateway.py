@@ -507,6 +507,10 @@ class V2MemoryLedger(MemoryLedger):
         item["metadata"] = mark_clarification_answered(item["metadata"], validated, request_id)
         return {"metadata": item["metadata"], "reused": False}
 
+    def recent_rpg_games(self, owner, cid, limit=5):
+        assert owner == "teacher" and cid == CID
+        return []
+
     def get_turn_original_prompt(self, owner, cid, source_turn_id):
         assert owner == "teacher" and cid == CID and source_turn_id == TID
         return "我想做个春江花月夜的互动游戏"
