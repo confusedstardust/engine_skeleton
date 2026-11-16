@@ -153,6 +153,21 @@ class WorkStore:
                 raise
             return work
 
+    def delete(self, owner: str, work_id: str) -> None:
+        """Owner-only deletion. Public work must first be revoked and de-indexed.
+
+        Rename the work directory under the cross-worker lock so all private
+        and public reads become unavailable atomically. File cleanup follows
+        outside the lock; failed cleanup leaves only a hidden tombstone.
+        """
+        with self.locked():
+            work = self.get(owner, work_id)
+            if work.get("publication_status") in {"published", "publishing", "unpublish_pending"}:
+                raise WorkConflictError("Withdraw public publication before deleting")
+            tombstone = self.root / (".deleted-" + uuid.uuid4().hex)
+            self.path(work_id).rename(tombstone)
+        shutil.rmtree(tombstone)
+
     def update(self, owner: str, work_id: str, **fields) -> dict:
         with self.locked():
             work = self.get(owner, work_id)
@@ -189,8 +204,8 @@ class WorkStore:
         """Mark pending; never switch the public version until remote publication succeeds."""
         with self.locked():
             work = self.get(owner, work_id)
-            if work["kind"] != "html":
-                raise WorkConflictError("Only verified interactive HTML works can be published.")
+            if work["kind"] not in {"html", "animation"}:
+                raise WorkConflictError("Only verified interactive works can be published.")
             if work.get("publication_status") in {"publishing", "unpublish_pending"}:
                 raise WorkConflictError("Publication or revocation is already in progress")
             work["publication_status"] = "publishing"

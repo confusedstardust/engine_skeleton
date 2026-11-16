@@ -116,6 +116,18 @@ def create_router(*, user_for_request, store: WorkStore | None = None, transport
         except FileNotFoundError:
             raise HTTPException(404, "作品不存在") from None
 
+    @router.delete("/{work_id}")
+    async def delete_work(work_id: str, request: Request):
+        require_mutation(request)
+        owner = await owner_from(request)
+        try:
+            await run_in_threadpool(works.delete, owner, work_id)
+        except FileNotFoundError:
+            raise HTTPException(404, "作品不存在") from None
+        except WorkConflictError:
+            raise HTTPException(409, "请先撤回广场发布，再删除该作品") from None
+        return {"deleted": True}
+
     @router.patch("/{work_id}")
     async def update_work(work_id: str, payload: UpdateWorkInput, request: Request):
         require_mutation(request)

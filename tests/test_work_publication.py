@@ -212,3 +212,26 @@ def test_canonical_public_urls_repair_legacy_slashless_published_work(tmp_path):
                             json={"title": "函数图像"})
         assert again.status_code == 200
         assert len(calls) == 1
+
+
+def test_public_url_includes_mount_even_when_config_contains_only_origin(monkeypatch):
+    from webgal_backend.work_urls import work_page_url, work_cover_url
+    monkeypatch.delenv("WEBGAL_PUBLIC_BASE_PATH", raising=False)
+    work_id = "c" * 32
+    origin = "http://43.138.207.82"
+    assert work_page_url(origin, work_id) == (
+        f"http://43.138.207.82/narrativeos/practice/works/{work_id}/")
+    assert work_cover_url(origin, work_id) == (
+        f"http://43.138.207.82/narrativeos/api/forge/public/works/{work_id}/cover.png")
+    assert work_page_url(origin + "/narrativeos", work_id) == work_page_url(origin, work_id)
+    assert work_page_url(origin + "/narrativeos/practice", work_id) == work_page_url(origin, work_id)
+
+
+def test_animator_html_package_can_use_same_public_player(tmp_path):
+    store = WorkStore(tmp_path)
+    work = store.create("teacher-a", A, "animation", "动画实验", "", assets())
+    with make_client(store, lambda payload: {"published": True}) as client:
+        response = client.post(f"/works/{work['id']}/publication", json={
+            "title": "动画实验"}, headers=ACTION)
+        assert response.status_code == 200, response.text
+        assert client.get(f"/public/works/{work['id']}/index.html").status_code == 200
