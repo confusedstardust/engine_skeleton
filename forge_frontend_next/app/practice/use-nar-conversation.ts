@@ -397,6 +397,7 @@ export function useNarConversation({
         choices: item.metadata?.choices,
         billing: item.metadata?.billing,
         rpg: item.metadata?.card_type === "rpg" ? item.metadata.rpg : undefined,
+        rpgEditJobId: item.metadata?.rpg_edit_link?.job_id,
         publicBrief: item.metadata?.publicBrief,
         timeline: item.metadata?.timeline as PracticeMessage["timeline"],
         rpg: item.metadata?.card_type === "rpg" ? item.metadata.rpg : undefined,
