@@ -21,12 +21,19 @@
 4. 升级前端后验证确认卡与游戏链接，最后开 `NAR_RPG_ENABLED=1`。关闭开关能阻止**新** RPG 创建与确认，但不会停止已经启动的 WebGAL Job；既有消息和 Job 仍保留。
 5. **无需数据库迁移**。但是生产 MySQL 8 仍需单独实测 JSON null 匹配、`JSON_SET`、行级 CAS 与同消息并发提交。
 
+## 本轮审查修订
+
+- 修正：多轮澄清用户仅回答“第一个”时，从同一 owner/conversation 的原始 Turn 恢复完整用户创作材料；`source_turn_id` 只是 JSON 中的受限引用，并非新业务表或新的用户可控 GameSpec。
+- 修正：`recent_rpg_games` 查询先筛选已绑定真实 `job_id` 的确认卡，再进行 `LIMIT`；新的 PREPARED 卡不会把较早的可编辑游戏挤出候选。
+- 修正：前端轮询 effect 不依赖整个 `job` 对象，避免每次 GET 都重启即时轮询；`START_REJECTED/NEEDS_REVIEW` 仍可打开工作台。
+- 新增 MySQL 8 回归：原始长文本恢复与归属校验、7 个新 PREPARED 卡不遮蔽历史 game Job。
+
 ## 测试范围与限制
 
 - `python -m unittest tests.test_nar_rpg_integration_unit`（或 `python -m unittest discover -s tests -p 'test_nar_rpg_integration_unit.py'`）包含 50 条 **已经人工定义语义类别的 planner 合约示例**、创建/编辑分流，以及编译 options 与原始剧情要求保留的单元用例。这些测试**不检验 LLM 的真实意图识别准确率**。
 - 合并前必须运行：真实 NarAgent Intent 50 条逐条分类评估；真实 SSO、双标签并发、CAS 原子去重、余额不足与价格变化、配音/配图开关、用户继续聊天、刷新/历史分页、会话删除、跨用户读取和修改、完整 Auto 生成/计费/播放/编辑、旧版 HTML/Animation/choice 回归。
 - 不保证创建响应丢失、进程崩溃后的自动恢复或 WebGAL 的 exactly-once 结算。遇到 `NEEDS_REVIEW`、`CLAIMED` 长时间停滞，必须人工核查原 Job，**不得自动重新创建或重新执行**。
-- 既有 `/play/{job_id}` 和静态资源路由可能采用持有链接可访问的行为。上线前需确定产品对未发布作品是否要求播放私有化；当前编辑、Job API 仍严格检查归属。
+- **产品决策（2026-11-16 已确认）**：RPG 播放页与静态游戏资源沿用现有 WebGAL 的链接访问规则；持有可用播放链接的人可以访问。本次不增加私有播放鉴权。**不应在界面或文案声称播放链接仅所有者可访问**。编辑页及 Job 管理 API 仍按现有 SSO/owner 校验。
 - 当前未实现聊天页面文件上传与从未上传 PDF 的提取；只使用当前轮正文及其已授权材料内容。
 
 ## 文件概览
