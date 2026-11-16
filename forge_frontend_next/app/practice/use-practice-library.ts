@@ -103,7 +103,7 @@ export function usePracticeLibrary({
 
   async function submitPublication(payload: PublicationForm) {
     const item = publishArtifactId ? workPreviews[publishArtifactId] : undefined;
-    if (!item || item.kind !== "html" || publicationBusy) return;
+    if (!item || publicationBusy) return;
     setPublicationBusy(true); setPublicationError(""); setError("");
     try {
       // One publish action handles the underlying save/version step automatically.
