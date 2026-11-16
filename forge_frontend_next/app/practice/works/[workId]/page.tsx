@@ -40,6 +40,9 @@ export default function PublicWorkPage() {
       setLoading(false);
       return;
     }
+    setLoading(true);
+    setError("");
+    setPlayer(null);
     let active = true;
     let privateBlobUrl: string | null = null;
 

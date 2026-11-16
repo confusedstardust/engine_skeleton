@@ -7,6 +7,7 @@ before a work enters the user's long-term library. Files are immutable by versio
 from __future__ import annotations
 
 import fcntl
+import logging
 import re
 import shutil
 import tempfile
@@ -17,6 +18,7 @@ from pathlib import Path
 from .config import settings
 from .storage import read_json, utc_now, write_json
 
+logger = logging.getLogger(__name__)
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 ASSET_LIMITS = {"index.html": 2_000_000, "preview.png": 3_000_000, "mobile.png": 3_000_000}
 
@@ -166,7 +168,13 @@ class WorkStore:
                 raise WorkConflictError("Withdraw public publication before deleting")
             tombstone = self.root / (".deleted-" + uuid.uuid4().hex)
             self.path(work_id).rename(tombstone)
-        shutil.rmtree(tombstone)
+        try:
+            shutil.rmtree(tombstone)
+        except OSError:
+            # The work has already been atomically hidden from all readers.
+            # Keep its hidden tombstone for operator cleanup rather than
+            # reporting a false failure after a successful logical delete.
+            logger.warning("Saved-work tombstone cleanup failed, work_id=%s", work_id)
 
     def update(self, owner: str, work_id: str, **fields) -> dict:
         with self.locked():
