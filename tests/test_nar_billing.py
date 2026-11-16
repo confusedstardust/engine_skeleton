@@ -80,3 +80,41 @@ def test_failed_turn_releases_and_disabled_mode_does_not_claim_credits_spent():
     assert receipt["chargedCredits"] == 0
     assert safe_usage_metadata({"model": {"input_tokens": 42, "output_tokens": 3}})["chargedCredits"] is None
     assert task_usage_metadata(None)["usageStatus"] == "unavailable"
+
+
+def test_existing_reservation_uses_frozen_quote_when_env_changes(monkeypatch):
+    from dataclasses import asdict
+    from credit_system.billing import Pricing
+    service = FakeCreditService()
+    frozen = Pricing(text_input_per_million=0, text_output_per_million=1000)
+    reservation = CreditReservation(
+        "b"*32, "owner", "a"*32, "nar-agent-turn-v1", 20, "RESERVED", False,
+        {"pricing": asdict(frozen)},
+    )
+    monkeypatch.setenv("CREDIT_TEXT_OUTPUT_PER_MILLION", "9999")
+    receipt = NarTurnBilling(service).settle(
+        reservation, {"model": {"input_tokens": 0, "output_tokens": 1500}},
+        definite_success=True,
+    )
+    assert receipt["chargedCredits"] == 2
+    assert service.events[-1][1] == 2
+
+
+def test_auth_extension_api_delegates_to_wallet_before_next_call():
+    class ElasticService(FakeCreditService):
+        def extend_reservation(self, **kwargs):
+            self.events.append(("extend", kwargs))
+            return CreditReservation("b"*32, "owner", "a"*32,
+                                     "nar-agent-turn-v1", 35, "RESERVED", False)
+    service = ElasticService()
+    biller = NarTurnBilling(service)
+    original = CreditReservation("b"*32, "owner", "a"*32,
+                                 "nar-agent-turn-v1", 20, "RESERVED", False)
+    updated = biller.extend("owner", original, delta_units=15,
+                            sequence_no=1, authorized_total=35)
+    assert updated.units == 35
+    receipt = biller.settle(updated, {"model": {
+        "input_tokens": 0, "output_tokens": 43750,
+    }}, definite_success=True)
+    assert receipt["chargedCredits"] == 35
+    assert service.events[-1][1] == 35

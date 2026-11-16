@@ -42,6 +42,13 @@ def billing():
             ddl = ddl.replace("enum('ORDER','PROMOTION','ADMIN')", "enum('ORDER','PROMOTION','ADMIN','CREDIT_LINE')")
             schemas[table] = ddl
         cursor.execute("CREATE TEMPORARY TABLE users (id varchar(191) PRIMARY KEY,is_tester tinyint(1) NOT NULL DEFAULT 0)")
+        cursor.execute("""CREATE TEMPORARY TABLE nar_reservation_extensions (
+            id char(32) PRIMARY KEY,
+            reservation_id char(32) NOT NULL,
+            sequence_no int unsigned NOT NULL,
+            delta_credits int unsigned NOT NULL,
+            UNIQUE KEY uq_nar_reservation_extension(reservation_id,sequence_no)
+        )""")
         cursor.execute("CREATE TEMPORARY TABLE generation_jobs (id char(32) PRIMARY KEY, owner_user_id varchar(191))")
         for ddl in schemas.values():
             cursor.execute(ddl)
@@ -327,3 +334,47 @@ def test_tester_database_role_revocation(billing):
     connection.commit()
     assert store.is_payment_tester('test-user') is False
     assert store.is_payment_tester('missing-user') is False
+
+
+def test_elastic_reservation_can_settle_35_instead_of_capping_20(billing):
+    store, connection = billing
+    seed_balance(store, connection, 70)
+    first = reserve(store, 20)
+    extended = store.extend_reservation(
+        user_id="test-user", reservation_id=first.reservation_id,
+        delta_units=15, sequence_no=1, authorized_total=35,
+    )
+    assert extended.units == 35
+    assert store.get_balance("test-user").available == 35
+    assert store.extend_reservation(
+        user_id="test-user", reservation_id=first.reservation_id,
+        delta_units=15, sequence_no=1, authorized_total=35).units == 35
+    assert store.get_balance("test-user").available == 35
+    with pytest.raises(CreditConflictError):
+        store.extend_reservation(
+            user_id="test-user", reservation_id=first.reservation_id,
+            delta_units=14, sequence_no=1, authorized_total=40)
+    with pytest.raises(Exception):
+        store.extend_reservation(
+            user_id="different-user", reservation_id=first.reservation_id,
+            delta_units=1, sequence_no=2, authorized_total=40)
+    store.capture(first.reservation_id, units=35)
+    assert store.get_balance("test-user").available == 35
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT SUM(units_consumed) AS n FROM entitlement_grants")
+        assert cursor.fetchone()["n"] >= 35
+
+
+def test_elastic_reservation_respects_shared_overdraft_limit(billing):
+    store, connection = billing
+    seed_balance(store, connection, 10)
+    first = reserve(store, 20)
+    assert store.get_balance("test-user").available == -10
+    store.extend_reservation(user_id="test-user", reservation_id=first.reservation_id,
+                             delta_units=5, sequence_no=1, authorized_total=30)
+    assert store.get_balance("test-user").available == -15
+    with pytest.raises(InsufficientCreditsError):
+        store.extend_reservation(user_id="test-user", reservation_id=first.reservation_id,
+                                 delta_units=1, sequence_no=2, authorized_total=30)
+    store.release(first.reservation_id)
+    assert store.get_balance("test-user").available == 10

@@ -38,6 +38,11 @@ class FakeStore:
             True,
         )
 
+    def extend_reservation(self, **kwargs):
+        self.calls.append(("extend", kwargs))
+        return CreditReservation(kwargs["reservation_id"], kwargs["user_id"],
+                                 "a"*32, "first", 35, "RESERVED", False)
+
     def capture(self, reservation_id, *, units=None, settlement=None):
         self.calls.append(("capture", reservation_id, units, settlement))
         return CreditReservation(reservation_id, "user-1", "a" * 32, "initial", 100, "CAPTURED", False)
@@ -121,3 +126,16 @@ def test_signup_configuration_is_required(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(CreditConfigurationError, match="CREDIT_DB_HOST"):
         CreditDatabaseConfig.from_env()
+
+
+def test_business_facade_exposes_trusted_idempotent_extension():
+    service = CreditService(FakeStore())
+    updated = service.extend_reservation(
+        user_id="user-1", reservation_id="a" * 32, delta_units=15,
+        sequence_no=1, authorized_total=35,
+    )
+    assert updated.units == 35
+    assert service._store.calls[-1] == ("extend", {
+        "user_id": "user-1", "reservation_id": "a" * 32,
+        "delta_units": 15, "sequence_no": 1, "authorized_total": 35,
+    })
