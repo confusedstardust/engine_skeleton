@@ -220,7 +220,7 @@ class ConfirmedFormatResumptionTests(unittest.TestCase):
                 "action": "create", "target_relation": "new",
                 "desired_output": "unspecified",
             }],
-            "next_step": "clarify",
+            "next_step": "clarify", "uncertainty": "output",
         }
         self.context = build_context_packet(
             "我选择：互动剧情游戏", "c" * 32, [], [],
@@ -232,7 +232,7 @@ class ConfirmedFormatResumptionTests(unittest.TestCase):
             capabilities=CAPS,
         )
 
-    def proposal(self, *, action="continue", output="game", step="capability_review"):
+    def proposal(self, *, action="continue", output="game", step="execute"):
         return {"schema_version": "2.0", "tasks": [{
             "action": action, "target_relation": "none",
             "candidate_artifact_id": None, "candidate_game_job_id": None,
@@ -265,6 +265,23 @@ class ConfirmedFormatResumptionTests(unittest.TestCase):
                 plan = plan_v2(self.proposal(), {**self.context, **edit})
                 self.assertEqual(plan["next_step"], "capability_review")
                 self.assertIsNone(plan["mode"])
+
+    def test_explicit_capability_review_is_never_overridden(self):
+        # Choosing a generic RPG format does not mean a 3D free-roaming
+        # request can be fulfilled by the WebGAL narrative engine.
+        plan = plan_v2(self.proposal(step="capability_review"), self.context)
+        self.assertEqual(plan["next_step"], "capability_review")
+        self.assertIsNone(plan["mode"])
+
+    def test_only_output_ambiguity_may_be_resumed(self):
+        pending = dict(self.context["conversation"]["pending_task"])
+        pending["proposal"] = {**self.original, "uncertainty": "capability"}
+        context = {**self.context, "conversation": {
+            **self.context["conversation"], "pending_task": pending,
+        }}
+        plan = plan_v2(self.proposal(), context)
+        self.assertEqual(plan["next_step"], "capability_review")
+        self.assertIsNone(plan["mode"])
 
     def test_no_game_callback_capability_never_prepares_game(self):
         unavailable = {**self.context, "capabilities": {
