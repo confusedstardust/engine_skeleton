@@ -551,7 +551,7 @@ class MySQLCreditStore:
                                    (reservation_id, grant["id"], user_id, amount))
                 self._insert_ledger(
                     cursor,
-                    event_key=f"extend:{reservation_id}:{sequence_no}:{grant['id']}",
+                    event_key="ext:" + _stable_id(reservation_id, str(sequence_no), grant["id"]),
                     grant_id=grant["id"], reservation_id=reservation_id,
                     user_id=user_id, action="RESERVE",
                     deltas=(-amount, amount, 0, 0), after=after,
