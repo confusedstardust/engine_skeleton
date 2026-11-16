@@ -455,12 +455,18 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             return proposal
         candidates = packet["workspace"]["recent_artifacts"]
         task = proposal["tasks"][0]
-        if task.get("action") == "revise" and len(candidates) > 1:
+        games = packet["workspace"].get("recent_games", [])
+        if task.get("desired_output") == "game" and task.get("action") == "revise":
+            labels = [item["title"] or ("游戏 " + item["id"][:6]) for item in games[:4]]
+            if len(labels) < 2:
+                labels = ["编辑当前游戏", "另做一个新的互动剧情游戏"]
+            question = "你要编辑哪一款游戏？如果没有对应项，请直接描述游戏名称。"
+        elif task.get("action") == "revise" and len(candidates) > 1:
             labels = [item["title"] or ("作品 " + item["id"][:6])
                       for item in candidates[:4]]
             question = "你想修改哪一件作品？"
         elif task.get("desired_output") == "unspecified":
-            labels = ["做成可以操作的互动网页", "做成教学动画"]
+            labels = ["做成可以操作的互动网页", "做成教学动画", "做成可选择剧情的互动游戏"]
             question = "你希望最终得到哪一种作品？"
         else:
             labels = ["继续修改现有作品", "新建一份独立作品"]
@@ -829,10 +835,19 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                             mode, parent_artifact_id = "chat", None
                     else:
                         mode, parent_artifact_id = choice, None
-        # PR-01 fail-closed gate: do not pass RPG modes to NarAgent's HTML route.
-        # Replaced by actual message/Job handlers in the follow-up integration.
         if mode in ("rpg.prepare", "rpg.edit_link"):
-            raise HTTPException(503, "RPG 工作台入口尚未启用，请稍后再试")
+            ensure_rpg_enabled()
+            if mode == "rpg.edit_link":
+                game_id = v2_live["plan"].get("game_job_id") if v2_live else None
+                if not game_id:
+                    raise HTTPException(404, "未能确定要编辑哪一款游戏")
+                try:
+                    await run_in_threadpool(rpg_get, owner, game_id)
+                except FileNotFoundError:
+                    raise HTTPException(404, "游戏不存在或没有访问权限") from None
+            # Existing nar_turns.mode ENUM has no RPG member.
+            # The confirmed game runs separately, outside ConversationTurn.
+            mode = "chat"
         turn, new = await transaction(ledger.start_turn, owner, cid,
              payload.client_request_id, payload.prompt, mode,
              parent_artifact_id, create=create)
@@ -873,6 +888,29 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 finished = await transaction(
                     ledger.finish_turn, owner, cid, turn["id"],
                     output=response_text, public_metadata=metadata)
+                return {"conversationId": cid, "turn": finished}
+            # RPG only prepares a short, durable Assistant message. It does not
+            # reserve NarAgent chat credits or create a WebGAL Job.
+            if plan["mode"] == "rpg.prepare":
+                spec = draft_game_spec(payload.prompt, proposal["tasks"][0])
+                metadata = {"card_type": "rpg", "rpg": {
+                    "schema_version": 1, "state": "PREPARED", "spec_version": 1,
+                    "spec": spec, "job_id": None, "confirmed_options": None,
+                    "confirmed_hold_credits": None, "last_error_code": None,
+                }}
+                finished = await transaction(
+                    ledger.finish_turn, owner, cid, turn["id"],
+                    output="已整理好互动剧情游戏配置，请确认选项和积分后开始制作。",
+                    public_metadata=metadata)
+                return {"conversationId": cid, "turn": finished}
+            if plan["mode"] == "rpg.edit_link":
+                job_id = plan["game_job_id"]
+                # Owner was checked above before this Turn was created.
+                finished = await transaction(
+                    ledger.finish_turn, owner, cid, turn["id"],
+                    output=(f"这款游戏可以在教师工作台中直接修改："
+                            f"[打开游戏编辑页面](/jobs/{job_id})"),
+                    public_metadata={"rpg_edit_link": {"job_id": job_id}})
                 return {"conversationId": cid, "turn": finished}
             # Independent new work replaces an unfinished clarification only
             # after our new turn has successfully claimed its idempotency key.
