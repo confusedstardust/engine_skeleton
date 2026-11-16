@@ -184,7 +184,13 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
           : job?.status === "DONE" ? <p className={styles.description}>生成已完成，但尚未检测到可播放构建。请进入工作台检查并发布可用版本。</p>
           : state === "START_REJECTED" ? <p className={styles.description}>任务未能启动。已保留原游戏 Job，请在工作台处理。</p>
           : state === "NEEDS_REVIEW" ? <p className={styles.description}>启动结果暂时无法确认，为避免重复扣费不会自动重试。请检查工作台。</p>
-          : <p className={styles.description}><LoaderCircle size={15} className={styles.spin} aria-hidden="true" /> {job?.status === "QUEUED" ? "任务已排队，等待开始" : "正在制作游戏…"}</p>}
+          : <p className={styles.description}>
+              <LoaderCircle size={15} className={styles.spin} aria-hidden="true" />
+              {state === "CLAIMED" ? "已确认，正在创建游戏任务…"
+                : state === "JOB_CREATED" || state === "STARTING" ? "游戏任务已创建，正在启动…"
+                  : job?.status === "QUEUED" ? "任务已排队，等待开始"
+                    : "正在制作游戏…"}
+            </p>}
         {!failed && !playable && inProgress(state) && <ol className={styles.phases}>
           {PHASES.map((item, index) => <li key={item.title}
             className={activeIndex === index ? styles.active : ""}>
