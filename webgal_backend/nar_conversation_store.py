@@ -361,6 +361,42 @@ class NarConversationStore:
                 raise ConversationConflict("Pending clarification changed")
             return True
 
+    def recent_rpg_games(self, owner: str, cid: str, limit: int = 5) -> list[dict]:
+        """Owner-scoped intent references; verify actual WebGAL owner before edit links."""
+        with self._transaction() as db:
+            self._own(db, owner, cid)
+            db.execute(
+                "SELECT public_metadata FROM nar_messages "
+                "WHERE conversation_id=%s AND role='assistant' "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(public_metadata,'$.card_type'))='rpg' "
+                "ORDER BY seq DESC LIMIT %s", (cid, min(max(limit, 1), 20)))
+            rows = list(db.fetchall())
+        games = []
+        for row in rows:
+            metadata = row["public_metadata"]
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except ValueError:
+                    continue
+            if not isinstance(metadata, dict):
+                continue
+            rpg = metadata.get("rpg")
+            if not isinstance(rpg, dict):
+                continue
+            job_id = rpg.get("job_id")
+            if not isinstance(job_id, str) or len(job_id) != 32 or any(
+                char not in "0123456789abcdef" for char in job_id
+            ):
+                continue
+            spec = rpg.get("spec")
+            games.append({"id": job_id,
+                          "title": str((spec if isinstance(spec, dict) else {}).get("topic") or "")[:200],
+                          "status": str(rpg.get("state") or "created")[:32]})
+            if len(games) >= limit:
+                break
+        return games
+
     def get_detail(self, owner: str, cid: str) -> dict:
         with self._transaction() as db:
             current = self._own(db, owner, cid)
