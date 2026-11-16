@@ -3,6 +3,7 @@ import type { AgentChoiceQuestion } from "./agent-choice-protocol";
 import type { TaskUsageReceipt } from "./task-usage";
 import type { LearningPlan } from "./live-progress";
 import type { GeneratedWork } from "./generated-work-card";
+import type { RpgMessageMetadata } from "../../lib/conversation-api";
 
 /** User-visible, server-owned message; only short-lived render state is in React. */
 export type PracticeMessage = {
@@ -17,4 +18,5 @@ export type PracticeMessage = {
   learningPlan?: LearningPlan;
   publicBrief?: string;
   work?: GeneratedWork;
+  rpg?: RpgMessageMetadata;
 };
