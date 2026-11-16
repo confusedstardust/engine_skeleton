@@ -9,6 +9,7 @@ import CreationTimeline from "./creation-timeline";
 import AgentChoicePrompt from "./agent-choice-prompt";
 import { parseAgentChoiceMessage, visibleAgentChoicePrefix } from "./agent-choice-protocol";
 import GeneratedWorkCard from "./generated-work-card";
+import RpgTaskCard from "./rpg-task-card";
 import MessageMarkdown from "./message-markdown";
 import PracticeMessageAvatar from "./practice-message-avatar";
 import type { usePracticeWorkspace } from "./use-practice-workspace";
@@ -103,6 +104,9 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
               {choice && <AgentChoicePrompt choice={choice} disabled={!canAnswer || i !== messages.length - 1}
                 onAnswer={(answer, structured) => { void send(answer, structured); }} />}
             </> : message.content}
+            {message.rpg && message.id && conversationId && <RpgTaskCard
+              key={message.id} conversationId={conversationId} messageId={message.id}
+              initial={message.rpg} />}
             {message.work && <GeneratedWorkCard work={message.work}
               savedWorkId={savedCardWorkId(message.work)}
               onOpen={id => {
