@@ -365,6 +365,9 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     not isinstance(item, str) or item not in allowed[name]
                     for item in values):
                     raise ValueError("Invalid capability value")
+            if os.getenv("NAR_RPG_ENABLED", "").lower() in ("1", "true", "yes"):
+                # Forge owns WebGAL; never require NarAgent to advertise this tool.
+                return {**caps, "game": ["create", "edit_link"]}
             return caps
         except (httpx.HTTPError, ValueError, TypeError):
             raise HTTPException(503, "执行能力检查暂不可用，本次没有开始创作") from None
@@ -402,10 +405,12 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             pending_question = {**(pending_question or {}),
                                 "current_answer": answer_data}
         service_caps = await fetch_v2_capabilities(owner)
+        games = (await transaction(ledger.recent_rpg_games, owner, cid)) if (
+            not create and "game" in service_caps) else []
         packet = build_context_packet(
             payload.prompt, cid, history, candidates, selected_id,
             pending_task=task, pending_clarification=pending_question,
-            capabilities=service_caps,
+            capabilities=service_caps, owner_scoped_games=games,
         )
         usage_events = []
         metered = metering_sample(owner, cid, payload.client_request_id)
@@ -666,6 +671,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                             mode, parent_artifact_id = "chat", None
                     else:
                         mode, parent_artifact_id = choice, None
+        # PR-01 fail-closed gate: do not pass RPG modes to NarAgent's HTML route.
+        # Replaced by actual message/Job handlers in the follow-up integration.
+        if mode in ("rpg.prepare", "rpg.edit_link"):
+            raise HTTPException(503, "RPG 工作台入口尚未启用，请稍后再试")
         turn, new = await transaction(ledger.start_turn, owner, cid,
              payload.client_request_id, payload.prompt, mode,
              parent_artifact_id, create=create)
