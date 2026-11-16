@@ -89,7 +89,7 @@ def test_model_called_once_without_keyword_shortcuts(monkeypatch):
     assert len(calls) == 1
 
 
-def test_v2_endpoint_opt_in_preserves_legacy_response(monkeypatch):
+def test_intent_endpoint_requires_v2_and_rejects_legacy_v1(monkeypatch):
     import app.main as api
     from fastapi.testclient import TestClient
     from app.config import Settings
@@ -99,14 +99,16 @@ def test_v2_endpoint_opt_in_preserves_legacy_response(monkeypatch):
     async def fake_v2(settings, context):
         assert context.current_message == "再做一个新的函数练习网页"
         return IntentDecision.model_validate(proposal())
-    async def fake_v1(settings, prompt, history, **kwargs):
-        return "chat"
     monkeypatch.setattr(api, "interpret_intent_v2", fake_v2)
-    monkeypatch.setattr(api, "classify_intent", fake_v1)
     client = TestClient(api.create_app(config))
     headers = {"Authorization": f"Bearer {token}", "X-User-ID": "teacher"}
-    v1 = client.post("/v1/intent", headers=headers, json={"prompt": "解释函数"})
-    assert v1.status_code == 200 and v1.json() == {"user_id": "teacher", "mode": "chat"}
+    v1 = client.post("/v1/intent", headers=headers, json={
+        "schema_version": "1.0", "prompt": "解释函数"})
+    assert v1.status_code == 410
+    assert "V1" in v1.text
+    # Omitting the version no longer opts into legacy: context_v2 is mandatory.
+    implicit_v1 = client.post("/v1/intent", headers=headers, json={"prompt": "解释函数"})
+    assert implicit_v1.status_code == 422
 
     v2 = client.post("/v1/intent", headers=headers, json={
         "schema_version": "2.0", "prompt": "再做一个新的函数练习网页",

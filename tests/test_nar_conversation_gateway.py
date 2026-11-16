@@ -155,25 +155,34 @@ def make_client(monkeypatch, handler, store=None, user="teacher", billing_factor
 HEADERS = {"X-NarAgent-Action": "chat"}
 
 
-def test_auto_route_runs_classifier_once_and_preserves_idempotent_mode(monkeypatch):
-    ledger = MemoryLedger()
+
+def test_auto_always_uses_v2_even_when_live_percent_unset_and_idempotent(monkeypatch):
+    monkeypatch.delenv("NAR_INTENT_V2_LIVE_PERCENT", raising=False)
+    ledger = V2MemoryLedger()
     calls = []
     def agent(req):
         calls.append(req.url.path)
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={"schema_version": "2.0",
+                 "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                     "html": ["create", "revise"], "animation": ["create", "revise"],
+                     "hybrid": ["plan_only"]}})
         if req.url.path == "/v1/intent":
-            assert json.loads(req.content)["has_editable_html"] is False
-            return httpx.Response(200, json={"user_id": "teacher", "mode": "html"})
+            data = json.loads(req.content)
+            assert data["schema_version"] == "2.0"
+            assert data["context_v2"]["current_message"] == "把赤壁赋做成互动网页"
+            return httpx.Response(200, json=_v2_result("create", "new", "html", "execute"))
         assert req.url.path == "/v1/html"
         return httpx.Response(202, json={"id": TID, "user_id": "teacher", "status": "RUNNING"})
     client = make_client(monkeypatch, agent, ledger)
     body = {"conversation_id": CID, "client_request_id": ID_A,
             "mode": "auto", "prompt": "把赤壁赋做成互动网页"}
     first = client.post("/nar-agent/conversations", json=body, headers=HEADERS)
-    assert first.status_code == 202
+    assert first.status_code == 202, first.text
     assert first.json()["turn"]["mode"] == "html"
     second = client.post("/nar-agent/conversations", json=body, headers=HEADERS)
     assert second.status_code == 202 and second.json()["reused"] is True
-    assert calls == ["/v1/intent", "/v1/html"]
+    assert calls == ["/v1/capabilities", "/v1/intent", "/v1/html"]
 
 
 def test_history_mutations_require_auth_and_owner(monkeypatch):
@@ -381,24 +390,31 @@ def test_opted_in_billing_reserves_once_and_captures_reported_stream_tokens(monk
     assert len(events) == 3
 
 
-def test_followup_animation_edit_uses_original_anatomy_generator_not_html(monkeypatch):
+
+def test_followup_animation_edit_v2_uses_original_generator(monkeypatch):
     parent_id = "e" * 32
-    ledger = MemoryLedger()
+    ledger = V2MemoryLedger()
     ledger.owners[CID] = "teacher"
-    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation"}]}
+    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation", "title": "马达动画"}]}
     ledger.messages[CID] = [
         {"role": "user", "content": "给我制作一个马达的原理拆解动画", "id": ID_A, "seq": 1},
         {"role": "assistant", "content": "已完成动画。", "id": ID_B, "seq": 2},
-        {"role": "user", "content": "整体位置太靠上了，能不能居中啊", "id": "1" * 32, "seq": 3},
-        {"role": "assistant", "content": "可以将布局居中。", "id": "2" * 32, "seq": 4},
     ]
     requests = []
+    from webgal_backend.work_store import WorkStore
+    monkeypatch.setattr(WorkStore, "find_by_artifact", lambda self, owner, aid: None)
 
     def agent(req):
-        requests.append((req.url.path, json.loads(req.content)))
+        requests.append((req.url.path, json.loads(req.content) if req.content else {}))
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={"schema_version": "2.0",
+                 "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                     "html": ["create", "revise"], "animation": ["create", "revise"],
+                     "hybrid": ["plan_only"]}})
         if req.url.path == "/v1/intent":
-            assert requests[-1][1]["current_artifact_kind"] == "animation"
-            return httpx.Response(200, json={"user_id": "teacher", "mode": "edit_animation"})
+            assert requests[-1][1]["schema_version"] == "2.0"
+            return httpx.Response(200, json=_v2_result(
+                "revise", "referenced", "animation", "execute", target=parent_id))
         assert req.url.path == "/v1/animations"
         assert json.loads(req.content)["parent_artifact_id"] == parent_id
         return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
@@ -408,23 +424,31 @@ def test_followup_animation_edit_uses_original_anatomy_generator_not_html(monkey
                       headers=HEADERS, json={"client_request_id": "f" * 32,
                        "prompt": "补充要求：直接给我东西啊", "mode": "auto",
                        "parent_artifact_id": parent_id})
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     assert response.json()["turn"]["mode"] == "animation"
     assert response.json()["turn"]["parentArtifactId"] == parent_id
-    assert [path for path, _ in requests] == ["/v1/intent", "/v1/animations"]
+    assert [path for path, _ in requests] == ["/v1/capabilities", "/v1/intent", "/v1/animations"]
 
 
-def test_auto_new_animation_does_not_reuse_parent(monkeypatch):
+
+def test_auto_v2_new_animation_does_not_reuse_parent(monkeypatch):
     parent_id = "e" * 32
-    ledger = MemoryLedger()
+    ledger = V2MemoryLedger()
     ledger.owners[CID] = "teacher"
-    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation"}]}
+    ledger.artifacts = {CID: [{"artifactId": parent_id, "kind": "animation", "title": "旧动画"}]}
     ledger.messages[CID] = [{"role": "user", "content": "马达", "id": ID_A, "seq": 1}]
     requests = []
     def agent(req):
-        requests.append((req.url.path, json.loads(req.content)))
+        requests.append((req.url.path, json.loads(req.content) if req.content else {}))
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={"schema_version": "2.0",
+                 "capabilities": {"chat": ["answer", "discuss", "evaluate"],
+                     "html": ["create", "revise"], "animation": ["create", "revise"],
+                     "hybrid": ["plan_only"]}})
         if req.url.path == "/v1/intent":
-            return httpx.Response(200, json={"user_id": "teacher", "mode": "animation"})
+            assert json.loads(req.content)["schema_version"] == "2.0"
+            return httpx.Response(200, json=_v2_result("create", "new", "animation", "execute"))
+        assert req.url.path == "/v1/animations"
         assert "parent_artifact_id" not in json.loads(req.content)
         return httpx.Response(202, json={"user_id": "teacher", "id": TID, "status": "RUNNING"})
     c = make_client(monkeypatch, agent, ledger)
@@ -432,13 +456,13 @@ def test_auto_new_animation_does_not_reuse_parent(monkeypatch):
                       headers=HEADERS, json={"client_request_id": "b" * 32,
                        "prompt": "新做一个磁场的独立动画", "mode": "auto",
                        "parent_artifact_id": parent_id})
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     assert response.json()["turn"]["parentArtifactId"] is None
-    assert [path for path, _ in requests] == ["/v1/intent", "/v1/animations"]
+    assert [path for path, _ in requests] == ["/v1/capabilities", "/v1/intent", "/v1/animations"]
 
 
 def test_cross_conversation_artifact_cannot_be_used_as_edit_parent(monkeypatch):
-    ledger = MemoryLedger()
+    ledger = V2MemoryLedger()
     ledger.owners[CID] = "teacher"
     ledger.artifacts = {CID: [{"artifactId": "e" * 32, "kind": "animation"}]}
     ledger.messages[CID] = []
@@ -446,7 +470,7 @@ def test_cross_conversation_artifact_cannot_be_used_as_edit_parent(monkeypatch):
     res = c.post("/nar-agent/conversations/" + CID + "/turns",
                  headers=HEADERS, json={"client_request_id": "b" * 32,
                         "prompt": "调成居中", "mode": "auto",
-                        "parent_artifact_id": "d" * 32})
+                        "selected_artifact_id": "d" * 32})
     assert res.status_code == 404
 
 
@@ -666,3 +690,20 @@ def test_v2_live_formal_choice_resumes_original_task(monkeypatch):
     assert response.json()["turn"]["mode"] == "animation"
     assert calls == ["/v1/capabilities", "/v1/intent", "/v1/animations"]
     assert ledger.pending["metadata"]["choices"]["status"] == "answered"
+
+
+def test_v2_unavailable_fails_closed_without_legacy_intent_or_html(monkeypatch):
+    monkeypatch.setenv("NAR_INTENT_V2_LIVE_PERCENT", "0")
+    ledger = V2MemoryLedger()
+    requests = []
+    def unavailable(req):
+        requests.append(req.url.path)
+        assert req.url.path == "/v1/capabilities"
+        return httpx.Response(503)
+    client = make_client(monkeypatch, unavailable, ledger)
+    resp = client.post("/nar-agent/conversations", headers=HEADERS, json={
+        "conversation_id": CID, "client_request_id": ID_A,
+        "mode": "auto", "prompt": "我想做个春江花月夜的互动游戏"})
+    assert resp.status_code == 503
+    assert requests == ["/v1/capabilities"]
+    assert not ledger.requests

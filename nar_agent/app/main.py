@@ -21,7 +21,8 @@ from app.progress_events import enter_phase, close_phase, public_elapsed_ms
 from app.progress_stream import stream_progress
 from app.public_brief import stream_public_brief
 from app.html_diagnostics import NO_BUILD_RECOVERY_INSTRUCTION, summarize_html_run
-from app.intent_router import classify_intent
+# V1 classify_intent import intentionally disabled; V2 interpreter is authoritative.
+# from app.intent_router import classify_intent
 from app.intent_v2 import IntentContext, interpret_intent_v2
 from app.metering import ModelCallRecorder, active_intent_meter, provider_from_url
 from app.failure_classification import classify_html_exception
@@ -65,7 +66,8 @@ class RunInput(BaseModel):
 
 
 class IntentInput(RunInput):
-    schema_version: Literal["1.0", "2.0"] = "1.0"
+    # Keep 1.0 in validation so explicit legacy callers receive HTTP 410.
+    schema_version: Literal["1.0", "2.0"] = "2.0"
     metering_role: Literal["live", "shadow"] = "live"
     context_v2: IntentContext | None = None
     has_editable_html: bool = False
@@ -144,14 +146,16 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
 
     @app.post("/v1/intent")
     async def route_intent(payload: IntentInput, user_id: str = Depends(principal)):
+        # URL retained for existing Forge clients; the payload contract is V2.
+        # V1 intent execution is disabled rather than silently redirected.
+        if payload.schema_version != "2.0":
+            raise HTTPException(410, "Intent V1 is retired; send schema_version=2.0 with context_v2")
         if not settings.ready:
             raise HTTPException(503, "Model API key is not configured")
         if app.state.active_runs >= settings.max_concurrent_runs:
             raise HTTPException(429, "Run capacity reached", headers={"Retry-After": "5"})
         app.state.active_runs += 1
-        stage = "intent_shadow" if payload.metering_role == "shadow" else (
-            "intent_v2" if payload.schema_version == "2.0" else "intent_v1"
-        )
+        stage = "intent_shadow" if payload.metering_role == "shadow" else "intent_v2"
         recorder = ModelCallRecorder(
             stage=stage, provider=provider_from_url(settings.base_url),
             requested_model=settings.model,
@@ -159,17 +163,11 @@ def create_app(settings: Settings | None = None, *, agent_factory=build_agent, a
         context_token = active_intent_meter.set(recorder)
         try:
             async with asyncio.timeout(min(settings.timeout_seconds, 25)):
-                if payload.schema_version == "2.0":
-                    decision = await interpret_intent_v2(settings, payload.context_v2)
-                    result = {"user_id": user_id, "schema_version": "2.0",
-                              "decision": decision.model_dump()}
-                else:
-                    mode = await classify_intent(
-                        settings, payload.prompt, [message.model_dump() for message in payload.history],
-                        has_editable_html=payload.has_editable_html,
-                        current_artifact_kind=payload.current_artifact_kind,
-                    )
-                    result = {"user_id": user_id, "mode": mode}
+                # V1 classifier deliberately disabled. This endpoint always
+                # returns the structured V2 decision, not a legacy mode string.
+                decision = await interpret_intent_v2(settings, payload.context_v2)
+                result = {"user_id": user_id, "schema_version": "2.0",
+                          "decision": decision.model_dump()}
             if recorder is not None:
                 result["usage_events"] = recorder.events
             return result
