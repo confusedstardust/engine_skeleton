@@ -268,9 +268,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # Fail with a clear network diagnostic before SSH/SCP or any remote
+      # mutation. A timeout here usually means a security group or sshd issue.
+      - name: Verify DEV SSH TCP reachability
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import socket
+          import time
+          host = os.environ.get("DEPLOY_HOST", "")
+          if not host:
+              raise SystemExit("::error::DEPLOY_HOST is not configured")
+          for attempt in range(1, 4):
+              try:
+                  with socket.create_connection((host, 22), timeout=10):
+                      print("DEV SSH TCP/22 is reachable from this runner")
+                  break
+              except OSError as exc:
+                  print(f"::warning::DEV SSH TCP/22 probe {attempt}/3 failed: {type(exc).__name__}")
+                  if attempt == 3:
+                      raise SystemExit(
+                          "::error::DEV host TCP/22 unreachable; check the host address, "
+                          "cloud security group, OS firewall and sshd before retrying. "
+                          "No remote deployment commands were executed."
+                      )
+                  time.sleep(5)
+          PY
       - name: Prepare development deployment directory
         uses: appleboy/ssh-action@v1.0.3
         with:
+          timeout: 60s
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -280,6 +310,7 @@ jobs:
       - name: Upload development deployment files
         uses: appleboy/scp-action@v0.1.7
         with:
+          timeout: 60s
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -298,6 +329,7 @@ jobs:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         with:
+          timeout: 60s
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
