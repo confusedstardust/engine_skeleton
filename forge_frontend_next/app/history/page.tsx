@@ -13,6 +13,7 @@ import { CollectionCard } from "@narrativeos/ui/collection-card";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { forgeApi as api } from "../../lib/api-client";
 import { workApi, type SavedWork } from "../../lib/work-api";
+import SavedWorksCards from "./saved-works-cards";
 import type { Job } from "../../domain/jobs";
 import { useWorkActions, workTitle as jobTitle, workIsPlayable as playable, workIsBuilding as building } from "../../hooks/use-work-actions";
 
@@ -214,27 +215,7 @@ export default function HistoryPage() {
         ) : null}
 
         <section className="history-list" aria-label="我的作品列表">
-          {filteredSavedWorks.map(work => {
-            const current = work.versions.find(version => version.id === work.current_version_id);
-            const href = `/practice/?work=${work.id}`;
-            return <CollectionCard className="history-row" key={`nar:${work.id}`}
-              menuLabel={`作品操作：${work.title}`}
-              actions={[{ id: "open", label: "打开互动作品", href: withBasePath(href) }]}>
-              <div className="history-cover">{current
-                ? <ImagePreview src={withBasePath(`/api/forge/works/${work.id}/cover.png`)}
-                    alt={`${work.title}预览`} fallback="无封面" loading="lazy" />
-                : <span>预览待生成</span>}</div>
-              <div className="history-row-main">
-                <div className="history-title-line">
-                  <h2><Link className="history-card-link" href={href}>{work.title}</Link></h2>
-                  <span className="history-status done">互动{work.kind === "html" ? "网页" : "动画"} · 已保存</span>
-                </div>
-                <div className="history-meta"><span>更新 {formatTime(work.updated_at)}</span>
-                  {current && <span>V{current.version_number}</span>}</div>
-                {work.summary ? <p className="history-error">{work.summary}</p> : null}
-              </div>
-            </CollectionCard>;
-          })}
+          <SavedWorksCards works={filteredSavedWorks} setWorks={setSavedWorks} />
 
           {filteredJobs.map((job) => (
             <CollectionCard className="history-row" key={job.id} menuLabel={`作品操作：${jobTitle(job)}`}
