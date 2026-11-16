@@ -71,8 +71,9 @@ def build_context_packet(
 def _confirmed_creation_format(proposal: dict, context: dict) -> bool:
     """A formal answer may resume an *original* new creation, not a conversion.
 
-    This is intentionally narrow: only a server-validated, single option answer
-    with no free text can resume an original create/new/unspecified task.
+    This is intentionally narrow: only a server-validated, single option answer to an output-format
+    ambiguity with no free text can resume an original create/new/unspecified
+    task. Explicit capability reviews always win.
     The model must identify the resulting output; the planner still checks
     real executor capabilities before any work is prepared.
     """
@@ -84,6 +85,8 @@ def _confirmed_creation_format(proposal: dict, context: dict) -> bool:
     proposed_tasks = proposal.get("tasks") or []
     if (pending.get("status") != "pending"
             or previous.get("next_step") != "clarify"
+            or previous.get("uncertainty") != "output"
+            or proposal.get("next_step") != "execute"
             or len(previous_tasks) != 1 or len(proposed_tasks) != 1
             or len(current_answer.get("selected_option_ids") or []) != 1
             or current_answer.get("custom_text")
@@ -127,9 +130,11 @@ def plan_v2(proposal: dict, context: dict) -> dict:
     # independent work. Do not treat the selected output medium as a request
     # to convert an existing artifact, or as a free-standing 'continue' task.
     resumed_creation = _confirmed_creation_format(proposal, context)
-    if resumed_creation and requested_step in ("execute", "capability_review"):
+    if resumed_creation:
         action, relation = "create", "new"
     elif requested_step == "capability_review":
+        # A model-reported unsupported feature must never be overridden by
+        # a user clicking a format choice. Format choice != capability approval.
         return {**outcome, "next_step": requested_step, "reason": "model_requested_review"}
     artifacts = {item["id"]: item for item in context.get("workspace", {}).get("recent_artifacts", [])}
     selected = context.get("workspace", {}).get("selected_artifact_id")
