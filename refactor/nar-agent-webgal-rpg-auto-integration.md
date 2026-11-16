@@ -16,10 +16,19 @@
 ## 部署开关及顺序
 
 1. **先锁步部署 Forge 后端与 NarAgent V2**：Intent schema 保持 2.0，增加可选 game 输出、可选 `candidate_game_job_id`、`workspace.recent_games`。不要把新 context 发给未升级的旧 NarAgent V2 解析器。
-2. 保持 `NAR_RPG_ENABLED` **默认关闭**，并核对 `NAR_INTENT_V2_LIVE_PERCENT`：RPG 入口只在 V2 实际 live 流量里生效；影子意图日志不会启动游戏。建议先内测组开启并验证灰度覆盖率，然后再扩大。
+2. **2026-11-16 起：自动意图识别统一使用 V2，不再读取 `NAR_INTENT_V2_LIVE_PERCENT` 做流量抽样，也不执行 V1 shadow/legacy fallback。** `NAR_RPG_ENABLED` 仍独立默认关闭；需先验证真实 WebGAL 生成、计费与权限再打开。
 3. 在同一个 Forge 进程中注入真实 `JobStore`/`run_job`/`estimate_hold`/`CreditService` 回调；不要绕过现有 SSO、另建钱包或要求 NarAgent 上报 WebGAL capability。
 4. 升级前端后验证确认卡与游戏链接，最后开 `NAR_RPG_ENABLED=1`。关闭开关能阻止**新** RPG 创建与确认，但不会停止已经启动的 WebGAL Job；既有消息和 Job 仍保留。
 5. **无需数据库迁移**。但是生产 MySQL 8 仍需单独实测 JSON null 匹配、`JSON_SET`、行级 CAS 与同消息并发提交。
+
+## V2-only 切换（2026-11-16）
+
+- Forge 的 `mode=auto` 强制使用 `resolve_v2_live` → `plan_v2`；不再通过 `request_id` 灰度抽样或执行 V1 `resolve_intent`。V2 不可用时返回明确错误，不回退 HTML 或旧意图识别。
+- NarAgent 保留对内路径 `POST /v1/intent`（**路径名称与意图 Schema 版本不同**）；实际只支持 `schema_version=2.0` + `context_v2`。显式请求 `1.0` 返回 410；未显式传 Schema 但没有 V2 上下文的调用在数据校验阶段拒绝。
+- V1 的 `intent_router.py` 保留为已停用源码参考，`main.py` 已注释掉其 import；正式执行路径不再调用它。要回滚须专门还原 Git commit、重新跑兼容测试；不能通过设置环境变量静默启用。
+- 必须先锁步发布兼容的新 NarAgent/Forge，旧 V1 调用方需升级。部署检查：将 `NAR_INTENT_V2_LIVE_PERCENT=0` 或不设置，`auto` 仍应调用 V2；单轮请求的路径应为 `/v1/capabilities` → `/v1/intent`（payload Schema 2.0），不可再出现 Schema 1.0。`NAR_RPG_ENABLED` 是独立的 WebGAL 产品开关。
+- 此次仅统一意图识别路由，不改变用户手动选择明确 `chat/html/animation/edit` 模式，也不修改 WebGAL Job、积分或播放权限。
+- 保持已创建作品和已有会话可继续使用 V2；仍需进行真实模型的含糊请求分类测试，尤其“我想做个《春江花月夜》的互动游戏”应先澄清体验类型，不宜擅自生成 HTML。
 
 ## 本轮审查修订
 
