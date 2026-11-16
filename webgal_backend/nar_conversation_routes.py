@@ -908,8 +908,7 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 # Owner was checked above before this Turn was created.
                 finished = await transaction(
                     ledger.finish_turn, owner, cid, turn["id"],
-                    output=(f"这款游戏可以在教师工作台中直接修改："
-                            f"[打开游戏编辑页面](/jobs/{job_id})"),
+                    output="这款游戏可以在教师工作台中直接修改，点击下方入口即可打开编辑页面。",
                     public_metadata={"rpg_edit_link": {"job_id": job_id}})
                 return {"conversationId": cid, "turn": finished}
             # Independent new work replaces an unfinished clarification only
