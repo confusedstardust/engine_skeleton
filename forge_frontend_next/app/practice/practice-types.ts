@@ -19,4 +19,5 @@ export type PracticeMessage = {
   publicBrief?: string;
   work?: GeneratedWork;
   rpg?: RpgMessageMetadata;
+  rpgEditJobId?: string;
 };
