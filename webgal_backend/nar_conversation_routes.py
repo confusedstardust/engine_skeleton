@@ -16,9 +16,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from starlette.concurrency import run_in_threadpool
 
 from .nar_conversation_store import (
@@ -27,6 +27,7 @@ from .nar_conversation_store import (
 from .work_store import WorkStore
 from .nar_choice_protocol import visible_stream_prefix
 from .nar_intent_v2 import build_context_packet, plan_v2
+from .nar_rpg_options import draft_game_spec, compile_webgal_request
 from .nar_pending_schema_v2 import ClarificationAnswer
 from .nar_pending_v2 import make_clarification_metadata, validate_clarification_answer
 from .nar_billing import NarTurnBilling, safe_usage_metadata
@@ -78,6 +79,18 @@ class FirstTurnRequest(TurnRequest):
     conversation_id: str = Field(pattern=ID)
 
 
+class RpgOptionsRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    specVersion: int = Field(ge=1)
+    durationMinutes: int = Field(ge=5, le=60)
+    generateImages: StrictBool
+    enableVoice: StrictBool
+
+
+class RpgConfirmRequest(RpgOptionsRequest):
+    acceptedHoldCredits: int = Field(ge=1)
+
+
 class WorkAssociation(BaseModel):
     model_config = {"extra": "forbid"}
     artifact_id: str = Field(pattern=ID)
@@ -85,7 +98,9 @@ class WorkAssociation(BaseModel):
 
 
 def create_router(*, user_for_request, store: NarConversationStore | None = None,
-                  works: WorkStore | None = None, transport=None, billing_factory=None):
+                  works: WorkStore | None = None, transport=None, billing_factory=None,
+                  rpg_create=None, rpg_get=None, rpg_run=None,
+                  rpg_quote=None, rpg_balance=None):
     router = APIRouter(prefix="/nar-agent", tags=["NarAgent conversation history"])
     ledger = store or NarConversationStore()
     work_store = works or WorkStore()
@@ -454,6 +469,149 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             labels = [f"作品 {i+1}：" + name for i, name in enumerate(labels)]
         return {**proposal, "next_step": "clarify", "clarification": {
             "question": question, "options": labels, "allow_custom": True}}
+
+    def ensure_rpg_enabled() -> None:
+        if os.getenv("NAR_RPG_ENABLED", "").lower() not in ("1", "true", "yes"):
+            raise HTTPException(503, "RPG 制作功能暂未开放")
+        if not all(callable(fn) for fn in (rpg_create, rpg_get, rpg_run, rpg_quote, rpg_balance)):
+            raise HTTPException(503, "RPG 工作台服务尚未配置")
+
+    def public_rpg_card(card: dict) -> dict:
+        rpg = card["rpg"]
+        spec = rpg.get("spec") or {}
+        prompt = card.get("original_prompt") or ""
+        return {
+            "messageId": card["message_id"], "state": rpg.get("state"),
+            "specVersion": rpg.get("spec_version", 1),
+            "spec": {
+                "topic": spec.get("topic") or "互动叙事游戏",
+                "sourceSummary": f"引用本轮创作要求和材料（{len(prompt)} 字）",
+                "durationMinutes": spec.get("duration_minutes", 20),
+                "generateImages": spec.get("generate_images", True),
+                "enableVoice": spec.get("enable_voice", False),
+            },
+            "jobId": rpg.get("job_id"), "canConfirm": rpg.get("state") == "PREPARED",
+            "lastErrorCode": rpg.get("last_error_code"),
+        }
+
+    def confirmed_choices(payload: RpgOptionsRequest) -> dict:
+        return {"durationMinutes": payload.durationMinutes,
+                "generateImages": payload.generateImages, "enableVoice": payload.enableVoice}
+
+    def compile_confirmed(card: dict, payload: RpgOptionsRequest) -> dict:
+        if card["rpg"].get("spec_version") != payload.specVersion:
+            raise HTTPException(409, "SPEC_VERSION_CHANGED")
+        try:
+            return compile_webgal_request(
+                card["rpg"]["spec"], original_prompt=card["original_prompt"],
+                duration_minutes=payload.durationMinutes,
+                generate_images=payload.generateImages, enable_voice=payload.enableVoice)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(422, str(exc)[:240]) from None
+
+    async def owned_rpg_card(owner: str, cid: str, mid: str) -> dict:
+        if not re.fullmatch(ID, cid) or not re.fullmatch(ID, mid):
+            raise HTTPException(404, "游戏任务不存在")
+        return await transaction(ledger.get_owned_rpg_message, owner, cid, mid)
+
+    @router.get("/conversations/{cid}/messages/{mid}/rpg")
+    async def get_rpg_card(cid: str, mid: str, request: Request):
+        owner = await owner_for(request)
+        card = await owned_rpg_card(owner, cid, mid)
+        job_id = card["rpg"].get("job_id")
+        if job_id:
+            if not callable(rpg_get):
+                raise HTTPException(503, "游戏工作台查询暂不可用")
+            await run_in_threadpool(rpg_get, owner, job_id)
+        return public_rpg_card(card)
+
+    @router.post("/conversations/{cid}/messages/{mid}/rpg/quote")
+    async def quote_rpg(cid: str, mid: str, payload: RpgOptionsRequest, request: Request):
+        mutate(request)
+        ensure_rpg_enabled()
+        owner = await owner_for(request)
+        card = await owned_rpg_card(owner, cid, mid)
+        if card["rpg"].get("state") != "PREPARED":
+            raise HTTPException(409, "ALREADY_CONFIRMED_OR_CANCELLED")
+        request_body = compile_confirmed(card, payload)
+        hold = await run_in_threadpool(rpg_quote, request_body["options"])
+        balance = await run_in_threadpool(rpg_balance, owner)
+        return {"holdCredits": hold, "optionsValid": True,
+                "sufficientBalance": balance >= hold,
+                "description": "预计预冻结积分，最终按 WebGAL 原有规则结算"}
+
+    @router.post("/conversations/{cid}/messages/{mid}/rpg/confirm", status_code=202)
+    async def confirm_rpg(cid: str, mid: str, payload: RpgConfirmRequest,
+                          request: Request, background_tasks: BackgroundTasks):
+        mutate(request)
+        ensure_rpg_enabled()
+        owner = await owner_for(request)
+        card = await owned_rpg_card(owner, cid, mid)
+        choices = confirmed_choices(payload)
+        current = card["rpg"]
+        if current.get("state") != "PREPARED":
+            if (current.get("confirmed_options") == choices
+                    and current.get("confirmed_hold_credits") == payload.acceptedHoldCredits):
+                return public_rpg_card(card)
+            raise HTTPException(409, "ALREADY_CONFIRMED")
+        request_body = compile_confirmed(card, payload)
+        hold = await run_in_threadpool(rpg_quote, request_body["options"])
+        if payload.acceptedHoldCredits != hold:
+            raise HTTPException(409, "PRICE_CHANGED")
+        balance = await run_in_threadpool(rpg_balance, owner)
+        if balance < hold:
+            raise HTTPException(402, "积分不足，请充值后重新确认")
+        won = await transaction(ledger.claim_rpg_message, owner, cid, mid,
+                                version=payload.specVersion,
+                                confirmed_options=choices, hold=hold)
+        if not won:
+            refreshed = await owned_rpg_card(owner, cid, mid)
+            current = refreshed["rpg"]
+            if (current.get("confirmed_options") == choices
+                    and current.get("confirmed_hold_credits") == hold):
+                return public_rpg_card(refreshed)
+            raise HTTPException(409, "SPEC_VERSION_CHANGED_OR_ALREADY_CONFIRMED")
+        # Only the successful CAS winner is allowed to create and start a Job.
+        try:
+            job = await run_in_threadpool(rpg_create, owner, request_body)
+            job_id = str(job["id"])
+            if not re.fullmatch(ID, job_id):
+                raise ValueError("Invalid WebGAL Job ID")
+            await transaction(ledger.attach_rpg_job, owner, cid, mid, job_id)
+            await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                              "JOB_CREATED", "STARTING")
+        except Exception:
+            # May have created a Job before the response/metadata failed.
+            # Never recreate automatically; preserve a manual-review state.
+            try:
+                await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                                  "CLAIMED", "NEEDS_REVIEW", "CREATE_RESULT_UNCERTAIN")
+            except HTTPException:
+                pass
+            return public_rpg_card(await owned_rpg_card(owner, cid, mid))
+        try:
+            await run_in_threadpool(rpg_run, job_id, request, background_tasks)
+        except HTTPException as exc:
+            state = "START_REJECTED" if exc.status_code in (402, 404, 409, 422) else "NEEDS_REVIEW"
+            await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                              "STARTING", state, "RUN_REJECTED" if state == "START_REJECTED"
+                              else "RUN_RESULT_UNKNOWN")
+        except Exception:
+            await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                              "STARTING", "NEEDS_REVIEW", "RUN_RESULT_UNKNOWN")
+        else:
+            await transaction(ledger.transition_rpg_message, owner, cid, mid,
+                              "STARTING", "STARTED")
+        return public_rpg_card(await owned_rpg_card(owner, cid, mid))
+
+    @router.post("/conversations/{cid}/messages/{mid}/rpg/cancel")
+    async def cancel_rpg(cid: str, mid: str, request: Request):
+        mutate(request)
+        ensure_rpg_enabled()
+        owner = await owner_for(request)
+        await owned_rpg_card(owner, cid, mid)
+        await transaction(ledger.cancel_rpg_message, owner, cid, mid)
+        return public_rpg_card(await owned_rpg_card(owner, cid, mid))
 
     @router.get("/conversations/status")
     async def availability(request: Request):
