@@ -44,3 +44,24 @@ test("push path-filter detects current changes instead of diffing feature agains
   assert.match(workflow, /uses: dorny\/paths-filter@v3[\s\S]*?base: \$\{\{ github\.ref \}\}/);
   assert.match(workflow, /nar_agent:\s*\n\s+- 'nar_agent\/\*\*'/);
 });
+
+
+test("DEV backend build is decoupled from bounded, retryable ACR image push", () => {
+  const workflow = read(".github/workflows/docker-publish-deploy-dev.yml");
+  const backend = workflow.split("\n  build-backend:\n")[1]?.split("\n  build-frontend:\n")[0];
+  assert.ok(backend, "build-backend job must exist");
+  const buildAt = backend.indexOf("name: Build development backend image into local Docker");
+  const pushAt = backend.indexOf("name: Push development backend image to ACR");
+  assert.ok(buildAt >= 0 && pushAt > buildAt, "push must happen only after local build");
+  const build = backend.slice(buildAt, pushAt);
+  assert.match(build, /push: false/);
+  assert.match(build, /load: true/);
+  assert.match(build, /cache-from: type=gha/);
+  assert.match(backend.slice(pushAt), /timeout --signal=TERM --kill-after=15s 18m docker image push "\$IMAGE"/);
+  assert.match(backend.slice(pushAt), /for attempt in 1 2; do/);
+  assert.match(backend.slice(pushAt), /refusing to deploy an unpublished image/);
+  assert.match(backend, /timeout-minutes: 50/);
+  const deploy = workflow.split("\n  deploy:\n")[1];
+  assert.ok(deploy?.includes("needs.build-backend.result == 'success'"),
+    "deployment must remain gated on successful ACR publication");
+});
