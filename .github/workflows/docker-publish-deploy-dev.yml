@@ -121,6 +121,7 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -132,17 +133,44 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
-      - name: Build and push development backend image
+      # Previous Buildx push:true hung for ~57 minutes after "pushing layers"
+      # although all Docker layers and GHA cache had already been built.
+      # Load once, then retry ONLY the registry upload on this same runner.
+      - name: Build development backend image into local Docker
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./docker/backend.Dockerfile
-          push: true
+          push: false
+          load: true
           provenance: false
           sbom: false
           tags: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
           cache-from: type=gha,scope=engine-skeleton-development-backend
-          cache-to: type=gha,mode=max,scope=engine-skeleton-development-backend
+          cache-to: type=gha,mode=max,scope=engine-skeleton-development-backend,timeout=3m,ignore-error=true
+      - name: Push development backend image to ACR (bounded retry, no rebuild)
+        shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ needs.detect-changes.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE" >/dev/null
+          echo "Built image size (uncompressed bytes): $(docker image inspect --format '{{.Size}}' "$IMAGE")"
+          # Docker push is separate from Buildx, so a transient upload failure
+          # cannot cause a second Playwright/Chromium/backend build.
+          for attempt in 1 2; do
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] ACR push attempt $attempt/2"
+            if timeout --signal=TERM --kill-after=15s 18m docker image push "$IMAGE"; then
+              echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] ACR push succeeded"
+              exit 0
+            fi
+            if [ "$attempt" = "2" ]; then
+              echo "::error::Backend image ACR push failed/timed out twice; refusing to deploy an unpublished image."
+              exit 1
+            fi
+            echo "::warning::ACR push attempt $attempt failed or timed out; retrying the same locally built image in 20 seconds"
+            sleep 20
+          done
 
   build-frontend:
     environment: development
