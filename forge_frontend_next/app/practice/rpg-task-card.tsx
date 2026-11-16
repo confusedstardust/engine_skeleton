@@ -42,6 +42,9 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
   const version = card?.specVersion ?? initial.spec_version;
   const jobId = card?.jobId ?? initial.job_id;
   const topic = card?.spec.topic ?? initial.spec.topic;
+  const confirmed = card?.confirmedOptions ?? initial.confirmed_options ?? null;
+  const voiceEnabled = confirmed?.enableVoice ?? voice;
+  const imagesEnabled = confirmed?.generateImages ?? images;
   const statusTerminal = job?.status === "DONE" || job?.status === "FAILED";
 
   useEffect(() => {
@@ -87,6 +90,7 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
           const result = await conversationApi.rpgJob(current.jobId);
           if (alive) setJob(result);
         }
+        if (alive) setError("");
       } catch {
         if (alive) setError("任务状态暂时无法查询，可以刷新页面后继续查看。");
       }
@@ -144,6 +148,11 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
       <Gamepad2 size={20} aria-hidden="true" />
       <div><strong>{topic || "互动叙事游戏"}</strong><small>WebGAL · 自动制作</small></div>
     </div>
+    {confirmed && state !== "PREPARED" && <p className={styles.description}>
+      已确认配置：{confirmed.durationMinutes} 分钟 ·
+      配图{confirmed.generateImages ? "开启" : "关闭"} ·
+      配音{confirmed.enableVoice ? "开启" : "关闭"}
+    </p>}
     {state === "PREPARED" ? <>
       <p className={styles.description}>已整理好创作要求，确认配置后才会创建游戏任务并使用 RPG 积分。</p>
       <label className={styles.setting}>预计体验时长
@@ -179,7 +188,9 @@ export default function RpgTaskCard({ conversationId, messageId, initial }: Prop
         {!failed && !playable && inProgress(state) && <ol className={styles.phases}>
           {PHASES.map((item, index) => <li key={item.title}
             className={activeIndex === index ? styles.active : ""}>
-            <span className={styles.dot} />{item.title}
+            <span className={styles.dot} />{item.codes.includes("TTS_GENERATION") && !voiceEnabled
+              ? "规划游戏音效" : item.codes.includes("ASSET_GENERATION") && !imagesEnabled
+                ? "准备游戏资源" : item.title}
           </li>)}
         </ol>}
         {jobId && card && <div className={styles.actions}>
