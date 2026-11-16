@@ -400,7 +400,6 @@ export function useNarConversation({
         rpgEditJobId: item.metadata?.rpg_edit_link?.job_id,
         publicBrief: item.metadata?.publicBrief,
         timeline: item.metadata?.timeline as PracticeMessage["timeline"],
-        rpg: item.metadata?.card_type === "rpg" ? item.metadata.rpg : undefined,
         learningPlan: item.metadata?.learningPlan as PracticeMessage["learningPlan"],
         durationMs: item.metadata?.elapsedMs,
         ...(artifacts.find(a => a.originMessageId === item.id)
