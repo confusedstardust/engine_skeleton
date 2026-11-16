@@ -178,8 +178,64 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         except (TypeError, ValueError, KeyError):
             raise HTTPException(502, "执行服务的用户归属或响应内容无效") from None
 
+    def metering_sample(owner: str, cid: str, request_id: str) -> bool:
+        """Stable company-side telemetry sampling, independent of live billing."""
+        try:
+            percent = max(0, min(100, int(os.getenv("NAR_BILLING_V2_METER_SHADOW_PERCENT", "0"))))
+        except ValueError:
+            percent = 0
+        if percent == 0:
+            return False
+        digest = hashlib.sha256(
+            ("nar-billing-v2:" + owner + ":" + cid + ":" + request_id).encode()
+        ).digest()
+        return int.from_bytes(digest[:4], "big") % 100 < percent
+
+    async def persist_metering_events(owner: str, cid: str, request_id: str,
+                                      events: list | None, *, turn_id: str | None = None,
+                                      shadow: bool = False) -> None:
+        """Append company telemetry only. No charges and no V1 settlement changes.
+
+        Migration 006 must be installed before enabling this opt-in feature.
+        """
+        if not isinstance(events, list) or not metering_sample(owner, cid, request_id):
+            return
+        try:
+            from credit_system.config import CreditDatabaseConfig
+            from forge_database import mysql_connection_factory
+            from .nar_usage_store_v2 import ModelUsageEvent, NarUsageEventStore
+            from .nar_metering_v2 import normalize_provider_usage
+
+            def save():
+                store = NarUsageEventStore(mysql_connection_factory(CreditDatabaseConfig.from_env()))
+                for item in events[:200]:
+                    if not isinstance(item, dict):
+                        continue
+                    call_id = item.get("call_id")
+                    stage = "intent_shadow" if shadow else item.get("stage")
+                    provider = item.get("provider")
+                    if not all(isinstance(k, str) for k in (call_id, stage, provider)):
+                        continue
+                    usage = normalize_provider_usage(item.get("usage"), provider)
+                    event_key = "narmeter." + hashlib.sha256(
+                        (owner + "|" + cid + "|" + request_id + "|" + stage + "|" + call_id)
+                        .encode()).hexdigest()
+                    store.record(ModelUsageEvent(
+                        event_key=event_key, owner_user_id=owner,
+                        conversation_id=cid, turn_id=turn_id, call_id=call_id,
+                        stage=stage, provider=provider,
+                        requested_model=item.get("requested_model"),
+                        actual_model=item.get("actual_model"), usage=usage,
+                        billable_to_user=False,
+                    ))
+            await run_in_threadpool(save)
+        except Exception:
+            logger.warning("NarAgent V2 telemetry persistence failed; V1 user billing unchanged")
+
     async def resolve_intent(owner: str, prompt: str, history: list[dict],
-                             current_artifact_kind: str | None) -> str:
+                             current_artifact_kind: str | None, *,
+                             metering_enabled: bool = False,
+                             usage_sink: list | None = None) -> str:
         """Classify on NarAgent using the existing model credentials and owner boundary."""
         token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
         if len(token) < 32:
@@ -193,7 +249,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                     base + "/v1/intent",
                     json={"prompt": prompt, "history": history[-8:],
                           "has_editable_html": current_artifact_kind == "html",
-                          "current_artifact_kind": current_artifact_kind},
+                          "current_artifact_kind": current_artifact_kind,
+                          **({"metering_enabled": True} if metering_enabled else {})},
                     headers={"Authorization": "Bearer " + token, "X-User-ID": owner},
                 )
         except httpx.HTTPError:
@@ -208,11 +265,16 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 "chat", "html", "animation", "edit", "edit_animation"
             ):
                 raise ValueError
+            if usage_sink is not None and isinstance(data.get("usage_events"), list):
+                usage_sink.extend(data["usage_events"])
             return data["mode"]
         except (ValueError, KeyError, TypeError):
             raise HTTPException(502, "需求识别结果无效") from None
 
-    async def resolve_intent_v2(owner: str, prompt: str, packet: dict) -> dict:
+    async def resolve_intent_v2(owner: str, prompt: str, packet: dict, *,
+                                metering_enabled: bool = False,
+                                usage_sink: list | None = None,
+                                shadow: bool = False) -> dict:
         """Call the opt-in V2 interpreter; its proposal has NO execution authority."""
         token = os.getenv("NAR_AGENT_SERVICE_TOKEN", "")
         if len(token) < 32:
@@ -224,7 +286,10 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             response = await client.post(
                 base + "/v1/intent",
                 json={"prompt": prompt, "schema_version": "2.0",
-                      "context_v2": packet},
+                      "context_v2": packet,
+                      **({"metering_enabled": True,
+                          "metering_role": "shadow" if shadow else "live"}
+                         if metering_enabled else {})},
                 headers={"Authorization": "Bearer " + token, "X-User-ID": owner},
             )
         if response.status_code != 200:
@@ -233,6 +298,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
         if (data.get("user_id") != owner or data.get("schema_version") != "2.0"
                 or not isinstance(data.get("decision"), dict)):
             raise ValueError("V2 shadow returned invalid envelope")
+        if usage_sink is not None and isinstance(data.get("usage_events"), list):
+            usage_sink.extend(data["usage_events"])
         return data["decision"]
 
     async def compare_v2_shadow(owner: str, cid: str, payload: TurnRequest,
@@ -244,7 +311,13 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 ledger.artifact_candidates, owner, cid, selected_id)
             packet = build_context_packet(
                 payload.prompt, cid, recent, candidates, selected_id)
-            v2 = await resolve_intent_v2(owner, payload.prompt, packet)
+            usage_events = []
+            metered = metering_sample(owner, cid, payload.client_request_id)
+            v2 = await resolve_intent_v2(owner, payload.prompt, packet,
+                                         metering_enabled=metered,
+                                         usage_sink=usage_events, shadow=True)
+            await persist_metering_events(owner, cid, payload.client_request_id,
+                                          usage_events, shadow=True)
             plan = plan_v2(v2, packet)
             first = v2.get("tasks", [{}])[0]
             logger.info(
@@ -331,8 +404,12 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
             pending_task=task, pending_clarification=pending_question,
             capabilities=service_caps,
         )
+        usage_events = []
+        metered = metering_sample(owner, cid, payload.client_request_id)
         try:
-            proposal = await resolve_intent_v2(owner, payload.prompt, packet)
+            proposal = await resolve_intent_v2(owner, payload.prompt, packet,
+                                                metering_enabled=metered,
+                                                usage_sink=usage_events)
         except Exception:
             raise HTTPException(503, "需求识别暂时不可用，本次未执行任何创作") from None
         plan = plan_v2(proposal, packet)
@@ -345,7 +422,8 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                 if not current or current.get("artifact_id") != parent_id:
                     raise HTTPException(409, "作品版本已更新，请重新打开最新版本")
         return {"proposal": proposal, "plan": plan, "packet": packet,
-                "pending": pending, "answer": answer_data}
+                "pending": pending, "answer": answer_data,
+                "usage_events": usage_events}
 
     def v2_clarification_proposal(proposal: dict, packet: dict) -> dict:
         """Supply one accessible question if the model omitted crucial detail."""
