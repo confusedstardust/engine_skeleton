@@ -65,7 +65,7 @@ class FakeRpgLedger:
         return True
 
 
-def setup(*, balance=200, fail_run=False):
+def setup(*, balance=200, fail_run=False, fail_run_status=None):
     ledger = FakeRpgLedger()
     events = []
     def create(owner, request_body):
@@ -83,6 +83,8 @@ def setup(*, balance=200, fail_run=False):
         assert ledger.rpg["state"] == "STARTING"
         assert ledger.rpg["job_id"] == JOB
         events.append("run")
+        if fail_run_status is not None:
+            raise HTTPException(fail_run_status, "Already running or uncertain")
         if fail_run:
             raise HTTPException(402, "Insufficient balance")
         return {"id": JOB, "status": "QUEUED"}
@@ -197,3 +199,15 @@ def test_job_bound_then_transition_fails_is_manual_review_without_duplicate():
         assert repeat.status_code == 202
         assert repeat.json()["jobId"] == JOB
         assert events == ["create"]
+
+
+def test_run_409_already_running_is_not_misrepresented_as_definite_rejection():
+    with patch.dict(os.environ, {"NAR_RPG_ENABLED": "1"}):
+        client, ledger, events = setup(fail_run_status=409)
+        result = client.post(path("/confirm"),
+            json={**OPTIONS, "acceptedHoldCredits": 70},
+            headers={"X-NarAgent-Action": "chat"})
+        assert result.status_code == 202
+        assert result.json()["state"] == "NEEDS_REVIEW"
+        assert result.json()["jobId"] == JOB
+        assert events == ["create", "run"]
