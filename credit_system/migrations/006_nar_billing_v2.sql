@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS nar_usage_events (
   id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
   event_key VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  payload_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   owner_user_id VARCHAR(191) NOT NULL,
   conversation_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
   turn_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
