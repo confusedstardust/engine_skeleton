@@ -1,4 +1,9 @@
-"""Contextual NarAgent routing: intent + actual artifact lineage, not keywords alone."""
+"""LEGACY V1 INTENT ROUTER — DISABLED (kept for explicit source rollback only).
+
+No production endpoint imports or invokes classify_intent; the official
+interpreter is app.intent_v2.interpret_intent_v2. Do NOT re-enable implicit
+fallback because the V1 modes cannot represent WebGAL games or clarifications.
+"""
 from __future__ import annotations
 
 import json
