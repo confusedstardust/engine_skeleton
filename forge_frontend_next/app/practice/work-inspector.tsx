@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { BookOpenCheck, FolderOpen, PencilLine, Send, Share2, Undo2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { CloseButton } from "../../components/ui/close-button";
 import AnimationPreview from "./animation-preview";
@@ -28,11 +29,11 @@ export type WorkPreviewData = GeneratedWork & {
 };
 
 export default function WorkInspector({
-  work, onClose, onEdit, onSave, onEditMetadata, onViewVersion, onPublish, onUnpublish, onShare, saving = false, publishing = false,
+  work, onClose, onSave, onEditMetadata, onViewVersion, onPublish, onUnpublish, onShare,
+  saving = false, publishing = false,
 }: {
   work: WorkPreviewData;
   onClose: () => void;
-  onEdit: (id: string) => void;
   onSave: (id: string) => void;
   onEditMetadata: (id: string) => void;
   onViewVersion: (workId: string, versionId: string) => void;
@@ -57,9 +58,10 @@ export default function WorkInspector({
   const saved = Boolean(work.workId && work.savedArtifactId === work.artifactId);
   const published = work.publicationStatus === "published";
   const historical = Boolean(work.isHistorical);
+
   return <aside className={styles.inspector} aria-label={`作品预览：${work.title}`}>
     <header className={styles.inspectorHeader}>
-      <div><strong>{work.title}</strong><span>{work.kind === "html" ? "互动网页" : "教学动画"} · V{work.version} · {saved ? "已保存" : "尚未保存"}</span></div>
+      <div><strong>{work.title}</strong><span>互动作品 · V{work.version} · {saved ? "已保存" : "尚未保存"}</span></div>
       <CloseButton ref={closeRef} size="sm" aria-label="关闭作品预览" onClick={onClose} />
     </header>
     <div className={styles.inspectorScroll}>
@@ -75,22 +77,37 @@ export default function WorkInspector({
           {historical && <p>正在查看历史版本。请切回最新版本再继续编辑、保存或发布。</p>}
         </div>}
       <AnimationPreview html={work.html} label="互动作品预览" compact />
-      <p className={styles.inspectorTip}>可直接操作预览中的控件。正式教学使用前，请核对内容和所有交互步骤。</p>
       <div className={styles.inspectorActions}>
-        <Button variant="primary" disabled={historical || saved || saving} busy={saving} onClick={() => onSave(work.artifactId)}>
-          {saved ? "已保存到我的作品" : work.workId ? "保存新版本" : "保存到我的作品"}
-        </Button>
-        {work.kind === "html" && !historical && <Button variant="outline" onClick={() => onEdit(work.artifactId)}>继续修改</Button>}
-        {saved && !historical && <Button variant="outline" onClick={() => onEditMetadata(work.artifactId)}>编辑作品信息</Button>}
-        {work.kind === "html" && !historical && <Button variant="outline" disabled={publishing || saving} busy={publishing}
-          onClick={() => onPublish(work.artifactId)}>
-          {published ? "更新广场发布" : saved ? "发布到教师资源广场" : "保存并发布到广场"}
+        {saved && work.workId ? (
+          <Link href="/history" className={`${styles.inspectorAction} ${styles.inspectorActionPrimary}`}>
+            <FolderOpen size={17} aria-hidden="true" strokeWidth={1.8} />
+            <span>在我的作品中查看</span>
+          </Link>
+        ) : (
+          <Button variant="unstyled" className={`${styles.inspectorAction} ${styles.inspectorActionPrimary}`}
+            disabled={historical || saving} busy={saving} onClick={() => onSave(work.artifactId)}>
+            <BookOpenCheck size={17} aria-hidden="true" strokeWidth={1.8} />
+            <span>{work.workId ? "保存新版本" : "保存到我的作品"}</span>
+          </Button>
+        )}
+        {saved && !historical && <Button variant="unstyled" className={styles.inspectorAction}
+          onClick={() => onEditMetadata(work.artifactId)}>
+          <PencilLine size={17} aria-hidden="true" strokeWidth={1.8} /><span>编辑作品信息</span>
         </Button>}
-        {published && !historical && <Button variant="outline" onClick={() => onShare(work.artifactId)}>分享作品</Button>}
-        {published && !historical && <Button variant="outline" disabled={publishing} onClick={() => onUnpublish(work.artifactId)}>撤回发布</Button>}
-        {saved && <Link href="/history" className={styles.inspectorSavedLink}>在我的作品中查看</Link>}
+        {!historical && (published
+          ? <Button variant="unstyled" className={styles.inspectorAction} disabled={publishing}
+              busy={publishing} onClick={() => onUnpublish(work.artifactId)}>
+              <Undo2 size={17} aria-hidden="true" strokeWidth={1.8} /><span>撤回发布</span>
+            </Button>
+          : <Button variant="unstyled" className={styles.inspectorAction}
+              disabled={publishing || saving} busy={publishing} onClick={() => onPublish(work.artifactId)}>
+              <Send size={17} aria-hidden="true" strokeWidth={1.8} />
+              <span>{saved ? "发布到教师资源广场" : "保存并发布到广场"}</span>
+            </Button>)}
+        <Button variant="unstyled" className={styles.inspectorAction} onClick={() => onShare(work.artifactId)}>
+          <Share2 size={17} aria-hidden="true" strokeWidth={1.8} /><span>分享作品</span>
+        </Button>
       </div>
-      <p className={styles.inspectorFuture}>{published ? "当前公开版本可供其他学习者访问。私有修改不会自动改变已发布内容。" : "公开前请先检查知识准确性、互动功能及作品中可能存在的私人信息。"}</p>
     </div>
   </aside>;
 }

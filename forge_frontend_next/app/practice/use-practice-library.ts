@@ -33,6 +33,7 @@ export function usePracticeLibrary({
   const [publicationError, setPublicationError] = useState("");
   const [revokeError, setRevokeError] = useState("");
   const [shareData, setShareData] = useState<SharedWork | null>(null);
+  const [shareNoticeArtifactId, setShareNoticeArtifactId] = useState<string | null>(null);
   async function saveWork(artifactId: string) {
     const work = workPreviews[artifactId];
     if (!loggedIn || !work || savingArtifactId || (work.workId && work.savedArtifactId === artifactId)) return;
@@ -180,7 +181,11 @@ export function usePracticeLibrary({
 
   async function openShare(artifactId: string) {
     const item = workPreviews[artifactId];
-    if (!item?.workId || item.publicationStatus !== "published") return;
+    if (!item) return;
+    if (!item.workId || item.publicationStatus !== "published") {
+      setShareNoticeArtifactId(artifactId);
+      return;
+    }
     setError("");
     try {
       // The server rejects private/unpublished/revoked works, regardless of UI state.
@@ -197,6 +202,7 @@ export function usePracticeLibrary({
     metadataArtifactId, setMetadataArtifactId, metadataBusy, metadataError, setMetadataError,
     revokeArtifactId, setRevokeArtifactId, publicationBusy, publicationError, setPublicationError,
     revokeError, setRevokeError, shareData, setShareData,
+    shareNoticeArtifactId, setShareNoticeArtifactId,
     saveWork, viewSavedVersion, saveMetadata, submitPublication, revokePublication, openShare,
   };
 }
