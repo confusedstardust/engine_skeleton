@@ -5,18 +5,16 @@ const path = require("node:path");
 const read = name => readFileSync(path.resolve(__dirname, "..", name), "utf8");
 const practice = "forge_frontend_next/app/practice/";
 
-test("plaza sidebar covers header and footer with graceful width animation", () => {
+test("studio bars and workspace panes are aligned with the shared sidebar", () => {
   const css = read(practice + "practice.module.css");
-  const navCss = read("forge_frontend_next/components/ui/workspace-sidebar.module.css");
+  const navCss = read("forge_frontend_next/node_modules/@narrativeos/ui/workspace-sidebar.module.css");
   const resize = read(practice + "resizable-workspace.tsx");
-  assert.match(css, /position:fixed!important;inset:0 auto 0 0;z-index:120/);
-  assert.match(css, /height:100dvh!important/);
-  assert.match(css, /top-nav/);
-  assert.match(css, /workspace-nav-leading/);
+  assert.match(css, /position:fixed;inset:0 auto 0 0/);
+  assert.match(css, /\.studioHeader,\.studioFooter\{margin-inline-start:var\(--studio-nav\)/);
   assert.match(resize, /styles.navPlaceholder/);
-  assert.match(navCss, /transition:width 280ms/);
-  assert.match(navCss, /prefers-reduced-motion:reduce/);
-  assert.match(navCss, /root\[data-collapsed=true\] \.itemLabel/);
+  assert.match(navCss, /transition: width 280ms/);
+  assert.match(navCss, /prefers-reduced-motion: no-preference/);
+  assert.match(navCss, /root\[data-collapsed=true\].*\.item span\).*display: none/);
   assert.match(resize, /navCollapsed/);
 });
 

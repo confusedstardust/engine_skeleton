@@ -95,7 +95,7 @@ function PracticeWorkspace({ jobId }: { jobId: string }) {
 
   return (
     <>
-      <WorkbenchHeader title="临场 · 习题" subtitle="PRACTICE" className="top-nav practice-nav" label="习题导航" fallback={data?.can_manage ? `/jobs/${jobId}` : `/play/${jobId}/`}>
+      <WorkbenchHeader title="临场 · 习题" subtitle="PRACTICE">
 {data?.quiz && !data.can_manage ? <Button variant="unstyled" className="top-nav-action" type="button" onClick={resetPractice}>重新作答</Button> : null}
 </WorkbenchHeader>
 

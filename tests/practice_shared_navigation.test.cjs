@@ -7,14 +7,12 @@ const read = path => readFileSync(join(root, path), "utf8");
 
 test("Practice workbench shares the established navigation primitives", () => {
   const navigation = read("forge_frontend_next/app/practice/practice-navigation.tsx");
-  const sidebar = read("forge_frontend_next/components/ui/workspace-sidebar.tsx");
   const page = read("forge_frontend_next/app/practice/practice-shell.tsx");
-  assert.match(navigation, /from "\.\.\/\.\.\/components\/ui\/workspace-sidebar"/);
+  const pkg = JSON.parse(read("forge_frontend_next/package.json"));
+  assert.match(navigation, /from "@narrativeos\/ui\/workspace-sidebar"/);
+  assert.match(pkg.dependencies["@narrativeos/ui"], /^file:vendor\/narrativeos-ui-/);
   assert.match(navigation, /from "\.\.\/\.\.\/components\/account-menu"/);
   assert.doesNotMatch(navigation, /function NavGlyph|<svg/);
-  assert.match(sidebar, /import BrandLogo from "\.\.\/brand-logo"/);
-  assert.match(sidebar, /import \{ Button \} from "\.\/button"/);
-  assert.match(sidebar, /from "lucide-react"/);
   assert.match(page, /navigation=\{\(\{ collapsed, onToggle \}\) =>/);
 });
 
@@ -27,6 +25,8 @@ test("Collapsing sidebar preserves the resizable studio and server history links
   assert.match(resizable, /disabled=\{navCollapsed\}/);
   assert.match(navigation, /conversationApi\.list\(\)/);
   assert.match(navigation, /conversationApi\.artifacts\(\)/);
+  assert.match(navigation, /className=\{navStyles\.historyList\}/);
+  assert.match(read("forge_frontend_next/app/practice/practice-navigation.module.css"), /\.historyList\{[^}]*overflow:auto/);
   assert.match(css, /\.layout \.sidebar\[data-collapsed=false\]/);
 });
 

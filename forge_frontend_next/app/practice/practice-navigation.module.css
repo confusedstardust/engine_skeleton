@@ -1,6 +1,7 @@
-/* Practice-only recent work list; navigation shell, links and account dock live in components/ui/workspace-sidebar. */
+/* History controls stay visible while the selected list scrolls. */
 .navSectionLabel{font-size:11px;color:#8a8275;letter-spacing:.04em;margin:2px 10px 9px}
-.navRecents{display:flex;flex-direction:column;min-height:0;flex:1;overflow-y:auto}
+.navRecents{display:flex;flex-direction:column;min-height:0;flex:1}
+.historyList{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#bda98d transparent;padding-inline:2px}
 .navRecentItem{display:flex;align-items:center;gap:10px;padding:10px 9px;text-decoration:none;border-radius:9px;font-size:12px;color:#6c7064;min-width:0}
 .navRecentItem:hover{background:#f4e4c9;color:#9b2335}
 .navRecentItem:focus-visible{outline:2px solid #9b2335;outline-offset:2px}
@@ -10,14 +11,9 @@
 
 
 .navRecentItem[aria-current="page"]{background:#f4e4c9;color:#9b2335;font-weight:600}
-.promo{position:relative;display:flex;flex-direction:column;min-height:110px;overflow:hidden;padding:16px 12px;border-radius:15px;background:#f0e2ca;color:#312a22;text-decoration:none}
-.promo strong{position:relative;z-index:1;font-size:14px;font-weight:500}
-.promo>span{position:relative;z-index:1;max-width:114px;margin-top:5px;color:#88684f;font-size:11px;line-height:1.8}
-.promo> :last-child{position:absolute;right:-9px;bottom:-8px;opacity:.6;pointer-events:none}
-.promo:hover{background:#eed9b7}
 
-.historyTabs{display:flex;align-items:center;gap:4px;border-bottom:1px solid #e6dccb;margin:0 0 12px;padding:0 8px 9px}
-.historyTabs button{flex:1;min-height:32px;border-radius:8px;color:#827a6e;font-size:12px;text-align:center}
+.historyTabs{flex:none;display:flex;align-items:center;gap:4px;border-bottom:1px solid #e6dccb;margin:0 0 4px;padding:0 2px 6px}
+.historyTabs button{flex:1;min-height:30px;padding:4px 0;border:0;background:transparent;border-radius:8px;font:inherit;color:#827a6e;font-size:12px;text-align:center}
 .historyTabs button[aria-selected=true]{background:#f4e4c9;color:#9b2335;font-weight:600}
 .historyTabs button:hover{background:#f4e9d8}
 .navLoading{padding:8px 6px;font-size:11px}

@@ -16,7 +16,8 @@ test("NarAgent route delegates generation, library and conversation rendering", 
   assert.match(shell, /<PracticeChat workspace=\{workspace\}/);
   assert.doesNotMatch(shell, /forgeApi|workApi|<textarea|<button|<svg/);
   assert.match(shell, /<WorkbenchHeader/);
-  assert.match(read("forge_frontend_next/app/layout.tsx"), /<SiteFooter\s*\/>/);
+  assert.match(read("forge_frontend_next/app/layout.tsx"), /<ForgeChrome>/);
+  assert.match(shell, /footer=\{<SiteFooter\s*\/>\}/);
 });
 
 test("Shared controls and icons are reused rather than hand-rolled", () => {

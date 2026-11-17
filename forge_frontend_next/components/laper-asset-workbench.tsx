@@ -700,7 +700,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
             <div className="scene-music-workbench">
               <header className="laper-canvas-head music-workbench-head">
                 <div><h2>场景音乐</h2></div>
-                {!props.readonly && <div className="music-upload-actions"><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</Button><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材库选择</Button></div>}
+                {!props.readonly && <div className="music-upload-actions"><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => musicUploadRef.current?.click()}>＋ 上传 BGM</Button><Button variant="outline" className="music-upload-button" type="button" busy={Boolean(props.busy)} onClick={() => void openLibraryPicker("BGM", "bgm")}>从素材广场选择</Button></div>}
               </header>
               <div className="scene-music-table" role="list">
                 {props.sceneMusic.map((scene, index) => {
@@ -853,7 +853,7 @@ export function LaperAssetWorkbench(props: LaperAssetWorkbenchProps) {
         onClose={() => setLibraryPicker(null)}
         onSelect={async (asset: PersonalLibraryAsset) => {
           const ok = await props.useLibraryAsset(asset, libraryPicker.target, libraryPicker.replaceFilename);
-          if (ok) showUploadNotice(libraryPicker.target === "bgm" ? "素材库 BGM 已加入当前作品" : "素材库素材已替换当前预览");
+          if (ok) showUploadNotice(libraryPicker.target === "bgm" ? "素材广场 BGM 已加入当前作品" : "素材广场素材已替换当前预览");
           return ok;
         }} />}
     </section></Tabs.Root>

@@ -24,6 +24,7 @@
 - [NarAgent 启动与验证](nar_agent/README.md) / [后续实施清单](refactor/nar-agent-implementation-backlog.md)：Deep Agents SDK 独立服务，以及计量、持久化、成本、积分与产物存储的验收任务。
 - [anatomy 接入与部署](refactor/nar-agent-deployment.md)：固定版本、临时执行容器、预览、CI 发布检查和服务器首次启用步骤；真实 Docker 与生产验收尚待完成。
 - Windows 本地三服务启动：首次运行 `uv sync --project nar_agent --frozen`、`python tools/configure_nar_agent_local.py`，再运行 `start_forge_full.bat`；使用前关闭占用 3001/8010/8020 的旧开发服务。
+- 启动后可通过前端 `http://127.0.0.1:3001`、Forge 后端 `http://127.0.0.1:8010/health` 和 NarAgent `http://127.0.0.1:8020/health` 验证三项服务。任一服务退出时，启动器会关闭其余服务，具体原因见对应服务的日志。
 - [前端 workspace 分阶段重构](refactor/frontend-workspace-plan.md)：共享 UI、仓库组织及构建迁移的分阶段计划；不代表目标结构已经落地。
 - [NarAgent UI 统一与 main 同步记录](refactor/practice-ui-unification.md)：路由、业务 Hook、组件复用、与教师资源广场的共用边界及回归检查。
 - [会话认证流程](refactor/session-auth-flow.md)：认证相关流程与实现说明。

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Send, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowUpRight, Box, ClipboardCheck, Gamepad2, LayoutTemplate, Play, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
@@ -22,11 +22,19 @@ const examples = [
   "生成一个适合初中生操作的串并联电路实验。",
   "设计一个知识闯关网页，答完题才能进入下一关。",
 ];
+const formats = [
+  { label: "互动课件", Icon: LayoutTemplate, placeholder: "描述要做成互动课件的知识点，例如「让学生拖动砝码探索杠杆平衡」" },
+  { label: "教学动画", Icon: Play, placeholder: "描述要用动画讲清楚的过程，例如「演示月相如何变化」" },
+  { label: "课后练习", Icon: ClipboardCheck, placeholder: "描述要练习的知识点和年级，例如「为初一设计整数加减练习」" },
+  { label: "RPG课堂游戏", Icon: Gamepad2, placeholder: "描述学习目标和游戏情境，例如「扮演水滴，探索水循环」" },
+  { label: "3D演示", Icon: Box, placeholder: "描述想从不同角度观察的对象，例如「观察地球自转与昼夜变化」" },
+];
 
 /** Chat, timeline and composer render only; all business actions come from the workspace hook. */
 export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const {
     workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
+    creationFormat, setCreationFormat, draftLimit,
     sessionReady, authReady, progress, activeTask,
     setSelectedArtifactId, setCurrentArtifactId, end, input, send, savedCardWorkId,
     serverReady, serverChecked, conversationId, conversationTitle, streamText,
@@ -34,7 +42,12 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
     userAvatarUrl, userInitial,
   } = workspace;
   const canAnswer = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn);
-  const canSubmit = Boolean(canAnswer && draft.trim());
+  const canSubmit = Boolean(canAnswer && draft.trim() && draft.trim().length <= draftLimit);
+  const selectedFormat = formats.find(format => format.label === creationFormat);
+  function selectFormat(label: string | null) {
+    setCreationFormat(label);
+    input.current?.focus();
+  }
   const [burstKeys, setBurstKeys] = useState<string[]>([]);
   const seen = useRef<{ conversationId?: string; lastKey?: string; initialized: boolean }>({ initialized: false });
 
@@ -153,15 +166,21 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <form className={styles.composer} onSubmit={event => { event.preventDefault(); void send(); }}>
         <label htmlFor="teaching-prompt" className="sr-only">输入学习问题</label>
-        <textarea id="teaching-prompt" ref={input} value={draft} onChange={event => setDraft(event.target.value)}
-          maxLength={12000} rows={2} placeholder="发送消息，描述你想学习或制作的互动体验…"
+        <div className={styles.composerInput}>
+          {selectedFormat && <button type="button" className={styles.selectedFormat} disabled={busy}
+            aria-label={`清除创作形式：${selectedFormat.label}`} onClick={() => selectFormat(null)}>
+            <selectedFormat.Icon size={14} aria-hidden="true" />{selectedFormat.label}<X size={13} aria-hidden="true" />
+          </button>}
+          <textarea id="teaching-prompt" ref={input} value={draft} onChange={event => setDraft(event.target.value)}
+          maxLength={draftLimit} rows={2} placeholder={selectedFormat?.placeholder ?? "发送消息，描述你想学习或制作的互动体验…"}
           disabled={busy} onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault(); void send();
             }
           }} />
+        </div>
         <div>
-          <small>Enter 发送 · Shift + Enter 换行</small>
+          <small>{draft.trim().length > draftLimit ? `选中创作形式后，正文限 ${draftLimit} 字符` : "Enter 发送 · Shift + Enter 换行"}</small>
           <span className={styles.actions}>
             <Button type="submit" variant="primary" disabled={!canSubmit} busy={busy}>
               {busy ? "处理中" : <>发送 <Send size={15} strokeWidth={1.7} aria-hidden="true" /></>}
@@ -169,6 +188,12 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </span>
         </div>
       </form>
+      <div className={styles.creationFormats} role="group" aria-label="选择创作形式（单选）">
+        {formats.map(({ label, Icon }) => <button key={label} type="button" disabled={busy}
+          aria-pressed={creationFormat === label} onClick={() => selectFormat(creationFormat === label ? null : label)}>
+          <Icon size={14} aria-hidden="true" />{label}
+        </button>)}
+      </div>
     </div>
   </section>;
 }

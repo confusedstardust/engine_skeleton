@@ -1,6 +1,7 @@
 "use client";
 
 import { WorkbenchHeader } from "../../components/workbench-header";
+import SiteFooter from "../../components/site-footer";
 import { ConfirmDialog } from "../../components/ui/modal";
 import PracticeChat from "./practice-chat";
 import WorkShareDialog from "./work-share-dialog";
@@ -11,7 +12,7 @@ import ResizableWorkspace from "./resizable-workspace";
 import { usePracticeWorkspace } from "./use-practice-workspace";
 import styles from "./practice.module.css";
 
-/** Route composition only. Shared chrome stays in WorkbenchHeader and the root SiteFooter. */
+/** The studio aligns the shared bars to its resizable sidebar. */
 export function PracticeShell({ workspaceScope, conversationId }: { workspaceScope: string; conversationId?: string }) {
   const workspace = usePracticeWorkspace(workspaceScope, conversationId);
   const {
@@ -26,9 +27,9 @@ export function PracticeShell({ workspaceScope, conversationId }: { workspaceSco
   } = workspace;
 
   return <main className={styles.page}>
-    <WorkbenchHeader title="互动学习创作" subtitle="NARAGENT STUDIO"
-      account={null} brandHref={null} returnHref="/" />
     <ResizableWorkspace userId={sessionUserId}
+      header={<WorkbenchHeader title="互动学习创作" subtitle="NARAGENT STUDIO" />}
+      footer={<SiteFooter />}
       navigation={({ collapsed, onToggle }) => <PracticeNavigation loggedIn={loggedIn} busy={busy}
         serverReady={serverReady} serverChecked={serverChecked} ownerId={sessionUserId} activeConversationId={conversationId ?? null} collapsed={collapsed} onToggle={onToggle}
         onNewConversation={beginNewConversation} />}

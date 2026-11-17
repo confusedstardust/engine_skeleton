@@ -3,13 +3,13 @@
 import { type CSSProperties, type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import styles from "./practice.module.css";
 import { GripVertical } from "lucide-react";
+import { workspaceSidebarWidth } from "@narrativeos/ui/app-links";
 
 const HANDLE = 10;
 const MIN_NAV = 180;
 const MAX_NAV = 284;
 const MIN_CHAT = 310;
 const MIN_PREVIEW = 370;
-const DEFAULT_NAV = 204;
 const DEFAULT_CHAT_SHARE = 0.36;
 
 function bounded(value: number, low: number, high: number) {
@@ -77,14 +77,16 @@ function DragHandle({ kind, value, min, max, onChange, onDragMove, disabled = fa
  * Mobile reuses the existing overlay inspector instead of forcing tiny columns.
  */
 export default function ResizableWorkspace({
-  navigation, chat, inspector, userId,
+  navigation, header, footer, chat, inspector, userId,
 }: {
   navigation: ReactNode | ((state: { collapsed: boolean; onToggle: () => void }) => ReactNode);
+  header: ReactNode;
+  footer: ReactNode;
   chat: ReactNode;
   inspector?: ReactNode;
   userId: string | null;
 }) {
-  const [navWidth, setNavWidth] = useState(DEFAULT_NAV);
+  const [navWidth, setNavWidth] = useState(workspaceSidebarWidth);
   const [chatShare, setChatShare] = useState(DEFAULT_CHAT_SHARE);
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -93,15 +95,14 @@ export default function ResizableWorkspace({
 
   useEffect(() => {
     // Match the resource plaza: a compact rail is the mobile default.
-    setNavCollapsed(window.matchMedia("(max-width:760px)").matches);
+    setNavCollapsed(window.matchMedia("(max-width:800px)").matches);
   }, []);
 
   useEffect(() => {
     if (!userId) { setLoaded(false); return; }
     try {
       const raw = localStorage.getItem(`narrativeos:practice:layout:v1:${userId}`);
-      const data = raw ? JSON.parse(raw) as { nav?: number; chat?: number; collapsed?: boolean } : null;
-      if (data && Number.isFinite(data.nav)) setNavWidth(bounded(data.nav!, MIN_NAV, MAX_NAV));
+      const data = raw ? JSON.parse(raw) as { chat?: number; collapsed?: boolean } : null;
       if (data && Number.isFinite(data.chat)) setChatShare(bounded(data.chat!, 0.24, 0.68));
       if (typeof data?.collapsed === "boolean") setNavCollapsed(data.collapsed);
     } catch { /* Storage may be disabled. */ }
@@ -112,9 +113,9 @@ export default function ResizableWorkspace({
     if (!loaded || !userId) return;
     try {
       localStorage.setItem(`narrativeos:practice:layout:v1:${userId}`,
-        JSON.stringify({ nav: navWidth, chat: chatShare, collapsed: navCollapsed }));
+        JSON.stringify({ chat: chatShare, collapsed: navCollapsed }));
     } catch { /* Resize works even without persistent preferences. */ }
-  }, [navWidth, chatShare, navCollapsed, userId, loaded]);
+  }, [chatShare, navCollapsed, userId, loaded]);
 
   const effectiveNavWidth = navCollapsed ? 64 : navWidth;
 
@@ -134,21 +135,25 @@ export default function ResizableWorkspace({
     "--studio-preview": `${1 - chatShare}fr`,
   } as CSSProperties;
 
-  return <div ref={layout} style={css}
-    className={`${styles.layout} ${hasInspector ? styles.layoutWithInspector : ""}`}>
-    <div className={styles.navPlaceholder} aria-hidden="true" />
-    {typeof navigation === "function" ? navigation({ collapsed: navCollapsed, onToggle: () => setNavCollapsed(value => !value) }) : navigation}
-    <DragHandle kind="navigation" value={navWidth} min={MIN_NAV} max={MAX_NAV} disabled={navCollapsed}
-      onChange={setNavWidth} onDragMove={x => {
-        const bounds = layout.current?.getBoundingClientRect();
-        if (bounds) setNavWidth(bounded(x - bounds.left, MIN_NAV, MAX_NAV));
-      }} />
-    {chat}
-    {hasInspector && <>
-      <DragHandle kind="preview" value={chatShare * 100} min={24} max={68}
-        onChange={percent => setChatShare(percent / 100)}
-        onDragMove={movePreview} />
-      {inspector}
-    </>}
+  return <div data-workspace-frame style={css} className={styles.studioFrame}>
+    <div className={styles.studioHeader}>{header}</div>
+    <div ref={layout}
+      className={`${styles.layout} ${hasInspector ? styles.layoutWithInspector : ""}`}>
+      <div className={styles.navPlaceholder} aria-hidden="true" />
+      {typeof navigation === "function" ? navigation({ collapsed: navCollapsed, onToggle: () => setNavCollapsed(value => !value) }) : navigation}
+      <DragHandle kind="navigation" value={navWidth} min={MIN_NAV} max={MAX_NAV} disabled={navCollapsed}
+        onChange={setNavWidth} onDragMove={x => {
+          const bounds = layout.current?.getBoundingClientRect();
+          if (bounds) setNavWidth(bounded(x - bounds.left, MIN_NAV, MAX_NAV));
+        }} />
+      {chat}
+      {hasInspector && <>
+        <DragHandle kind="preview" value={chatShare * 100} min={24} max={68}
+          onChange={percent => setChatShare(percent / 100)}
+          onDragMove={movePreview} />
+        {inspector}
+      </>}
+    </div>
+    <div className={styles.studioFooter}>{footer}</div>
   </div>;
 }

@@ -95,10 +95,7 @@ export default function PublicWorkPage() {
   }, [workId]);
 
   return <main className={styles.page}>
-    <header className={styles.header}>
-      <Link href="/practice">NarrativeOS <span>／ 互动学习作品</span></Link>
-      {player?.isPrivate && <Link className={styles.back} href="/history">返回我的作品</Link>}
-    </header>
+    {player?.isPrivate && <Link className={styles.back} href="/history">我的作品</Link>}
     {loading && <p className={styles.message}>正在读取互动学习作品…</p>}
     {error && !loading && <p role="alert" className={styles.message}>{error}</p>}
     {player && !loading && <section className={styles.content}>

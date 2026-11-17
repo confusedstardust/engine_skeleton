@@ -21,7 +21,7 @@
 | 按钮 / 关闭 | `components/ui/button.tsx`、`components/ui/close-button.tsx` |
 | 全站 Header | `components/workbench-header.tsx`；NarAgent 不自建第二套页头 |
 | 全站 Footer | `components/site-footer.tsx`，在根 `app/layout.tsx` 一次渲染 |
-| 创作侧栏 | `components/ui/workspace-sidebar.tsx`；负责通用链接、折叠、Logo、账号容器 |
+| 创作与广场侧栏 | `@narrativeos/ui/workspace-sidebar`；统一链接、折叠、Logo、推广卡与账号容器 |
 | NarAgent 导航数据 | `app/practice/practice-navigation.tsx`；只关心产品路由和最近作品 |
 | 三栏布局和拖拽 | `app/practice/resizable-workspace.tsx`；属于该工作台特有的交互 |
 | 弹窗 | 已有 `ModalFrame` / `ConfirmDialog` / `CloseButton`，不重复做新 modal |
@@ -44,7 +44,28 @@
 
 ## 跨仓库共享包边界
 
-公共来源仍是 `linchangWeb/packages/narrativeos-ui`。门户使用 0.1.5，而 Forge 当前锁定 0.1.4，因此此次仅复用 **Forge 现有已发布的公共 API**。本次不伪造一个新的跨仓库 Sidebar npm 发布版本；真正双端源代码统一应单独发布升级该包、更新 vendor tarball 与 lockfile、同时验证两端。这也是剩余明确的跨仓库复用工作。
+资源广场和 Forge 的侧栏已接入 `linchangWeb/packages/narrativeos-ui` 中的同一组件（本地打包版本 0.1.9）。两个侧栏的「我的素材」入口都使用现有 `/my-assets` 页面，页面与账号菜单使用同一名称。以资源广场的样式为基准，两端使用 Noto Sans SC，共用「发现灵感、我的创作、我的作品、素材广场」的顺序、图标和 204px 初始宽度。资源广场保留邀请卡，NarAgent 保留新建对话和历史，标签和账号区留在原位，历史条目独立滚动。Forge 构建从 vendor 包及锁文件安装共享组件。Agent 宽度可在当前工作台内拖动，下次进入恢复为广场的默认宽度。此变更尚未部署。
+
+同域部署使用站内路径，默认本机官网与 Forge 分别使用 3000 和 3001，开发服务器的官网与 Forge 分别使用 3002 和 3001。非标准部署由 Forge 的 `NEXT_PUBLIC_SSO_ORIGIN` 和官网的 `NEXT_PUBLIC_WORKBENCH_URL` 分别指定跨站目标。
+
+两个应用的页脚「优质案例」都进入当前环境的教师资源广场，官网保留当前语言。
+
+## 全站页头、页脚和侧栏
+
+共享包 0.2.5 提供 `WorkspaceFrame`、`WorkspaceHeader`、`WorkspaceFooter` 与 `WorkspaceSidebar`。Forge 根布局按路由安装通用外框；Agent 使用相同组件，并由创作布局控制侧栏与预览分栏。linchangWeb 的广场、登录和账号设置通过 `PortalWorkspace` 接入。两个应用各自提供路由、账号适配和页面操作入口。
+
+- 教师资源广场始终隐藏返回按钮。其余页面默认返回上一页，直接打开时回当前环境的教师资源广场。
+- 官网 `/` 和各语言首页沿用门户原有的顶部导航和页脚布局。页脚的「优质案例」仍跳转到教师资源广场。
+- 共享页头使用原资源广场的 60% 底色。侧栏展开时隐藏页头 Logo、标题与说明，收起时一并显示；页头操作保留。主侧栏导航使用紧凑行高，品牌标语始终为单行。
+- 嵌入预览沿用原有隔离和权限，三栏显示在外层。独立 `/play` 由 WebGAL 运行时提供，无平台三栏。
+- Forge 生成工作台保留未保存退出确认；资源广场保留邀请弹窗，页脚继续提供优质案例、Q&A 与公告。
+- 门户首页的「进入工作台」「开始创作」以及底部创作入口打开当前语言的教师资源广场。Forge 与门户的 Q&A、公告都在当前页面弹出，按需读取原数据。门户嵌入 Forge 的 `/support/embed`，由现有应用地址配置确定嵌入来源，Forge 继续使用原问答组件与提问权限。
+
+本地验收覆盖两端生产构建、共享组件与 Agent 回归测试、主要页面单套三栏、移动端折叠、跨应用返回和无历史回退。用模拟作品验证 iframe 外层显示三栏，用本地游戏确认独立 `/play` 返回播放器且无三栏。已登录的账号设置与真实支付未在本次端到端测试中操作。尚未部署。
+
+本地验收已通过两端 TypeScript 检查与共享包校验。Chromium 验证了桌面侧栏折叠、移动端折叠宽度、广场邀请弹窗，以及 30 条模拟会话滚动时标签和账号区的位置。
+
+门户和工作台页脚提供「联系我们」邮件入口。Agent 输入区提供五个单选创作形式，可切换和清除。选项在普通消息提交时附加到正文，继续走现有自动路由。切换会话时清除选项，提交失败保留原正文和选项。
 
 ## 验收门槛
 

@@ -311,7 +311,7 @@ export function useNarConversation({
       setBusy, setActiveTask, setError, conversationTitle]);
 
   async function send(prompt: string, mode: "auto" | "chat" | "html" | "animation" | "edit",
-                      parentArtifact?: string, clarificationAnswer?: ClarificationAnswerV2, selectedArtifact?: string): Promise<boolean> {
+                      parentArtifact?: string, clarificationAnswer?: ClarificationAnswerV2, selectedArtifact?: string, retryDraft = prompt): Promise<boolean> {
     if (!ready || !checked || !loggedIn || posting.current) return false;
     posting.current = true;
     const last = inFlight.current;
@@ -371,7 +371,7 @@ export function useNarConversation({
       if (currentConversation.current !== conversationId) return true;
       // Revert a failed optimistic paint; retain the idempotency key for safe retry.
       setMessages(current => current.filter(message => message.id !== requestId));
-      setDraft(prompt);
+      setDraft(retryDraft);
       setError(e instanceof Error ? e.message : "提交失败，重试会复用相同的请求标识。");
       setBusy(false);
     } finally {

@@ -4,10 +4,9 @@
 import { CloseButton } from '../components/ui/close-button';
 import { Button } from '../components/ui/button';
 import { useToast } from "../components/ui/toast";
-import { WorkbenchHeader, WorkbenchNavigation } from "../components/workbench-header";
+import { WorkbenchHeader } from "../components/workbench-header";
 import { forgeApi as api } from "../lib/api-client";
 import type { Job } from "../domain/jobs";
-import BrandLogo from '../components/brand-logo';
 import { SolutionCard, type Solution } from '../components/solution-card';
 
 
@@ -20,10 +19,7 @@ import * as Switch from "@radix-ui/react-switch";
 import * as Checkbox from "@radix-ui/react-checkbox";
 import { ModelSelect, ActionHint } from "../components/ui/home-controls";
 import { FormSelect } from "../components/ui/form-controls";
-import Link from "next/link";
-import { useAnnouncements } from "../components/announcements";
-import CommunityBoard from "../components/community-board";
-import { AccountMenu } from "../components/account-menu";
+import { useAnnouncements, useQuestions } from "../components/announcements";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
@@ -99,7 +95,6 @@ function getGenerationReadiness(topic: string, sourceText: string) {
 
 function ClassroomGeneratorPage() {
   const router = useRouter();
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<"paste" | "upload" | "library">("paste");
   const [topic, setTopic] = useState("");
   const [sourceText, setSourceText] = useState("");
@@ -211,15 +206,7 @@ function ClassroomGeneratorPage() {
     <>
       <CloudDecorations />
 
-      <WorkbenchHeader title="临场 · AI叙事课堂生成平台" subtitle="NarrativeOS" brandHref={null} wrapBrand={false} label="主导航" accountClassName="nav-login" accountTour="invite" afterNavigation={<> <Button variant="unstyled" className={`hamburger ${mobileOpen ? "open" : ""}`} type="button" onClick={() => setMobileOpen((open) => !open)} aria-label="展开菜单" data-tour="invite">
-          <span />
-          <span />
-          <span />
-        </Button> </>} />
-
-      {mobileOpen && (
-        <WorkbenchNavigation className="mobile-menu" label="移动端导航" accountClassName="mobile-login" accountTour="invite" />
-      )}
+      <WorkbenchHeader title="临场 · AI叙事课堂生成平台" subtitle="NarrativeOS" />
 
       <main className="main-wrapper">
         <section className="page-header" aria-labelledby="page-title">
@@ -373,7 +360,7 @@ const narrativeScenes: NarrativeScene[] = [
   { id: "ip", title: "IP 叙事", description: "让 IP 走进可互动、可延展的叙事世界", icon: "◈", tone: "mint", image: ossImage("scene-ip-narrative.png") },
   { id: "culture", title: "文旅体验", description: "把场所、文化和记忆变成可探索的旅程", icon: "⌂", ready: true, tone: "orange", image: ossImage("scene-cultural-experience.png") },
   { id: "science", title: "科普解谜", description: "在任务和线索中理解科学知识", icon: "⟡", ready: true, tone: "sky", image: ossImage("scene-science-mystery.png") },
-  { id: "assets", title: "素材库", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
+  { id: "assets", title: "素材广场", description: "统一收纳叙事项目中的图片、角色与灵感", icon: "▧", ready: true, tone: "ink", image: ossImage("scene-asset-library.png") }
 ];
 
 const solutions: Solution[] = [
@@ -385,6 +372,7 @@ const solutions: Solution[] = [
 function NarrativeRouterPage() {
   const router = useRouter();
   const openAnnouncements = useAnnouncements();
+  const openQuestions = useQuestions();
   const [pickerOpen, setPickerOpen] = useState(false);
   const notify = useToast();
   const setNotice = (message: string) => notify(message, "info", 3000);
@@ -395,17 +383,14 @@ function NarrativeRouterPage() {
     if (scene.ready) { router.push("/?workspace=1"); return; }
     setNotice(`「${scene.title}」正在准备中，敬请期待。`);
   }
-  return <main className="narrative-router">
+  return <>
+    <WorkbenchHeader title="NarrativeOS">
+      <Button variant="unstyled" type="button" className="router-notice-button" onClick={openAnnouncements}>公告</Button>
+      <Button variant="unstyled" type="button" className="router-notice-button" onClick={openQuestions}>Q&amp;A</Button>
+    </WorkbenchHeader>
+    <main className="narrative-router">
     <section className="router-hero" aria-labelledby="router-title">
       <div className="router-orb router-orb-one" /><div className="router-orb router-orb-two" />
-      <header className="router-nav"><Link className="router-brand" href="/" aria-label="NarrativeOS 首页"><span className="router-brand-mark"><BrandLogo rounded={false} /></span><span>NarrativeOS</span></Link><nav aria-label="首页导航"><Button variant="unstyled" type="button" className="router-notice-button" onClick={openAnnouncements}>公告</Button><a href="#community" onClick={event => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        const section = document.getElementById("community");
-        if (!section) return;
-        event.preventDefault();
-        section.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-        if (window.location.hash !== "#community") window.history.pushState(window.history.state, "", "#community");
-      }}>Q&amp;A</a><AccountMenu /></nav></header>
       <div className="router-hero-copy"><p className="router-kicker">NARRATIVE CREATION STUDIO</p><h1 id="router-title"><span>今天，你想用</span><em>NarrativeOS</em><span>实现什么？</span></h1><p>从一个想法开始，把知识、故事与真实世界变成值得参与的互动体验。</p><Button variant="unstyled" className="router-start" type="button" onClick={() => setPickerOpen(true)}>开始创作 <span aria-hidden="true">↗</span></Button></div>
       <div className="router-constellation" aria-hidden="true"><i /><i /><i /><i /><i /></div>
     </section>
@@ -415,9 +400,9 @@ function NarrativeRouterPage() {
         else setNotice(`NarrativeOS ${solution.name} 的${solution.id === 'plus' ? '专属' : '行业'}方案正在筹备中。`);
       }} />)}
     </div></section>
-    <CommunityBoard />
     {pickerOpen && <ModalFrame title="选择创作场景" onClose={() => setPickerOpen(false)}><div className="scene-dialog-layer" role="presentation" onMouseDown={() => setPickerOpen(false)}><ModalBody><section className="scene-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div className="scene-dialog-head"><div><p>SELECT A SCENE</p><h2 id="scene-dialog-title">你想从哪里开始？</h2></div><CloseButton className="dialog-close" type="button" onClick={() => setPickerOpen(false)} aria-label="关闭" /></div><div className="scene-grid">{narrativeScenes.map((scene) => <Button variant="unstyled" className={`scene-card ${scene.tone}`} type="button" key={scene.id} onClick={() => selectScene(scene)}><img className="scene-cover" src={scene.image} alt="" /><span className="scene-shade" /><span className="scene-icon">{scene.icon}</span><span className="scene-copy"><strong>{scene.title}</strong><small>{scene.description}</small></span>{scene.ready ? <em>立即开始</em> : <em className="soon">即将上线</em>}</Button>)}</div></section></ModalBody></div></ModalFrame>}
-  </main>;
+    </main>
+  </>;
 }
 
 function PageContent() {

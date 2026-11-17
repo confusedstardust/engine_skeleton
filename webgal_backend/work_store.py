@@ -6,14 +6,21 @@ before a work enters the user's long-term library. Files are immutable by versio
 """
 from __future__ import annotations
 
-import fcntl
+import errno
 import logging
+import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .config import settings
 from .storage import read_json, utc_now, write_json
@@ -34,13 +41,29 @@ class WorkStore:
 
     @contextmanager
     def locked(self):
-        # Linux flock works across concurrent Uvicorn worker processes.
-        with (self.root / ".write.lock").open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        # Lock the same file across Uvicorn workers, including on Windows.
+        with (self.root / ".write.lock").open("a+b") as handle:
+            fd = handle.fileno()
+            if os.name == "nt":
+                # Byte-range locks use the current offset and can extend past EOF.
+                handle.seek(0)
+                while True:
+                    try:
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError as exc:
+                        if exc.errno != errno.EACCES:
+                            raise
+                        time.sleep(0.05)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_EX)
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                if os.name == "nt":
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
 
     def path(self, work_id: str) -> Path:
         if not IDENTIFIER.fullmatch(work_id):

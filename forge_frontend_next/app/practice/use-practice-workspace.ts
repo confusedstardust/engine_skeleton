@@ -25,6 +25,9 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   const router = useRouter();
   const [messages, setMessages] = useState<PracticeMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [creationFormat, setCreationFormat] = useState<string | null>(null);
+  const creationPrefix = creationFormat ? `创作形式：${creationFormat}\n` : "";
+  const draftLimit = 12000 - creationPrefix.length;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loginRequired, setLoginRequired] = useState(false);
@@ -97,7 +100,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     if (conversationId) return;
     setMessages([]); setWorkPreviews({});
     setSelectedArtifactId(null); setCurrentArtifactId(null);
-    setError(""); setDraft(""); setSessionReady(false);
+    setError(""); setDraft(""); setCreationFormat(null); setSessionReady(false);
   }, [workspaceScope, conversationId, setPublishArtifactId, setMetadataArtifactId, setRevokeArtifactId, setShareData]);
 
   useEffect(() => {
@@ -124,8 +127,9 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
   }, [authReady, server.checked, loggedIn, workspaceScope, conversationId]);
 
   async function send(promptOverride?: string, clarificationAnswer?: ClarificationAnswerV2) {
-    const prompt = (promptOverride ?? draft).trim();
-    if (!prompt || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
+    const message = (promptOverride ?? draft).trim();
+    const prompt = promptOverride === undefined ? creationPrefix + message : message;
+    if (!message || prompt.length > 12000 || busy || !authReady || !loggedIn || !sessionReady || !server.checked) return;
     if (!server.ready) {
       setError("会话数据库尚未准备好，请检查 002_nar_conversation_history.sql 和 003_nar_conversation_pins.sql；消息不会保存在浏览器。");
       return;
@@ -134,7 +138,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     // Preserve the identity of the selected or latest work, including Anatomy animation.
     // The server decides whether the user requests a revision or a new work.
     const parent = selected?.artifactId ?? server.artifacts[0]?.artifactId;
-    await server.send(prompt, "auto", parent, clarificationAnswer, selectedArtifactId ?? undefined);
+    await server.send(prompt, "auto", parent, clarificationAnswer, selectedArtifactId ?? undefined, message);
   }
 
   function savedCardWorkId(work: GeneratedWork): string | undefined {
@@ -151,6 +155,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
     }
     // A session is created by its first valid user input, not by a sidebar click.
     setDraft("");
+    setCreationFormat(null);
     setError("");
     setMessages([]);
     setWorkPreviews({});
@@ -161,7 +166,7 @@ export function usePracticeWorkspace(workspaceScope = "general", conversationId?
 
   const savedWorkCount = Object.values(workPreviews).filter(work => Boolean(work.workId)).length;
   return {
-    workspaceScope, messages, draft, setDraft, busy, error, loginRequired, loggedIn,
+    workspaceScope, messages, draft, setDraft, creationFormat, setCreationFormat, draftLimit, busy, error, loginRequired, loggedIn,
     sessionUserId, userAvatarUrl, userInitial, sessionReady, authReady, progress, activeTask, workPreviews,
     selectedWork, publishWork, metadataWork, selectedArtifactId, setSelectedArtifactId,
     currentArtifactId, setCurrentArtifactId, end, input, savedWorkCount, send,

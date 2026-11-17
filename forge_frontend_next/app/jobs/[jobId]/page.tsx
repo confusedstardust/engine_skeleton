@@ -3,8 +3,8 @@ import { EmptyState } from '../../../components/ui/state';
 import { InlineFeedback } from '../../../components/ui/feedback';
 
 import { Button } from '../../../components/ui/button';
-import { WorkbenchHeader } from '../../../components/workbench-header';
-import type { MouseEvent } from 'react';
+import { useCallback } from 'react';
+import { useWorkspaceLeaveConfirmation } from '../../../components/workspace-leave-guard';
 
 import { use } from 'react';
 
@@ -97,12 +97,8 @@ function JobWorkspace({ jobId }: { jobId: string }) {
     updateScene,
   } = useJobWorkspace(jobId);
 
-  const handleNavigation = async (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!(planDirty || scenesDirty || assetPromptDirty)) return;
-    event.preventDefault();
-    const target = event.currentTarget.href;
-    if (await confirm('还有未保存的修改，确定离开吗？')) window.location.assign(target);
-  };
+  const confirmLeave = useCallback(() => confirm('还有未保存的修改，确定离开吗？'), [confirm]);
+  useWorkspaceLeaveConfirmation(planDirty || scenesDirty || assetPromptDirty ? confirmLeave : null);
 
   if (!data) {
     return (
@@ -117,13 +113,6 @@ function JobWorkspace({ jobId }: { jobId: string }) {
 
   return (
     <>
-      <WorkbenchHeader
-        title="临场 · 生成工作台"
-        label="任务导航"
-        returnHref="/history"
-        onNavigate={handleNavigation}
-      />
-
       <main className="main-wrapper workspace-wrapper">
         <section className="workflow-head">
           <div>

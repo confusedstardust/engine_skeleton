@@ -173,7 +173,7 @@ export default function HistoryPage() {
   return (
     <>
       <ConfirmDialog open={Boolean(deleteJob)} title="删除任务" description="确定删除这个任务吗？删除后原游戏链接将无法访问，已发布到教师广场的作品会同时下架。" error={deleteError} busy={Boolean(actionBusy)} onCancel={() => setDeleteJob(null)} onConfirm={() => void removeJob()} />
-      <WorkbenchHeader title="临场 · 我的作品" subtitle="MY WORKS" brandHref="/?workspace=1" label="记录导航" accountClassName="nav-login">
+      <WorkbenchHeader title="临场 · 我的作品" subtitle="MY WORKS">
 <Link href="/?workspace=1">新建任务</Link>
 </WorkbenchHeader>
 

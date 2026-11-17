@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Grid2X2, PenLine, Plus, Sparkles, Star, BookOpen } from "lucide-react";
+import { Plus, Sparkles, FolderOpen, BookOpen } from "lucide-react";
+import { accountMessages } from "@narrativeos/ui/i18n";
 import BrandLogo from "../../components/brand-logo";
 import PracticeHistoryList from "./practice-history-list";
 import { useEffect, useState } from "react";
@@ -9,7 +10,8 @@ import { CONVERSATION_STALE_MS, getConversationQuery, peekConversationQuery, set
 import { AccountMenu } from "../../components/account-menu";
 import { Button } from "../../components/ui/button";
 import { LoadingState } from "../../components/ui/state";
-import { WorkspaceSidebar } from "../../components/ui/workspace-sidebar";
+import { useBrowserOrigin, WorkspaceSidebar } from "@narrativeos/ui/workspace-sidebar";
+import { portalHref } from "@narrativeos/ui/app-links";
 import { conversationApi, type ConversationSummary, type ConversationArtifact } from "../../lib/conversation-api";
 import styles from "./practice.module.css";
 import navStyles from "./practice-navigation.module.css";
@@ -31,6 +33,8 @@ export default function PracticeNavigation({
   onToggle: () => void;
   onNewConversation: () => void;
 }) {
+  const origin = useBrowserOrigin();
+  const plaza = portalHref("/teacher-ecosystem/", origin, process.env.NEXT_PUBLIC_SSO_ORIGIN);
   const [view, setView] = useState<View>("conversations");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [artifacts, setArtifacts] = useState<ConversationArtifact[]>([]);
@@ -106,20 +110,21 @@ export default function PracticeNavigation({
   return <WorkspaceSidebar
     className={styles.sidebar} ariaLabel="创作工作台导航"
     expanded={!collapsed} onToggle={onToggle}
-    links={[
-      { label: "发现灵感", href: "https://www.narrativeos.cn/teacher-ecosystem/", icon: <Grid2X2 aria-hidden="true" />, external: true },
-      { label: "互动学习创作", href: "/practice", icon: <Sparkles aria-hidden="true" />, current: true },
+    toggleLabel={collapsed ? "展开侧栏" : "收起侧栏"}
+    brandHref="/" tagline="创造新的知识互动体验" LinkComponent={Link}
+    logo={size => <BrandLogo size={size} rounded={size === 64} />}
+    links={{
+      discover: { href: plaza, external: true },
+      create: { href: "/practice", current: true },
+      works: { href: "/history" },
+      assets: { href: "/assets" },
+    }}
+    secondaryLinks={[
       { label: "讲练工具", href: "/practice/resources", icon: <BookOpen aria-hidden="true" /> },
-      { label: "我的作品", href: "/history", icon: <PenLine aria-hidden="true" /> },
-      { label: "我的收藏", href: "https://www.narrativeos.cn/teacher-ecosystem/?view=favorites", icon: <Star aria-hidden="true" />, external: true },
+      { label: accountMessages["zh-CN"].myAssets, href: "/my-assets", icon: <FolderOpen aria-hidden="true" /> },
     ]}
     action={{ label: "新建对话", icon: <Plus aria-hidden="true" />, disabled: busy, onClick: onNewConversation }}
-    promo={<a className={navStyles.promo} href="https://www.narrativeos.cn/teacher-ecosystem/">
-      <strong>好灵感，一起分享</strong>
-      <span>去资源广场发现更多有趣的学习作品</span>
-      <BrandLogo size={64} rounded={false} />
-    </a>}
-    footer={<AccountMenu />}>
+    footer={<AccountMenu dock />}>
     <section className={navStyles.navRecents} aria-label="历史会话和产物">
       {loggedIn && serverReady ? <>
         <div className={navStyles.historyTabs} role="tablist" aria-label="历史分类">
@@ -128,11 +133,12 @@ export default function PracticeNavigation({
           <Button variant="unstyled" role="tab" aria-selected={view === "artifacts"}
             onClick={() => setView("artifacts")}>产物</Button>
         </div>
-        {view === "conversations" && busy && !activeConversationId &&
-          <div className={navStyles.navRecentItem} role="status" aria-live="polite">
-            <span className={navStyles.navBookWorking}><BookOpen size={17} strokeWidth={1.65} aria-hidden="true" /></span>
-            <span>正在理解需求…</span>
-          </div>}
+        <div className={navStyles.historyList}>
+          {view === "conversations" && busy && !activeConversationId &&
+            <div className={navStyles.navRecentItem} role="status" aria-live="polite">
+              <span className={navStyles.navBookWorking}><BookOpen size={17} strokeWidth={1.65} aria-hidden="true" /></span>
+              <span>正在理解需求…</span>
+            </div>}
         {view === "conversations" ?
           <PracticeHistoryList items={conversations} ownerId={ownerId}
             activeConversationId={activeConversationId} activeBusy={busy} /> : artifacts.map(item =>
@@ -149,6 +155,7 @@ export default function PracticeNavigation({
         {error && <p className={navStyles.navEmpty} role="alert">{error}</p>}
         {(view === "conversations" ? nextConversations : nextArtifacts) &&
           <Button variant="ghost" size="sm" disabled={loading} onClick={() => { void more(); }}>加载更多</Button>}
+        </div>
       </> : <p className={navStyles.navEmpty}>
         {!loggedIn ? "请先登录以查看历史对话。" :
           !serverChecked ? "正在检查会话数据库…" :

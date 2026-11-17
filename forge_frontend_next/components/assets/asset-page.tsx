@@ -121,10 +121,10 @@ export default function AssetsPage({ personal = false }: { personal?: boolean })
   }
 
   return <>
-    <WorkbenchHeader title={personal ? "我的资产" : "素材库"} subtitle="ASSET LIBRARY" />
+    <WorkbenchHeader title={personal ? "我的素材" : "素材广场"} subtitle={personal ? "MY MATERIALS" : "ASSET PLAZA"} />
     <main className="main-wrapper asset-library-wrapper asset-library-page">
-      <section className="page-header asset-library-head"><div><p className="router-kicker">ASSET LIBRARY</p><h1>{personal ? "我的资产" : "素材库"}</h1></div></section>
-      <section className="asset-library-filters" aria-label="素材来源" hidden={!personal}>{[["uploads", "我的上传"], ["favorites", "我的收藏"]].map(([value, label]) => <Button variant="unstyled" key={value} className={collection === value ? "active" : ""} onClick={() => { setCollection(value); }}>{label}</Button>)}</section>
+      <section className="page-header asset-library-head"><div><p className="router-kicker">{personal ? "MY MATERIALS" : "ASSET PLAZA"}</p><h1>{personal ? "我的素材" : "素材广场"}</h1></div></section>
+      <section className="asset-library-filters" aria-label="素材来源" hidden={!personal}>{[["uploads", "我的上传"], ["favorites", "收藏的素材"]].map(([value, label]) => <Button variant="unstyled" key={value} className={collection === value ? "active" : ""} onClick={() => { setCollection(value); }}>{label}</Button>)}</section>
       <section className="asset-library-filters" aria-label="素材筛选">{["ALL", "BACKGROUND", "FIGURE", "BGM"].map((kind) => <Button variant="unstyled" className={filter === kind ? "active" : ""} key={kind} onClick={() => { setFilter(kind); setCategory(""); }}>{kind === "ALL" ? "全部" : labels[kind]}</Button>)}</section>
       <form className="asset-library-search" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}><FormSelect value={category} ariaLabel="素材分类" options={[{value:"",label:"全部分类"}, ...assetCategories.filter((item) => item.kinds.some(kind => kind !== "VOICE") && (filter === "ALL" || item.kinds.includes(filter)))]} onValueChange={(value) => {setCategory(value);}} /><input type="search" aria-label="搜索素材" placeholder="搜索名称、分类或标签" value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (!value) { setQuery(""); } }} /><Button variant="primary" type="submit">搜索</Button></form>
       {!loading && !feedError && visible.length === 0 ? <EmptyState className="history-empty"><strong>{query ? "没有找到匹配的素材" : "这里还没有素材"}</strong>{personal ? <span>上传或收藏对应素材后，可以在作品中选用。</span> : null}<Link className="btn primary" href="/?workspace=1">开始创作</Link></EmptyState> : null}

@@ -94,7 +94,7 @@ export function createJobAssetActions(context: AssetActionContext) {
     replaceFilename?: string,
   ): Promise<boolean> {
     setBusy(true);
-    setMessage(`正在从素材库调用「${asset.name}」...`);
+    setMessage(`正在从素材广场调用「${asset.name}」...`);
     try {
       await api(`/jobs/${jobId}/assets/from-library`, {
         method: 'POST',
@@ -105,12 +105,12 @@ export function createJobAssetActions(context: AssetActionContext) {
           base_revision: data?.job.draft_revision ?? 0,
         }),
       });
-      setMessage(target === 'bgm' ? '素材库音乐已加入当前作品。' : '素材库图片已替换当前草稿素材。');
-      notify?.(target === 'bgm' ? '素材库音乐已加入当前作品。' : '素材库图片已替换当前草稿素材。', 'success');
+      setMessage(target === 'bgm' ? '素材广场音乐已加入当前作品。' : '素材广场图片已替换当前草稿素材。');
+      notify?.(target === 'bgm' ? '素材广场音乐已加入当前作品。' : '素材广场图片已替换当前草稿素材。', 'success');
       await refresh(true);
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '调用素材库失败。');
+      setErrorMessage(error instanceof Error ? error.message : '调用素材广场失败。');
       return false;
     } finally {
       setBusy(false);

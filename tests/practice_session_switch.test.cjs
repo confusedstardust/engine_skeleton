@@ -54,14 +54,13 @@ test("query changes isolate React state; saved work deep links load only owner-c
 
 test("loading icon and plaza-style full viewport sidebar reuse shared controls", () => {
   const chat = file(base + "practice-chat.tsx");
-  const side = file("forge_frontend_next/components/ui/workspace-sidebar.module.css");
+  const side = file("forge_frontend_next/node_modules/@narrativeos/ui/workspace-sidebar.module.css");
   const studio = file(base + "practice.module.css");
   assert.match(chat, /import \{ LoadingState \} from "\.\.\/\.\.\/components\/ui\/state"/);
   assert.doesNotMatch(chat, /className=\{styles\.runningRow\}/);
   assert.match(chat, /streamText && <article/);
   const history = file(base + "practice-history-list.tsx");
   assert.match(history, /navBookWorking/);
-  assert.match(side, /border-right:1px solid/);
-  assert.match(side, /border-radius:0/);
-  assert.match(studio, /\.layout \.sidebar\{position:fixed!important;inset:0 auto 0 0;z-index:120/);
+  assert.match(side, /border-right: 1px solid/);
+  assert.match(studio, /\.layout \.sidebar\{position:fixed;inset:0 auto 0 0;.*height:100dvh/);
 });
