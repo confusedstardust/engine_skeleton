@@ -1,5 +1,5 @@
 // Trusted entrypoint, used only inside a disposable network-disabled container.
-import { writeFileSync, renameSync, lstatSync, readFileSync } from 'node:fs';
+import { chmodSync, writeFileSync, renameSync, lstatSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { checkPage } from './browser-check.mjs';
 setTimeout(() => { console.error('sandbox watchdog: 105s limit'); process.exit(124); }, 105000);
@@ -8,6 +8,9 @@ const source = Buffer.from(process.argv[2] || '', 'base64').toString('utf8');
 const kind = process.argv[3] || 'animation';
 const report = { passed: false, stage: 'source', checks: {}, visual_review: 'not_performed', teaching_review: 'not_performed' };
 try {
+  // Some Docker hosts mount these tmpfs directories with the default mode.
+  chmodSync('/results', 0o700);
+  chmodSync('/work', 0o777);
   if (!source || Buffer.byteLength(source) > 96000) throw new Error('Invalid build source size');
   if (!['animation', 'html'].includes(kind)) throw new Error('Invalid sandbox build kind');
   report.kind = kind;
