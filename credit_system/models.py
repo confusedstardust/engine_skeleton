@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,3 +30,5 @@ class CreditReservation:
     units: int
     status: str
     created: bool
+    # Frozen server-owned price quote; optional for legacy/test reservations.
+    pricing_snapshot: dict[str, Any] | None = None

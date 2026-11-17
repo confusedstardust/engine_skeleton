@@ -12,9 +12,24 @@
 
 如果后续实现发生变化，请优先更新这份 README，再考虑是否同步更新其他辅助文档。
 
-## 功能与部署文档
+## 架构与演进文档入口
 
-- [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、多选标签、首屏截图封面、广场发布及隔离体验；实施与部署状态见专题文档。
+- [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、标签、封面、发布和隔离体验；状态详见专题文档。
+
+- [飞书知识库首页](https://my.feishu.cn/wiki/PoQgw5HWTiImkxkuyYrck6iInsh) / [飞书协作与文档迁移](refactor/lark-workflow.md)：应用绑定、用户授权、私有知识库创建和首页读写已验证；完整消息任务往返及专题批量迁移尚待完成。[文档迁移登记](refactor/lark-document-map.csv)。
+- [课堂答题生产表补建记录](refactor/classroom-quiz-production-schema.md)：2026-11-01 已补建并验证7张生产表，线上完整答题流程待验证。
+
+- [NarAgent → WebGAL RPG Auto 接入](refactor/nar-agent-webgal-rpg-auto-integration.md)：游戏意图、确认卡、现有 WebGAL Auto 调用、独立积分与灰度验收；**待测试与发布，非已部署**。
+- [NarAgent 与临场动画方案](refactor/nar-agent-architecture.md)：产品方向、服务边界与实施状态；开发骨架已建立，动画尚未接入。
+- [NarAgent 启动与验证](nar_agent/README.md) / [后续实施清单](refactor/nar-agent-implementation-backlog.md)：Deep Agents SDK 独立服务，以及计量、持久化、成本、积分与产物存储的验收任务。
+- [anatomy 接入与部署](refactor/nar-agent-deployment.md)：固定版本、临时执行容器、预览、CI 发布检查和服务器首次启用步骤；真实 Docker 与生产验收尚待完成。
+- Windows 本地三服务启动：首次运行 `uv sync --project nar_agent --frozen`、`python tools/configure_nar_agent_local.py`，再运行 `start_forge_full.bat`；使用前关闭占用 3001/8010/8020 的旧开发服务。
+- 启动后可通过前端 `http://127.0.0.1:3001`、Forge 后端 `http://127.0.0.1:8010/health` 和 NarAgent `http://127.0.0.1:8020/health` 验证三项服务。任一服务退出时，启动器会关闭其余服务，具体原因见对应服务的日志。
+- [前端 workspace 分阶段重构](refactor/frontend-workspace-plan.md)：共享 UI、仓库组织及构建迁移的分阶段计划；不代表目标结构已经落地。
+- [NarAgent UI 统一与 main 同步记录](refactor/practice-ui-unification.md)：路由、业务 Hook、组件复用、与教师资源广场的共用边界及回归检查。
+- [会话认证流程](refactor/session-auth-flow.md)：认证相关流程与实现说明。
+
+README 继续作为项目总入口；专题文档记录细节。修改相关实现时同步更新对应文档和验收状态，明确区分计划、已实现、已验证与已部署。
 
 ---
 
@@ -1319,6 +1334,6 @@ npm run dev
 
 Admin 的「教学资源」列表可将已发布到教师资源广场的游戏和 HTML 资源设为讲练工具或移出。两类资源通过 `job_id` 共用 MySQL 中的 `teacher_works.is_practice_tool`，与广场精选独立。游戏写入接口为 `PUT /api/forge/admin/games/{job_id}/practice-tool`，HTML 写入接口为 `PUT /api/forge/admin/html-resources/{id}/practice-tool`。请求体为 `{"enabled":true}` 或 `{"enabled":false}`，操作有管理员审计，保存成功后只更新当前行。
 
-从首页进入「讲练工具」的 `/practice` 页面时请求 `GET /api/forge/practice-tools`。结果按发布时间倒序，包含已发布、已标记且可访问的游戏和 HTML 资源。取消发布或下架时隐藏，恢复后沿用原标记。HTML 资源通过现有独立播放器打开；作品有习题链接时另显示习题入口。
+进入「讲练工具」的 `/practice/resources` 页面时请求 `GET /api/forge/practice-tools`。结果按发布时间倒序，包含已发布、已标记且可访问的游戏和 HTML 资源。取消发布或下架时隐藏，恢复后沿用原标记。HTML 资源通过现有独立播放器打开；作品有习题链接时另显示习题入口。
 
 部署前先在目标环境共用的 MySQL 中应用 linchangWeb 的 Prisma 迁移 `20261113000000_add_practice_tool_flag`，再部署 Forge 后端和工作台前端。发布后检查 Admin 设置与移出、首页按需加载，以及取消发布后隐藏和重新发布后恢复。

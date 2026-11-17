@@ -240,6 +240,7 @@ class WebGALPipeline:
                 self._sync_auto_job_status(job, "RUNNING", phase)
                 self._phase_handler(phase)(job)
             self._rewrite_runtime_asset_urls(job)
+            self._sync_title_bgm(self.store.job_dir(job_id) / "public" / "game")
             self._publish_asset_version(job)
             self.store.transition(job, "DONE", None)
             self.store.mark_build_complete(job)
@@ -511,6 +512,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             fill_empty_title_image(game_dir)
             self.run_validation(job)
             self._rewrite_runtime_asset_urls(job)
+            self._sync_title_bgm(game_dir)
             self._publish_asset_version(job)
         except Exception:
             if had_published_build and backup_dir.exists():
@@ -538,6 +540,8 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             raise PipelineError("draft changes can only be applied after the first game build")
 
         dirty_scopes = {str(scope) for scope in job.get("dirty_scopes", []) if str(scope)}
+        if self._response_scenes_needing_rebuild(job_dir):
+            dirty_scopes.add("scenes")
         supported_scopes = {"scenes", "assets", "music", "voices", "effects"}
         unsupported_scopes = sorted(dirty_scopes - supported_scopes)
         if unsupported_scopes:
@@ -580,6 +584,7 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
             fill_empty_title_image(game_dir)
             self.run_validation(job)
             self._rewrite_runtime_asset_urls(job)
+            self._sync_title_bgm(game_dir)
             self._publish_asset_version(job)
         except Exception:
             if game_dir.exists():
@@ -636,11 +641,39 @@ Return JSON only. Do not call tools. Do not wrap the result in Markdown fences."
 
         draft_by_file = by_file(draft)
         published_by_file = by_file(published)
-        return {
+        return self._response_scenes_needing_rebuild(job_dir) | {
             scene_file
             for scene_file in set(draft_by_file) | set(published_by_file)
             if draft_by_file.get(scene_file) != published_by_file.get(scene_file)
         }
+
+    def _response_scenes_needing_rebuild(self, job_dir: Path) -> set[str]:
+        """Old running workers could publish drafts while dropping responses.
+
+        Equal published/draft JSON is insufficient evidence that these blocks
+        exist in the playable script. Check compiler capability and actual labels.
+        """
+        from .choice_responses import has_responses, lower_choice_responses
+
+        draft_path = job_dir / "state" / "game_design_completed.json"
+        if not draft_path.exists():
+            return set()
+        draft = read_json(draft_path)
+        plan_path = job_dir / "state" / "script_compile_plan.json"
+        plan = read_json(plan_path) if plan_path.exists() else {}
+        rebuild = set()
+        for scene in draft.get("scenes", []):
+            lines = scene.get("lines", [])
+            if not any(has_responses(line) for line in lines if isinstance(line, dict)):
+                continue
+            name = str(scene.get("scene_file") or scene.get("header") or "").strip()
+            path = job_dir / "public" / "game" / "scene" / name
+            script = path.read_text(encoding="utf-8") if path.is_file() else ""
+            lowered = lower_choice_responses(lines, name)
+            labels = [line["text"] for line in lowered if line.get("kind") == "branch" and str(line.get("id") or "").startswith("response_")]
+            if plan.get("choice_response_version") != 1 or any(f"label:{label};" not in script for label in labels):
+                rebuild.add(name)
+        return rebuild
 
     def _write_selected_scene_files(self, job_dir: Path, text: str, selected_files: set[str]) -> list[str]:
         import re
@@ -2671,6 +2704,29 @@ The top-level JSON object must have exactly this key: "{artifact_key}"."""
             available = {path.name for path in bgm_files}
             lines[3] = f"Title_bgm:{opening_bgm if opening_bgm in available else bgm_files[0].name};"
         (game_dir / "config.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self._sync_title_bgm(game_dir)
+
+    @staticmethod
+    def _sync_title_bgm(game_dir: Path) -> None:
+        """Keep title music aligned with the entry scene, including music edits."""
+        scene = game_dir / "scene" / "start.txt"
+        config = game_dir / "config.txt"
+        if not scene.exists() or not config.exists():
+            return
+        asset = ""
+        for line in scene.read_text(encoding="utf-8-sig").splitlines():
+            if line.strip().startswith("bgm:"):
+                asset = line.strip()[4:].split(";", 1)[0].strip().split(" -", 1)[0].strip()
+                if asset.lower() == "none":
+                    asset = ""
+                break
+        lines = config.read_text(encoding="utf-8").splitlines()
+        replacement = f"Title_bgm:{asset};"
+        if any(line.startswith("Title_bgm:") for line in lines):
+            lines = [replacement if line.startswith("Title_bgm:") else line for line in lines]
+        else:
+            lines.append(replacement)
+        config.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _copy_engine_skeleton(self, job_dir: Path) -> None:
         """Copy engine skeleton files (animation, template) to job's game directory."""

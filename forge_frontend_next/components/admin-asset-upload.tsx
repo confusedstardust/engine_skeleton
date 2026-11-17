@@ -95,7 +95,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
       form.reset();
       setFilename('');
       setAttributes({});
-      notify('上传成功，已加入公共素材库', 'success');
+      notify('上传成功，已加入公共素材广场', 'success');
       onUploaded();
       setOpen(false);
     }
@@ -130,7 +130,7 @@ export default function AdminAssetUpload({ onUploaded }: { onUploaded: () => voi
         <form onSubmit={submit}>
           <div className="admin-upload-body">
             <Dialog.Description id="admin-upload-description">
-              添加到平台素材库，供用户浏览、收藏和选用。
+              添加到平台素材广场，供用户浏览、收藏和选用。
             </Dialog.Description>
             <fieldset disabled={busy}>
               <Tabs.Root

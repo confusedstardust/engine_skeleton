@@ -376,9 +376,7 @@ class MySQLCreditStore:
                     or _canonical_json(_json_object(existing["pricing_snapshot"])) != pricing_json
                 ):
                     raise CreditConflictError("Credit operation key was reused with different data")
-                return CreditReservation(
-                    existing["id"], user_id, job_id, operation_key, units, existing["status"], False
-                )
+                return self._reservation_model(existing, created=False)
             cursor.execute(
                 "SELECT id FROM credit_reservations WHERE job_id=%s AND status='RESERVED' FOR UPDATE",
                 (job_id,),
@@ -453,7 +451,134 @@ class MySQLCreditStore:
                     after=after,
                 )
                 remaining -= allocated
-            return CreditReservation(reservation_id, user_id, job_id, operation_key, units, "RESERVED", True)
+            return CreditReservation(reservation_id, user_id, job_id, operation_key, units,
+                                     "RESERVED", True, dict(pricing_snapshot))
+
+    def extend_reservation(self, *, user_id: str, reservation_id: str,
+                           delta_units: int, sequence_no: int,
+                           authorized_total: int) -> CreditReservation:
+        """Idempotent, owner-locked budget extension.
+
+        Only a trusted caller with an already-approved task budget may invoke
+        this. Requires migration 006. No execution code calls it until budget
+        admission is fully implemented and explicitly enabled.
+        """
+        user_id = _validate_user_id(user_id)
+        if not _ID_RE.fullmatch(reservation_id):
+            raise ValueError("Invalid reservation id")
+        delta_units = _positive_units(delta_units)
+        authorized_total = _positive_units(authorized_total)
+        if isinstance(sequence_no, bool) or not isinstance(sequence_no, int) or not 1 <= sequence_no <= 2**31 - 1:
+            raise ValueError("Invalid extension sequence")
+        reservation_id = reservation_id.lower()
+        from .subscriptions import issue_for_user
+        issue_for_user(self, user_id)
+
+        with self._transaction() as cursor:
+            cursor.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user_id,))
+            if cursor.fetchone() is None:
+                raise CreditNotFoundError("User does not exist")
+            cursor.execute("SELECT * FROM credit_reservations "
+                           "WHERE id=%s AND user_id=%s FOR UPDATE", (reservation_id, user_id))
+            row = cursor.fetchone()
+            if row is None:
+                raise CreditNotFoundError("Reservation does not belong to this user")
+            cursor.execute("SELECT delta_credits FROM nar_reservation_extensions "
+                           "WHERE reservation_id=%s AND sequence_no=%s FOR UPDATE",
+                           (reservation_id, sequence_no))
+            prior = cursor.fetchone()
+            if prior:
+                if int(prior["delta_credits"]) != delta_units:
+                    raise CreditConflictError("Extension sequence reused with different amount")
+                return self._reservation_model(row, created=False)
+            if row["status"] != "RESERVED":
+                raise CreditStateError("Cannot extend a settled reservation")
+            updated_total = int(row["units"]) + delta_units
+            if updated_total > authorized_total:
+                raise CreditStateError("Extension exceeds the explicitly authorized budget")
+
+            self._expire_grants_locked(cursor, user_id)
+            credit_line_id = self._ensure_credit_line_locked(cursor, user_id)
+            cursor.execute(
+                """SELECT * FROM entitlement_grants
+                   WHERE user_id=%s AND kind='CREDITS' AND status='ACTIVE'
+                     AND starts_at<=CURRENT_TIMESTAMP(3)
+                     AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP(3))
+                   ORDER BY (expires_at IS NULL),expires_at,created_at,id
+                   FOR UPDATE""", (user_id,),
+            )
+            grants = list(cursor.fetchall())
+            available = sum(int(item["units_available"]) for item in grants)
+            if available - delta_units < -OVERDRAFT_LIMIT:
+                raise InsufficientCreditsError(required=delta_units, available=available)
+            extension_id = _stable_id("nar-reserve-extension-v2", reservation_id, str(sequence_no))
+            cursor.execute("INSERT INTO nar_reservation_extensions "
+                           "(id,reservation_id,sequence_no,delta_credits) VALUES (%s,%s,%s,%s)",
+                           (extension_id, reservation_id, sequence_no, delta_units))
+
+            remaining = delta_units
+            real_grants = [grant for grant in grants if grant["id"] != credit_line_id]
+            credit_line = next(grant for grant in grants if grant["id"] == credit_line_id)
+            for grant in [*real_grants, credit_line]:
+                if remaining == 0:
+                    break
+                capacity = remaining if grant["id"] == credit_line_id else max(
+                    0, int(grant["units_available"]))
+                amount = min(remaining, capacity)
+                if not amount:
+                    continue
+                after = (
+                    int(grant["units_available"]) - amount,
+                    int(grant["units_reserved"]) + amount,
+                    int(grant["units_consumed"]),
+                    int(grant["units_revoked"]),
+                )
+                cursor.execute("UPDATE entitlement_grants "
+                               "SET units_available=%s,units_reserved=%s "
+                               "WHERE id=%s AND user_id=%s",
+                               (after[0], after[1], grant["id"], user_id))
+                cursor.execute("SELECT units FROM credit_allocations "
+                               "WHERE reservation_id=%s AND grant_id=%s FOR UPDATE",
+                               (reservation_id, grant["id"]))
+                previous = cursor.fetchone()
+                if previous:
+                    cursor.execute("UPDATE credit_allocations SET units=%s "
+                                   "WHERE reservation_id=%s AND grant_id=%s",
+                                   (int(previous["units"]) + amount, reservation_id, grant["id"]))
+                else:
+                    cursor.execute("INSERT INTO credit_allocations "
+                                   "(reservation_id,grant_id,user_id,units) VALUES (%s,%s,%s,%s)",
+                                   (reservation_id, grant["id"], user_id, amount))
+                self._insert_ledger(
+                    cursor,
+                    event_key="ext:" + _stable_id(reservation_id, str(sequence_no), grant["id"]),
+                    grant_id=grant["id"], reservation_id=reservation_id,
+                    user_id=user_id, action="RESERVE",
+                    deltas=(-amount, amount, 0, 0), after=after,
+                )
+                remaining -= amount
+            if remaining != 0:
+                raise CreditStateError("Extension allocation was incomplete")
+            cursor.execute("UPDATE credit_reservations SET units=%s "
+                           "WHERE id=%s AND user_id=%s",
+                           (updated_total, reservation_id, user_id))
+            row["units"] = updated_total
+            return self._reservation_model(row, created=False)
+
+    def find_reservation(self, *, user_id: str, job_id: str,
+                         operation_key: str) -> CreditReservation | None:
+        """Owner-scoped read for idempotent external task settlement."""
+        user_id = _validate_user_id(user_id)
+        job_id = _validate_job_id(job_id)
+        operation_key = _validate_operation_key(operation_key)
+        with self._transaction() as cursor:
+            cursor.execute(
+                "SELECT * FROM credit_reservations "
+                "WHERE user_id=%s AND job_id=%s AND operation_key=%s",
+                (user_id, job_id, operation_key),
+            )
+            row = cursor.fetchone()
+        return self._reservation_model(row, created=False) if row else None
 
     def capture(
         self,
@@ -629,4 +754,5 @@ class MySQLCreditStore:
             int(row["units"]),
             row["status"],
             created,
+            _json_object(row["pricing_snapshot"]) if row.get("pricing_snapshot") else None,
         )

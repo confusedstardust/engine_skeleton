@@ -1,0 +1,38 @@
+/* History controls stay visible while the selected list scrolls. */
+.navSectionLabel{font-size:11px;color:#8a8275;letter-spacing:.04em;margin:2px 10px 9px}
+.navRecents{display:flex;flex-direction:column;min-height:0;flex:1}
+.historyList{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#bda98d transparent;padding-inline:2px}
+.navRecentItem{display:flex;align-items:center;gap:10px;padding:10px 9px;text-decoration:none;border-radius:9px;font-size:12px;color:#6c7064;min-width:0}
+.navRecentItem:hover{background:#f4e4c9;color:#9b2335}
+.navRecentItem:focus-visible{outline:2px solid #9b2335;outline-offset:2px}
+.navRecentItem svg{flex:0 0 auto;color:#969a8b}
+.navRecentItem span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navEmpty{color:#8f897e;line-height:1.65;font-size:11px;padding:0 10px}
+
+
+.navRecentItem[aria-current="page"]{background:#f4e4c9;color:#9b2335;font-weight:600}
+
+.historyTabs{flex:none;display:flex;align-items:center;gap:4px;border-bottom:1px solid #e6dccb;margin:0 0 4px;padding:0 2px 6px}
+.historyTabs button{flex:1;min-height:30px;padding:4px 0;border:0;background:transparent;border-radius:8px;font:inherit;color:#827a6e;font-size:12px;text-align:center}
+.historyTabs button[aria-selected=true]{background:#f4e4c9;color:#9b2335;font-weight:600}
+.historyTabs button:hover{background:#f4e9d8}
+.navLoading{padding:8px 6px;font-size:11px}
+
+/* Server-backed conversation context menu. Rendered in a body portal to avoid sidebar clipping. */
+.pinnedIcon{margin-left:auto;flex:0 0 auto;color:#a87936}
+.renameInput{width:100%;min-width:0;border:1px solid #c9aa7a;border-radius:6px;padding:5px 7px;font:inherit;color:#41372b;background:#fffaf1;outline-color:#9b2335}
+.historyMenu{position:fixed;z-index:1200;display:flex;flex-direction:column;min-width:184px;padding:5px;border:1px solid #e3d9ca;border-radius:10px;background:#fffaf1;box-shadow:0 12px 32px rgba(39,30,20,.18)}
+.historyMenu button{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:0;border-radius:7px;background:transparent;color:#41372b;font-size:13px;text-align:left;cursor:pointer}
+.historyMenu button:hover,.historyMenu button:focus-visible{background:#f4e4c9;outline:none}
+.historyMenu button:disabled{opacity:.5;cursor:not-allowed}
+.historyMenu .historyMenuDanger{color:#aa3742}
+.historyMenu .historyMenuDanger:hover{background:#f9e0dc}
+
+/* The active conversation's book is the only in-progress indicator.
+   No fake assistant message is inserted while the model is thinking. */
+.navBookIdle,.navBookWorking{position:relative;display:inline-flex;flex:0 0 17px;align-items:center;justify-content:center}
+.navBookWorking svg{color:#a26035;transform-origin:center;animation:narBookWorking 1.25s ease-in-out infinite}
+.navBookWorking::after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:#b27f36;right:-4px;top:-3px;animation:narBookDot .9s ease-in-out infinite}
+@keyframes narBookWorking{0%,100%{transform:rotate(-7deg) scale(.96)}50%{transform:rotate(7deg) scale(1.08)}}
+@keyframes narBookDot{0%,100%{opacity:.3}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.navBookWorking svg,.navBookWorking::after{animation:none}}

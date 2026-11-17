@@ -10,7 +10,7 @@ export function AssetSourceActions({ busy, onUpload, onLibrary }: {
 }) {
   return <div className="asset-modal-source-actions">
     <Button variant="outline" className="asset-modal-upload-button" type="button" busy={Boolean(busy)} onClick={onUpload}>{busy ? '正在处理…' : '上传图片'}</Button>
-    <Button variant="outline" className="asset-modal-upload-button" type="button" busy={Boolean(busy)} onClick={onLibrary}>从素材库选择</Button>
+    <Button variant="outline" className="asset-modal-upload-button" type="button" busy={Boolean(busy)} onClick={onLibrary}>从素材广场选择</Button>
   </div>;
 }
 

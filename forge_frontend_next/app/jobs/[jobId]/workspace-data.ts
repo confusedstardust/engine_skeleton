@@ -79,12 +79,14 @@ function isBranchLabel(value: string | undefined) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test((value || "").trim());
 }
 
-function normalizeSceneChoice(choice: Partial<SceneChoice> | string, fallbackIndex: number): SceneChoice {
+function normalizeSceneChoice(choice: Partial<SceneChoice> | string, fallbackIndex: number, parentId: string): SceneChoice {
   if (typeof choice === "string") {
-    return { text: choice, target: `choice_${fallbackIndex}` };
+    return { id: `${parentId}_option_${fallbackIndex}`, text: choice, target: `choice_${fallbackIndex}` };
   }
   const targetSceneFile = choice.target_scene_file || choice.targetSceneFile || "";
   return {
+    id: choice.id || `${parentId}_option_${fallbackIndex}`,
+    response_lines: Array.isArray(choice.response_lines) ? choice.response_lines.map((line, index) => normalizeSceneLine(line, `${parentId}_option_${fallbackIndex}_response_${index}`)) : undefined,
     text: choice.text || "",
     target: choice.target || targetSceneFile || `choice_${fallbackIndex}`,
     target_scene_file: targetSceneFile || undefined
@@ -100,7 +102,7 @@ function normalizeSceneLine(line: Partial<SceneLine>, fallbackId: string): Scene
     speaker: line.speaker || (kind === "dialogue" ? "角色" : kind === "choice" || kind === "branch" ? "分支" : "旁白"),
     text: line.text || "",
     rawPrefix: line.rawPrefix || (kind === "choice" ? "choose" : kind === "branch" ? "branch" : "旁白"),
-    choices: Array.isArray(line.choices) ? line.choices.map((choice, index) => normalizeSceneChoice(choice, index + 1)) : undefined,
+    choices: Array.isArray(line.choices) ? line.choices.map((choice, index) => normalizeSceneChoice(choice, index + 1, line.id || fallbackId)) : undefined,
     branchLabel: kind === "branch" ? line.branchLabel : undefined
   };
 }
@@ -155,7 +157,7 @@ export function serializeGameDesignJson(scenes: SceneDraft[]) {
         ending_type: "endingType" in scene ? (scene as GameDesignDraftScene).endingType || "" : "",
         title: scene.title,
         strtype: scene.strtype || "",
-        lines: scene.lines
+        lines: scene.lines.map(line => line.choices ? { ...line, choices: line.choices.map((choice, index) => normalizeSceneChoice(choice, index + 1, line.id)) } : line)
       }))
     },
     null,

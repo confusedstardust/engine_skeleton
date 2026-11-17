@@ -15,7 +15,7 @@ export { boardApi, type BoardData, type BoardNotice, type BoardQuestion } from "
 
 const commonQuestions = [
   { question: "第一次使用，从哪里开始？", answer: "点击首页的「开始创作」，选择创作场景，再填写主题与材料。已有的创作可以在账号菜单的「我的作品」中继续编辑。" },
-  { question: "素材库和我的资产有什么区别？", answer: "素材库用于浏览平台共享素材；我的资产用于管理自己的上传与收藏，方便在创作时再次选用。" },
+  { question: "素材广场和我的素材有什么区别？", answer: "素材广场用于浏览平台共享素材；我的素材用于管理自己的上传与收藏，方便在创作时再次选用。" },
 ];
 
 export default function CommunityBoard() {

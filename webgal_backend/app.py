@@ -91,15 +91,37 @@ app = FastAPI(title="WebGAL Forge", version="1.0.0", redirect_slashes=False, lif
 from .platform_admin import router as admin_router, blocked as admin_blocked
 from .community import router as community_router
 from .site_visits import router as site_visits_router
+from .html_resources import get_resource as get_html_resource, router as html_resources_router
 app.include_router(community_router)
 app.include_router(site_visits_router)
-
-from .html_resources import get_resource as get_html_resource, router as html_resources_router
-# Specific admin paths must precede platform_admin's /admin/{resource} catch-all.
+# Register concrete HTML resource paths before generic admin routes.
 app.include_router(html_resources_router)
 app.include_router(admin_router)
 from .payments import router as payments_router
 app.include_router(payments_router)
+from .nar_agent_routes import create_router as create_nar_agent_router
+app.include_router(create_nar_agent_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+from .nar_conversation_routes import create_router as create_nar_conversation_router
+app.include_router(create_nar_conversation_router(
+    user_for_request=lambda request: user_from_request(request, settings.workspace_root),
+    # Late-bound, same-process callbacks: reuse the actual JobStore and /run billing.
+    # Never forward user-controlled owner IDs or call anonymous HTTP endpoints.
+    rpg_create=lambda owner, body: store.create(
+        body["source_material"], normalize_generation_options(body["options"]),
+        identity={"type": "sso", "user_id": owner}),
+    rpg_get=lambda owner, job_id: _get_owned_game_by_user(owner, job_id),
+    rpg_run=lambda job_id, request, background_tasks: run_job(
+        job_id, RunJobRequest(background=True), background_tasks, request),
+    rpg_quote=lambda options: estimate_hold(options)[0],
+    rpg_balance=lambda owner: _available_rpg_credits(owner),
+))
+from .works_routes import create_router as create_works_router
+app.include_router(create_works_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+from .work_publication import create_router as create_work_publication_router, create_public_router as create_public_work_router
+app.include_router(create_work_publication_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
+app.include_router(create_public_work_router())
+from .work_sharing import create_router as create_work_share_router
+app.include_router(create_work_share_router(user_for_request=lambda request: user_from_request(request, settings.workspace_root)))
 
 
 @app.get("/practice-tools")
@@ -157,6 +179,13 @@ frontend_url = os.getenv("WEBGAL_FRONTEND_URL", "http://127.0.0.1:3001")
 @lru_cache(maxsize=1)
 def get_credit_service() -> CreditService:
     return CreditService.from_env()
+
+
+def _available_rpg_credits(owner: str) -> int:
+    # Match the existing /credits/balance signup-credit behavior.
+    credits = get_credit_service()
+    credits.ensure_signup_credits(owner)
+    return credits.get_balance(owner).available
 
 
 @lru_cache(maxsize=1)
@@ -330,6 +359,17 @@ def _settle_game_credits(
 
 def _job_belongs_to_identity(job: dict[str, Any], identity: dict[str, str]) -> bool:
     return job_belongs_to_identity(job, identity)
+
+
+def _get_owned_game_by_user(owner: str, job_id: str) -> dict[str, Any]:
+    # A conversation reference never grants access to an unrelated WebGAL Job.
+    try:
+        job = store.get(job_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="游戏不存在或没有访问权限") from None
+    if not _job_belongs_to_identity(job, {"type": "sso", "user_id": owner}):
+        raise HTTPException(status_code=404, detail="游戏不存在或没有访问权限")
+    return job
 
 
 def _get_owned_job_or_404(job_id: str, request: Request) -> dict[str, Any]:

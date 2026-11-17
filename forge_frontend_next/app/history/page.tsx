@@ -12,6 +12,8 @@ import { ConfirmDialog, ModalFrame, ModalBody, useConfirmation } from "../../com
 import { CollectionCard } from "@narrativeos/ui/collection-card";
 import { WorkbenchHeader } from "../../components/workbench-header";
 import { forgeApi as api } from "../../lib/api-client";
+import { workApi, type SavedWork } from "../../lib/work-api";
+import SavedWorksCards from "./saved-works-cards";
 import type { Job } from "../../domain/jobs";
 import { useWorkActions, workTitle as jobTitle, workIsPlayable as playable, workIsBuilding as building } from "../../hooks/use-work-actions";
 
@@ -103,6 +105,8 @@ export default function HistoryPage() {
     }
   }
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [savedWorks, setSavedWorks] = useState<SavedWork[]>([]);
+  const [savedWorksError, setSavedWorksError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [authMissing, setAuthMissing] = useState(false);
@@ -136,6 +140,21 @@ export default function HistoryPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getCurrentUser().then(user => {
+      if (!active || user?.auth_type !== "sso") return;
+      return workApi.list().then(response => {
+        if (active) setSavedWorks(response.works || []);
+      });
+    }).catch(error => {
+      if (active) setSavedWorksError(error instanceof Error ? error.message : "互动作品加载失败");
+    });
+    return () => { active = false; };
+  }, []);
+
+  const filteredSavedWorks = filter === "all" || filter === "done" ? savedWorks : [];
+
   const filteredJobs = useMemo(() => {
     if (filter === "all") return jobs;
     return jobs.filter((job) => statusClass(job.status) === filter);
@@ -143,18 +162,18 @@ export default function HistoryPage() {
 
   const counts = useMemo(
     () => ({
-      all: jobs.length,
+      all: jobs.length + savedWorks.length,
       running: jobs.filter((job) => statusClass(job.status) === "running").length,
-      done: jobs.filter((job) => statusClass(job.status) === "done").length,
+      done: jobs.filter((job) => statusClass(job.status) === "done").length + savedWorks.length,
       failed: jobs.filter((job) => statusClass(job.status) === "failed").length,
     }),
-    [jobs],
+    [jobs, savedWorks],
   );
 
   return (
     <>
       <ConfirmDialog open={Boolean(deleteJob)} title="删除任务" description="确定删除这个任务吗？删除后原游戏链接将无法访问，已发布到教师广场的作品会同时下架。" error={deleteError} busy={Boolean(actionBusy)} onCancel={() => setDeleteJob(null)} onConfirm={() => void removeJob()} />
-      <WorkbenchHeader title="临场 · 我的作品" subtitle="MY WORKS" brandHref="/?workspace=1" label="记录导航" accountClassName="nav-login">
+      <WorkbenchHeader title="临场 · 我的作品" subtitle="MY WORKS">
 <Link href="/?workspace=1">新建任务</Link>
 </WorkbenchHeader>
 
@@ -186,7 +205,8 @@ export default function HistoryPage() {
           </EmptyState>
         ) : null}
         {error ? <InlineFeedback>{error}</InlineFeedback> : null}
-        {!loading && !authMissing && !error && filteredJobs.length === 0 ? (
+        {savedWorksError ? <InlineFeedback>{savedWorksError}</InlineFeedback> : null}
+        {!loading && !authMissing && !error && filteredJobs.length === 0 && filteredSavedWorks.length === 0 ? (
           <EmptyState className="history-empty">
             <strong>暂无记录</strong>
             <span>新建任务后，我的作品会出现在这里。</span>
@@ -194,7 +214,9 @@ export default function HistoryPage() {
           </EmptyState>
         ) : null}
 
-        <section className="history-list" aria-label="生成任务列表">
+        <section className="history-list" aria-label="我的作品列表">
+          <SavedWorksCards works={filteredSavedWorks} setWorks={setSavedWorks} />
+
           {filteredJobs.map((job) => (
             <CollectionCard className="history-row" key={job.id} menuLabel={`作品操作：${jobTitle(job)}`}
               onContextMenu={() => void loadPublication(job)}

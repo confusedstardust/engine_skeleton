@@ -1,0 +1,28 @@
+/* Unified gold task summary: charge, elapsed time and expandable creation stages. */
+.timeline{border:1px solid #e7d9bc;background:#fffdf8;border-radius:14px;overflow:hidden;margin:10px 0 16px;font-size:13px;box-shadow:0 2px 9px #7760390b}
+.timelineToggle{width:100%;min-height:52px;display:flex;align-items:center;gap:10px;text-align:left;border:0;background:linear-gradient(115deg,#fffaf0,#fff1d9);color:#765b30;padding:12px 14px;cursor:pointer;font:inherit;transition:background .2s,box-shadow .2s}
+.timelineToggle:not(.staticSummary):hover,.timelineToggle:not(.staticSummary):focus-visible{background:linear-gradient(115deg,#fff9e9,#f9e8c1);box-shadow:inset 0 0 0 1px #cbb78e;outline:none}
+.staticSummary{cursor:default}
+.timelineHeading{display:inline-flex;align-items:center;gap:8px;font-weight:650;flex:1;min-width:0;overflow-wrap:anywhere}
+.timelineHeading svg{color:#a47a39;flex-shrink:0}
+.timelineElapsed{display:inline-flex;align-items:center;gap:5px;margin-left:auto;white-space:nowrap;font-size:12px;color:#8b795a;font-variant-numeric:tabular-nums}
+.timelineElapsed svg{flex-shrink:0}
+.timelineChevron{display:inline-flex;color:#80683e;flex-shrink:0}
+.timelineList{margin:14px 18px 15px 26px;padding:0 0 0 14px;list-style:none;border-left:1px solid #e2d9c7}
+.timelineItem{position:relative;margin:0 0 17px;padding:0 0 0 14px}.timelineItem:last-child{margin-bottom:4px}
+.timelineMarker{position:absolute;left:-25px;top:1px;width:20px;height:20px;border-radius:50%;background:#f6f1e6;border:1px solid #d9cbaa;text-align:center;line-height:18px;font-size:12px;color:#94764d;display:grid;place-items:center}
+.timelineBody{min-width:0}.timelineRow{display:flex;align-items:baseline;justify-content:space-between;gap:8px;line-height:1.5}.timelineRow strong{font-weight:600;color:#4b483b}.timelineRow span{white-space:nowrap;color:#8b816c;font-size:11px;font-variant-numeric:tabular-nums}
+.timelineBody p{margin:4px 0 0;color:#716957;font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+@media(max-width:760px){.timelineToggle{padding:11px 12px;gap:8px}.timelineHeading{font-size:12px}.timelineElapsed{font-size:11px}.timelineList{margin-left:22px}.timelineRow{flex-wrap:wrap}}
+@media(max-width:360px){.timelineToggle{gap:6px;padding:10px 9px}.timelineHeading{gap:5px}.timelineElapsed{gap:3px}}
+/* Public learning decisions, never hidden reasoning. */
+.learningPlan{padding:10px 12px;margin:12px 14px 10px;background:#fff;border:1px solid #e8dfcd;border-radius:9px}
+.learningPlan>strong{display:block;font-size:12px;font-weight:650;color:#736046;margin-bottom:7px}
+.learningPlan p{margin:4px 0;font-size:12px;line-height:1.6;color:#5d5947;overflow-wrap:anywhere}
+.learningPlan b{display:inline-block;margin-right:10px;color:#9a8973;font-weight:550}
+.publicBrief{margin:12px 14px 7px;padding:13px 14px;background:#faf8ef;border:1px solid #ebe2cd;border-radius:11px}
+.publicBrief strong{font-size:12px;font-weight:650;color:#6d6c4e}
+.publicBrief p{margin:8px 0 0;color:#4f5a47;line-height:1.8;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.publicBriefCaret{display:inline-block;height:1.1em;vertical-align:middle;margin-left:3px;border-right:2px solid #81936d;animation:publicBriefBlink 1s steps(1) infinite}
+@keyframes publicBriefBlink{50%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.publicBriefCaret{animation:none}.timelineToggle{transition:none}}

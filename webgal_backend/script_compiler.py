@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import game_design
+from .choice_responses import has_responses, lower_choice_responses, response_label
 
 
 class ScriptCompileError(ValueError):
@@ -68,6 +69,31 @@ def compile_webgal_script(
                     raise ScriptCompileError(f"{scene_file} contains missing jump target: {jump.group(1)}")
                 if any(tail.get("kind") == "choice" or str(tail.get("text") or "").strip() for tail in lines[index + 1:]):
                     raise ScriptCompileError(f"{scene_file} scene jump must be the final line")
+        for index, line in enumerate(lines):
+            if has_responses(line) and _is_cross_scene_choice(line):
+                tail = [item for item in lines[index + 1:] if item.get("kind") != "branch" or not str(item.get("branchLabel") or item.get("text") or "").startswith("continue_choice_")]
+                if tail:
+                    raise ScriptCompileError(f"{scene_file}: choice with only scene exits must be the final line")
+        response_blocks = [
+            {"choice_line_id": str(line.get("id") or f"choice_{index}"),
+             "option_id": str(option.get("id") or f"option_{option_index}"),
+             "label": response_label(scene_file, str(line.get("id") or f"choice_{index}"), str(option.get("id") or f"option_{option_index}")),
+             "response_line_ids": [str(response.get("id") or "") for response in option.get("response_lines", []) if isinstance(response, dict)],
+             "exit_target": str(option.get("target_scene_file") or option.get("targetSceneFile") or option.get("target") or "")}
+            for index, line in enumerate(lines) if has_responses(line)
+            for option_index, option in enumerate(line.get("choices", [])) if isinstance(option, dict) and isinstance(option.get("response_lines", []), list)
+        ]
+        try:
+            lines = lower_choice_responses(lines, scene_file)
+        except ValueError as exc:
+            raise ScriptCompileError(str(exc)) from exc
+        labels = {str(line.get("branchLabel") or line.get("text") or "") for line in lines if line.get("kind") == "branch"}
+        for line in lines:
+            if line.get("kind") != "command" or not str(line.get("id") or "").startswith("response_"):
+                continue
+            jump = re.fullmatch(r"(changeScene|jumpLabel):([^;]+);", str(line.get("text") or ""))
+            if jump and jump.group(2) not in (scene_files if jump.group(1) == "changeScene" else labels):
+                raise ScriptCompileError(f"{scene_file}: missing response exit: {jump.group(2)}")
         participant_ids = _scene_participants(lines, characters, figures)
         visible_ids = participant_ids[:3]
         if len(participant_ids) > 3:
@@ -101,6 +127,8 @@ def compile_webgal_script(
         terminal_choices: list[dict[str, Any]] = []
         shown_figures: set[str] = set()
         for line in lines:
+            if line.get("kind") == "branch":
+                shown_figures.clear()
             line_id = str(line.get("id") or "").strip()
             for asset_filename in anchored_backgrounds.get(line_id, []):
                 output_lines.append(f"changeBg:{asset_filename} -next;")
@@ -161,6 +189,7 @@ def compile_webgal_script(
                 "terminal_choice_moved_to_end": bool(terminal_choices),
                 "terminal_choice_groups_merged": len(terminal_choices),
                 "terminal_choice_targets": terminal_choice_targets,
+                "choice_response_blocks": response_blocks,
             }
         )
 
@@ -168,6 +197,7 @@ def compile_webgal_script(
         script="\n\n".join(script_sections).rstrip() + "\n",
         plan={
             "version": 1,
+            "choice_response_version": 1,
             "compiler": "deterministic-webgal-v1",
             "scenes": plan_scenes,
             "warnings": warnings,

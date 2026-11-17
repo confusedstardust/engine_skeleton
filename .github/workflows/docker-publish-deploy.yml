@@ -32,6 +32,7 @@ jobs:
     outputs:
       backend: ${{ steps.selection.outputs.backend }}
       frontend: ${{ steps.selection.outputs.frontend }}
+      nar_agent: ${{ steps.selection.outputs.nar_agent }}
       version_tag: ${{ steps.selection.outputs.version_tag }}
     steps:
       - name: Checkout
@@ -60,6 +61,11 @@ jobs:
               - '.dockerignore'
               - 'docker-compose.prod.yml'
               - '.github/workflows/docker-publish-deploy.yml'
+            nar_agent:
+              - 'nar_agent/**'
+              - 'docker-compose.nar-agent.yml'
+              - '.github/workflows/nar-agent-build.yml'
+              - '.github/workflows/docker-publish-deploy.yml'
             frontend:
               - 'forge_frontend_next/**'
               - 'docker/frontend.Dockerfile'
@@ -73,13 +79,16 @@ jobs:
         env:
           BACKEND_CHANGED: ${{ steps.paths.outputs.backend }}
           FRONTEND_CHANGED: ${{ steps.paths.outputs.frontend }}
+          NAR_AGENT_CHANGED: ${{ steps.paths.outputs.nar_agent }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
             echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "nar_agent=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=${BACKEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
             echo "frontend=${FRONTEND_CHANGED:-false}" >> "$GITHUB_OUTPUT"
+            echo "nar_agent=${NAR_AGENT_CHANGED:-false}" >> "$GITHUB_OUTPUT"
           fi
           echo "version_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
@@ -168,15 +177,27 @@ jobs:
           cache-from: type=gha,scope=engine-skeleton-frontend
           cache-to: type=gha,mode=max,scope=engine-skeleton-frontend
 
+  build-nar-agent:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.nar_agent == 'true' }}
+    uses: ./.github/workflows/nar-agent-build.yml
+    with:
+      version_tag: ${{ needs.detect-changes.outputs.version_tag }}
+      publish: true
+    secrets:
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+
   deploy:
     if: >-
       ${{
         always() &&
         github.ref == 'refs/heads/main' &&
         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)) &&
-        (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true') &&
+        (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.nar_agent == 'true') &&
         (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
-        (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+        (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped') &&
+        (needs.build-nar-agent.result == 'success' || needs.build-nar-agent.result == 'skipped')
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -184,6 +205,7 @@ jobs:
       - detect-changes
       - build-backend
       - build-frontend
+      - build-nar-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -194,7 +216,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          source: "docker-compose.prod.yml,docker-compose.nar-agent.yml,deploy/nar-agent.env.example,deploy/nar-execution.env.example,deploy/setup-nar-agent.py"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy on remote host
@@ -203,6 +225,7 @@ jobs:
           VERSION_TAG: ${{ needs.detect-changes.outputs.version_tag }}
           DEPLOY_BACKEND: ${{ needs.detect-changes.outputs.backend }}
           DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
+          DEPLOY_NAR_AGENT: ${{ needs.detect-changes.outputs.nar_agent }}
           REGISTRY: ${{ env.REGISTRY }}
           BACKEND_IMAGE_NAME: ${{ env.BACKEND_IMAGE_NAME }}
           FRONTEND_IMAGE_NAME: ${{ env.FRONTEND_IMAGE_NAME }}
@@ -212,7 +235,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,REGISTRY,BACKEND_IMAGE_NAME,FRONTEND_IMAGE_NAME,ACR_USERNAME,ACR_PASSWORD
+          envs: VERSION_TAG,DEPLOY_BACKEND,DEPLOY_FRONTEND,DEPLOY_NAR_AGENT,REGISTRY,BACKEND_IMAGE_NAME,FRONTEND_IMAGE_NAME,ACR_USERNAME,ACR_PASSWORD
           command_timeout: 240m
           script: |
             set -e
@@ -240,6 +263,11 @@ jobs:
             if ! grep -q '^BACKEND_IMAGE=' "$IMAGE_STATE_FILE" || ! grep -q '^FRONTEND_IMAGE=' "$IMAGE_STATE_FILE"; then
               echo "Both image entries must exist in $IMAGE_STATE_FILE. Run a full deployment once to initialize it."
               exit 1
+            fi
+            if [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              update_image_state NAR_AGENT_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-agent:$VERSION_TAG"
+              update_image_state NAR_EXECUTION_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-execution:$VERSION_TAG"
+              update_image_state NAR_SANDBOX_IMAGE "$REGISTRY/acr_namespace_narrativeos/narrativeos-nar-sandbox:$VERSION_TAG"
             fi
             # Export only the generated image pins. Compose must use .env for
             # interpolation as well as env_file, otherwise environment entries
@@ -270,17 +298,39 @@ jobs:
               echo "[$(date -Is)] $name failed after retries"
               return 1
             }
+            COMPOSE_FILES="-f docker-compose.prod.yml"
+            NAR_ENABLED=false
+            if [ -f .nar-agent-enabled ]; then
+              test -s deploy/nar-agent.env && test -s deploy/nar-execution.env || { echo "NarAgent env files missing"; exit 1; }
+              test -n "${NAR_AGENT_IMAGE:-}" && test -n "${NAR_EXECUTION_IMAGE:-}" && test -n "${NAR_SANDBOX_IMAGE:-}" || { echo "NarAgent image pins missing; run a full build"; exit 1; }
+              COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.nar-agent.yml"
+              NAR_ENABLED=true
+            fi
             SERVICES=""
             if [ "$DEPLOY_BACKEND" = "true" ]; then
-              timed_retry "pull backend image" $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml pull backend
+              timed_retry "pull backend image" $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull backend
               SERVICES="$SERVICES backend"
             fi
             if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              timed_retry "pull frontend image" $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml pull frontend
+              timed_retry "pull frontend image" $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull frontend
               SERVICES="$SERVICES frontend"
             fi
+            if [ "$NAR_ENABLED" = "true" ] && [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              timed_retry "pull sandbox runtime" docker pull "$NAR_SANDBOX_IMAGE"
+              timed_retry "pull Agent services" $COMPOSE_CMD --env-file .env $COMPOSE_FILES pull nar-agent execution
+              # --no-deps requires explicit execution startup before its client.
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d --no-deps execution
+              $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d nar-agent
+            fi
+            if [ -z "$SERVICES" ]; then
+              echo "No frontend/backend changes; Agent images built (deployment requires .nar-agent-enabled)."
+            else
             echo "[$(date -Is)] Starting docker compose up"
-            $COMPOSE_CMD --env-file .env -f docker-compose.prod.yml up -d --no-deps $SERVICES
+            $COMPOSE_CMD --env-file .env $COMPOSE_FILES up -d --no-deps $SERVICES
             echo "[$(date -Is)] Finished docker compose up"
+            fi
+            if [ "$NAR_ENABLED" = "true" ] && [ "$DEPLOY_NAR_AGENT" = "true" ]; then
+              timed_retry "Agent readiness" $COMPOSE_CMD --env-file .env $COMPOSE_FILES exec -T nar-agent .venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/ready', timeout=5)"
+            fi
             # Keep cleanup out of the deployment critical path; run it separately
             # during maintenance so a deploy is not delayed by Docker disk scans.

@@ -69,16 +69,15 @@ export default function LoginPage() {
     setSaved(false);
   }
 
-  if (loadError) return <main className="main-wrapper auth-wrapper"><p className="form-note">{loadError}</p></main>;
-  if (!mode) return <main className="main-wrapper auth-wrapper" aria-busy="true"><LoadingState>正在确认登录方式…</LoadingState></main>;
-
   return (
     <>
-      <WorkbenchHeader title="临场 · 邀请码" subtitle="INVITE ACCESS" brandHref="/?workspace=1" label="邀请码导航" account={null}>
-<Link href="/?workspace=1">新建任务</Link>
-<Link href="/history">我的作品</Link>
-</WorkbenchHeader>
-      <main className="main-wrapper auth-wrapper">
+      <WorkbenchHeader title="临场 · 邀请码" subtitle="INVITE ACCESS">
+        <Link href="/?workspace=1">新建任务</Link>
+        <Link href="/history">我的作品</Link>
+      </WorkbenchHeader>
+      <main className="main-wrapper auth-wrapper" aria-busy={!mode && !loadError}>
+        {loadError ? <p className="form-note">{loadError}</p> :
+          !mode ? <LoadingState>正在确认登录方式…</LoadingState> :
         <section className="auth-panel" aria-labelledby="login-title">
           <div className="auth-copy">
             <span>内测身份</span><h1 id="login-title">输入邀请码继续</h1>
@@ -91,7 +90,7 @@ export default function LoginPage() {
             {saved ? <p className="form-note">邀请码已保存在当前浏览器。</p> : null}
           </form>
           {mode === "sso_or_invite" ? <a className="btn outline" href={ssoLoginUrl("/")}>使用 NarrativeOS 账号登录</a> : null}
-        </section>
+        </section>}
       </main>
     </>
   );

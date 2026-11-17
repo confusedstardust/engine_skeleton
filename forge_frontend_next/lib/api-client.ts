@@ -60,6 +60,7 @@ export function createApiClient(prefix: string, options: ClientOptions = {}) {
   }
   return Object.assign(json, {
     blob: async (path: string, init?: RequestInit) => (await request(path, init)).blob(),
+    response: request,
   });
 }
 

@@ -141,7 +141,7 @@ export function OnboardingTour() {
   useEffect(() => {
     if (!open) return;
     const target = visibleTarget(step.target);
-    const focusContext = target?.closest<HTMLElement>(".top-nav, .form-panel");
+    const focusContext = target?.closest<HTMLElement>("[data-workspace-sidebar], .form-panel");
     target?.classList.add("onboarding-focused");
     focusContext?.classList.add("onboarding-focus-context");
     target?.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });

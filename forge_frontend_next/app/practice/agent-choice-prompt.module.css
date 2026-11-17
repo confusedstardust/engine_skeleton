@@ -1,0 +1,20 @@
+.card{margin-top:14px;max-width:580px;border:1px solid #dfd1ad;border-radius:13px;padding:14px;background:#fff8e7;box-shadow:0 2px 10px #4838190c}
+.question{margin:0 0 12px;color:#3c3b2b;font-weight:650;font-size:14px;line-height:1.6}
+.options{display:flex;flex-direction:column;gap:7px}
+.option{display:flex;align-items:flex-start;gap:10px;width:100%;border:1px solid #e3d9c6;border-radius:9px;padding:11px 12px;background:#fffefa;color:#444338;text-align:left;cursor:pointer;line-height:1.45;transition:background .15s,border-color .15s}
+.option:hover:not(:disabled),.option:focus-visible{background:#f3efd9;border-color:#96a67c;outline:0}
+.option:disabled{cursor:default;opacity:.65}
+.option[aria-pressed=true],.selectedOther{background:#eff3e5;border-color:#91a578}
+.selector{height:19px;width:19px;display:flex;align-items:center;justify-content:center;flex:0 0 19px;border:1px solid #b9b8a7;border-radius:5px;color:#6d7f51;background:#fff}
+.checked{color:#fff;border-color:#6d8156;background:#6d8156}
+.optionText{min-width:0;display:flex;flex-direction:column;gap:3px}
+.optionText strong{font-size:13px;font-weight:570;overflow-wrap:anywhere}
+.optionText small{font-size:12px;color:#74796c;line-height:1.55;overflow-wrap:anywhere}
+.custom{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.custom label{font-size:12px;color:#6c735d}
+.custom textarea{width:100%;max-width:100%;min-height:64px;resize:vertical;border:1px solid #c6c5b4;border-radius:8px;padding:9px 10px;background:#fff;color:#2a3025;font:inherit;font-size:13px;line-height:1.6}
+.custom textarea:focus-visible{outline:2px solid #799164;outline-offset:1px}
+.footer{display:flex;justify-content:flex-end;margin-top:10px}
+.hint{margin:8px 0 0;color:#7a7d70;font-size:11px}
+@media(max-width:760px){.card{padding:11px}.option{padding:11px 9px}}
+@media(prefers-reduced-motion:reduce){.option{transition:none}}

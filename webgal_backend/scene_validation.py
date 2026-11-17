@@ -181,6 +181,11 @@ def _repair_scene_lines(
     fixes.extend(unreachable_content_fixes)
     figure_positions = _scene_figure_position_plan(lines)
     for line_index, original_line in enumerate(lines):
+        if re.match(r"\s*label\s*:", original_line):
+            # Each entry can be reached independently; state from the previous
+            # textual branch is not evidence of the state on this runtime path.
+            active_mini_avatar = None
+            stage_positions = {"left": None, "center": None, "right": None}
         original_index = line_index + 1
         line, content_fixes = _sanitize_generated_content_line(original_line)
         for fix_code in content_fixes:
@@ -737,6 +742,10 @@ def _remove_unreachable_scene_tail(lines: list[str], relative_file: str) -> tupl
     return or continue in the same file. Only fully parsed `.txt` destinations
     are provably terminal for the current scene.
     """
+    # Local branches may jump past a scene exit into another block. Never trim
+    # those blocks merely because an earlier branch ends with changeScene.
+    if any(re.match(r"\s*(?:label|jumpLabel)\s*:", line) for line in lines):
+        return _remove_unreachable_branch_blocks(lines, relative_file)
     for index, line in enumerate(lines):
         if not _is_external_scene_terminal(line):
             continue
@@ -753,6 +762,54 @@ def _remove_unreachable_scene_tail(lines: list[str], relative_file: str) -> tupl
             )
         ]
     return lines, []
+
+
+def _remove_unreachable_branch_blocks(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    labels = {}
+    for index, line in enumerate(lines):
+        match = re.match(r"^\s*label\s*:\s*([^;\s]+)\s*;?\s*$", line)
+        if match:
+            if match.group(1) in labels:
+                return lines, []  # Ambiguous routes belong to validation, not repair.
+            labels[match.group(1)] = index
+    reachable: set[int] = set()
+    pending = [0] if lines else []
+    while pending:
+        index = pending.pop()
+        if index in reachable or index >= len(lines):
+            continue
+        reachable.add(index)
+        text = lines[index].strip()
+        jump = re.fullmatch(r"jumpLabel\s*:\s*([^;\s]+)\s*;?", text)
+        if jump:
+            if jump.group(1) not in labels:
+                return lines, []
+            pending.append(labels[jump.group(1)])
+        elif text.startswith("choose:"):
+            options = _parse_choose_options(text)
+            if not options:
+                return lines, []
+            for _, target in options:
+                if target.endswith(".txt"):
+                    continue
+                if target not in labels:
+                    return lines, []
+                pending.append(labels[target])
+        elif _is_external_scene_terminal(text) or re.fullmatch(r"end\s*;?", text):
+            pass
+        elif re.match(r"(?:jumpLabel|changeScene|callScene)\s*:", text):
+            # Conditional/dynamic transfers require a richer analysis. Preserve
+            # the file instead of making a destructive repair on a guess.
+            return lines, []
+        else:
+            pending.append(index + 1)
+    removed = [index for index, line in enumerate(lines) if index not in reachable and line.strip()]
+    if not removed:
+        return lines, []
+    return [line for index, line in enumerate(lines) if index in reachable or not line.strip()], [
+        AppliedFix(code="remove_unreachable_after_external_jump", file=relative_file,
+                   line=removed[0] + 1, message=f"Removed {len(removed)} unreachable line(s) after control-flow analysis.")
+    ]
 
 
 def _is_external_scene_terminal(line: str) -> bool:
@@ -832,6 +889,8 @@ def _ensure_ending_scene_has_end(lines: list[str], relative_file: str) -> tuple[
 
 
 def _move_post_terminal_cleanup_before_terminal(lines: list[str], relative_file: str) -> tuple[list[str], list[AppliedFix]]:
+    if any(re.match(r"\s*label\s*:", line) for line in lines):
+        return lines, []  # Cleanup in a later branch must stay in that branch.
     terminal_index = _scene_terminal_index(lines)
     if terminal_index is None:
         return lines, []
@@ -1109,7 +1168,22 @@ def _validate_scene_references(
     relative_files: set[str],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    labels: set[str] = set()
     for line_no, line in enumerate(lines, start=1):
+        label = re.fullmatch(r"\s*label\s*:\s*([^;\s]+)\s*;?\s*", line)
+        if label:
+            name = label.group(1)
+            if name in labels:
+                issues.append(ValidationIssue(code="duplicate_label", severity="error", file=relative_file, line=line_no, message=f"Duplicate local label: {name}"))
+            labels.add(name)
+    for line_no, line in enumerate(lines, start=1):
+        jump = re.fullmatch(r"\s*jumpLabel\s*:\s*([^;\s]+)\s*;?\s*", line)
+        local_targets = [target for _, target in _parse_choose_options(line) if not target.endswith(".txt")]
+        if jump:
+            local_targets.append(jump.group(1))
+        for target in local_targets:
+            if target not in labels:
+                issues.append(ValidationIssue(code="missing_label_reference", severity="error", file=relative_file, line=line_no, message=f"Referenced local label does not exist: {target}"))
         for target in _scene_targets(line):
             normalized = target.replace("\\", "/").split("/")[-1]
             if normalized and normalized not in scene_names and target not in relative_files:

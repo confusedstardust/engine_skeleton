@@ -1,0 +1,142 @@
+name: nar-agent-html-integration
+on:
+  pull_request:
+    paths:
+      - 'nar_agent/**'
+      - 'docker-compose.nar-agent.yml'
+      - '.github/workflows/docker-publish-deploy-dev.yml'
+      - 'tests/nar_execution_deployment.test.cjs'
+      - 'webgal_backend/nar_agent_routes.py'
+      - 'webgal_backend/nar_conversation_*.py'
+      - 'webgal_backend/nar_rpg_options.py'
+      - 'webgal_backend/nar_intent_v2.py'
+      - 'tests/test_nar_rpg_integration_unit.py'
+      - 'tests/test_nar_rpg_gateway.py'
+      - 'webgal_backend/nar_choice_protocol.py'
+      - 'webgal_backend/nar_billing.py'
+      - 'webgal_backend/nar_reconcile_v2.py'
+      - 'tests/test_nar_reconcile_v2.py'
+      - 'webgal_backend/nar_budget_v2.py'
+      - 'tests/test_nar_budget_v2.py'
+      - 'webgal_backend/nar_metering_v2.py'
+      - 'webgal_backend/nar_usage_store_v2.py'
+      - 'tests/test_nar_metering_v2.py'
+      - 'tests/test_nar_usage_store_v2.py'
+      - 'tests/test_nar_billing_v2_mysql.py'
+      - 'credit_system/**'
+      - 'tests/test_nar_billing.py'
+      - 'tests/practice_nar_usage_ui.test.cjs'
+      - 'webgal_backend/site_visits.py'
+      - 'tests/test_site_visits_bots.py'
+      - 'tests/test_nar_choice_normalization.py'
+      - 'webgal_backend/migrations/002_nar_conversation_history.sql'
+      - 'tests/test_nar_conversation_gateway.py'
+      - 'tests/test_nar_conversation_store_mysql.py'
+      - 'tests/nar_conversation_architecture.test.cjs'
+      - 'tests/test_nar_html_failure_codes.py'
+      - 'webgal_backend/work_store.py'
+      - 'webgal_backend/works_routes.py'
+      - 'webgal_backend/work_publication.py'
+      - 'webgal_backend/work_sharing.py'
+      - 'webgal_backend/work_urls.py'
+      - 'webgal_backend/work_links_backfill.py'
+      - 'tests/test_work_links_backfill.py'
+      - 'tests/test_work_sharing.py'
+      - 'tests/test_work_publication.py'
+      - 'webgal_backend/app.py'
+      - 'forge_frontend_next/app/history/**'
+      - 'tests/test_works_routes.py'
+      - 'forge_frontend_next/app/practice/**'
+      - 'forge_frontend_next/components/ui/workspace-sidebar.*'
+      - 'forge_frontend_next/components/account-menu.tsx'
+      - 'forge_frontend_next/package.json'
+      - 'forge_frontend_next/package-lock.json'
+      - 'tests/practice_shared_navigation.test.cjs'
+      - 'tests/practice_ui_architecture.test.cjs'
+      - 'tests/work_ui_actions.test.cjs'
+      - 'tests/practice_session_switch.test.cjs'
+      - 'tests/practice_conversation_cache.test.cjs'
+      - 'webgal_backend/work_urls.py'
+      - 'tests/test_practice_public_page_route.cjs'
+      - 'forge_frontend_next/next.config.mjs'
+      - 'forge_frontend_next/middleware.ts'
+      - 'tests/test_nar_agent_gateway.py'
+      - 'tests/test_practice_work_rewrites.cjs'
+      - '.github/workflows/nar-agent-html-integration.yml'
+permissions:
+  contents: read
+jobs:
+  gateway:
+    name: Authenticated Forge gateway contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'fastapi>=0.115' 'httpx>=0.28' 'pytest>=9' 'uvicorn>=0.30' 'qrcode>=8' 'Pillow>=10'
+      - run: python -m pytest -q tests/test_nar_agent_gateway.py tests/test_works_routes.py tests/test_work_publication.py tests/test_work_links_backfill.py tests/test_work_sharing.py tests/test_nar_conversation_gateway.py tests/test_nar_html_failure_codes.py tests/test_site_visits_bots.py tests/test_nar_choice_normalization.py tests/test_nar_billing.py tests/test_nar_metering_v2.py tests/test_nar_budget_v2.py tests/test_nar_reconcile_v2.py tests/test_nar_rpg_integration_unit.py tests/test_nar_rpg_gateway.py
+  frontend:
+    name: Practice UI TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: forge_frontend_next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: forge_frontend_next/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: node ../tests/test_practice_work_rewrites.cjs
+      - run: node ../tests/practice_shared_navigation.test.cjs
+      - run: node ../tests/practice_ui_architecture.test.cjs
+      - run: node ../tests/work_ui_actions.test.cjs
+      - run: node ../tests/practice_session_switch.test.cjs
+      - run: node ../tests/practice_conversation_cache.test.cjs
+      - run: node ../tests/nar_conversation_architecture.test.cjs
+      - run: node ../tests/practice_paper_chat.test.cjs
+      - run: node ../tests/practice_choice_prompt.test.cjs
+      - run: node ../tests/practice_nar_usage_ui.test.cjs
+      - run: node ../tests/nar_execution_deployment.test.cjs
+      - run: npm run build
+        env:
+          FORGE_BACKEND_URL: http://backend:8010
+          NEXT_PUBLIC_BASE_PATH: /narrativeos
+      - run: node ../tests/test_practice_public_page_route.cjs
+        env:
+          NEXT_PUBLIC_BASE_PATH: /narrativeos
+          FORGE_BACKEND_URL: http://127.0.0.1:8010
+
+  conversation-mysql:
+    name: Disposable MySQL 8 conversation schema and transaction test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-ci-pass
+          MYSQL_DATABASE: nar_conversation_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-only-ci-pass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=25
+    env:
+      NAR_TEST_DB_NAME: nar_conversation_test
+      NAR_TEST_DB_PASSWORD: test-only-ci-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'pytest>=9' 'PyMySQL>=1.1'
+      - run: python -m pytest -q tests/test_nar_conversation_store_mysql.py tests/test_nar_usage_store_v2.py tests/test_nar_billing_v2_mysql.py
