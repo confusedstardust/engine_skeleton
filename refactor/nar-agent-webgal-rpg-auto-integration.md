@@ -8,6 +8,7 @@
 
 - NarAgent Intent V2 识别 `game`；Forge `plan_v2` 决定 `rpg.prepare` 或 `rpg.edit_link`，保留 HTML/Animation 老路由。
 - RPG 创建先在现有 ConversationTurn 中落地 Assistant 确认卡（`nar_messages.public_metadata.rpg`）。此时 Turn 完成，**没有 WebGAL Job、没有 RPG 冻结，且不发起普通 Chat Builder 的 reserve_turn**。
+- Agent 输入框的「互动角色扮演」标签明确指定新建 WebGAL 互动游戏。Forge 在自动路由时以该选择为准，生成 RPG 确认卡。Intent V2 对不支持的能力仍可返回 capability_review。
 - 用户选择时长、图片、配音 → 服务端纯函数编译真实 `source_material + GenerationOptions` → 复用 `estimate_hold` 做报价 → 仅用户确认后使用消息行 owner-scoped CAS 认领。
 - CAS 唯一获胜者调用 **同一个** `JobStore.create`、先保存 `job_id`、再复用现有 `run_job(...background=True)`。游戏生成、冻结积分及结算完全使用 WebGAL 既有 Pipeline 和钱包。
 - 前端用原 Assistant message ID 显示可恢复的状态卡，读 `GET /jobs/{jobId}` 映射真实 `phase/status/build_state/has_published_build`；游戏可以新页打开，修改仅跳到现有工作台。

@@ -787,3 +787,32 @@ def test_selected_interactive_story_resumes_original_game_without_feature_flags(
     assert "春江花月夜" in ledger.final_metadata["rpg"]["continued_requirements"]
     assert ledger.pending["metadata"]["choices"]["status"] == "answered"
     assert paths == ["/v1/capabilities", "/v1/intent"]
+
+def test_composer_role_play_uses_rpg_when_intent_returns_html(monkeypatch):
+    ledger = V2MemoryLedger()
+    ledger.owners[CID] = "teacher"
+
+    def agent(req):
+        if req.url.path == "/v1/capabilities":
+            return httpx.Response(200, json={"schema_version": "2.0", "capabilities": {
+                "chat": ["answer", "discuss", "evaluate"], "html": ["create", "revise"],
+                "animation": ["create", "revise"], "hybrid": ["plan_only"],
+            }})
+        assert req.url.path == "/v1/intent"
+        return httpx.Response(200, json=_v2_result("create", "new", "html", "execute"))
+
+    def wait_for_confirmation(*args, **kwargs):
+        raise AssertionError("RPG jobs and quotes must wait for confirmation")
+
+    client = make_client(monkeypatch, agent, ledger, rpg_callbacks={
+        name: wait_for_confirmation for name in
+        ("rpg_create", "rpg_get", "rpg_run", "rpg_quote", "rpg_balance")
+    })
+    response = client.post("/nar-agent/conversations/" + CID + "/turns", json={
+        "client_request_id": ID_A, "mode": "auto",
+        "prompt": "创作形式：互动角色扮演\n扮演水滴，探索水循环",
+    }, headers=HEADERS)
+    assert response.status_code == 202, response.text
+    assert ledger.final_metadata["card_type"] == "rpg"
+    assert ledger.final_metadata["rpg"]["state"] == "PREPARED"
+    assert ledger.final_metadata["rpg"]["spec"]["topic"] == "扮演水滴，探索水循环"

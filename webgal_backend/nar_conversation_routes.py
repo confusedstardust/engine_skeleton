@@ -436,6 +436,17 @@ def create_router(*, user_for_request, store: NarConversationStore | None = None
                                                 usage_sink=usage_events)
         except Exception:
             raise HTTPException(503, "需求识别暂时不可用，本次未执行任何创作") from None
+        format_line, _, creative_brief = payload.prompt.partition("\n")
+        if (not payload.clarification_answer and format_line.rstrip("\r") == "创作形式：互动角色扮演"
+                and creative_brief.strip() and proposal.get("next_step") != "capability_review"):
+            # A composer format is an explicit request for a new WebGAL game.
+            # Keep capability review authoritative for unsupported requirements.
+            proposal = {
+                "schema_version": "2.0", "next_step": "execute", "tasks": [{
+                    "action": "create", "target_relation": "new", "desired_output": "game",
+                    "goal": creative_brief.strip()[:160], "requirements": [],
+                }],
+            }
         plan = plan_v2(proposal, packet)
         if plan["mode"] in ("edit", "animation") and plan["parent_artifact_id"]:
             parent_id = plan["parent_artifact_id"]

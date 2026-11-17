@@ -23,10 +23,10 @@ const examples = [
   "设计一个知识闯关网页，答完题才能进入下一关。",
 ];
 const formats = [
-  { label: "互动课件", Icon: LayoutTemplate, placeholder: "描述要做成互动课件的知识点，例如「让学生拖动砝码探索杠杆平衡」" },
+  { label: "互动网页", Icon: LayoutTemplate, placeholder: "描述要做成互动网页的知识点，例如「让学生拖动砝码探索杠杆平衡」" },
   { label: "教学动画", Icon: Play, placeholder: "描述要用动画讲清楚的过程，例如「演示月相如何变化」" },
   { label: "课后练习", Icon: ClipboardCheck, placeholder: "描述要练习的知识点和年级，例如「为初一设计整数加减练习」" },
-  { label: "RPG课堂游戏", Icon: Gamepad2, placeholder: "描述学习目标和游戏情境，例如「扮演水滴，探索水循环」" },
+  { label: "互动角色扮演", Icon: Gamepad2, placeholder: "描述学习目标和游戏情境，例如「扮演水滴，探索水循环」" },
   { label: "3D演示", Icon: Box, placeholder: "描述想从不同角度观察的对象，例如「观察地球自转与昼夜变化」" },
 ];
 
