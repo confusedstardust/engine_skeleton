@@ -65,3 +65,7 @@ python3 deploy/setup-nar-agent.py --environment production --enable
 ```
 
 只有 dev 验收通过并审阅生产变更后，再触发生产部署；本次 dev 接入不自动启用 prod。
+
+## Sandbox workspace permissions
+
+On production Docker, the sandbox tmpfs was observed at mode 0755 despite the broker's mount options, causing animation builds running as UID 65532 to fail with EACCES when creating /work/index.html. The runtime supervisor sets /work to 0777 and /results to 0700 before running generated code. Deploy the rebuilt sandbox image through NAR_SANDBOX_IMAGE and recreate execution. Verify by generating an animation and checking that the build writes index.html and reaches browser validation. Production verification is pending.
