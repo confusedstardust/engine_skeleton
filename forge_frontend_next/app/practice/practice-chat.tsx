@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight, Box, ClipboardCheck, Gamepad2, LayoutTemplate, Play, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../../components/ui/button";
@@ -44,6 +44,24 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
   const canAnswer = Boolean(!busy && authReady && sessionReady && serverChecked && serverReady && loggedIn);
   const canSubmit = Boolean(canAnswer && draft.trim() && draft.trim().length <= draftLimit);
   const selectedFormat = formats.find(format => format.label === creationFormat);
+  const formatBadge = useRef<HTMLButtonElement>(null);
+  const composerInput = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const badge = formatBadge.current;
+    const field = composerInput.current;
+    const textarea = input.current;
+    if (!field || !textarea) return;
+    field.style.setProperty("--prompt-scroll", `${textarea.scrollTop}px`);
+    if (!badge) {
+      field.style.removeProperty("--prompt-indent");
+      return;
+    }
+    const align = () => field.style.setProperty("--prompt-indent", `${Math.ceil(badge.getBoundingClientRect().width) + 8}px`);
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(badge);
+    return () => observer.disconnect();
+  }, [input, selectedFormat]);
   function selectFormat(label: string | null) {
     setCreationFormat(label);
     input.current?.focus();
@@ -166,21 +184,28 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <form className={styles.composer} onSubmit={event => { event.preventDefault(); void send(); }}>
         <label htmlFor="teaching-prompt" className="sr-only">输入学习问题</label>
-        <div className={styles.composerInput}>
-          {selectedFormat && <button type="button" className={styles.selectedFormat} disabled={busy}
+        <div className={styles.composerInput} ref={composerInput}>
+          {selectedFormat && <div className={styles.selectedFormatLayer}><button ref={formatBadge} type="button" className={styles.selectedFormat} disabled={busy}
             aria-label={`清除创作形式：${selectedFormat.label}`} onClick={() => selectFormat(null)}>
             <selectedFormat.Icon size={14} aria-hidden="true" />{selectedFormat.label}<X size={13} aria-hidden="true" />
-          </button>}
+          </button></div>}
           <textarea id="teaching-prompt" ref={input} value={draft} onChange={event => setDraft(event.target.value)}
           maxLength={draftLimit} rows={2} placeholder={selectedFormat?.placeholder ?? "发送消息，描述你想学习或制作的互动体验…"}
+          onScroll={event => composerInput.current?.style.setProperty("--prompt-scroll", `${event.currentTarget.scrollTop}px`)}
           disabled={busy} onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault(); void send();
             }
           }} />
         </div>
-        <div>
+        <div className={styles.composerToolbar}>
           <small>{draft.trim().length > draftLimit ? `选中创作形式后，正文限 ${draftLimit} 字符` : "Enter 发送 · Shift + Enter 换行"}</small>
+          <div className={styles.creationFormats} role="group" aria-label="选择创作形式（单选）">
+            {formats.map(({ label, Icon }) => <button key={label} type="button" disabled={busy}
+              aria-pressed={creationFormat === label} onClick={() => selectFormat(creationFormat === label ? null : label)}>
+              <Icon size={14} aria-hidden="true" />{label}
+            </button>)}
+          </div>
           <span className={styles.actions}>
             <Button type="submit" variant="primary" disabled={!canSubmit} busy={busy}>
               {busy ? "处理中" : <>发送 <Send size={15} strokeWidth={1.7} aria-hidden="true" /></>}
@@ -188,12 +213,6 @@ export default function PracticeChat({ workspace }: { workspace: Workspace }) {
           </span>
         </div>
       </form>
-      <div className={styles.creationFormats} role="group" aria-label="选择创作形式（单选）">
-        {formats.map(({ label, Icon }) => <button key={label} type="button" disabled={busy}
-          aria-pressed={creationFormat === label} onClick={() => selectFormat(creationFormat === label ? null : label)}>
-          <Icon size={14} aria-hidden="true" />{label}
-        </button>)}
-      </div>
     </div>
   </section>;
 }

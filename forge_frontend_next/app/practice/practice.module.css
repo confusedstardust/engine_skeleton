@@ -268,15 +268,21 @@
   transition:border-color .22s,box-shadow .22s,transform .22s}
 .composer:focus-within{border-color:#bcbd9f;box-shadow:0 7px 25px #91744c23,0 0 0 2px #d3e7c851}
 .composer textarea{min-height:42px;max-height:160px;font-size:13.5px;line-height:1.65}
-.composer > .composerInput,.layoutWithInspector .composer > .composerInput{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:8px;margin:0}
-.composerInput textarea{flex:1;min-width:0}
-.creationFormats{display:flex;flex-wrap:wrap;gap:5px 7px;max-width:880px;margin:7px auto 0}
+.composer > .composerInput{display:block;position:relative;margin:0;--prompt-inset:12px}
+.composer .composerInput textarea{padding:var(--prompt-inset);text-indent:var(--prompt-indent,0px)}
+.selectedFormatLayer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.selectedFormatLayer .selectedFormat{position:absolute;inset-inline-start:var(--prompt-inset);top:calc(var(--prompt-inset) - var(--prompt-scroll,0px));padding-block:2px;pointer-events:auto}
+.composer > .composerToolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px 10px}
+.creationFormats{display:flex;flex-wrap:wrap;gap:5px 7px;justify-content:center;min-width:0}
 .creationFormats button,.selectedFormat{display:inline-flex;align-items:center;gap:5px;flex:none;padding:4px 9px;border:1px solid #ded8cb;border-radius:999px;background:#fffdf9;color:#615c50;font:inherit;font-size:12px;line-height:1.4;cursor:pointer}
 .selectedFormat,.creationFormats button[aria-pressed=true]{background:#eef5fd;border-color:#a8c5ed;color:#265b9b}
 .creationFormats button:hover:not(:disabled),.selectedFormat:hover:not(:disabled){border-color:#86abd9;color:#265b9b}
 .creationFormats button:focus-visible,.selectedFormat:focus-visible{outline:2px solid #5987bf;outline-offset:2px}
 .creationFormats button:disabled,.selectedFormat:disabled{opacity:.55;cursor:default}
-@media(max-width:480px){.composer > .composerInput,.layoutWithInspector .composer > .composerInput{flex-wrap:wrap}.composerInput textarea{flex-basis:100%}}
+@media(max-width:600px){
+ .composer > .composerToolbar{grid-template-columns:minmax(0,1fr) auto}
+ .creationFormats{grid-column:1/-1;grid-row:1;justify-content:flex-start}
+}
 .composer>div{margin-top:6px}
 .composer small{font-size:10.5px;color:#a49b89}
 .composer .actions :global(.btn.primary){background:#8fa47b;border:0;border-radius:11px;color:#fff;padding:8px 13px;
