@@ -1,0 +1,15 @@
+{
+  "name": "@narrativeos/gesture-sdk-assets",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
