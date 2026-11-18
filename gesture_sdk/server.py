@@ -22,7 +22,7 @@ ASSET = re.compile(
     r"models/hand_landmarker\.task|wasm/[a-zA-Z0-9_.-]+\.(?:js|wasm|data))$"
 )
 SCRIPT = re.compile(r"<script>(.*?)</script>", re.DOTALL)
-FRAME_ANCESTORS = "https://www.narrativeos.cn https://narrativeos.cn http://localhost:3001"
+FRAME_ANCESTORS = "https://www.narrativeos.cn https://narrativeos.cn http://localhost:3001 http://127.0.0.1:3001"
 
 
 def create_app(works_root: Path | None = None, assets_root: Path | None = None) -> FastAPI:
@@ -48,7 +48,6 @@ def create_app(works_root: Path | None = None, assets_root: Path | None = None) 
             "Cache-Control": "public, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin",
-            "Access-Control-Allow-Origin": "none",
         })
 
     @app.get("/works/{work_id}/index.html")

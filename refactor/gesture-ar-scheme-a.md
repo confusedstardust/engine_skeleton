@@ -38,6 +38,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.ar.dev.yml up -d ar-p
 - [ ] Next `tsc --noEmit`、frontend build 和已有作品预览路由回归。
 - [ ] 真机浏览器 `startCamera` -> WASM/model HTTP 200 -> `onFrame` 和 `engine.on('fist')` -> 捏合拖动/握拳旋转/食指点选与左右滑动/张掌复位的**真实视觉反馈**。
 - [ ] 设备断开、权限拒绝、后台 Tab、页面卸载、关闭后重开不泄漏摄像头；无摄像头时鼠标/触屏保持可用。
+- [ ] 上游 Tracker 视频轨道中断时重置作品按钮状态，允许用户再次主动启动摄像头。
 - [ ] Chromium+Safari+iOS 的 Permissions Policy、CSP、同源 Cookie、隔离端点、冻结版本及缓存测试；性能及弱设备 FPS。
 - [ ] 测试非手势作品绝不具有 `allow-same-origin`/camera，未发布、撤销、篡改 HTML 均 404。
 - [ ] 检查用户在直接下载单独 HTML 并以 `file://` 打开时无法申请摄像头；应使用独立 HTTPS 作品地址而不是单文件离线运行。HTML 导出仍能使用鼠标/触摸。

@@ -11,11 +11,12 @@ const pointOf = (hand) => {
   return toScreen(tip);
 };
 export class GestureControls {
-  constructor({ video, onAction, onPointer = () => {}, onStatus = () => {} }) {
+  constructor({ video, onAction, onPointer = () => {}, onStatus = () => {}, onEnded = () => {} }) {
     this.video = video;
     this.onAction = onAction;
     this.onPointer = onPointer;
     this.onStatus = onStatus;
+    this.onEnded = onEnded;
     this.hands = null;
     this.off = null;
     this.running = false;
@@ -102,7 +103,7 @@ export class GestureControls {
       this.off = this.hands.engine.on('fist', event => {
         this.onStatus(event.phase === 'start' ? '握拳移动可旋转卡片' : '握拳结束');
       });
-      this.hands.tracker.onEnded = () => { this.stop(); this.onStatus('摄像头已断开，请重新开启'); };
+      this.hands.tracker.onEnded = () => { this.stop(); this.onEnded(); };
       await this.hands.startCamera();
       this.running = true;
       this.onStatus('摄像头已开启，视频只在本机分析');

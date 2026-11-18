@@ -79,7 +79,8 @@ if(!window.isSecureContext||!navigator.mediaDevices||!/^https?:$/.test(location.
 $('start').disabled=true;status.textContent='正在准备摄像头与手势模型…';
 try{
 const {GestureControls}=await import('/gesture-sdk/v1/nar-controls.esm.js');
-control=new GestureControls({video:camera,onAction:action,onPointer:pointer,onStatus:text=>{status.textContent=text;}});
+control=new GestureControls({video:camera,onAction:action,onPointer:pointer,onStatus:text=>{status.textContent=text;},
+onEnded:()=>{stop();status.textContent='摄像头已断开，请重新开启';}});
 await control.start();camera.setAttribute('data-running','');$('stop').disabled=false;
 }catch(e){stop();status.textContent='无法开启手势：'+(e instanceof Error?e.message:String(e))+'；可用鼠标/触屏。';}
 });
