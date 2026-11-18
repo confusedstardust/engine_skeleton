@@ -1,0 +1,5 @@
+.controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px;background:#f8faf6;color:#65715e;font-size:12px}
+.controls button{border:1px solid #bac9ae;border-radius:8px;background:#fff;color:#42603c;font-size:13px;font-weight:600;cursor:pointer;padding:7px 11px}
+.controls button:hover{background:#edf3e8}
+.controls button:disabled{opacity:.6;cursor:wait}
+.error{margin:0;padding:8px 14px;color:#a12d26;background:#fff3f0;font-size:12px;line-height:1.55}

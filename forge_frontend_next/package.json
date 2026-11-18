@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "prebuild": "npm run check:shared-ui",
+    "prebuild": "npm run check:shared-ui && npm run gesture:assets",
     "check:shared-ui": "node node_modules/@narrativeos/ui/verify-release.cjs",
     "dev": "next dev --hostname 127.0.0.1 --port 3001",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3001",
-    "lint": "next lint"
+    "lint": "next lint",
+    "gesture:assets": "node scripts/prepare-gesture-assets.mjs",
+    "predev": "npm run gesture:assets"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
@@ -35,7 +37,8 @@
     "next": "15.3.4",
     "pinyin-pro": "^3.29.5",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "@mediapipe/tasks-vision": "0.10.35"
   },
   "devDependencies": {
     "@types/node": "22.15.31",

@@ -42,7 +42,10 @@ window.addEventListener("message", function (e) {
     const method = Object.getOwnPropertyDescriptor(window.NarInteraction || {}, data.action)?.value;
     if (typeof method !== "function") return;
     lastSeq = data.seq;
-    try { method.call(window.NarInteraction, data.event); } catch (err) { console.error("NarInteraction action failed", err); }
+    try {
+      const outcome = method.call(window.NarInteraction, data.event);
+      if (data.action === "hover") port.postMessage({protocol,type:"hover",session,hasTarget: outcome === true});
+    } catch (err) { console.error("NarInteraction action failed", err); }
   };
   port.start();
   port.postMessage({protocol, type:"ready", session});
