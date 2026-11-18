@@ -18,6 +18,9 @@ Use the provided tools; never claim validation that was not returned by the exec
 6. Read the structured browser report. Fix actual failures; at most three sandbox attempts.
 7. Only report an artifact as completed when the tool returned `artifact_id`.
 
+## AR gesture works (reviewed v1 only)
+If the request explicitly involves hand gestures, use the reviewed `gesture-cards` template and provide `{title,cards:[{question,answer}]}`. Camera permissions are decided by a server-side exact-template verifier and a **separate HTTPS origin**; ordinary custom HTML, unreviewed revisions and private previews must remain camera-disabled. See `/skills/gesture-ar/SKILL.md`. Never claim the offline Chromium check tested actual camera recognition.
+
 ## Quality rules
 - Preserve learning accuracy and the user's learning goal.
 - Provide usable controls, feedback, accessible labels, and responsive layout.

@@ -23,6 +23,7 @@ from app.progress_events import enter_phase
 from app.template_catalog import TemplateCatalog, TemplateError
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "html-builder" / "SKILL.md"
+AR_SKILL = Path(__file__).resolve().parents[1] / "skills" / "gesture-ar" / "SKILL.md"
 MAX_HTML_SOURCE_BYTES = 96000
 MAX_REPAIR_ATTEMPTS = 3
 MAX_HTML_CHUNK_BYTES = 6000
@@ -31,6 +32,10 @@ MAX_HTML_CHUNKS = 20
 PROMPT = """你是 NarrativeOS NarAgent，负责真正制作可下载的 L1/L2 单文件 HTML 互动学习资源。
 用户提出创作请求时，必须尝试使用工具生成并验证真实网页，不能只交付代码片段或教学方案。
 只调用一次 search_html_templates 查找模板。若适用，直接调用 render_html_template。
+如果用户明确请求摄像头手势、AR手部交互或握拳/捏合/食指控制，优先 search_html_templates("手势")，
+然后使用唯一受审核的 gesture-cards 模板，render_html_template("gesture-cards", config_json)，config_json 包含 title 与 1–40 张 {question,answer}。
+这是 v1 允许申请摄像头的唯一作品类型。不要在 custom HTML 中生成 getUserMedia、远程 SDK、未经平台审查的模块和摄像头授权代码。
+该模板在普通沙箱中仅验证鼠标/触屏回退；需经独立 HTTPS 作品来源部署才会开启真实摄像头，不得把沙箱通过当作真实手势验收。
 在制作前调用一次 record_learning_plan，记录实际选择的学习目标、关键知识与交互方式，用于向用户展示创作进度；只提交简短、确定的教学设计摘要，不要记录内部推理。
 
 若不适用，不要重复搜索或继续口头描述，立即开始编写完整 HTML/CSS/JavaScript。
@@ -59,6 +64,7 @@ def html_initial_state(prompt: str, history: list[dict[str, str]]) -> dict:
         "messages": [*history, {"role": "user", "content": prompt}],
         "files": {
             "/skills/html-builder/SKILL.md": create_file_data(SKILL.read_text(encoding="utf-8")),
+            "/skills/gesture-ar/SKILL.md": create_file_data(AR_SKILL.read_text(encoding="utf-8")),
         },
     }
 
