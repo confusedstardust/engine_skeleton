@@ -37,7 +37,7 @@ def test_html_embed_safe_idempotence_rejection():
     {"schemaVersion": "0.2.0", "bindings": [{"gesture": "index_pointer", "phases": ["move"], "action": "click"}]},
     {"schemaVersion": "0.2.0", "bindings": [{"gesture": "open_palm_hold", "phases": ["trigger"], "action": "rotate"}]},
     {"schemaVersion": "0.2.0", "bindings": [{"gesture": "fist_rotate", "phases": ["move"], "action": "rotate", "script": "alert(1)"}]},
-]):
+])
 def test_invalid_bindings_rejected(bad):
     with pytest.raises(GestureConfigError):
         validate_bindings(bad)
