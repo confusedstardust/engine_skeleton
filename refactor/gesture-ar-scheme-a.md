@@ -7,7 +7,7 @@
 ## 已提交代码和边界
 
 1. `gesture_sdk/src/kit/*.ts`：固定上游源码。通过 `gesture_sdk/build.mjs` 构建版本化 ESM，构建时复制 MediaPipe 1.1.0 WASM 和下载 Hand Landmarker 模型，输出 `/gesture-sdk/v1/`。浏览器不会在运行时向 Google 下载模型。
-2. `gesture_sdk/src/nar-controls.js`：运行在**作品 iframe 内**的 `GestureControls`。创建独立 `Hands`，启用 `numHands:1`、`pose.experimental:false`，从 `onFrame` 读取连续状态、`engine.on('fist')` 读取姿态事件。四种操作：`pinch-drag`、`fist-rotate`、`index-dwell`（700ms）、`open-reset`（900ms）。没有父页摄像头桥接，也没有双重识别循环。
+2. `gesture_sdk/src/nar-controls.js`：运行在**作品 iframe 内**的 `GestureControls`。创建独立 `Hands`，启用 `numHands:1`、`pose.experimental:false`，从 `onFrame` 读取连续状态、`engine.on('fist')` 读取姿态事件。四种操作：`pinch-drag`、`fist-rotate`、`index-dwell`（700ms）、食指限定 `index-swipe` 翻页、`open-reset`（900ms）。没有父页摄像头桥接，也没有双重识别循环。
 3. `nar_agent/templates/gesture-cards`：受审核的 AR 互动学习卡，内含触控、鼠标、键盘回退；摄像头默认关闭，点击后从同源版本化路径动态 import SDK；关闭/页面隐藏时停止流，重启新建实例。这个受控模板是**第一个 MVP**，并非允许 Agent 对所有自由生成 HTML 自动开启摄像头。
 4. `nar_agent/agents/html_builder.py` + `skills/gesture-ar`：当用户明确请求手势/AR 时，引导模型优先选择 `gesture-cards` 模板。模板渲染复用原有 `TemplateCatalog` 的受约束 `title/cards` JSON，不新增工具入口或数据库表。
 5. `gesture_sdk/review.py`：服务端读取作品 HTML 内的参数，调用同一个受审核模板渲染器，并做**完整字节比对**。不接受靠 `data-nar-template`、用户标志、客户端声明冒充特权，原模板 JS 被任何改动就拒绝。
@@ -36,7 +36,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.ar.dev.yml up -d ar-p
 - [ ] Docker 编译 `gesture_sdk` JS、MediaPipe WASM、任务模型；记录模型 SHA-256 校验值作为固定供应链依赖（当前构建时固定 URL，未锁定二进制 hash）。
 - [ ] `pytest tests/test_gesture_ar_origin.py`、`pytest nar_agent/tests/test_ar_template.py`；NarAgent 原有测试与网关回归。
 - [ ] Next `tsc --noEmit`、frontend build 和已有作品预览路由回归。
-- [ ] 真机浏览器 `startCamera` -> WASM/model HTTP 200 -> `onFrame` 和 `engine.on('fist')` -> 捏合拖动/握拳旋转/食指点选/张掌复位的**真实视觉反馈**。
+- [ ] 真机浏览器 `startCamera` -> WASM/model HTTP 200 -> `onFrame` 和 `engine.on('fist')` -> 捏合拖动/握拳旋转/食指点选与左右滑动/张掌复位的**真实视觉反馈**。
 - [ ] 设备断开、权限拒绝、后台 Tab、页面卸载、关闭后重开不泄漏摄像头；无摄像头时鼠标/触屏保持可用。
 - [ ] Chromium+Safari+iOS 的 Permissions Policy、CSP、同源 Cookie、隔离端点、冻结版本及缓存测试；性能及弱设备 FPS。
 - [ ] 测试非手势作品绝不具有 `allow-same-origin`/camera，未发布、撤销、篡改 HTML 均 404。

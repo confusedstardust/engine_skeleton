@@ -80,23 +80,26 @@ export async function checkPage(file) {
       template_interactions = await evaluate(`(() => {
         const answer = document.getElementById('answer');
         const next = document.getElementById('next');
+        const prev = document.getElementById('prev');
         const reveal = document.getElementById('reveal');
         const card = document.getElementById('card');
         const reset = document.getElementById('reset');
         const count = document.getElementById('count');
-        if (!answer || !next || !reveal || !card || !reset || !count) return {passed:false,reason:'AR controls missing'};
+        if (!answer || !next || !prev || !reveal || !card || !reset || !count) return {passed:false,reason:'AR controls missing'};
         if (!answer.hidden) return {passed:false,reason:'answer visible before reveal'};
         const first = count.textContent;
         reveal.click();
         if (answer.hidden || !answer.textContent.trim()) return {passed:false,reason:'reveal failed'};
         next.click();
         if (!answer.hidden) return {passed:false,reason:'answer leaked on next'};
+        prev.click();
+        if (count.textContent !== first) return {passed:false,reason:'prev did not navigate'};
         card.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
         if (!card.style.transform.includes('15deg')) return {passed:false,reason:'keyboard rotation failed'};
         reset.click();
         if (!card.style.transform.includes('0deg')) return {passed:false,reason:'reset failed'};
         if (!first) return {passed:false,reason:'empty progress'};
-        return {passed:true,assertions:['answer-hidden','reveal','next','keyboard-rotate','reset','offline-fallback']};
+        return {passed:true,assertions:['answer-hidden','reveal','next','prev','keyboard-rotate','reset','offline-fallback']};
       })());
       if (!template_interactions?.passed) errors.push('AR fallback verification failed: ' + (template_interactions?.reason || 'unknown'));
     }

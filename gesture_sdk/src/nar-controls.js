@@ -25,6 +25,8 @@ export class GestureControls {
     this.dwell = null;
     this.dwellFired = false;
     this.openFired = false;
+    this.swipeStart = null;
+    this.swipeCooldown = 0;
   }
   resetInput() {
     if (this.pressed) this.onAction('pinch-end', this.last || { x: .5, y: .5 });
@@ -33,6 +35,7 @@ export class GestureControls {
     this.dwell = null;
     this.dwellFired = false;
     this.openFired = false;
+    this.swipeStart = null;
     this.onPointer(null);
   }
   update(frame) {
@@ -59,7 +62,24 @@ export class GestureControls {
       this.onAction('open-reset', pos);
     }
     if (hand.pose !== 'open') this.openFired = false;
-    if (hand.pose !== 'point') { this.dwell = null; this.dwellFired = false; return; }
+    if (hand.pose !== 'point' || pinching) {
+      this.dwell = null; this.dwellFired = false; this.swipeStart = null; return;
+    }
+    // Index-only horizontal swipe (not SDK's generic swipe-left/right).
+    const previous = this.swipeStart;
+    const elapsed = previous ? frame.t - previous.t : 0;
+    const dx = previous ? pos.x - previous.x : 0;
+    const dy = previous ? pos.y - previous.y : 0;
+    if (!previous || elapsed > 650 || Math.abs(dy) > .09) {
+      this.swipeStart = { ...pos, t: frame.t };
+    } else if (elapsed >= 120 && Math.abs(dx) >= .18 && frame.t >= this.swipeCooldown) {
+      this.swipeCooldown = frame.t + 650;
+      this.swipeStart = null;
+      this.dwell = null;
+      this.dwellFired = false;
+      this.onAction('index-swipe', { direction: dx < 0 ? 'left' : 'right' });
+      return;
+    }
     const element = document.elementFromPoint(pos.x * innerWidth, pos.y * innerHeight)?.closest('[data-gesture-dwell]');
     const target = element instanceof HTMLElement ? element : null;
     if (!target) { this.dwell = null; this.dwellFired = false; return; }

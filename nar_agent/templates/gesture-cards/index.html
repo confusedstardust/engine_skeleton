@@ -30,12 +30,13 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:12px;fl
 </article></section>
 <div class="buttons" aria-label="游戏控制">
 <button id="next" data-gesture-dwell type="button" class="primary">下一张（食指停留）</button>
+<button id="prev" data-gesture-dwell type="button">上一张</button>
 <button id="reveal" data-gesture-dwell type="button">查看答案</button>
 <button id="reset" type="button">重置位置</button>
 <button id="start" type="button">开启摄像头手势</button>
 <button id="stop" type="button" disabled>关闭摄像头</button></div>
 <footer><p id="status" role="status" aria-live="polite">鼠标或触屏可直接操作；摄像头默认关闭</p><video id="camera" autoplay muted playsinline aria-label="本机摄像头预览"></video></footer>
-<p class="hint">手势：捏合拖动卡片；握拳左右移动旋转卡片；食指指向按钮并停留约0.7秒触发；张掌保持约0.9秒复位。也可用按钮与鼠标/触屏，摄像头内容仅在当前网页设备内识别。</p>
+<p class="hint">手势：捏合拖动卡片；握拳左右移动旋转卡片；食指指向按钮并停留约0.7秒触发，或用食指左右滑动翻页；张掌保持约0.9秒复位。也可用按钮与鼠标/触屏，摄像头内容仅在当前网页设备内识别。</p>
 <script type="application/json" id="nar-data">__NAR_TEMPLATE_DATA__</script>
 <script>
 (()=>{'use strict';
@@ -48,8 +49,10 @@ function transform(){card.style.transform='translate('+x+'px,'+y+'px) rotate('+a
 function render(){$('question').textContent=data.cards[index].question;$('answer').textContent=data.cards[index].answer;
 $('answer').hidden=!shown;$('reveal').textContent=shown?'收起答案':'查看答案';$('count').textContent=(index+1)+' / '+data.cards.length;}
 function next(){index=(index+1)%data.cards.length;shown=false;render();}
+function prev(){index=(index-1+data.cards.length)%data.cards.length;shown=false;render();}
 function reset(){x=0;y=0;angle=0;last=null;dragging=false;transform();}
 $('next').addEventListener('click',next);
+$('prev').addEventListener('click',prev);
 $('reveal').addEventListener('click',()=>{shown=!shown;render();});
 $('reset').addEventListener('click',reset);
 card.addEventListener('pointerdown',e=>{dragging=true;last={x:e.clientX,y:e.clientY};card.setPointerCapture(e.pointerId);});
@@ -61,6 +64,7 @@ const cursor=document.createElement('div');cursor.id='pointer';document.body.app
 let pinchAt=null;
 function action(name,p){
 if(name==='index-dwell'&&p.target){p.target.click();}
+if(name==='index-swipe'){if(p.direction==='left')next();else prev();}
 if(name==='open-reset')reset();
 if(name==='fist-rotate'){angle+=p.delta*180;transform();}
 if(name==='pinch-start')pinchAt={x:p.x,y:p.y};
