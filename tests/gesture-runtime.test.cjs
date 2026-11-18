@@ -57,8 +57,15 @@ const phases = (events)=>events.map(e=>e.gestureId+":"+e.phase);
   assert.deepEqual(phases(m.update(pointer(),750)),["index_pointer:move"]);
   assert.deepEqual(phases(m.update(pointer(),900)),["index_pointer:move","index_pointer:click"]);
   assert.deepEqual(phases(m.update(pointer(),1100)),["index_pointer:move"]);
-  m.update(pointer(.7,.5),1200);
-  assert.deepEqual(phases(m.update(pointer(.7,.5),2000)),["index_pointer:move","index_pointer:click"]);
+  // A quick 20% pointer movement within 500ms is a swipe, so dwell is locked
+  // until the pointer gesture is released and activated again.
+  assert.deepEqual(phases(m.update(pointer(.7,.5),1200)),["index_pointer:move","index_pointer:swipe"]);
+  assert.deepEqual(phases(m.update(pointer(.7,.5),2000)),["index_pointer:move"]);
+  m.update({...pointer(.7,.5),pointer:false},2100);
+  m.update(pointer(.7,.5),2200);
+  m.update(pointer(.7,.5),2310);
+  m.setHoverTarget(true);
+  assert.deepEqual(phases(m.update(pointer(.7,.5),3100)),["index_pointer:move","index_pointer:click"]);
 }
 {
   const m = new GestureStateMachine();
