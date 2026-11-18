@@ -18,6 +18,8 @@ from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain_openai import ChatOpenAI
 
 from app.artifacts import ArtifactStore
+from app.gesture_html_composer import (GestureConfigError, get_manifest, compose_gesture_html,
+                                        inspect_gesture_html, BRIDGE_SOURCE)
 from app.config import Settings
 from app.progress_events import enter_phase
 from app.template_catalog import TemplateCatalog, TemplateError
@@ -31,6 +33,13 @@ MAX_HTML_CHUNKS = 20
 PROMPT = """你是 NarrativeOS NarAgent，负责真正制作可下载的 L1/L2 单文件 HTML 互动学习资源。
 用户提出创作请求时，必须尝试使用工具生成并验证真实网页，不能只交付代码片段或教学方案。
 只调用一次 search_html_templates 查找模板。若适用，直接调用 render_html_template。
+若用户明确要求用摄像头手势操控作品，先调用 get_gesture_manifest 了解已有手势。
+生成内联 HTML，并实现 window.NarInteraction，所有方法都接收一个事件对象：
+rotate/grab/drag/pan/hover/click/swipe/select/reset；实际方法按所选 GestureBindings 实现。
+GestureBindings 只能来自 Manifest，严禁让生成 HTML 加载 MediaPipe、访问摄像头或手工注入 bridge。
+用 write_html_chunk 分段写好源码后，必须调用 validate_gesture_working_html(bindings_json) 进行验证并保存；这会注入可信 Bridge 并由 Sandbox 检查。
+不要对手势作品使用普通 validate_working_html 或 submit_custom_html 作为最终交付。
+如果用户并未提出手势需求，则保持原有生成流程，不调用手势相关工具。
 在制作前调用一次 record_learning_plan，记录实际选择的学习目标、关键知识与交互方式，用于向用户展示创作进度；只提交简短、确定的教学设计摘要，不要记录内部推理。
 
 若不适用，不要重复搜索或继续口头描述，立即开始编写完整 HTML/CSS/JavaScript。
@@ -153,6 +162,10 @@ def build_html_agent(
         if len(source.encode("utf-8")) > MAX_HTML_SOURCE_BYTES:
             return json.dumps({"error": "Source exceeds 96KB sandbox limit"})
         attempts += 1
+        try:
+            inspect_gesture_html(source)
+        except GestureConfigError as error:
+            return json.dumps({"error": "Invalid gesture bridge: " + str(error)}, ensure_ascii=False)
         working_html = source  # Retain failed drafts for targeted repair in the same run.
         progress.pop("execution_error", None)
         enter_phase(progress, "BUILDING")
@@ -228,6 +241,29 @@ def build_html_agent(
             "draft_chunks": chunks, "next_step": "Append another chunk, or call validate_working_html once complete.",
         })
 
+    def get_gesture_manifest() -> str:
+        """Read the platform's fixed supported gesture IDs, events, outputs and allowed actions."""
+        return json.dumps(get_manifest(), ensure_ascii=False)
+
+    async def validate_gesture_working_html(bindings_json: str) -> str:
+        """Inject trusted bridge, validate bindings and run the existing Chromium sandbox."""
+        nonlocal working_html
+        if working_html is None or not working_html.strip():
+            return json.dumps({"error": "No HTML draft. Write the HTML first."})
+        try:
+            source = working_html
+            # Existing immutable gesture works can be revised without duplicating the bridge.
+            prior = inspect_gesture_html(source)
+            if prior is not None:
+                protected = ('<script id="nar-gesture-bindings" type="application/json">' +
+                             __import__("re").search(r'<script id="nar-gesture-bindings" type="application/json">([^<]*)</script>', source).group(1) +
+                             '</script><script id="nar-gesture-bridge">' + BRIDGE_SOURCE + '</script>')
+                source = source.replace(protected, "", 1)
+            composed = compose_gesture_html(source, bindings_json)
+        except (GestureConfigError, AttributeError, ValueError) as error:
+            return json.dumps({"error": str(error)}, ensure_ascii=False)
+        return await submit(composed, "gesture")
+
     async def validate_working_html() -> str:
         """Browser-test and save the current assembled HTML draft without resending source as a tool argument."""
         if working_html is None or not working_html.strip():
@@ -271,7 +307,8 @@ def build_html_agent(
         tools=[
             search_html_templates, record_learning_plan, read_working_html, inspect_working_html,
             render_html_template, submit_custom_html, replace_working_html,
-            write_html_chunk, validate_working_html,
+            write_html_chunk, validate_working_html, get_gesture_manifest,
+            validate_gesture_working_html,
         ],
         middleware=[ModelCallLimitMiddleware(run_limit=24, exit_behavior="error")],
         system_prompt=PROMPT + "\n" + context,

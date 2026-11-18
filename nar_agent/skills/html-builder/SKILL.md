@@ -31,3 +31,14 @@ Use the provided tools; never claim validation that was not returned by the exec
 ## Stopping
 After a validated artifact, summarize the user-facing interaction and how to preview.
 On failure, explain which tests could not pass and do not invent a download URL.
+
+## Hand gesture works (opt-in only)
+- For explicit camera/hand gesture requirements, call `get_gesture_manifest` once.
+- Produce standalone fallback mouse/touch controls plus `window.NarInteraction` actions.
+- Every NarInteraction handler takes **one event object**: `{phase,x,y,dx,dy,direction}`.
+- Write the complete draft in chunks, then use `validate_gesture_working_html(bindings_json)`; do NOT add your own bridge or MediaPipe library.
+- Only bind gesture IDs, phases and suggested actions explicitly listed in the manifest.
+- For example, fist motion to rotate and open palm to reset:
+  `{"schemaVersion":"0.2.0","bindings":[{"gesture":"fist_rotate","phases":["move"],"action":"rotate"},{"gesture":"open_palm_hold","phases":["trigger"],"action":"reset"}]}`
+- Camera and hand keypoints belong to the trusted player, never inside generated work.
+- No gesture request: ordinary `validate_working_html`, no camera or gesture runtime.
