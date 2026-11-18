@@ -1,0 +1,22 @@
+# Optional Scheme A player overlay for docker-compose.dev.yml.
+services:
+  ar-player:
+    build:
+      context: .
+      dockerfile: gesture_sdk/Dockerfile
+    image: narrativeos-ar-player:feature-ar-dev
+    restart: unless-stopped
+    read_only: true
+    user: "1000:1000"
+    volumes:
+      - forge_dev_jobs:/data/jobs:ro
+    tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 96
+    mem_limit: 384m
+    cpus: "0.5"
+    ports:
+      - "127.0.0.1:8040:8040"
+    networks:
+      - narrativeos_development

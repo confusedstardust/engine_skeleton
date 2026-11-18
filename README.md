@@ -14,6 +14,8 @@
 
 ## 架构与演进文档入口
 
+- [手势 AR 方案 A 接入](refactor/gesture-ar-scheme-a.md)：`feature-ar` 中的作品内 SDK、独立摄像头域名、四手势模板、发布审核与部署步骤。**目前仅实现到分支，未上线/未完成真实摄像头验收。**
+
 - [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、标签、封面、发布和隔离体验；状态详见专题文档。
 
 - [飞书知识库首页](https://my.feishu.cn/wiki/PoQgw5HWTiImkxkuyYrck6iInsh) / [飞书协作与文档迁移](refactor/lark-workflow.md)：应用绑定、用户授权、私有知识库创建和首页读写已验证；完整消息任务往返及专题批量迁移尚待完成。[文档迁移登记](refactor/lark-document-map.csv)。
