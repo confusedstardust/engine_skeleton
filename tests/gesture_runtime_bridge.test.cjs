@@ -64,3 +64,44 @@ test("Bridge protocol rejects stale sessions, replay, NaN and unauthorized messa
  assert.equal(protocol.isGestureEvent({kind:"swipe",direction:"up"}),false);
  assert.equal(protocol.isGestureEvent({kind:"reset",reason:"open-hold"}),true);
 });
+
+test("Sandbox Bootstrap accepts only host handshake and monotonic scoped events",async()=>{
+ const {MessageChannel}=require("node:worker_threads");
+ const bootstrap=load("bridge-bootstrap.ts").BRIDGE_BOOTSTRAP;
+ const listeners={};
+ const origin="https://www.narrativeos.cn";
+ const win={
+   parent:{},
+   addEventListener(name,callback){listeners[name]=callback;}
+ };
+ const doc={currentScript:{getAttribute(name){return name==="data-parent-origin"?origin:null;}}};
+ vm.runInNewContext(bootstrap,{window:win,document:doc,console,performance:{now:()=>500}});
+ assert.equal(win.NarrativeGesture.version,1);
+ const seen=[];
+ win.NarrativeGesture.on("swipe",e=>seen.push(e.direction));
+ const channel=new MessageChannel();
+ try{
+   const session="test-session-"+"a".repeat(24);
+   const data={channel:"nar-gesture",v:1,type:"NAR_GESTURE_CONNECT",sessionId:session};
+   listeners.message({source:{},origin,data,ports:[channel.port2]}); // wrong source
+   const ready=new Promise(resolve=>channel.port1.once("message",resolve));
+   listeners.message({source:win.parent,origin,data,ports:[channel.port2]});
+   const acknowledged=await ready;
+   assert.equal(acknowledged.type,"READY");
+   assert.equal(acknowledged.sessionId,session);
+   const event=(seq,sessionId=session)=>({channel:"nar-gesture",v:1,sessionId,seq,type:"EVENT",event:{kind:"swipe",direction:"left"}});
+   const received=new Promise(resolve=>win.NarrativeGesture.on("swipe",resolve));
+   channel.port1.postMessage(event(1));
+   await received;
+   assert.equal(seen.length,1);
+   channel.port1.postMessage(event(1)); // replay
+   channel.port1.postMessage(event(2,"wrong-session")); // stale session
+   channel.port1.postMessage({...event(3),event:{kind:"pinch",phase:"move",x:Infinity,y:0}}); // malformed
+   await new Promise(resolve=>setTimeout(resolve,20));
+   assert.equal(seen.length,1);
+   channel.port1.postMessage(event(4));
+   await new Promise(resolve=>setTimeout(resolve,20));
+   assert.equal(seen.length,2);
+   listeners.pagehide();
+ } finally {channel.port1.close();channel.port2.close();}
+});

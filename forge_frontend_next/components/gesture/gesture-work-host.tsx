@@ -83,12 +83,18 @@ export default function GestureWorkHost({html,label="互动作品",compact=false
     },()=>{
       if(runtime.current===instance){runtime.current=null;setState("error");setCursor(null);
         send({kind:"status",state:"error",code:"DEVICE_ENDED"});setNotice("摄像头已断开，请重新开启。");}
+    },()=>{
+      if(runtime.current===instance){runtime.current=null;setState("off");setCursor(null);
+        send({kind:"status",state:"off"});
+        setNotice("另一个作品已开启手势，当前摄像头已自动关闭。");}
     });
     runtime.current=instance;
     setState("starting");setNotice("正在开启摄像头并加载手势模型…");
     send({kind:"status",state:"starting"});
     // Important: startCamera invokes getUserMedia directly in this click handler.
-    void instance.start().then(()=>{
+    let started:Promise<void>;
+    try{started=instance.start();}catch(error){started=Promise.reject(error);}
+    void started.then(()=>{
       if(runtime.current!==instance)return;
       setState("running");setNotice("手势在本机识别，不上传视频或关键点。");
       send({kind:"status",state:"running"});

@@ -5,7 +5,7 @@ type Hands={startCamera:()=>Promise<void>;stop:()=>void;tracker:{onEnded:(()=>vo
 type Module={createHands:(opts:Record<string,unknown>)=>Hands};
 let sdk:Module|null=null;
 let loading:Promise<boolean>|null=null;
-let activeStop:(()=>void)|null=null;
+let activeRuntime:{stop:()=>void;onPreempted:()=>void}|null=null;
 /** Called from mount, never after the camera button click. */
 export function preloadGestureSDK():Promise<boolean>{
   if(sdk)return Promise.resolve(true);
@@ -19,19 +19,22 @@ export function preloadGestureSDK():Promise<boolean>{
   return loading;
 }
 export function createGestureRuntime(
-  video:HTMLVideoElement,emit:(event:GestureEvent)=>void,onEnded:()=>void
+  video:HTMLVideoElement,emit:(event:GestureEvent)=>void,onEnded:()=>void,onPreempted:()=>void
 ){
   let hands:Hands|null=null,closed=false;
   const adapter=new GestureAdapter(emit);
   const stop=()=>{
     if(closed)return;
     closed=true;adapter.release();hands?.stop();hands=null;video.srcObject=null;
-    if(activeStop===stop)activeStop=null;
+    if(activeRuntime?.stop===stop)activeRuntime=null;
   };
   function start():Promise<void>{
     if(!sdk)throw Error("SDK_NOT_READY");
-    if(activeStop&&activeStop!==stop)activeStop();
-    activeStop=stop;
+    if(activeRuntime&&activeRuntime.stop!==stop){
+      const previous=activeRuntime;
+      previous.stop();previous.onPreempted();
+    }
+    activeRuntime={stop,onPreempted};
     hands=sdk.createHands({
       video,assetBase:withBasePath("/gesture-sdk/v1/"),numHands:1,
       camera:{audio:false,video:{facingMode:"user",width:{ideal:640},height:{ideal:480},frameRate:{ideal:30}}},

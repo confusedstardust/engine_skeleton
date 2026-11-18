@@ -505,4 +505,5 @@ def test_real_docker_ar_offline_fallback_smoke():
     assert report["checks"]["template_interactions"]["passed"] is True
     assert report["checks"]["template_interactions"]["assertions"] == [
         "answer-hidden", "reveal", "next", "prev", "keyboard-rotate", "reset", "offline-fallback",
+        "bridge-mock-before-scripts", "pinch-drag", "fist-rotate", "index-swipe", "open-reset",
     ]
