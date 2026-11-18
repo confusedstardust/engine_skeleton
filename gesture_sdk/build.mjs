@@ -18,6 +18,7 @@ await build({
   legalComments: 'linked',
   sourcemap: false,
 });
+await copyFile(join(root, 'src', 'nar-controls.js'), join(output, 'nar-controls.esm.js'));
 const wasmFiles = (await readdir(wasmSource)).filter(name => !name.startsWith('.'));
 if (!wasmFiles.some(name => name.endsWith('.wasm'))) {
   throw new Error('MediaPipe WASM files were not installed');

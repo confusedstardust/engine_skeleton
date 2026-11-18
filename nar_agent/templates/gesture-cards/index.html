@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NAR_TEMPLATE_TITLE__</title>
+<style>
+:root{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#24392f;background:#edf2ea;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;padding:18px;min-height:100vh}main{max-width:850px;margin:auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}h1{font-size:clamp(22px,4.5vw,35px);margin:12px 0}#count{color:#526f58;font-size:14px}
+.stage{border:1px solid #d6e4d2;background:#fffef9;border-radius:22px;margin:14px 0;padding:22px;position:relative;min-height:350px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.card{background:linear-gradient(135deg,#f0f6db,#fff);border:2px solid #c5d7ba;box-shadow:0 12px 25px #3b5d3b18;min-height:245px;width:min(100%,570px);padding:28px;border-radius:18px;touch-action:none;user-select:none;text-align:center;cursor:grab;will-change:transform}
+.card h2{font-size:clamp(20px,4vw,27px);line-height:1.55;margin:14px 0;overflow-wrap:anywhere}
+.answer{font-size:18px;line-height:1.6;color:#3f6352;white-space:pre-wrap;border-top:1px solid #d8e4d2;padding-top:16px}
+[hidden]{display:none!important}.eyebrow{font-size:12px;color:#63826e;letter-spacing:.12em}
+.buttons{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}button{font:inherit;font-size:15px;min-height:44px;background:#fff;border:1px solid #afc9b1;color:#355b43;padding:11px 16px;border-radius:12px;cursor:pointer;flex:1;min-width:132px}button.primary{background:#426e50;color:#fff;border-color:#426e50}
+button:focus-visible{outline:3px solid #efb65b;outline-offset:2px}.hint{font-size:13px;line-height:1.8;color:#5b7264}
+#status{font-weight:600;min-height:22px}#camera{width:132px;max-height:100px;object-fit:cover;border-radius:12px;transform:scaleX(-1);background:#e5eee7}#camera:not([data-running]){display:none}
+#pointer{position:fixed;width:26px;height:26px;border:3px solid #e9ae49;border-radius:50%;box-shadow:0 0 0 2px #fff;pointer-events:none;z-index:100;display:none;transform:translate(-50%,-50%)}
+footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}footer p{margin:4px 0}
+@media(max-width:520px){body{padding:10px}.stage{padding:12px;min-height:310px}.card{min-height:240px;padding:18px}.buttons button{min-width:calc(50% - 5px)}}
+</style>
+</head>
+<body data-nar-template="gesture-cards">
+<main>
+<header><h1 id="title"></h1><span id="count" aria-live="polite"></span></header>
+<section class="stage" aria-label="互动学习卡片">
+<article class="card" id="card" tabindex="0" aria-label="可旋转和拖动的知识卡">
+<span class="eyebrow">探索 · 思考 · 操作</span><h2 id="question"></h2>
+<p id="answer" class="answer" hidden></p>
+</article></section>
+<div class="buttons" aria-label="游戏控制">
+<button id="next" data-gesture-dwell type="button" class="primary">下一张（食指停留）</button>
+<button id="reveal" data-gesture-dwell type="button">查看答案</button>
+<button id="reset" type="button">重置位置</button>
+<button id="start" type="button">开启摄像头手势</button>
+<button id="stop" type="button" disabled>关闭摄像头</button></div>
+<footer><p id="status" role="status" aria-live="polite">鼠标或触屏可直接操作；摄像头默认关闭</p><video id="camera" autoplay muted playsinline aria-label="本机摄像头预览"></video></footer>
+<p class="hint">手势：捏合拖动卡片；握拳左右移动旋转卡片；食指指向按钮并停留约0.7秒触发；张掌保持约0.9秒复位。也可用按钮与鼠标/触屏，摄像头内容仅在当前网页设备内识别。</p>
+<script type="application/json" id="nar-data">__NAR_TEMPLATE_DATA__</script>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const data=JSON.parse($('nar-data').textContent);
+let index=0,shown=false,x=0,y=0,angle=0,dragging=false,last=null,control=null;
+const card=$('card'),camera=$('camera'),status=$('status');
+$('title').textContent=data.title;
+function transform(){card.style.transform='translate('+x+'px,'+y+'px) rotate('+angle+'deg)';}
+function render(){$('question').textContent=data.cards[index].question;$('answer').textContent=data.cards[index].answer;
+$('answer').hidden=!shown;$('reveal').textContent=shown?'收起答案':'查看答案';$('count').textContent=(index+1)+' / '+data.cards.length;}
+function next(){index=(index+1)%data.cards.length;shown=false;render();}
+function reset(){x=0;y=0;angle=0;last=null;dragging=false;transform();}
+$('next').addEventListener('click',next);
+$('reveal').addEventListener('click',()=>{shown=!shown;render();});
+$('reset').addEventListener('click',reset);
+card.addEventListener('pointerdown',e=>{dragging=true;last={x:e.clientX,y:e.clientY};card.setPointerCapture(e.pointerId);});
+card.addEventListener('pointermove',e=>{if(!dragging||!last)return;
+x=Math.max(-140,Math.min(140,x+e.clientX-last.x));y=Math.max(-130,Math.min(130,y+e.clientY-last.y));last={x:e.clientX,y:e.clientY};transform();});
+card.addEventListener('pointerup',()=>{dragging=false;last=null;});card.addEventListener('pointercancel',()=>{dragging=false;last=null;});
+card.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){angle+=e.key==='ArrowRight'?15:-15;transform();e.preventDefault();}});
+const cursor=document.createElement('div');cursor.id='pointer';document.body.append(cursor);
+let pinchAt=null;
+function action(name,p){
+if(name==='index-dwell'&&p.target){p.target.click();}
+if(name==='open-reset')reset();
+if(name==='fist-rotate'){angle+=p.delta*180;transform();}
+if(name==='pinch-start')pinchAt={x:p.x,y:p.y};
+if(name==='pinch-move'&&pinchAt){x=Math.max(-140,Math.min(140,x+(p.x-pinchAt.x)*innerWidth));y=Math.max(-130,Math.min(130,y+(p.y-pinchAt.y)*innerHeight));pinchAt={x:p.x,y:p.y};transform();}
+if(name==='pinch-end')pinchAt=null;
+}
+function pointer(p){cursor.style.display=p?'block':'none';if(p){cursor.style.left=p.x*100+'vw';cursor.style.top=p.y*100+'vh';}}
+function stop(){control?.stop();control=null;camera.removeAttribute('data-running');$('start').disabled=false;$('stop').disabled=true;pinchAt=null;pointer(null);}
+$('start').addEventListener('click',async()=>{
+if(control)return;
+if(!window.isSecureContext||!navigator.mediaDevices||!/^https?:$/.test(location.protocol)){status.textContent='此预览不允许开启摄像头，请在独立 HTTPS 手势作品页面使用；鼠标/触屏仍可用。';return;}
+$('start').disabled=true;status.textContent='正在准备摄像头与手势模型…';
+try{
+const {GestureControls}=await import('/gesture-sdk/v1/nar-controls.esm.js');
+control=new GestureControls({video:camera,onAction:action,onPointer:pointer,onStatus:text=>{status.textContent=text;}});
+await control.start();camera.setAttribute('data-running','');$('stop').disabled=false;
+}catch(e){stop();status.textContent='无法开启手势：'+(e instanceof Error?e.message:String(e))+'；可用鼠标/触屏。';}
+});
+$('stop').addEventListener('click',stop);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+window.addEventListener('pagehide',stop);
+render();transform();
+})();
+</script>
+</main></body></html>

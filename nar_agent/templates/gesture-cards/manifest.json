@@ -1,0 +1,32 @@
+{
+  "id": "gesture-cards",
+  "version": "1.0.0",
+  "name": "AR 手势互动知识卡",
+  "description": "摄像头识别捏合拖动、握拳旋转、食指停留点击、张掌复位。仅经审核并部署至隔离 HTTPS 作品域名后可开启摄像头；普通预览支持鼠标与触屏。",
+  "keywords": [
+    "手势",
+    "摄像头",
+    "AR",
+    "Gesture",
+    "gesture",
+    "hand",
+    "互动知识卡",
+    "学习游戏",
+    "握拳",
+    "捏合",
+    "point"
+  ],
+  "capabilities": [
+    "pinch-drag",
+    "fist-rotate",
+    "index-dwell",
+    "open-reset",
+    "mouse-fallback"
+  ],
+  "config_schema": {
+    "title": "string (1..100)",
+    "cards": "array (1..40) of {question:string, answer:string}"
+  },
+  "requires_network": true,
+  "trusted_gesture_template": true
+}
