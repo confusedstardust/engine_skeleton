@@ -1,0 +1,63 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>地球四季：转动地球探索原因</title><style>
+:root{font-family:system-ui,"PingFang SC",sans-serif;background:#eaf2fc;color:#233b57}
+*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:820px;margin:auto}h1{font-size:clamp(23px,4vw,33px)}
+.scene{background:radial-gradient(ellipse at top,#294e86,#101e3e);border-radius:22px;min-height:345px;
+display:flex;justify-content:space-evenly;align-items:center;gap:12px;position:relative;overflow:hidden}
+.sun{font-size:clamp(58px,12vw,110px)}.planet{width:clamp(115px,25vw,210px);height:clamp(115px,25vw,210px);border-radius:50%;
+border:4px solid #b0d9ef;background:linear-gradient(105deg,#477ac8 20%,#69a76b 50%,#3376bd 70%,#225184 100%);
+box-shadow:inset -25px 5px 36px #072b5588,0 0 32px #74b4ff66;display:grid;place-items:center;
+font-size:40px;touch-action:none;cursor:grab;user-select:none}
+.planet span{transform:rotate(23.5deg);font-weight:800;color:white;text-shadow:0 2px 4px #123}
+.planet:focus-visible{outline:3px solid #fbbd50}
+.controls,.answers{display:flex;gap:10px;margin:16px 0;flex-wrap:wrap}
+button{font:inherit;border:1px solid #a3bdd8;border-radius:12px;background:white;min-height:48px;padding:12px 15px;color:#234c76;cursor:pointer}
+button:focus-visible{outline:3px solid #e8ab4e}.controls button{flex:1}
+.answers button{background:#f6fbff;flex:1}#feedback{font-weight:600;min-height:28px}
+p{line-height:1.7}.note{font-size:13px;color:#45637c}
+@media(max-width:500px){body{padding:10px}.scene{min-height:280px}.controls button{flex-basis:43%}}
+</style></head><body data-nar-gesture="v1"><main>
+<h1>🌍 地球四季实验室</h1><p>观察四季与地轴倾斜。食指左右滑动切换季节；握拳左右移动旋转地球；张掌保持复位。没有摄像头时也可以使用下方按钮或方向键。</p>
+<div class="scene" aria-label="太阳与地球示意图">
+<div class="sun" aria-hidden="true">☀️</div><div id="earth" class="planet" role="button" tabindex="0" aria-label="地球，可用方向键旋转"><span>↗</span></div>
+</div><h2 id="season"></h2><p id="explain"></p>
+<div class="controls"><button id="previous" data-gesture-dwell>上一季</button><button id="next" data-gesture-dwell>下一季</button><button id="left">向左旋转</button><button id="right">向右旋转</button><button id="reset">复位</button></div>
+<p><strong>理解测评：</strong>为什么北半球会经历夏季？</p>
+<div class="answers"><button data-answer="wrong">因为地球靠近太阳</button><button data-answer="right">因为北半球更朝向太阳，日照更强且更长</button></div>
+<p role="status" id="feedback" aria-live="polite"></p>
+<p class="note">模型仅用于帮助理解；季节并非由地球到太阳的距离主导。图中不按天文真实比例绘制。</p>
+<script>
+(()=>{
+"use strict";
+const stages=[
+{label:"春分",text:"太阳直射赤道附近，北半球昼夜大致等长。"},
+{label:"夏至",text:"北半球倾向太阳，白昼更长，接受更多太阳能量。"},
+{label:"秋分",text:"太阳再次直射赤道附近，北半球昼夜大致等长。"},
+{label:"冬至",text:"北半球背离太阳，白昼更短，接受较少太阳能量。"}
+];
+const $=id=>document.getElementById(id);
+let index=0,rotation=0,lastX=null;
+function render(){$("season").textContent=stages[index].label;$("explain").textContent=stages[index].text;
+$("earth").style.transform="rotate("+rotation+"deg)";}
+function move(delta){rotation+=delta;render();}
+function next(){index=(index+1)%4;render();}
+function prev(){index=(index+3)%4;render();}
+function reset(){index=0;rotation=0;lastX=null;$("feedback").textContent="已恢复初始观察视角。";render();}
+$("next").onclick=next;$("previous").onclick=prev;
+$("left").onclick=()=>move(-12);$("right").onclick=()=>move(12);$("reset").onclick=reset;
+document.querySelector(".answers").onclick=e=>{
+ const b=e.target.closest("[data-answer]");if(!b)return;
+ $("feedback").textContent=b.dataset.answer==="right"?"✓ 正确！地轴倾斜改变太阳高度和昼长。":"再试一次：请比较两半球接收太阳光的角度和时长。";
+};
+$("earth").onpointerdown=e=>{$("earth").setPointerCapture(e.pointerId);lastX=e.clientX;};
+$("earth").onpointermove=e=>{if(lastX!==null&&e.buttons){move((e.clientX-lastX)*0.6);lastX=e.clientX;}};
+$("earth").onpointerup=()=>{lastX=null;};$("earth").onpointercancel=()=>{lastX=null;};
+document.addEventListener("keydown",e=>{if(e.key==="ArrowRight"){e.preventDefault();next();}
+else if(e.key==="ArrowLeft"){e.preventDefault();prev();}});
+window.NarrativeGesture?.on("rotate",e=>move(e.deltaX*180));
+window.NarrativeGesture?.on("swipe",e=>e.direction==="left"?next():prev());
+window.NarrativeGesture?.on("reset",reset);
+window.NarrativeGesture?.on("status",e=>{if(e.state!=="running")lastX=null;});
+render();
+})();
+</script></main></body></html>

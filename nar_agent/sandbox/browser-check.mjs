@@ -143,7 +143,7 @@ export async function checkPage(file) {
           if(document.getElementById('count').textContent===count && count!=='1 / 1')
             return {passed:false,reason:'synthetic swipe failed'};
           emit('reset',{reason:'open-hold'});
-          if(!card.style.transform.includes('translate(0px,0px) rotate(0deg)'))
+          if(!/translate\\(0px,\\s*0px\\) rotate\\(0deg\\)/.test(card.style.transform))
             return {passed:false,reason:'synthetic reset failed'};
           return {passed:true,assertions:['bridge-mock-before-scripts','pinch-drag','fist-rotate','index-swipe','open-reset']};
         })()`);
