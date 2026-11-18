@@ -52,7 +52,12 @@ test("owner and public work viewers share the player while maintaining auth boun
   assert.match(player, /await workApi\.get\(workId\)/);
   assert.ok(player.includes('/api/forge/works/${workId}/assets/'));
   assert.doesNotMatch(player, /createObjectURL|URL\\.revokeObjectURL/);
-  assert.match(player, /sandbox="allow-scripts"/);
+  // Default/owner works remain sandboxed. Only approved published AR works
+  // receive the isolated-origin camera delegation.
+  assert.match(player, /const gestureAr = Boolean\(player && !player\.isPrivate && player\.work\.gesture_ar\)/);
+  assert.match(player, /sandbox=\{gestureAr \? "allow-scripts allow-same-origin" : "allow-scripts"\}/);
+  assert.match(player, /allow=\{gestureAr \? "camera; fullscreen" : "fullscreen"\}/);
+  assert.match(player, /https:\/\/ar\.narrativeos\.cn/);
   assert.match(service, /loadSavedWork/);
   assert.match(workApi, /remove: \(id: string\)/);
 });

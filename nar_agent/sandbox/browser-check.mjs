@@ -100,7 +100,7 @@ export async function checkPage(file) {
         if (!card.style.transform.includes('0deg')) return {passed:false,reason:'reset failed'};
         if (!first) return {passed:false,reason:'empty progress'};
         return {passed:true,assertions:['answer-hidden','reveal','next','prev','keyboard-rotate','reset','offline-fallback']};
-      })());
+      })()`);
       if (!template_interactions?.passed) errors.push('AR fallback verification failed: ' + (template_interactions?.reason || 'unknown'));
     }
     const figure = await evaluate('!!document.querySelector("svg,canvas")');
