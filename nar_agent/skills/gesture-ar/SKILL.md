@@ -45,7 +45,7 @@ Runtime thresholds are defined in frontend gesture-bridge/manifest.ts, not in th
   tile.onpointerdown=e=>{tile.setPointerCapture(e.pointerId);game.begin(e.clientX/innerWidth)};
   tile.onpointermove=e=>{if(e.buttons)game.move(e.clientX/innerWidth)};
   tile.onpointerup=game.end;tile.onpointercancel=game.end;
-  tile.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft')game.move((start??0)+(e.key==='ArrowRight'?.05:-.05))};
+  tile.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();game.begin(0);game.move(e.key==='ArrowRight'?.05:-.05);game.end();}};
   document.getElementById('check').onclick=()=>{result.textContent=offset>50?'分类成功':'请向右移动至正确区域'};
   window.NarrativeGesture?.on('pinch',e=>{if(e.phase==='start')game.begin(e.x);else if(e.phase==='move')game.move(e.x);else game.end()});
   window.NarrativeGesture?.on('reset',()=>game.reset());
@@ -53,7 +53,7 @@ Runtime thresholds are defined in frontend gesture-bridge/manifest.ts, not in th
   </script>
 </body>
 ```
-Keyboard movement should have its own explicit `game.moveKeyboard(dx)` or initialize `begin` first; use the above as a minimal wiring illustration, not a finished graded lesson.
+For full lessons add an actual drop zone, score and completion conditions; this only illustrates shared input routing.
 
 ## Canvas example: normalized-to-local hit-test
 ```html
