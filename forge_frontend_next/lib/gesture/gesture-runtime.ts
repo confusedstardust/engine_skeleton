@@ -30,9 +30,9 @@ export class GestureRuntime {
     try {
       // Permission request comes directly from the user's click (iOS Safari).
       const video = await this.camera.start();
-      if (!this.running || this.generation !== generation) return;
+      if (!this.running || this.generation !== generation) { this.camera.stop(); return; }
       await this.tracker.initialize();
-      if (!this.running || this.generation !== generation) return;
+      if (!this.running || this.generation !== generation) { this.tracker.dispose(); this.camera.stop(); return; }
       this.lastInference = 0; this.lastStamp = 0;
       const loop = (time:number) => {
         if (!this.running || this.generation !== generation || document.hidden) return;

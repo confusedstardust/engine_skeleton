@@ -50,7 +50,12 @@ window.addEventListener("message", function (e) {
   port.start();
   port.postMessage({protocol, type:"ready", session});
 }, false);
-window.parent.postMessage({protocol, type:"hello", schemaVersion:"0.2.0", bindings:config.bindings}, "*");
+function announce() {
+  if (!port) window.parent.postMessage({protocol,type:"hello",schemaVersion:"0.2.0",bindings:config.bindings},"*");
+}
+announce();
+setTimeout(announce,300);
+setTimeout(announce,1000);
 })();"""
 
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { withBasePath } from "../../app/base-path";
 import { GestureBridge } from "../../lib/gesture/gesture-bridge";
 import { GestureRuntime } from "../../lib/gesture/gesture-runtime";
@@ -18,8 +18,8 @@ function getManifest(): Promise<GestureManifest> {
 
 /** Shared trusted host for chat preview and saved/public work pages. */
 export default function GesturePlayerHost({
-  src, srcDoc, title
-}: {src?:string;srcDoc?:string;title:string}) {
+  src, srcDoc, title, frameRef
+}: {src?:string;srcDoc?:string;title:string;frameRef?:RefObject<HTMLIFrameElement | null>}) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<GestureBridge | null>(null);
   const runtime = useRef<GestureRuntime | null>(null);
@@ -37,7 +37,7 @@ export default function GesturePlayerHost({
           event.data?.type !== "hello") return;
       void getManifest().then(definitions => {
         if (disposed || event.source !== iframe.current?.contentWindow) return;
-        bridge.current?.dispose();
+        if (bridge.current) return;
         const instance = new GestureBridge(iframe.current!,definitions,
           available => { if (!disposed) { setBindings(available); setManifest(definitions); setError(""); } },
           hasTarget => runtime.current?.setHoverTarget(hasTarget));
@@ -50,6 +50,7 @@ export default function GesturePlayerHost({
       disposed = true; window.removeEventListener("message",onHello);
       runtime.current?.dispose(); runtime.current = null;
       bridge.current?.dispose(); bridge.current = null;
+      setBindings(null); setManifest(null); setActive(false);
     };
   }, [src,srcDoc]);
 
@@ -78,7 +79,7 @@ export default function GesturePlayerHost({
   };
 
   return <>
-    <iframe ref={iframe} title={title} sandbox="allow-scripts"
+    <iframe ref={node => { iframe.current = node; if (frameRef) frameRef.current = node; }} title={title} sandbox="allow-scripts"
       allow="fullscreen" allowFullScreen referrerPolicy="no-referrer"
       src={src} srcDoc={srcDoc} />
     {bindings && <div className={styles.controls}>

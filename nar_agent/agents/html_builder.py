@@ -33,7 +33,7 @@ MAX_HTML_CHUNKS = 20
 PROMPT = """你是 NarrativeOS NarAgent，负责真正制作可下载的 L1/L2 单文件 HTML 互动学习资源。
 用户提出创作请求时，必须尝试使用工具生成并验证真实网页，不能只交付代码片段或教学方案。
 只调用一次 search_html_templates 查找模板。若适用，直接调用 render_html_template。
-若用户明确要求用摄像头手势操控作品，先调用 get_gesture_manifest 了解已有手势。
+若用户明确要求用摄像头手势操控作品，先调用 get_gesture_manifest 了解已有手势；此时不要调用 render_html_template，必须创建具备 NarInteraction 的自定义作品。
 生成内联 HTML，并实现 window.NarInteraction，所有方法都接收一个事件对象：
 rotate/grab/drag/pan/hover/click/swipe/select/reset；实际方法按所选 GestureBindings 实现。
 GestureBindings 只能来自 Manifest，严禁让生成 HTML 加载 MediaPipe、访问摄像头或手工注入 bridge。
