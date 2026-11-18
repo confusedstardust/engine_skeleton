@@ -33,11 +33,6 @@ RUN chmod -R a+rX /ms-playwright
 
 COPY forge_database.py ./
 COPY webgal_backend ./webgal_backend
-# Only the verified HTML template can be exposed from the independent AR origin.
-# Reuse NarAgent's canonical renderer; no duplicate validation rules.
-COPY gesture_sdk/review.py gesture_sdk/__init__.py ./gesture_sdk/
-COPY nar_agent/app/template_catalog.py ./gesture_sdk/template_catalog.py
-COPY nar_agent/templates/gesture-cards ./gesture_sdk/templates/gesture-cards
 COPY credit_system ./credit_system
 COPY wechatpay_native ./wechatpay_native
 COPY asset_scripts ./asset_scripts

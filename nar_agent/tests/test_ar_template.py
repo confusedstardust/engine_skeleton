@@ -1,4 +1,4 @@
-"""Reviewed AR template validation; real browser camera is verified separately."""
+"""Bridge template is valid offline and never includes camera code."""
 from pathlib import Path
 
 import pytest
@@ -20,9 +20,11 @@ def test_ar_template_discovery_and_safe_json():
     assert "\\u003cscript" in source
     assert source.count("data-nar-template=\"gesture-cards\"") == 1
     assert "getUserMedia" not in source
-    assert "/gesture-sdk/v1/nar-controls.esm.js" in source
-    assert "document.hidden" in source
-    assert "control.start()" in source
+    assert 'data-nar-gesture="v1"' in source
+    assert "window.NarrativeGesture" in source
+    assert "getUserMedia" not in source
+    assert "/gesture-sdk/" not in source
+    assert "approvedOrigin" not in source
 
 
 @pytest.mark.parametrize("cards", [[], [{"question": "", "answer": "yes"}], [{"question": "q"}]])

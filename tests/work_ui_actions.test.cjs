@@ -47,17 +47,16 @@ test("owner and public work viewers share the player while maintaining auth boun
   const player = read("forge_frontend_next/app/practice/works/[workId]/page.tsx");
   const service = read("forge_frontend_next/app/practice/practice-work-service.ts");
   const workApi = read("forge_frontend_next/lib/work-api.ts");
-  assert.match(player, /const ownerView = new URLSearchParams/);
+  assert.match(player, /new URLSearchParams/);
   assert.match(player, /forgeApi<PlayerWork>\(/);
   assert.match(player, /await workApi\.get\(workId\)/);
   assert.ok(player.includes('/api/forge/works/${workId}/assets/'));
   assert.doesNotMatch(player, /createObjectURL|URL\\.revokeObjectURL/);
-  // Default/owner works remain sandboxed. Only approved published AR works
-  // receive the isolated-origin camera delegation.
-  assert.match(player, /const gestureAr = Boolean\(player && !player\.isPrivate && player\.work\.gesture_ar\)/);
-  assert.match(player, /sandbox=\{gestureAr \? "allow-scripts allow-same-origin" : "allow-scripts"\}/);
-  assert.match(player, /allow=\{gestureAr \? "camera; fullscreen" : "fullscreen"\}/);
-  assert.match(player, /https:\/\/ar\.narrativeos\.cn/);
+  // The trusted parent owns the camera; neither public nor private iframe gets camera permission.
+  assert.match(player, /supportsGestureBridge/);
+  assert.match(player, /GestureWorkHost/);
+  assert.match(player, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(player, /allow-same-origin|ar\\.narrativeos\\.cn|camera; fullscreen/);
   assert.match(service, /loadSavedWork/);
   assert.match(workApi, /remove: \(id: string\)/);
 });

@@ -18,8 +18,8 @@ Use the provided tools; never claim validation that was not returned by the exec
 6. Read the structured browser report. Fix actual failures; at most three sandbox attempts.
 7. Only report an artifact as completed when the tool returned `artifact_id`.
 
-## AR gesture works (reviewed v1 only)
-If the request explicitly involves hand gestures, use the reviewed `gesture-cards` template and provide `{title,cards:[{question,answer}]}`. Camera permissions are decided by a server-side exact-template verifier and a **separate HTTPS origin**; ordinary custom HTML, unreviewed revisions and private previews must remain camera-disabled. See `/skills/gesture-ar/SKILL.md`. Never claim the offline Chromium check tested actual camera recognition.
+## Gesture Runtime Bridge (v1)
+For hand-gesture works, either use an appropriate local template or generate a complete custom HTML/DOM/Canvas educational interaction. Declare `<body data-nar-gesture="v1">`; use only `window.NarrativeGesture?.on(kind, handler)`. The trusted parent owns camera, SDK and inference; works must not call `getUserMedia`, import MediaPipe or ask to be published first. Handle absent Bridge and provide equivalent mouse/touch/keyboard actions. Reference `/skills/gesture-ar/SKILL.md` for event schemas, game bindings and coordinate conversions. Synthetic browser tests are not real camera validation.
 
 ## Quality rules
 - Preserve learning accuracy and the user's learning goal.

@@ -11,12 +11,10 @@ const nextConfig = {
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
   async headers() {
-    // Cross-origin permission delegation is limited to the work player pages.
-    // The host reverse proxy must preserve this header.
-    return [{ source: "/practice/works/:path*", headers: [{
-      key: "Permissions-Policy",
-      value: 'camera=(self "https://ar.narrativeos.cn" "http://localhost:8040"), microphone=(), geolocation=()',
-    }] }];
+    // Trust the parent only; a sandbox work iframe receives no camera delegation.
+    return [{source: "/practice/:path*",headers:[{
+      key:"Permissions-Policy",value:"camera=(self), microphone=(), geolocation=()",
+    }]}];
   },
   async rewrites() {
     return [

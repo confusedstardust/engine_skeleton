@@ -1,11 +1,14 @@
 import { build } from 'esbuild';
 import { mkdir, copyFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname);
 const output = join(root, 'dist', 'gesture-sdk', 'v1');
 const wasmSource = join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+// Google-hosted float16 v1 model SHA-256, independently published by multiple distributors.
+const MODEL_SHA256 = 'fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1';
 await mkdir(join(output, 'wasm'), { recursive: true });
 await mkdir(join(output, 'models'), { recursive: true });
 await build({
@@ -18,7 +21,6 @@ await build({
   legalComments: 'linked',
   sourcemap: false,
 });
-await copyFile(join(root, 'src', 'nar-controls.js'), join(output, 'nar-controls.esm.js'));
 const wasmFiles = (await readdir(wasmSource)).filter(name => !name.startsWith('.'));
 if (!wasmFiles.some(name => name.endsWith('.wasm'))) {
   throw new Error('MediaPipe WASM files were not installed');
@@ -31,5 +33,6 @@ const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(45000) });
 if (!response.ok) throw new Error('MediaPipe model download failed: HTTP ' + response.status);
 const bytes = Buffer.from(await response.arrayBuffer());
 if (bytes.length < 100000 || bytes.length > 30000000) throw new Error('Unexpected MediaPipe model size');
+if (createHash('sha256').update(bytes).digest('hex') !== MODEL_SHA256) throw new Error('Unexpected MediaPipe model SHA-256: refusing unverified build');
 await writeFile(join(output, 'models', 'hand_landmarker.task'), bytes);
 console.log('SDK resources built:', output, 'model bytes:', bytes.length);

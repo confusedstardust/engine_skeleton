@@ -18,7 +18,10 @@ ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY forge_frontend_next ./
-
+# Bundle Gesture SDK locally into the existing Next.js trusted static origin.
+COPY gesture_sdk ./gesture_sdk
+RUN cd gesture_sdk && npm install --no-audit --no-fund && npm run build
+RUN mkdir -p public/gesture-sdk/v1 && cp -R gesture_sdk/dist/gesture-sdk/v1/. public/gesture-sdk/v1/
 RUN npm run build
 
 

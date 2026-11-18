@@ -117,12 +117,22 @@ export class HandTracker {
       if (modelRes.status === 'fulfilled') modelRes.value.close();
       throw camRes.status === 'rejected' ? camRes.reason : (modelRes as PromiseRejectedResult).reason;
     }
+    // stop() may run while the camera permission prompt is still pending.
+    if (this.stopped) {
+      modelRes.value.close();
+      this.stream?.getTracks().forEach((track) => track.stop());
+      return;
+    }
     this.landmarker = modelRes.value;
     this.watchFrames();
   }
 
   private async openCamera(): Promise<void> {
     const stream = await navigator.mediaDevices.getUserMedia(this.options.camera ?? CAMERA_CONSTRAINTS);
+    if (this.stopped) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('Camera start was cancelled');
+    }
     this.stream = stream;
     for (const track of stream.getVideoTracks()) {
       track.addEventListener('ended', () => { if (!this.stopped) this.onEnded?.(); });
@@ -263,5 +273,6 @@ export class HandTracker {
     this.stream = null;
     this.landmarker?.close();
     this.landmarker = null;
+    this.video.srcObject = null;
   }
 }
