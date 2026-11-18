@@ -52,7 +52,9 @@ test("owner and public work viewers share the player while maintaining auth boun
   assert.match(player, /await workApi\.get\(workId\)/);
   assert.ok(player.includes('/api/forge/works/${workId}/assets/'));
   assert.doesNotMatch(player, /createObjectURL|URL\\.revokeObjectURL/);
-  assert.match(player, /sandbox="allow-scripts"/);
+  const host = read("forge_frontend_next/app/practice/gesture-player-host.tsx");
+  assert.match(player, /<GesturePlayerHost/);
+  assert.match(host, /sandbox="allow-scripts"/);
   assert.match(service, /loadSavedWork/);
   assert.match(workApi, /remove: \(id: string\)/);
 });

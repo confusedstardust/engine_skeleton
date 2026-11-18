@@ -18,6 +18,7 @@ ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY forge_frontend_next ./
+COPY nar_agent/gesture ./gesture-input
 
 RUN npm run build
 

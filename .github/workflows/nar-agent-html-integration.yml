@@ -50,6 +50,8 @@ on:
       - 'forge_frontend_next/components/ui/workspace-sidebar.*'
       - 'forge_frontend_next/components/account-menu.tsx'
       - 'forge_frontend_next/package.json'
+      - 'forge_frontend_next/lib/gesture/**'
+      - 'tests/gesture-runtime.test.cjs'
       - 'forge_frontend_next/package-lock.json'
       - 'tests/practice_shared_navigation.test.cjs'
       - 'tests/practice_ui_architecture.test.cjs'
@@ -93,6 +95,7 @@ jobs:
           cache-dependency-path: forge_frontend_next/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit --incremental false
+      - run: node ../tests/gesture-runtime.test.cjs
       - run: node ../tests/test_practice_work_rewrites.cjs
       - run: node ../tests/practice_shared_navigation.test.cjs
       - run: node ../tests/practice_ui_architecture.test.cjs

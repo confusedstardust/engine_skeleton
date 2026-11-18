@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "0.2.0",
+  "provider": "mediapipe-hand-landmarker",
+  "gestures": [
+    {
+      "id": "pinch",
+      "name": "捏合抓取",
+      "hands": 1,
+      "rule": "thumb_index_pinch",
+      "events": [
+        "start",
+        "move",
+        "end"
+      ],
+      "outputs": [
+        "x",
+        "y",
+        "dx",
+        "dy"
+      ],
+      "suggestedActions": [
+        "grab",
+        "drag",
+        "pan"
+      ]
+    },
+    {
+      "id": "fist_rotate",
+      "name": "握拳旋转",
+      "hands": 1,
+      "rule": "fist_with_palm_movement",
+      "events": [
+        "start",
+        "move",
+        "end"
+      ],
+      "outputs": [
+        "dx",
+        "dy"
+      ],
+      "suggestedActions": [
+        "rotate"
+      ]
+    },
+    {
+      "id": "index_pointer",
+      "name": "食指指向",
+      "hands": 1,
+      "rule": "index_extended",
+      "events": [
+        "start",
+        "move",
+        "click",
+        "swipe",
+        "end"
+      ],
+      "outputs": [
+        "x",
+        "y",
+        "dx",
+        "dy",
+        "direction"
+      ],
+      "suggestedActions": [
+        "hover",
+        "click",
+        "swipe",
+        "select"
+      ]
+    },
+    {
+      "id": "open_palm_hold",
+      "name": "张掌保持",
+      "hands": 1,
+      "rule": "open_palm_stable_hold",
+      "events": [
+        "trigger"
+      ],
+      "outputs": [],
+      "suggestedActions": [
+        "reset"
+      ]
+    }
+  ]
+}

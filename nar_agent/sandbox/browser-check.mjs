@@ -76,6 +76,24 @@ export async function checkPage(file) {
       })()`);
       if (!template_interactions?.passed) errors.push('Template interaction verification failed: ' + (template_interactions?.reason || 'unknown'));
     }
+    const gesture_interfaces = await evaluate(`(() => {
+      const node = document.getElementById("nar-gesture-bindings");
+      if (!node) return null;
+      try {
+        const config = JSON.parse(node.textContent);
+        const actions = [...new Set(config.bindings.map(b => b.action))];
+        const missing = actions.filter(a => typeof window.NarInteraction?.[a] !== "function");
+        if (missing.length) return {passed:false, reason:"Missing NarInteraction methods: " + missing.join(",")};
+        // Interface smoke: no webcam/network required and no fabricated scene-state assertions.
+        for (const item of config.bindings) {
+          const phase = item.phases.includes("move") ? "move" : item.phases[0];
+          const event = {phase, x:0.5, y:0.5, dx:0.01, dy:0.01, direction:"right"};
+          window.NarInteraction[item.action](event);
+        }
+        return {passed:true, actions};
+      } catch (e) { return {passed:false, reason:String(e).slice(0,200)}; }
+    })()`);
+    if (gesture_interfaces && !gesture_interfaces.passed) errors.push('Gesture interface verification failed: ' + gesture_interfaces.reason);
     const figure = await evaluate('!!document.querySelector("svg,canvas")');
     const controls = await evaluate('document.querySelectorAll("button,input,select,[role=button],[tabindex]").length');
     const external = await evaluate('Array.from(document.querySelectorAll("script[src],link[href],img[src]")).map(e=>e.src||e.href).filter(u=>/^(https?:|file:)/.test(u))');
@@ -92,6 +110,6 @@ export async function checkPage(file) {
     const mobile_overflow = await evaluate('document.documentElement.scrollWidth > innerWidth + 1');
     const mobile = await send('Page.captureScreenshot', { format: 'png' });
     writeFileSync('/results/mobile.png', Buffer.from(mobile.data, 'base64'));
-    return { errors: errors.slice(0, 20), figure, controls, mobile_overflow, template_interactions, interaction_attempted: true };
+    return { errors: errors.slice(0, 20), figure, controls, mobile_overflow, template_interactions, gesture_interfaces, interaction_attempted: true };
   } finally { socket?.close(); chrome.kill('SIGKILL'); }
 }

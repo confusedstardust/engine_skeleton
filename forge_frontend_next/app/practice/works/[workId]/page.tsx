@@ -7,6 +7,7 @@ import { forgeApi } from "../../../../lib/api-client";
 import { workApi } from "../../../../lib/work-api";
 import { withBasePath } from "../../../base-path";
 import styles from "./public-work.module.css";
+import GesturePlayerHost from "../../gesture-player-host";
 
 type PlayerWork = {
   id: string;
@@ -105,9 +106,7 @@ export default function PublicWorkPage() {
         {player.work.summary && <p>{player.work.summary}</p>}
       </div>
       <div className={styles.viewer}>
-        <iframe key={player.src} title={player.work.title} sandbox="allow-scripts"
-          allow="fullscreen" allowFullScreen referrerPolicy="no-referrer"
-          src={player.src} />
+        <GesturePlayerHost key={player.src} title={player.work.title} src={player.src} />
       </div>
     </section>}
   </main>;
