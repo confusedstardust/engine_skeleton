@@ -33,6 +33,8 @@ jobs:
       - run: uv sync --project nar_agent --frozen
       - name: Build disposable Node and Chromium sandbox
         run: docker build -t nar-sandbox:ci -f nar_agent/sandbox/runtime.Dockerfile nar_agent
+      - name: Syntax-check Chromium HTML verifier before sandbox build
+        run: node --check nar_agent/sandbox/browser-check.mjs
       - name: SDK, authorization, vendor integrity and real Docker browser smoke
         working-directory: nar_agent
         env:

@@ -1,0 +1,44 @@
+name: gesture-runtime-bridge
+on:
+  pull_request:
+    paths:
+      - 'gesture_sdk/**'
+      - 'forge_frontend_next/**'
+      - 'nar_agent/**'
+      - 'webgal_backend/work_publication.py'
+      - 'tests/test_gesture_ar_origin.py'
+      - 'tests/work_ui_actions.test.cjs'
+      - 'docker/frontend.Dockerfile'
+      - '.github/workflows/gesture-ar.yml'
+permissions:
+  contents: read
+jobs:
+  source-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'pytest>=9'
+      - run: python -m pytest -q tests/test_gesture_ar_origin.py
+      - run: node --test tests/work_ui_actions.test.cjs tests/gesture_examples.test.cjs
+      - run: python -m compileall -q webgal_backend/work_publication.py nar_agent/app/intent_v2.py nar_agent/agents/html_builder.py
+  sdk-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: gesture_sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: test -s dist/gesture-sdk/v1/hand-gesture-kit.esm.js
+      - run: test -s dist/gesture-sdk/v1/wasm/vision_wasm_internal.wasm
+      - run: test -s dist/gesture-sdk/v1/models/hand_landmarker.task
+      - run: node --check dist/gesture-sdk/v1/hand-gesture-kit.esm.js

@@ -10,6 +10,12 @@ const nextConfig = {
   basePath: basePath || undefined,
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
+  async headers() {
+    // Trust the parent only; a sandbox work iframe receives no camera delegation.
+    return [{source: "/practice/:path*",headers:[{
+      key:"Permissions-Policy",value:"camera=(self), microphone=(), geolocation=()",
+    }]}];
+  },
   async rewrites() {
     return [
       { source: "/api/forge/community", destination: `${backend}/community` },

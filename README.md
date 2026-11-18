@@ -14,6 +14,8 @@
 
 ## 架构与演进文档入口
 
+- [手势 Runtime Bridge v1 实现](refactor/gesture-runtime-bridge.md)：主站可信父页摄像头/MediaPipe、opaque iframe MessageChannel、四项手势及食指滑动、聊天/私有/公开预览；分支实现中，未完成真实设备验收。旧 [方案 A](refactor/gesture-ar-scheme-a.md) 已废弃。
+
 - [管理员 HTML 资源上传](refactor/html-resource-upload.md)：HTML/ZIP 上传、标签、封面、发布和隔离体验；状态详见专题文档。
 
 - [飞书知识库首页](https://my.feishu.cn/wiki/PoQgw5HWTiImkxkuyYrck6iInsh) / [飞书协作与文档迁移](refactor/lark-workflow.md)：应用绑定、用户授权、私有知识库创建和首页读写已验证；完整消息任务往返及专题批量迁移尚待完成。[文档迁移登记](refactor/lark-document-map.csv)。

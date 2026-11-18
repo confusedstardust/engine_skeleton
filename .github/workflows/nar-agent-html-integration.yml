@@ -93,6 +93,7 @@ jobs:
           cache-dependency-path: forge_frontend_next/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit --incremental false
+      - run: node ../tests/gesture_runtime_bridge.test.cjs
       - run: node ../tests/test_practice_work_rewrites.cjs
       - run: node ../tests/practice_shared_navigation.test.cjs
       - run: node ../tests/practice_ui_architecture.test.cjs

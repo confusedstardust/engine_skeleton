@@ -59,7 +59,9 @@ test("gold timeline header merges settled credits, elapsed time and creation sta
 
 test("HTML preview offers fullscreen, without a download webpage button", () => {
   const preview = read(app + "animation-preview.tsx");
-  assert.match(preview, /requestFullscreen/);
+  const host = read("forge_frontend_next/components/gesture/gesture-work-host.tsx");
+  assert.match(preview, /GestureWorkHost/);
+  assert.match(host, /requestFullscreen/);
   assert.doesNotMatch(preview, /下载 HTML|link\.download|createObjectURL|revokeObjectURL/);
 });
 

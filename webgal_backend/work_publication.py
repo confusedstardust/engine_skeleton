@@ -139,7 +139,12 @@ def create_public_router(*, store: WorkStore | None = None):
     @router.get("/{work_id}")
     async def published_metadata(work_id: str):
         try:
-            return await run_in_threadpool(works.public, work_id)
+            meta = await run_in_threadpool(works.public, work_id)
+            # This is a presentation capability, never a camera grant.
+            import re
+            source = await run_in_threadpool(works.public_asset, work_id, "index.html") if meta["kind"] == "html" else b""
+            gesture_v1 = bool(re.search(rb'<body\b[^>]*\bdata-nar-gesture\s*=\s*["\x27]v1["\x27]', source, re.I))
+            return {**meta, "gesture_v1": gesture_v1}
         except FileNotFoundError:
             raise HTTPException(404, "公开作品不存在或已撤回") from None
 

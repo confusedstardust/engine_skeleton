@@ -23,6 +23,7 @@ from app.progress_events import enter_phase
 from app.template_catalog import TemplateCatalog, TemplateError
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "html-builder" / "SKILL.md"
+AR_SKILL = Path(__file__).resolve().parents[1] / "skills" / "gesture-ar" / "SKILL.md"
 MAX_HTML_SOURCE_BYTES = 96000
 MAX_REPAIR_ATTEMPTS = 3
 MAX_HTML_CHUNK_BYTES = 6000
@@ -31,6 +32,14 @@ MAX_HTML_CHUNKS = 20
 PROMPT = """你是 NarrativeOS NarAgent，负责真正制作可下载的 L1/L2 单文件 HTML 互动学习资源。
 用户提出创作请求时，必须尝试使用工具生成并验证真实网页，不能只交付代码片段或教学方案。
 只调用一次 search_html_templates 查找模板。若适用，直接调用 render_html_template。
+如果用户明确请求摄像头手势、AR 手部交互或握拳/捏合/食指控制，先理解真正的教学目标、操作对象和反馈机制。
+手势作品可使用模板，也可自由创作 DOM/Canvas 单文件 HTML（不限定知识卡模板）；调用 search_html_templates 后如无贴合模板就写代码。
+手势功能使用平台注入的 window.NarrativeGesture.on('pointer'|'pinch'|'rotate'|'swipe'|'reset'|'status', cb)；
+在 <body> 上声明 data-nar-gesture="v1"。绝不在作品里调用 getUserMedia、MediaPipe、createHands、远程 SDK 或 window.parent 特权调用。
+摄像头由 NarrativeOS 可信父页面手动开启；新生成的预览、私有作品和公开作品都可使用，无需先发布。
+必须为每个动作设计学习游戏内真正的 GameBindings（拖动物体、旋转对象、选答案、翻关卡或复位），支持键鼠触屏同等路径。
+食指停留点击的 DOM 按钮标记 data-gesture-dwell，画布玩法使用自己可靠的 hit-test。
+没有 Bridge 时可完整使用常规交互；离线 Chromium 仅检查常规交互/合成 Bridge，不声称真实摄像头验收。
 在制作前调用一次 record_learning_plan，记录实际选择的学习目标、关键知识与交互方式，用于向用户展示创作进度；只提交简短、确定的教学设计摘要，不要记录内部推理。
 
 若不适用，不要重复搜索或继续口头描述，立即开始编写完整 HTML/CSS/JavaScript。
@@ -59,6 +68,7 @@ def html_initial_state(prompt: str, history: list[dict[str, str]]) -> dict:
         "messages": [*history, {"role": "user", "content": prompt}],
         "files": {
             "/skills/html-builder/SKILL.md": create_file_data(SKILL.read_text(encoding="utf-8")),
+            "/skills/gesture-ar/SKILL.md": create_file_data(AR_SKILL.read_text(encoding="utf-8")),
         },
     }
 
@@ -152,6 +162,10 @@ def build_html_agent(
             return json.dumps({"error": "Build limit reached", "remaining_attempts": 0})
         if len(source.encode("utf-8")) > MAX_HTML_SOURCE_BYTES:
             return json.dumps({"error": "Source exceeds 96KB sandbox limit"})
+        if 'data-nar-gesture' in source.lower():
+            forbidden = ('getUserMedia(', 'mediaDevices', '@mediapipe', 'createHands(', 'nar-controls.esm.js', 'allow-same-origin')
+            if any(item.lower() in source.lower() for item in forbidden):
+                return json.dumps({"error": "Gesture work must consume only window.NarrativeGesture events; direct camera/SDK is forbidden"})
         attempts += 1
         working_html = source  # Retain failed drafts for targeted repair in the same run.
         progress.pop("execution_error", None)

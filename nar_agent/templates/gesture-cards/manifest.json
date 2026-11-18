@@ -1,0 +1,32 @@
+{
+  "id": "gesture-cards",
+  "version": "2.0.0",
+  "name": "手势互动知识卡（Runtime Bridge）",
+  "description": "学习卡片支持鼠标触屏与 NarrativeOS 宿主 Bridge 手势：捏合拖动、握拳旋转、食指停留/滑动和张掌复位。未保存及私有预览同样适用。",
+  "keywords": [
+    "手势",
+    "摄像头",
+    "AR",
+    "Gesture",
+    "gesture",
+    "hand",
+    "互动知识卡",
+    "学习游戏",
+    "握拳",
+    "捏合",
+    "point"
+  ],
+  "capabilities": [
+    "pinch-drag",
+    "fist-rotate",
+    "index-pointer",
+    "index-swipe",
+    "open-palm-hold",
+    "mouse-touch-fallback"
+  ],
+  "config_schema": {
+    "title": "string (1..100)",
+    "cards": "array (1..40) of {question:string, answer:string}"
+  },
+  "requires_network": false
+}

@@ -135,7 +135,7 @@ class IntentContext(BaseModel):
         return self
 
 
-PROMPT_VERSION = "intent_v2@1.1.1"
+PROMPT_VERSION = "intent_v2@1.2.0"
 PROMPT_FILE = Path(__file__).with_name("prompts") / "intent_v2.md"
 
 

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export async function checkPage(file) {
@@ -51,6 +51,30 @@ export async function checkPage(file) {
     await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
     await send('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
+    // The offline sandbox has no parent Host. Provide an inert synthetic event
+    // source before work JS executes, to verify bindings without opening a camera.
+    // This mock is used only by the disposable Chromium verifier, never by users.
+    const gestureSource = /<body\b[^>]*\bdata-nar-gesture\s*=\s*["']v1["']/i.test(readFileSync(file, 'utf8'));
+    if (gestureSource) {
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: `(()=>{
+        const callbacks = new Map();
+        window.NarrativeGesture = Object.freeze({
+          version:1,
+          on(kind, cb) {
+            if(typeof cb!=='function')return ()=>{};
+            let set=callbacks.get(kind);if(!set){set=new Set();callbacks.set(kind,set);}
+            set.add(cb);return ()=>set.delete(cb);
+          },
+          getStatus(){return "running";}
+        });
+        window.__narGestureSynthetic = Object.freeze({
+          emit(kind, data) {
+            const event={kind,...data};
+            for(const cb of callbacks.get(kind)||[])cb(event);
+          }
+        });
+      })();` });
+    }
     await send('Page.navigate', { url: pathToFileURL(file).href });
     await new Promise(resolve => setTimeout(resolve, 2000));
     // Template-specific semantic interaction assertions run in the real browser.
@@ -75,6 +99,57 @@ export async function checkPage(file) {
         return { passed: true, assertions: ['hidden-before-reveal', 'reveal-answer', 'next-hides-answer', 'restart-resets-progress'] };
       })()`);
       if (!template_interactions?.passed) errors.push('Template interaction verification failed: ' + (template_interactions?.reason || 'unknown'));
+    }
+    if (templateId === 'gesture-cards') {
+      template_interactions = await evaluate(`(() => {
+        const answer = document.getElementById('answer');
+        const next = document.getElementById('next');
+        const prev = document.getElementById('prev');
+        const reveal = document.getElementById('reveal');
+        const card = document.getElementById('card');
+        const reset = document.getElementById('reset');
+        const count = document.getElementById('count');
+        if (!answer || !next || !prev || !reveal || !card || !reset || !count) return {passed:false,reason:'AR controls missing'};
+        if (!answer.hidden) return {passed:false,reason:'answer visible before reveal'};
+        const first = count.textContent;
+        reveal.click();
+        if (answer.hidden || !answer.textContent.trim()) return {passed:false,reason:'reveal failed'};
+        next.click();
+        if (!answer.hidden) return {passed:false,reason:'answer leaked on next'};
+        prev.click();
+        if (count.textContent !== first) return {passed:false,reason:'prev did not navigate'};
+        card.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+        if (!card.style.transform.includes('15deg')) return {passed:false,reason:'keyboard rotation failed'};
+        reset.click();
+        if (!card.style.transform.includes('0deg')) return {passed:false,reason:'reset failed'};
+        if (!first) return {passed:false,reason:'empty progress'};
+        return {passed:true,assertions:['answer-hidden','reveal','next','prev','keyboard-rotate','reset','offline-fallback']};
+      })()`);
+      if (!template_interactions?.passed) errors.push('AR fallback verification failed: ' + (template_interactions?.reason || 'unknown'));
+      if (gestureSource && template_interactions?.passed) {
+        const bridgeCheck = await evaluate(`(() => {
+          const emit=window.__narGestureSynthetic?.emit;
+          if(!emit)return {passed:false,reason:'synthetic Bridge not installed before work scripts'};
+          const card=document.getElementById('card');
+          const before=card.style.transform;
+          emit('pinch',{phase:'start',x:0.4,y:0.5});
+          emit('pinch',{phase:'move',x:0.5,y:0.5});
+          emit('pinch',{phase:'end',x:0.5,y:0.5});
+          if(card.style.transform===before)return {passed:false,reason:'synthetic pinch did not move card'};
+          emit('rotate',{deltaX:0.05,x:0.5,y:0.5});
+          if(!card.style.transform.includes('rotate'))return {passed:false,reason:'synthetic rotate failed'};
+          const count=document.getElementById('count').textContent;
+          emit('swipe',{direction:'left'});
+          if(document.getElementById('count').textContent===count && count!=='1 / 1')
+            return {passed:false,reason:'synthetic swipe failed'};
+          emit('reset',{reason:'open-hold'});
+          if(!/translate\\(0px,\\s*0px\\) rotate\\(0deg\\)/.test(card.style.transform))
+            return {passed:false,reason:'synthetic reset failed'};
+          return {passed:true,assertions:['bridge-mock-before-scripts','pinch-drag','fist-rotate','index-swipe','open-reset']};
+        })()`);
+        if (!bridgeCheck?.passed) errors.push('Bridge synthetic verification failed: ' + (bridgeCheck?.reason || 'unknown'));
+        else template_interactions.assertions.push(...bridgeCheck.assertions);
+      }
     }
     const figure = await evaluate('!!document.querySelector("svg,canvas")');
     const controls = await evaluate('document.querySelectorAll("button,input,select,[role=button],[tabindex]").length');

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>岩石探险：分类挑战</title><style>
+:root{font-family:system-ui,"PingFang SC",sans-serif;color:#2a4035;background:#f3f7f4}
+*{box-sizing:border-box}body{margin:0;padding:18px}main{max-width:840px;margin:auto}
+h1{font-size:clamp(22px,4vw,32px);margin:4px 0}p{line-height:1.65}
+.stage{background:white;border:1px solid #dae5da;border-radius:18px;min-height:370px;padding:24px;position:relative;overflow:hidden}
+#rock{border:3px solid #6b9c7e;border-radius:32px;min-width:180px;min-height:110px;touch-action:none;cursor:grab;
+background:linear-gradient(135deg,#e3efcd,#b4d7d0);font-size:21px;font-weight:700;position:relative;z-index:2;user-select:none}
+.zones{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:40px}
+.zones button,.actions button{min-height:54px;border:1px solid #7e9e90;border-radius:12px;background:#fff;color:#2f5440;padding:10px;font:inherit}
+.zones button:focus-visible,.actions button:focus-visible,#rock:focus-visible{outline:3px solid #e9a849}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}.actions button{background:#e9f2ea;flex:1}
+#result{min-height:36px;font-weight:650;color:#235a3b}small{display:block;color:#526960;margin-top:9px}
+@media(max-width:500px){body{padding:10px}.stage{min-height:330px;padding:12px}.zones{gap:5px}.zones button{padding:6px;font-size:13px}}
+</style></head>
+<body data-nar-gesture="v1"><main>
+<h1>🪨 岩石探险：分类挑战</h1>
+<p>观察岩石的形成线索，把它放进正确的类别。用鼠标或触屏拖动，也可以点击分类按钮；在 NarrativeOS 中还能捏合拖动、食指停留选择。</p>
+<p id="question"></p>
+<div class="stage" id="stage">
+<button id="rock" type="button" aria-label="当前岩石，可用方向键移动"></button>
+<div class="zones" role="group" aria-label="选择岩石类别">
+<button data-zone="火成岩" data-gesture-dwell type="button">🌋 火成岩</button>
+<button data-zone="沉积岩" data-gesture-dwell type="button">🌊 沉积岩</button>
+<button data-zone="变质岩" data-gesture-dwell type="button">⛰️ 变质岩</button>
+</div>
+</div><div class="actions"><button id="next" type="button">下一块岩石</button><button id="reset" type="button">重新挑战</button></div>
+<p id="result" role="status" aria-live="polite"></p>
+<small>操作：捏合拖动岩石至分类区域；食指停留约 0.7 秒选择类别；张掌复位。键盘方向键移动，1/2/3 直接分类。</small>
+<script>
+(()=>{
+"use strict";
+const rocks=[
+{name:"花岗岩",hint:"由地下炽热岩浆缓慢冷却形成；晶体清晰可见。",answer:"火成岩"},
+{name:"砂岩",hint:"砂粒逐层堆积、压实胶结而成。",answer:"沉积岩"},
+{name:"大理岩",hint:"原来的石灰岩经历高温和压力后改变。",answer:"变质岩"}
+];
+const $=id=>document.getElementById(id),tile=$("rock"),zones=document.querySelector(".zones");
+let i=0,score=0,done=new Set(),offset={x:0,y:0},last=null,dragging=false;
+function render(){
+ $("question").textContent="第 "+(i+1)+" / "+rocks.length+" 块： "+rocks[i].hint;
+ tile.textContent=rocks[i].name;tile.style.transform="";offset={x:0,y:0};last=null;dragging=false;
+ $("result").textContent="已答对 "+score+" / "+rocks.length+" 题。";
+}
+function classify(kind){
+ if(done.has(i)){$("result").textContent="这道题已经作答，可继续下一题。";return;}
+ const ok=kind===rocks[i].answer;
+ if(ok){done.add(i);score++;$("result").textContent="✓ 正确！"+rocks[i].name+" 属于"+kind+"。当前得分 "+score+" / 3。";}
+ else $("result").textContent="再想一想：仔细观察岩石是怎样形成的。";
+}
+function begin(x,y){last={x,y};dragging=true;}
+function move(x,y){if(!dragging||!last)return;offset.x+=(x-last.x);offset.y+=(y-last.y);last={x,y};
+ tile.style.transform="translate("+offset.x+"px,"+offset.y+"px)";}
+function end(x,y){
+ if(!dragging)return;dragging=false;last=null;
+ const previous=tile.style.pointerEvents;tile.style.pointerEvents="none";
+ const zone=document.elementFromPoint(x,y)?.closest("[data-zone]");
+ tile.style.pointerEvents=previous;
+ if(zone)classify(zone.dataset.zone);
+}
+tile.addEventListener("pointerdown",e=>{tile.setPointerCapture(e.pointerId);begin(e.clientX,e.clientY);});
+tile.addEventListener("pointermove",e=>{if(e.buttons)move(e.clientX,e.clientY);});
+tile.addEventListener("pointerup",e=>end(e.clientX,e.clientY));
+tile.addEventListener("pointercancel",()=>{dragging=false;last=null;});
+zones.addEventListener("click",e=>{const btn=e.target.closest("[data-zone]");if(btn)classify(btn.dataset.zone);});
+tile.addEventListener("keydown",e=>{
+ const d={ArrowLeft:[-18,0],ArrowRight:[18,0],ArrowUp:[0,-18],ArrowDown:[0,18]}[e.key];
+ if(d){e.preventDefault();offset.x+=d[0];offset.y+=d[1];tile.style.transform="translate("+offset.x+"px,"+offset.y+"px)";}
+});
+document.addEventListener("keydown",e=>{if(["1","2","3"].includes(e.key))classify(["火成岩","沉积岩","变质岩"][+e.key-1]);});
+function next(){i=(i+1)%rocks.length;render();}
+function reset(){i=0;score=0;done.clear();render();}
+$("next").onclick=next;$("reset").onclick=reset;
+window.NarrativeGesture?.on("pinch",e=>{
+ const px=e.x*innerWidth,py=e.y*innerHeight;
+ if(e.phase==="start"){const r=tile.getBoundingClientRect();if(px>=r.left&&px<=r.right&&py>=r.top&&py<=r.bottom)begin(px,py);}
+ if(e.phase==="move")move(px,py);
+ if(e.phase==="end")end(px,py);
+});
+window.NarrativeGesture?.on("reset",reset);
+window.NarrativeGesture?.on("status",e=>{if(e.state!=="running"){dragging=false;last=null;}});
+render();
+})();
+</script></main></body></html>

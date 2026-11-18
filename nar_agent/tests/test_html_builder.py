@@ -487,3 +487,23 @@ def test_real_docker_html_browser_smoke():
     assert output["report"]["checks"]["controls"] >= 3
     assert output["report"]["checks"]["template_interactions"]["passed"] is True
     assert b"<html" in base64.b64decode(output["index.html"])
+
+
+@pytest.mark.skipif(os.getenv("NAR_TEST_DOCKER") != "1", reason="Requires real CI Docker + Chromium")
+def test_real_docker_ar_offline_fallback_smoke():
+    """The secure-camera path is not simulated here: only complete offline DOM fallback."""
+    source = TemplateCatalog().render("gesture-cards", {
+        "title": "几何变换",
+        "cards": [
+            {"question": "旋转有什么效果？", "answer": "改变方向"},
+            {"question": "平移会改变什么？", "answer": "位置"},
+        ],
+    })
+    output = broker.execute(source, "html")
+    report = output["report"]
+    assert report["passed"], json.dumps(report, ensure_ascii=False)
+    assert report["checks"]["template_interactions"]["passed"] is True
+    assert report["checks"]["template_interactions"]["assertions"] == [
+        "answer-hidden", "reveal", "next", "prev", "keyboard-rotate", "reset", "offline-fallback",
+        "bridge-mock-before-scripts", "pinch-drag", "fist-rotate", "index-swipe", "open-reset",
+    ]
