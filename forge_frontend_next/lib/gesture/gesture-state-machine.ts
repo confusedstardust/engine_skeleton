@@ -73,7 +73,7 @@ export class GestureStateMachine {
     }
     if (pose === "open_palm_hold") {
       if (!this.palmTriggered && timestamp - this.candidateAt >= PALM_HOLD_MS &&
-          timestamp - this.palmReleaseAt >= PALM_COOLDOWN_MS) {
+          (this.palmReleaseAt === 0 || timestamp - this.palmReleaseAt >= PALM_COOLDOWN_MS)) {
         emit("open_palm_hold","trigger");
         this.palmTriggered = true;
         this.palmReleaseAt = timestamp;
