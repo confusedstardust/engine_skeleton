@@ -18,6 +18,7 @@ type PlayerWork = {
   tags?: string[];
   version: number;
   published_at?: string;
+  gesture_ar?: boolean;
 };
 
 type PlayerData = { work: PlayerWork; src: string; isPrivate: boolean };
@@ -94,6 +95,12 @@ export default function PublicWorkPage() {
     return () => { active = false; };
   }, [workId]);
 
+  // Separate origin is mandatory: never grant a main-site/srcDoc frame camera access.
+  const gestureAr = Boolean(player && !player.isPrivate && player.work.gesture_ar);
+  const arOrigin = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "http://localhost:8040" : "https://ar.narrativeos.cn";
+  const frameSrc = gestureAr ? `${arOrigin}/works/${workId}/index.html` : player?.src;
+
   return <main className={styles.page}>
     {player?.isPrivate && <Link className={styles.back} href="/history">我的作品</Link>}
     {loading && <p className={styles.message}>正在读取互动学习作品…</p>}
@@ -105,9 +112,11 @@ export default function PublicWorkPage() {
         {player.work.summary && <p>{player.work.summary}</p>}
       </div>
       <div className={styles.viewer}>
-        <iframe key={player.src} title={player.work.title} sandbox="allow-scripts"
-          allow="fullscreen" allowFullScreen referrerPolicy="no-referrer"
-          src={player.src} />
+        <iframe key={frameSrc} title={player.work.title}
+          sandbox={gestureAr ? "allow-scripts allow-same-origin" : "allow-scripts"}
+          allow={gestureAr ? "camera; fullscreen" : "fullscreen"}
+          allowFullScreen referrerPolicy="no-referrer"
+          src={frameSrc} />
       </div>
     </section>}
   </main>;

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from gesture_sdk.review import reviewed_ar_html
 from gesture_sdk.server import create_app
-from gesture_sdk.template_catalog import TemplateCatalog
+from nar_agent.app.template_catalog import TemplateCatalog
 
 TEMPLATES = ROOT / "nar_agent" / "templates"
 DATA = {"title": "数学探索", "cards": [{"question": "2+3=?", "answer": "5"}]}

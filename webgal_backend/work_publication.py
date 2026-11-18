@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .teacher_ecosystem import TeacherEcosystemError, publish_work, unpublish_work
 from .work_store import WorkConflictError, WorkStore
+from gesture_sdk.review import reviewed_ar_html
 from .work_urls import work_page_url, work_cover_url, canonical_published_url
 
 
@@ -139,7 +140,11 @@ def create_public_router(*, store: WorkStore | None = None):
     @router.get("/{work_id}")
     async def published_metadata(work_id: str):
         try:
-            return await run_in_threadpool(works.public, work_id)
+            meta = await run_in_threadpool(works.public, work_id)
+            # Camera capability is NEVER inferred from HTML text or a client flag.
+            # The isolated origin independently performs the same exact render check.
+            source = await run_in_threadpool(works.public_asset, work_id, "index.html") if meta["kind"] == "html" else b""
+            return {**meta, "gesture_ar": reviewed_ar_html(source)}
         except FileNotFoundError:
             raise HTTPException(404, "公开作品不存在或已撤回") from None
 

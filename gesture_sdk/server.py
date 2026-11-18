@@ -80,7 +80,7 @@ def create_app(works_root: Path | None = None, assets_root: Path | None = None) 
         digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
         csp = (
             "default-src 'none'; "
-            f"script-src 'self' 'sha256-{digest}'; "
+            f"script-src 'self' 'sha256-{digest}' 'wasm-unsafe-eval'; "
             "style-src 'unsafe-inline'; img-src data: blob:; media-src blob:; "
             "connect-src 'self'; worker-src 'self' blob:; "
             "base-uri 'none'; form-action 'none'; object-src 'none'; "

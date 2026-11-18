@@ -10,7 +10,12 @@ import json
 import re
 from pathlib import Path
 
-from .template_catalog import TemplateCatalog, TemplateError
+# The source remains nar_agent/app/template_catalog.py. Docker images copy that
+# audited file into gesture_sdk/; the repository tests reuse it in place.
+try:
+    from nar_agent.app.template_catalog import TemplateCatalog, TemplateError
+except ModuleNotFoundError:
+    from .template_catalog import TemplateCatalog, TemplateError
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 DATA = re.compile(r'<script type="application/json" id="nar-data">([^<]*)</script>')

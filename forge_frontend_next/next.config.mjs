@@ -10,6 +10,14 @@ const nextConfig = {
   basePath: basePath || undefined,
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
+  async headers() {
+    // Cross-origin permission delegation is limited to the work player pages.
+    // The host reverse proxy must preserve this header.
+    return [{ source: "/practice/works/:path*", headers: [{
+      key: "Permissions-Policy",
+      value: 'camera=(self "https://ar.narrativeos.cn" "http://localhost:8040"), microphone=(), geolocation=()',
+    }] }];
+  },
   async rewrites() {
     return [
       { source: "/api/forge/community", destination: `${backend}/community` },
