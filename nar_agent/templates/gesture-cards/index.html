@@ -75,7 +75,8 @@ function pointer(p){cursor.style.display=p?'block':'none';if(p){cursor.style.lef
 function stop(){control?.stop();control=null;camera.removeAttribute('data-running');$('start').disabled=false;$('stop').disabled=true;pinchAt=null;pointer(null);}
 $('start').addEventListener('click',async()=>{
 if(control)return;
-if(!window.isSecureContext||!navigator.mediaDevices||!/^https?:$/.test(location.protocol)){status.textContent='此预览不允许开启摄像头，请在独立 HTTPS 手势作品页面使用；鼠标/触屏仍可用。';return;}
+const approvedOrigin=(location.protocol==='https:'&&location.hostname==='ar.narrativeos.cn') || (location.protocol==='http:'&&['localhost','127.0.0.1'].includes(location.hostname)&&location.port==='8040');
+if(!approvedOrigin||!window.isSecureContext||!navigator.mediaDevices){status.textContent='当前仅支持普通交互预览。要使用摄像头手势，请保存并发布此作品，然后打开已发布作品页。也可继续使用鼠标或触屏。';return;}
 $('start').disabled=true;status.textContent='正在准备摄像头与手势模型…';
 try{
 const {GestureControls}=await import('/gesture-sdk/v1/nar-controls.esm.js');
